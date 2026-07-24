@@ -4587,8 +4587,51 @@ async def call_llm(
             },
         ) from exc
     except ProviderFallbackError as exc:
-        log.error("LLM provider fallback exhausted: %s", exc)
-        raise HTTPException(status_code=503, detail="Internal server error") from exc
+        # The DB-configured provider records are exhausted. Before giving up,
+        # try the env-configured brain-failover chain (nvidia, groq, cerebras,
+        # zai, zhipu, deepseek, together, dashscope, moonshot, mistral, …),
+        # which the agent loop has always used but call_llm never reached.
+        # Without this the CEO strategic assessment degrades to its rule-based
+        # path while a dozen healthy providers sit untried. Paid providers stay
+        # gated inside brain_failover._build_registry (ALLOW_PAID_BRAIN or the
+        # Providers UI toggle) — this widens reach, never policy.
+        log.warning(
+            "LLM provider fallback exhausted (%s) — trying brain-failover chain", exc
+        )
+        try:
+            from packages.ai.failover_client import (
+                BrainFailoverExhausted,
+                failover_chat_completion,
+            )
+
+            fo = await failover_chat_completion(
+                {
+                    "model": model or OLLAMA_MODEL,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "stream": False,
+                },
+                timeout_sec=provider_timeout_sec,
+            )
+        except BrainFailoverExhausted as failover_exc:
+            log.error(
+                "LLM provider fallback exhausted, brain-failover chain also "
+                "exhausted: %s",
+                failover_exc,
+            )
+            raise HTTPException(
+                status_code=503, detail="Internal server error"
+            ) from failover_exc
+        except Exception as failover_exc:  # noqa: BLE001 — never mask the original
+            log.error("brain-failover chain failed: %s", failover_exc)
+            raise HTTPException(
+                status_code=503, detail="Internal server error"
+            ) from exc
+        log.info(
+            "brain-failover chain recovered the call via %s/%s",
+            fo.provider_id, fo.model,
+        )
+        return fo.text
     except httpx.HTTPStatusError as exc:
         # Surface helpful provider-specific guidance.
         status = exc.response.status_code

@@ -1851,205 +1851,42 @@ class AgentRunner:
             return out_text
 
         # ── Universal multi-provider failover ──────────────────────────────
-        # The brain_failover manager treats EVERY configured provider as a
-        # candidate brain. On 429/410/5xx, it marks the provider unhealthy
-        # and we retry on the next healthy provider. This is the permanent
-        # solution to the recurring NVIDIA 429/410 rate-limit problem.
-        from services.brain_failover import get_failover_manager
-        from packages.ai.router import (
-            ProviderConfig,
-            ProviderRouter,
-            _openai_url,
-            with_ollama_reasoning_effort,
+        # Dispatch through the shared brain-failover client so the agent loop
+        # and backend.server.call_llm (the CEO's strategic assessment, among
+        # others) exercise the same provider chain from one implementation.
+        from packages.ai.failover_client import (
+            BrainFailoverExhausted,
+            failover_chat_completion,
         )
 
-        fm = get_failover_manager()
-        tried: set[str] = set()
-        last_resp: httpx.Response | None = None
-        last_error: str = ""
+        try:
+            fo = await failover_chat_completion(payload)
+        except BrainFailoverExhausted as exc:
+            raise RuntimeError(str(exc)) from exc
 
-        for _attempt in range(fm.max_attempts()):
-            provider = fm.next_provider(exclude=tried, requested_model=model)
-            if provider is None:
-                # All providers exhausted or all in cooldown. Before giving up,
-                # check if ALL providers are unhealthy (circuit breakers OPEN).
-                # If so, reset them inline and retry — don't wait for the 5-min
-                # self-heal cycle. This prevents the "no healthy providers" deadlock
-                # where every provider tripped its breaker and the agent loop can't
-                # make any LLM call until the next self-heal tick.
-                all_providers = fm.get_providers()
-                if all_providers and not any(p.is_healthy for p in all_providers):
-                    log.warning(
-                        "brain_failover: all %d providers unhealthy — resetting circuit "
-                        "breakers inline (tried=%s)",
-                        len(all_providers), tried,
-                    )
-                    for p in all_providers:
-                        fm.record_success(p.id)
-                    # Clear tried so we can retry all providers
-                    tried.clear()
-                    provider = fm.next_provider(exclude=tried, requested_model=model)
-                if provider is None:
-                    log.error("brain_failover: no healthy providers left (tried=%s)", tried)
-                    break
-
-            tried.add(provider.id)
-            # Resolve the model for this provider (alias mapping)
-            provider_model = fm.resolve_model(provider, model)
-
-            # Build the URL + headers for this provider.
-            #
-            # Anthropic's native API has no /chat/completions route and rejects
-            # `Authorization: Bearer`, so sending it the OpenAI-compatible shape
-            # returns a deterministic 400 on EVERY model — burning the whole
-            # dispatch budget and surfacing as
-            # "400 Bad Request for url https://api.anthropic.com/v1/chat/completions".
-            # Anthropic-shaped providers therefore use /v1/messages with
-            # x-api-key + anthropic-version. The wire-format translation is
-            # reused from the router so there is a single implementation of it.
-            # Claude gateways that re-expose an OpenAI-compatible surface
-            # (OpenRouter, Aerolink) are not matched and keep the OpenAI path.
-            provider_is_anthropic_native = is_anthropic_base_url(provider.base_url)
-            if provider_is_anthropic_native:
-                _anth_cfg = ProviderConfig(
-                    provider_id=provider.id,
-                    type="anthropic",
-                    base_url=provider.base_url,
-                    api_key=provider.api_key or None,
+        if self.email:
+            try:
+                from langfuse_obs import emit_chat_observation
+                await asyncio.to_thread(
+                    emit_chat_observation,
+                    email=self.email,
+                    department=self.department or "agent",
+                    key_id=self.key_id,
+                    model=fo.model,
+                    messages=messages,
+                    output_text=fo.text,
+                    prompt_tokens=fo.prompt_tokens,
+                    completion_tokens=fo.completion_tokens,
+                    latency_ms=fo.latency_ms,
+                    task_name="agent-task",
                 )
-                chat_url = f"{_anth_cfg.normalized_base_url}/v1/messages"
-                headers = _anth_cfg.auth_headers()
-            else:
-                chat_url = _openai_url(provider.base_url, "/chat/completions")
-                headers = {"Content-Type": "application/json"}
-                if provider.api_key:
-                    headers["Authorization"] = f"Bearer {provider.api_key}"
-
-            # Try multiple models on this provider before giving up — when a
-            # model returns 410 Gone (dead), try the next model. This handles
-            # the case where NVIDIA_DEFAULT_MODEL points at a dead model.
-            models_to_try = [provider_model] + [
-                m for m in provider.models if m != provider_model
-            ]
-            for try_model in models_to_try[:3]:
-                payload["model"] = try_model
-                log.debug("brain_failover: attempt %d -> %s (model=%s)",
-                           _attempt + 1, provider.id, try_model)
-
-                # Enable interleaved thinking for thinking-capable Ollama models
-                # (North Mini Code, deepseek-r1, qwen3) when OLLAMA_REASONING_EFFORT
-                # is set. No-op by default (unset) and for non-Ollama providers.
-                _is_ollama = (
-                    "ollama" in (getattr(provider, "id", "") or "").lower()
-                    or ":11434" in (getattr(provider, "base_url", "") or "")
-                )
-                post_payload = with_ollama_reasoning_effort(payload, is_ollama=_is_ollama)
-                if provider_is_anthropic_native:
-                    post_payload = ProviderRouter._anthropic_payload(post_payload)
-
-                call_start = time.perf_counter()
-                try:
-                    async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
-                        resp = await client.post(chat_url, json=post_payload, headers=headers)
-                except Exception as exc:
-                    last_error = f"{provider.id} network error: {exc}"
-                    log.warning("brain_failover: %s network error: %s", provider.id, exc)
-                    fm.record_failure(provider.id, "network_error")
-                    break
-
-                last_resp = resp
-                call_ms = int((time.perf_counter() - call_start) * 1000)
-
-                if resp.status_code < 400:
-                    fm.record_success(provider.id, latency_ms=call_ms)
-                    if provider_is_anthropic_native:
-                        # Normalise the Messages-API body into the OpenAI shape
-                        # the success path below (choices/usage) already reads.
-                        resp = ProviderRouter._anthropic_to_openai_response(
-                            resp, try_model
-                        )
-                    data = resp.json()
-                    out_text = data["choices"][0]["message"]["content"]
-                    # Parse token usage from the response (needed for both
-                    # Langfuse tracing and per-session budget tracking).
-                    usage = data.get("usage", {}) if isinstance(data, dict) else {}
-                    usage = usage if isinstance(usage, dict) else {}
-                    pt = int(usage.get("prompt_tokens") or 0)
-                    ct = int(usage.get("completion_tokens") or 0)
-                    if self.email:
-                        try:
-                            from langfuse_obs import emit_chat_observation
-                            await asyncio.to_thread(
-                                emit_chat_observation,
-                                email=self.email,
-                                department=self.department or "agent",
-                                key_id=self.key_id,
-                                model=try_model,
-                                messages=messages,
-                                output_text=out_text,
-                                prompt_tokens=pt,
-                                completion_tokens=ct,
-                                latency_ms=call_ms,
-                                task_name="agent-task",
-                            )
-                        except Exception as exc:
-                            log.debug("Agent Langfuse emit failed: %s", exc)
-                    # ★3: enforce per-session token budget cap (raises BudgetExceededError if hit)
-                    self._record_tokens(self._current_session_id, pt, ct)
-                    return out_text
-
-                if resp.status_code == 410:
-                    log.warning("brain_failover: %s model %s 410 Gone - trying next model",
-                               provider.id, try_model)
-                    continue
-
-                if resp.status_code in (429, 419):
-                    last_error = f"{provider.id} {resp.status_code} rate-limited"
-                    fm.record_failure(provider.id, "rate_limited", resp.status_code)
-                    break
-
-                if resp.status_code == 413:
-                    # Payload-too-large is a property of the request against
-                    # this provider's endpoint, not of which model on it was
-                    # asked — retrying the same oversized payload against a
-                    # different model on the SAME provider guarantees the
-                    # same 413 (confirmed in production: 5 dispatch attempts
-                    # burned on identical 413s before ever reaching a
-                    # different provider). Move on immediately instead.
-                    last_error = f"{provider.id} 413 payload too large"
-                    fm.record_failure(provider.id, "payload_too_large", resp.status_code)
-                    break
-
-                if resp.status_code in (401, 403):
-                    # Same failure class as 413 above: an invalid/expired API
-                    # key or a forbidden account fails identically for every
-                    # model on this provider, so retrying with a different
-                    # model on the SAME provider is guaranteed to repeat the
-                    # same error (confirmed in production: 5 dispatch
-                    # attempts burned retrying different models against one
-                    # dead key before the task gave up entirely). Move to a
-                    # different provider immediately instead.
-                    last_error = f"{provider.id} {resp.status_code} unauthorized/forbidden"
-                    fm.record_failure(provider.id, "auth_failed", resp.status_code)
-                    break
-
-                if resp.status_code >= 500:
-                    last_error = f"{provider.id} {resp.status_code} server error"
-                    fm.record_failure(provider.id, "server_error", resp.status_code)
-                    break
-
-                last_error = f"{provider.id} {resp.status_code}: {resp.text[:200]}"
-                log.warning("brain_failover: %s model %s returned %d - trying next model",
-                           provider.id, try_model, resp.status_code)
-                continue
-            else:
-                fm.record_failure(provider.id, "all_models_failed")
-                continue
-
-        # All providers exhausted — raise with the last error
-        if last_resp is not None:
-            last_resp.raise_for_status()
-        raise RuntimeError(f"All brain providers exhausted. Last error: {last_error}")
+            except Exception as exc:
+                log.debug("Agent Langfuse emit failed: %s", exc)
+        # ★3: enforce per-session token budget cap (raises BudgetExceededError if hit)
+        self._record_tokens(
+            self._current_session_id, fo.prompt_tokens, fo.completion_tokens
+        )
+        return fo.text
 
     async def _chat_json(self, model: str, messages: list[dict[str, str]]) -> dict[str, Any]:
         raw = await self._chat_text(model, messages)
