@@ -13,27 +13,32 @@ import asyncio
 
 
 def test_self_heal_stats_degrades_gracefully_when_engines_absent():
-    from agent.log_monitor import set_log_monitor
-    from agent.self_healing import set_self_healing_agent
+    from agent.log_monitor import get_log_monitor, set_log_monitor
+    from agent.self_healing import get_self_healing_agent, set_self_healing_agent
     from backend.server import self_heal_stats
 
+    prev_monitor, prev_healer = get_log_monitor(), get_self_healing_agent()
     set_log_monitor(None)
     set_self_healing_agent(None)
+    try:
+        body = asyncio.run(self_heal_stats(user={"sub": "test"}))
 
-    body = asyncio.run(self_heal_stats(user={"sub": "test"}))
-
-    assert body["log_monitor"] == {"attached": False, "tasks_created": 0, "active_cooldowns": 0}
-    assert body["events"] == []
-    assert body["active_count"] == 0
-    assert body["resolved_count"] == 0
-    assert body["awaiting_human_count"] == 0
+        assert body["log_monitor"] == {"attached": False, "tasks_created": 0, "active_cooldowns": 0}
+        assert body["events"] == []
+        assert body["active_count"] == 0
+        assert body["resolved_count"] == 0
+        assert body["awaiting_human_count"] == 0
+    finally:
+        set_log_monitor(prev_monitor)
+        set_self_healing_agent(prev_healer)
 
 
 def test_self_heal_stats_reports_engine_state_and_events():
-    from agent.log_monitor import LogMonitor, set_log_monitor
-    from agent.self_healing import SelfHealingAgent, set_self_healing_agent
+    from agent.log_monitor import LogMonitor, get_log_monitor, set_log_monitor
+    from agent.self_healing import SelfHealingAgent, get_self_healing_agent, set_self_healing_agent
     from backend.server import self_heal_stats
 
+    prev_monitor, prev_healer = get_log_monitor(), get_self_healing_agent()
     monitor = LogMonitor()
     healer = SelfHealingAgent()
     set_log_monitor(monitor)
@@ -52,14 +57,15 @@ def test_self_heal_stats_reports_engine_state_and_events():
         assert body["active_count"] == 1
         assert body["resolved_count"] == 0
     finally:
-        set_log_monitor(None)
-        set_self_healing_agent(None)
+        set_log_monitor(prev_monitor)
+        set_self_healing_agent(prev_healer)
 
 
 def test_self_heal_stats_sorts_events_newest_first():
-    from agent.self_healing import SelfHealingAgent, set_self_healing_agent
+    from agent.self_healing import SelfHealingAgent, get_self_healing_agent, set_self_healing_agent
     from backend.server import self_heal_stats
 
+    prev_healer = get_self_healing_agent()
     healer = SelfHealingAgent()
     set_self_healing_agent(healer)
     try:
@@ -76,4 +82,4 @@ def test_self_heal_stats_sorts_events_newest_first():
         titles = [e["title"] for e in body["events"]]
         assert titles == ["Second", "First"]
     finally:
-        set_self_healing_agent(None)
+        set_self_healing_agent(prev_healer)

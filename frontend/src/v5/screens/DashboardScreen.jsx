@@ -409,10 +409,11 @@ function SelfHealWidget({ data, loading, error, onRetry }) {
   const events = data.events || [];
   return (
     <Widget title="Self-Healing" loading={loading} error={error} errorSeverity="warning" onRetry={onRetry}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 12 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, marginBottom: 12 }}>
         {[
           { label: 'Active', value: data.active_count ?? 0, color: '#5da2ff' },
           { label: 'Resolved', value: data.resolved_count ?? 0, color: '#46d9a4' },
+          { label: 'Awaiting human', value: data.awaiting_human_count ?? 0, color: '#ff6b7d' },
           { label: 'Fix tasks', value: data.log_monitor?.tasks_created ?? 0, color: '#c4b5fd' },
         ].map(m => (
           <div key={m.label} style={{ padding: '8px 10px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
@@ -442,10 +443,10 @@ function SelfHealWidget({ data, loading, error, onRetry }) {
 function CostBreakdownWidget({ data, loading, error, onRetry }) {
   const tagColors = ['#5da2ff', '#46d9a4', '#c4b5fd', '#ffbd66', '#ff9d66', '#ff6b7d', '#7c9dff'];
   const rows = Object.entries(data.by_tag || {})
-    .filter(([, v]) => (v.total_tokens || 0) > 0)
-    .sort((a, b) => (b[1].total_tokens || 0) - (a[1].total_tokens || 0))
+    .filter(([, v]) => (v.calls || 0) > 0)
+    .sort((a, b) => (b[1].estimated_cost_usd || 0) - (a[1].estimated_cost_usd || 0))
     .slice(0, 6)
-    .map(([tag, v], i) => ({ label: tag.replace(/_/g, ' '), value: v.total_tokens || 0, color: tagColors[i % tagColors.length] }));
+    .map(([tag, v], i) => ({ label: tag.replace(/_/g, ' '), value: Number((v.estimated_cost_usd || 0).toFixed(4)), color: tagColors[i % tagColors.length] }));
   const total = data.totals || {};
   return (
     <Widget title="Spend by Task Type" loading={loading} error={error} onRetry={onRetry}>
