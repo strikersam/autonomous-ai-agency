@@ -34,6 +34,8 @@ function StatusPill({ row }) {
 export default function ProviderHealthToggleCard() {
   const [rows, setRows]       = React.useState([]);
   const [counts, setCounts]   = React.useState({ online: 0, total: 0 });
+  // Undefined until the first load, so the warning never flashes before we know.
+  const [durable, setDurable] = React.useState(undefined);
   const [error, setError]     = React.useState('');
   const [busy, setBusy]       = React.useState('');   // provider id being toggled
   const [loaded, setLoaded]   = React.useState(false);
@@ -43,6 +45,7 @@ export default function ProviderHealthToggleCard() {
       const { data } = await api.getBrainProviders();
       setRows(data.providers || []);
       setCounts({ online: data.online_count || 0, total: data.total_count || 0 });
+      setDurable(data.state_durable);
       setError('');
     } catch (e) {
       // Surface the failure instead of rendering a misleading empty list.
@@ -86,6 +89,18 @@ export default function ProviderHealthToggleCard() {
         off automatically and stay off until you turn them back on. Rate limits and
         server errors are not switched off — they recover on their own.
       </p>
+
+      {durable === false && !error && (
+        <div style={{
+          fontSize: 12, color: '#f59e0b', background: 'rgba(245,158,11,.1)',
+          border: '1px solid rgba(245,158,11,.3)', borderRadius: 8,
+          padding: '8px 10px', marginBottom: 12,
+        }}>
+          These switches are saved locally only, so they reset on the next deploy.
+          Set <code>STORAGE_BACKEND=mongo</code> (with <code>MONGO_URL</code>) to keep
+          them.
+        </div>
+      )}
 
       {error && (
         <div style={{

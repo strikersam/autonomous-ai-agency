@@ -61,13 +61,113 @@ from typing import Any
 log = logging.getLogger("qwen-proxy")
 
 
-# ── DB-stored provider policy (UI toggle) ────────────────────────────────
-# The Providers UI toggle writes allow_paid to the DB (Mongo or SQLite).
-# This sync helper reads it so the failover system honours the UI toggle
-# without requiring an env var change + redeploy.
+# ── Durable operator state, read from the sync hot path ───────────────────
+#
+# Two operator-controlled settings gate which providers the failover layer may
+# use: the per-provider kill switch (below) and the paid-provider policy. Both
+# are read from ``next_provider`` / ``_build_registry``, which run inside the
+# event loop and cannot await — so motor is unusable here and pymongo's sync
+# client is used instead.
+#
+# Why Mongo at all, when a local SQLite kv_store already worked: Render's disk is
+# ephemeral. State written only to that file is wiped on every deploy, which
+# silently re-enabled providers the operator had switched off and reverted the
+# paid-provider toggle to false. Mongo is the durable copy; SQLite remains the
+# dev/CI backend and a warm local mirror for when Mongo is unreachable.
+#
+# Three guards keep a slow or dead Mongo from stalling dispatch:
+#   * a short read cache (5s for the kill switch, 10s for the paid policy),
+#   * a short server-selection timeout (MONGO_SELECTION_TIMEOUT_MS, default 2s),
+#   * a 60s backoff after any Mongo error, during which SQLite serves alone.
 
 _PAID_CACHE: tuple[bool, float] = (False, 0.0)
 _PAID_CACHE_TTL = 10.0  # seconds — short so the UI toggle takes effect quickly
+
+_KV_COLLECTION = "kv_store"
+_PAID_POLICY_KEY = "provider_policy:allow_paid"
+
+_mongo_client: Any = None
+_mongo_client_lock = threading.Lock()
+_mongo_retry_after: float = 0.0
+_MONGO_BACKOFF_SEC = 60.0
+_TRUTHY = ("true", "1", "yes", "on")
+
+
+def _mongo_unavailable(exc: Exception) -> None:
+    """Open a short backoff so an unreachable Mongo costs one stall, not many."""
+    global _mongo_retry_after
+    _mongo_retry_after = time.time() + _MONGO_BACKOFF_SEC
+    log.warning(
+        "brain_failover: Mongo kv unavailable (%s) — serving operator state from "
+        "the local SQLite mirror for %.0fs",
+        exc, _MONGO_BACKOFF_SEC,
+    )
+
+
+def _mongo_enabled() -> bool:
+    """True when the durable Mongo copy should be used for operator state.
+
+    ``MONGO_URL`` must be set explicitly: the storage layer's default of
+    ``mongodb://localhost:27017`` is a placeholder, and treating it as
+    configured would add a connection timeout to dispatch on every dev machine
+    without a local Mongo. ``TESTING`` disables the path outright so the test
+    suite can never mutate a shared operational store.
+    """
+    if os.environ.get("TESTING", "").strip().lower() in _TRUTHY:
+        return False
+    if os.environ.get("STORAGE_BACKEND", "mongo").strip().lower() != "mongo":
+        return False
+    if not (os.environ.get("MONGO_URL") or "").strip():
+        return False
+    return time.time() >= _mongo_retry_after
+
+
+def _mongo_db() -> Any:
+    """Return a sync pymongo database handle, or ``None`` when unavailable."""
+    global _mongo_client
+    if not _mongo_enabled():
+        return None
+    try:
+        with _mongo_client_lock:
+            if _mongo_client is None:
+                from pymongo import MongoClient
+                timeout = int(os.environ.get("MONGO_SELECTION_TIMEOUT_MS", "2000"))
+                _mongo_client = MongoClient(
+                    os.environ["MONGO_URL"],
+                    serverSelectionTimeoutMS=timeout,
+                    connectTimeoutMS=timeout,
+                    socketTimeoutMS=timeout,
+                )
+        return _mongo_client[os.environ.get("DB_NAME", "llm_platform")]
+    except Exception as exc:  # noqa: BLE001 — never brick dispatch on kv failure
+        _mongo_unavailable(exc)
+        return None
+
+
+def state_is_durable() -> bool:
+    """True when operator state is stored somewhere that survives a redeploy.
+
+    False means the only copy is the local SQLite file. On a host with an
+    ephemeral disk (Render) that copy is wiped on every deploy, so switched-off
+    providers rejoin the rotation and the paid-provider toggle reverts. The
+    Providers screen shows this so the cause is visible rather than mysterious.
+    """
+    return _mongo_db() is not None
+
+
+def reset_kv_state() -> None:
+    """Drop the cached Mongo client, backoff, and read caches (tests)."""
+    global _mongo_client, _mongo_retry_after, _DISABLED_CACHE, _PAID_CACHE
+    with _mongo_client_lock:
+        client, _mongo_client = _mongo_client, None
+    if client is not None:
+        try:
+            client.close()
+        except Exception:  # noqa: BLE001
+            pass
+    _mongo_retry_after = 0.0
+    _DISABLED_CACHE = ({}, 0.0)
+    _PAID_CACHE = (False, 0.0)
 
 
 # ── Per-provider enable/disable (operator-controlled kill switch) ─────────
@@ -100,54 +200,134 @@ def _kv_connect():
     return conn
 
 
+def _disabled_from_sqlite() -> dict[str, str]:
+    """Read the kill-switch set from the local SQLite mirror. Raises on error."""
+    conn = _kv_connect()
+    rows = conn.execute(
+        "SELECT key, value FROM kv_store WHERE key LIKE ?",
+        (_DISABLED_KEY_PREFIX + "%",),
+    ).fetchall()
+    conn.close()
+    out: dict[str, str] = {}
+    for key, value in rows:
+        pid = key[len(_DISABLED_KEY_PREFIX):]
+        if pid and value:
+            out[pid] = value
+    return out
+
+
+def _disabled_from_mongo() -> dict[str, str] | None:
+    """Read the kill-switch set from Mongo, or ``None`` when unavailable."""
+    db = _mongo_db()
+    if db is None:
+        return None
+    try:
+        docs = list(db[_KV_COLLECTION].find({"kind": "provider_disabled"}))
+    except Exception as exc:  # noqa: BLE001
+        _mongo_unavailable(exc)
+        return None
+    out: dict[str, str] = {}
+    for doc in docs:
+        pid = str(doc.get("_id", ""))[len(_DISABLED_KEY_PREFIX):]
+        value = doc.get("value")
+        if pid and value:
+            out[pid] = str(value)
+    return out
+
+
 def disabled_providers(force: bool = False) -> dict[str, str]:
     """Return ``{provider_id: reason}`` for every disabled provider.
 
-    Cached briefly so the hot path does not hit SQLite on every attempt.
-    Never raises — a storage problem must not take the brain offline.
+    Mongo is authoritative when configured, because it is the only copy that
+    survives a Render deploy. SQLite serves when Mongo is off (dev/CI) or in
+    backoff. Cached briefly so the hot path does not hit storage on every
+    attempt, and never raises — a storage problem must not take the brain
+    offline, so the last known set is returned instead.
     """
     global _DISABLED_CACHE
     cached, at = _DISABLED_CACHE
     if not force and (time.time() - at) < _DISABLED_CACHE_TTL:
         return cached
-    out: dict[str, str] = {}
-    try:
-        conn = _kv_connect()
-        rows = conn.execute(
-            "SELECT key, value FROM kv_store WHERE key LIKE ?",
-            (_DISABLED_KEY_PREFIX + "%",),
-        ).fetchall()
-        conn.close()
-        for key, value in rows:
-            pid = key[len(_DISABLED_KEY_PREFIX):]
-            if pid and value:
-                out[pid] = value
-    except Exception as exc:  # noqa: BLE001 — never brick dispatch on kv failure
-        log.debug("brain_failover: disabled-provider read failed: %s", exc)
-        return cached
+    out = _disabled_from_mongo()
+    if out is None:
+        try:
+            out = _disabled_from_sqlite()
+        except Exception as exc:  # noqa: BLE001
+            log.debug("brain_failover: disabled-provider read failed: %s", exc)
+            return cached
     _DISABLED_CACHE = (out, time.time())
     return out
 
 
-def set_provider_enabled(provider_id: str, enabled: bool, reason: str = "") -> None:
-    """Enable or disable *provider_id*, persisted across restarts."""
-    global _DISABLED_CACHE
+def _write_disabled_sqlite(provider_id: str, enabled: bool, reason: str) -> None:
+    """Mirror the kill switch to SQLite. Raises on error."""
+    conn = _kv_connect()
+    key = _DISABLED_KEY_PREFIX + provider_id
+    if enabled:
+        conn.execute("DELETE FROM kv_store WHERE key = ?", (key,))
+    else:
+        conn.execute(
+            "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)",
+            (key, reason),
+        )
+    conn.commit()
+    conn.close()
+
+
+def _write_disabled_mongo(provider_id: str, enabled: bool, reason: str) -> bool | None:
+    """Persist the kill switch to Mongo. ``None`` when Mongo is not in use."""
+    db = _mongo_db()
+    if db is None:
+        return None
+    key = _DISABLED_KEY_PREFIX + provider_id
     try:
-        conn = _kv_connect()
-        key = _DISABLED_KEY_PREFIX + provider_id
         if enabled:
-            conn.execute("DELETE FROM kv_store WHERE key = ?", (key,))
+            db[_KV_COLLECTION].delete_one({"_id": key})
         else:
-            conn.execute(
-                "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)",
-                (key, reason or "disabled by operator"),
+            db[_KV_COLLECTION].update_one(
+                {"_id": key},
+                {"$set": {
+                    "value": reason,
+                    "kind": "provider_disabled",
+                    "provider_id": provider_id,
+                    "updated_at": time.time(),
+                }},
+                upsert=True,
             )
-        conn.commit()
-        conn.close()
+        return True
     except Exception as exc:  # noqa: BLE001
-        log.warning("brain_failover: could not persist %s enabled=%s: %s",
+        _mongo_unavailable(exc)
+        return False
+
+
+def set_provider_enabled(provider_id: str, enabled: bool, reason: str = "") -> None:
+    """Enable or disable *provider_id*, persisted across restarts and deploys.
+
+    Written to both stores: Mongo so the setting survives a redeploy, SQLite so
+    a Mongo outage still leaves this process with the operator's intent. A
+    failure of either store is logged, never raised.
+    """
+    global _DISABLED_CACHE
+    reason = reason or "disabled by operator"
+    durable = _write_disabled_mongo(provider_id, enabled, reason)
+    try:
+        _write_disabled_sqlite(provider_id, enabled, reason)
+        local_ok = True
+    except Exception as exc:  # noqa: BLE001
+        local_ok = False
+        log.warning("brain_failover: could not mirror %s enabled=%s to SQLite: %s",
                     provider_id, enabled, exc)
+    # ``durable`` is None when Mongo is not in use at all, so "nothing was
+    # written" is `not local_ok and durable is not True` — not `durable is False`.
+    # Claiming the switch took effect when neither store accepted it would leave
+    # the operator trusting a setting that vanishes on the next cache expiry.
+    if not local_ok and durable is not True:
+        log.error("brain_failover: %s enabled=%s was not persisted anywhere",
+                  provider_id, enabled)
         return
+    if durable is False:
+        log.warning("brain_failover: %s enabled=%s saved locally only — it will "
+                    "revert on the next deploy", provider_id, enabled)
     _DISABLED_CACHE = ({}, 0.0)  # force re-read
     log.info("brain_failover: provider %s %s%s", provider_id,
              "ENABLED" if enabled else "DISABLED",
@@ -165,11 +345,52 @@ def auto_disable_provider(provider_id: str, reason: str) -> None:
     set_provider_enabled(provider_id, False, f"auto: {reason}")
 
 
+def _paid_allowed_mongo() -> bool | None:
+    """Read the paid-provider policy from Mongo, or ``None`` when unavailable.
+
+    Checks the ``providers`` document that ``_set_provider_policy`` writes —
+    that is the durable record the UI toggle updates — and falls back to the
+    mirrored kv key for policies written before the document existed.
+    """
+    db = _mongo_db()
+    if db is None:
+        return None
+    try:
+        doc = db.providers.find_one({"provider_id": "provider_policy"})
+        if doc is not None and "allow_paid" in doc:
+            return bool(doc.get("allow_paid"))
+        kv = db[_KV_COLLECTION].find_one({"_id": _PAID_POLICY_KEY})
+    except Exception as exc:  # noqa: BLE001
+        _mongo_unavailable(exc)
+        return None
+    if kv and kv.get("value") is not None:
+        return str(kv["value"]).strip().lower() in _TRUTHY
+    return False
+
+
+def _paid_allowed_sqlite() -> bool | None:
+    """Read the paid-provider policy from the SQLite mirror, or ``None``."""
+    db_path = _kv_path()
+    if not os.path.exists(db_path):
+        return None
+    import sqlite3
+    conn = sqlite3.connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT value FROM kv_store WHERE key = ?", (_PAID_POLICY_KEY,),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    return str(row[0]).strip().lower() in _TRUTHY
+
+
 def _is_paid_allowed_db() -> bool:
     """Check if the DB-stored provider policy allows paid providers.
 
-    Sync + never raises. Reads from the SQLite kv_store (written by
-    _set_provider_policy in backend/server.py when the UI toggle is flipped).
+    Sync + never raises. Mongo is authoritative when configured so the toggle
+    survives a redeploy; the SQLite mirror serves dev/CI and Mongo outages.
     Cached for 10s so the hot path (every LLM call) doesn't hit the DB.
     """
     global _PAID_CACHE
@@ -178,28 +399,14 @@ def _is_paid_allowed_db() -> bool:
     if now - cached_at < _PAID_CACHE_TTL:
         return cached_val
 
-    # Read from SQLite kv_store (sync, works inside an event loop)
-    try:
-        import sqlite3
-        import os as _os
-        db_path = _os.environ.get("SQLITE_PATH", ".data/agency.db")
-        if _os.path.exists(db_path):
-            conn = sqlite3.connect(db_path)
-            cursor = conn.execute(
-                "SELECT value FROM kv_store WHERE key = ?",
-                ("provider_policy:allow_paid",),
-            )
-            row = cursor.fetchone()
-            conn.close()
-            if row:
-                val = row[0].strip().lower() in ("true", "1", "yes", "on")
-                _PAID_CACHE = (val, now)
-                return val
-    except Exception:
-        pass
-
-    _PAID_CACHE = (False, now)
-    return False
+    val = _paid_allowed_mongo()
+    if val is None:
+        try:
+            val = _paid_allowed_sqlite()
+        except Exception:  # noqa: BLE001 — a kv problem must not enable paid spend
+            val = None
+    _PAID_CACHE = (bool(val), now)
+    return bool(val)
 
 
 # ── Provider definitions ─────────────────────────────────────────────────
