@@ -77,6 +77,21 @@ def _env_float(name: str, default: float) -> float:
 _MAX_TOTAL_ATTEMPTS = _env_int("BRAIN_MAX_PROVIDER_ATTEMPTS", 6)
 _WALL_CLOCK_BUDGET_SEC = _env_float("BRAIN_FAILOVER_BUDGET_SEC", 180.0)
 
+# ...but a flat cap alone STARVES the paid tier, which is the whole point of
+# having one. Providers are ordered free → local → paid, so an operator with ten
+# free keys configured spends all six attempts inside the free tier and the chain
+# raises BrainFailoverExhausted having never contacted the paid provider they are
+# actually paying for. Measured, not inferred: with ten free providers all
+# returning 429 the chain stopped at the sixth free provider and never reached
+# Aerolink — so paid capacity bought to cover exactly this situation (free tiers
+# rate-limited) could not be used at all.
+#
+# This reserves a slice of the budget that ONLY paid-tier providers may spend.
+# The reserve is inert unless a paid provider is both admitted (allow_paid, which
+# is still the sole spend gate) and untried, so an operator running free-only
+# keeps the entire budget for the free tier and sees no change.
+_PAID_RESERVE_ATTEMPTS = _env_int("BRAIN_PAID_RESERVE_ATTEMPTS", 2)
+
 
 class BrainFailoverExhausted(RuntimeError):
     """Every provider in the failover chain failed — the terminal error.
@@ -132,6 +147,15 @@ class _Budget:
         if self._used >= self._max:
             return True
         return (time.monotonic() - self._started) >= self._deadline
+
+    def unpaid_slice_spent(self, reserve: int) -> bool:
+        """True when free/local providers have used everything but the reserve.
+
+        Only the attempt count is reserved, never the wall clock: holding back
+        seconds would let the deadline expire with the reserve unspent, which is
+        the starvation this exists to prevent.
+        """
+        return reserve > 0 and self._used >= max(self._max - reserve, 1)
 
     @property
     def used(self) -> int:
@@ -432,6 +456,47 @@ def _log_exhaustion(attempted: list[str], failures: list[str]) -> None:
     )
 
 
+def _untried_paid(fm: Any, tried: set[str]) -> set[str]:
+    """Paid-tier providers admitted to the chain and not yet attempted.
+
+    Empty when the operator has not enabled paid providers — ``_build_registry``
+    is the sole spend gate and simply omits them — which is what keeps the paid
+    reserve inert for a free-only deployment.
+    """
+    return {
+        p.id for p in fm.get_providers()
+        if getattr(p, "tier", "") == "paid" and p.id not in tried
+    }
+
+
+def _select_provider(
+    fm: Any, budget: "_Budget", tried: set[str], requested_model: str
+) -> Any | None:
+    """Pick the next provider, honouring the paid reserve.
+
+    Once free/local providers have spent everything but the reserve, they are
+    excluded so the remaining attempts can only go to a paid provider. Without
+    this the free tier consumes the whole budget and the paid escape hatch — the
+    one an operator is paying for precisely because the free tiers are
+    rate-limited — is never contacted.
+    """
+    exclude = tried
+    paid = _untried_paid(fm, tried)
+    if paid and budget.unpaid_slice_spent(_PAID_RESERVE_ATTEMPTS):
+        exclude = tried | {p.id for p in fm.get_providers() if p.id not in paid}
+        log.info(
+            "brain_failover: free tier used %d of %d attempts — reserving the "
+            "remainder for the paid tier (%s)",
+            budget.used, _MAX_TOTAL_ATTEMPTS, ", ".join(sorted(paid)),
+        )
+    provider = fm.next_provider(exclude=exclude, requested_model=requested_model)
+    if provider is None and exclude is not tried:
+        # No paid provider is selectable (all in cooldown). Fall back to the
+        # normal chain rather than giving up with budget still unspent.
+        provider = fm.next_provider(exclude=tried, requested_model=requested_model)
+    return provider
+
+
 def _recover_all_unhealthy(
     fm: Any, tried: set[str], requested_model: str
 ) -> Any | None:
@@ -482,7 +547,7 @@ async def failover_chat_completion(
         if budget.spent():
             failures = list(dict.fromkeys([*failures, budget.reason()]))
             break
-        provider = fm.next_provider(exclude=tried, requested_model=requested_model)
+        provider = _select_provider(fm, budget, tried, requested_model)
         if provider is None:
             provider = _recover_all_unhealthy(fm, tried, requested_model)
             if provider is None:

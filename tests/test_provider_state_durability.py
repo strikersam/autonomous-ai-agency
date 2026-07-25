@@ -10,6 +10,7 @@ readers sit on the sync hot path inside the event loop.
 """
 from __future__ import annotations
 
+import os
 import time
 import uuid
 
@@ -336,3 +337,37 @@ def test_real_mongo_round_trip(monkeypatch, tmp_path) -> None:
         from pymongo import MongoClient
         MongoClient(url, serverSelectionTimeoutMS=2000).drop_database(db_name)
         bf.reset_kv_state()
+
+
+# ── The suite must not touch the real operator database ──────────────────────
+
+def test_conftest_isolates_operator_state_for_every_test() -> None:
+    """Both halves matter, and the second one is easy to drop.
+
+    Redirecting ``SQLITE_PATH`` alone is insufficient: both reads are cached for
+    5-10 s, so one test that read the developer's real ``.data/agency.db`` left
+    ``allow_paid=True`` in ``_PAID_CACHE`` and every test for the next ten
+    seconds inherited it regardless of its own path. That is what made
+    ``test_paid_providers_skipped_by_default`` fail only in a full run. The
+    caches must be dropped per test as well as the path.
+    """
+    from pathlib import Path
+
+    src = (Path(__file__).parent / "conftest.py").read_text()
+    parts = src.split("_isolate_operator_provider_state", 1)
+    assert len(parts) == 2, "the autouse operator-state isolation fixture is gone"
+    body = parts[1]
+    assert "SQLITE_PATH" in body, "the fixture must redirect the kv path"
+    assert "reset_kv_state" in body, (
+        "the fixture must also drop the read caches — the path alone leaks"
+    )
+
+
+def test_the_running_test_is_not_pointed_at_the_real_database() -> None:
+    path = os.environ.get("SQLITE_PATH", "")
+    assert path, "SQLITE_PATH must be redirected during tests"
+    assert not path.endswith(".data/agency.db"), (
+        f"tests would read and WRITE the real operator database ({path}) — the "
+        f"kill switch persists there, so a test run would switch off providers "
+        f"in a developer's actual configuration"
+    )
