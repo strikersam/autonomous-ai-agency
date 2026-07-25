@@ -23,8 +23,16 @@ from services.brain_failover import (
 
 
 @pytest.fixture(autouse=True)
-def _clean_env(monkeypatch):
-    """Strip all provider API keys before each test."""
+def _clean_env(monkeypatch, tmp_path):
+    """Strip all provider API keys and isolate the operator-state store.
+
+    ``SQLITE_PATH`` must be redirected: the registry reads the paid-provider
+    policy and the per-provider kill switch from that file, so without this the
+    suite reads whatever a developer's real ``.data/agency.db`` happens to hold
+    and ``test_paid_providers_skipped_by_default`` fails on a machine where the
+    Providers UI has ever enabled paid providers.
+    """
+    monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "operator-state.db"))
     for k in [
         "NVIDIA_API_KEY", "GROQ_API_KEY", "CEREBRAS_API_KEY", "ZHIPU_API_KEY",
         "DEEPSEEK_API_KEY", "TOGETHER_API_KEY", "DASHSCOPE_API_KEY",

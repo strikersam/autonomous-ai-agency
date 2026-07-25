@@ -6991,8 +6991,16 @@ async def brain_providers(user: dict = Depends(get_current_user)) -> dict:
     both enabled and its circuit breaker is closed. ``disabled_reason`` explains an
     auto-disable ("auto: 401 invalid or expired API key") so the operator knows
     what to fix before switching it back on. No API keys are returned.
+
+    ``state_durable`` reports whether the on/off state is stored somewhere that
+    survives a redeploy. When it is false the switches still work, but they are
+    held only in the local SQLite file, which an ephemeral disk wipes on deploy.
     """
-    from services.brain_failover import disabled_providers, get_failover_manager
+    from services.brain_failover import (
+        disabled_providers,
+        get_failover_manager,
+        state_is_durable,
+    )
 
     off = disabled_providers(force=True)
     providers = []
@@ -7019,6 +7027,11 @@ async def brain_providers(user: dict = Depends(get_current_user)) -> dict:
         "providers": providers,
         "online_count": sum(1 for r in providers if r["online"]),
         "total_count": len(providers),
+        # Read AFTER disabled_providers() on purpose: that call has just exercised
+        # the durable store, so a Mongo that is configured but unreachable has
+        # already opened its backoff and this reports false rather than a
+        # configured-but-useless true. Keep this ordering if the body is reshuffled.
+        "state_durable": state_is_durable(),
     }
 
 
