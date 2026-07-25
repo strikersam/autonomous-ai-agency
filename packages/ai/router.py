@@ -1565,22 +1565,87 @@ class ProviderRouter:
         return None
 
     @staticmethod
+    def _oai_content_to_anthropic(content: Any) -> Any:
+        """Convert an OpenAI message content value to Anthropic's block format.
+
+        String content passes through unchanged.  List content blocks are
+        translated: ``image_url`` blocks become Anthropic ``image`` blocks;
+        ``text`` blocks are preserved as-is.  Unknown block types are dropped.
+        """
+        if isinstance(content, str):
+            return content
+        if not isinstance(content, list):
+            return None
+        blocks: list[dict[str, Any]] = []
+        for block in content:
+            if not isinstance(block, dict):
+                continue
+            btype = block.get("type")
+            if btype == "text":
+                blocks.append({"type": "text", "text": block.get("text") or ""})
+            elif btype == "image_url":
+                img = block.get("image_url") or {}
+                url: str = img.get("url") or ""
+                if url.startswith("data:"):
+                    # data:image/jpeg;base64,XXXX
+                    header, _, b64data = url.partition(",")
+                    media_type = header.split(";")[0].removeprefix("data:")
+                    blocks.append({
+                        "type": "image",
+                        "source": {"type": "base64", "media_type": media_type, "data": b64data},
+                    })
+                elif url:
+                    blocks.append({
+                        "type": "image",
+                        "source": {"type": "url", "url": url},
+                    })
+        return blocks or None
+
+    @staticmethod
+    def _oai_tools_to_anthropic(
+        tools: list[Any], tool_choice: Any
+    ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+        """Translate OpenAI-format tools + tool_choice to Anthropic format."""
+        anthropic_tools: list[dict[str, Any]] = []
+        for tool in tools:
+            if not isinstance(tool, dict):
+                continue
+            fn = tool.get("function") if tool.get("type") == "function" else tool
+            if not fn or not fn.get("name"):
+                continue
+            anthropic_tools.append({
+                "name": fn["name"],
+                "description": fn.get("description") or "",
+                "input_schema": fn.get("parameters") or {"type": "object", "properties": {}},
+            })
+        if not anthropic_tools:
+            return [], None
+        if isinstance(tool_choice, str):
+            ant_choice: dict[str, Any] = {"type": "none" if tool_choice == "none" else "auto"}
+        elif isinstance(tool_choice, dict) and tool_choice.get("function", {}).get("name"):
+            ant_choice = {"type": "tool", "name": tool_choice["function"]["name"]}
+        else:
+            ant_choice = {"type": "auto"}
+        return anthropic_tools, ant_choice
+
+    @staticmethod
     def _anthropic_payload(payload: dict[str, Any]) -> dict[str, Any]:
         from packages.ai.structured_output import system_instruction as _json_instruction
 
         system_parts: list[str] = []
-        messages: list[dict[str, str]] = []
+        messages: list[dict[str, Any]] = []
         for msg in payload.get("messages") or []:
             if not isinstance(msg, dict):
                 continue
             role = msg.get("role")
             content = msg.get("content")
-            if not isinstance(content, str):
+            converted = ProviderRouter._oai_content_to_anthropic(content)
+            if converted is None:
                 continue
-            if role == "system":
-                system_parts.append(content)
+            if role == "system" and isinstance(converted, str):
+                system_parts.append(converted)
             elif role in ("user", "assistant"):
-                messages.append({"role": role, "content": content})
+                messages.append({"role": role, "content": converted})
 
         system_text = "\n\n".join(system_parts) if system_parts else None
 
@@ -1613,6 +1678,16 @@ class ProviderRouter:
             "temperature": float(payload.get("temperature") or 0.3),
         }
 
+        oai_tools = payload.get("tools") or []
+        if oai_tools:
+            ant_tools, ant_choice = ProviderRouter._oai_tools_to_anthropic(
+                oai_tools, payload.get("tool_choice")
+            )
+            if ant_tools:
+                out["tools"] = ant_tools
+                if ant_choice:
+                    out["tool_choice"] = ant_choice
+
         try:
             _thinking_budget = int(
                 os.environ.get("ANTHROPIC_THINKING_BUDGET", "0") or "0"
@@ -1625,16 +1700,56 @@ class ProviderRouter:
 
         return out
 
+    # Anthropic stop_reason → OpenAI finish_reason
+    _STOP_REASON_MAP: dict[str, str] = {
+        "end_turn": "stop",
+        "max_tokens": "length",
+        "tool_use": "tool_calls",
+        "stop_sequence": "stop",
+    }
+
     @staticmethod
     def _anthropic_to_openai_response(
         response: httpx.Response, model: str
     ) -> httpx.Response:
+        import json as _json
+
         data = response.json()
-        content = "".join(
-            block.get("text", "")
-            for block in data.get("content", [])
-            if isinstance(block, dict)
+        raw_blocks: list[dict[str, Any]] = [
+            b for b in (data.get("content") or []) if isinstance(b, dict)
+        ]
+
+        text_content = "".join(
+            b.get("text", "") for b in raw_blocks if b.get("type") == "text"
         )
+        thinking_text = "".join(
+            b.get("thinking", "") for b in raw_blocks if b.get("type") == "thinking"
+        )
+        tool_use_blocks = [b for b in raw_blocks if b.get("type") == "tool_use"]
+
+        # Map stop_reason to OpenAI finish_reason
+        stop_reason = data.get("stop_reason") or "end_turn"
+        finish_reason = ProviderRouter._STOP_REASON_MAP.get(stop_reason, "stop")
+
+        # Build the assistant message
+        msg: dict[str, Any] = {"role": "assistant", "content": text_content or None}
+        if tool_use_blocks:
+            msg["tool_calls"] = [
+                {
+                    "id": b.get("id") or f"call_{b.get('name', 'fn')}",
+                    "type": "function",
+                    "function": {
+                        "name": b.get("name") or "",
+                        "arguments": _json.dumps(b.get("input") or {}),
+                    },
+                }
+                for b in tool_use_blocks
+            ]
+            if not text_content:
+                msg["content"] = None
+        if thinking_text:
+            msg["thinking"] = thinking_text
+
         usage = data.get("usage") if isinstance(data.get("usage"), dict) else {}
         body = {
             "id": data.get("id") or "chatcmpl-anthropic-fallback",
@@ -1644,8 +1759,8 @@ class ProviderRouter:
             "choices": [
                 {
                     "index": 0,
-                    "message": {"role": "assistant", "content": content},
-                    "finish_reason": "stop",
+                    "message": msg,
+                    "finish_reason": finish_reason,
                 }
             ],
             "usage": {
