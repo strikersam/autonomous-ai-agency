@@ -37,26 +37,41 @@ def test_admin_self_heal_endpoint_exists():
     assert "async def scheduler_self_heal" in src
 
 
+# The provider-dispatch loop no longer lives in agent/loop.py. It was extracted
+# to packages/ai/failover_client.py so backend.server.call_llm (the agency CEO's
+# path) could share the same provider chain instead of falling back across a
+# narrower set. These two tests therefore assert against the module that now owns
+# the per-status handling, plus the fact that the loop still delegates to it —
+# which is the property that actually matters. Asserting on agent/loop.py's
+# source alone would pass again the moment anyone re-inlined the loop.
+
+
 def test_agent_loop_410_triggers_watchdog():
-    """agent/loop.py 410 handler must trigger failover via the brain_failover manager."""
-    import agent.loop as loop_mod
-    src = inspect.getsource(loop_mod)
-    # The 410 handling is now in the universal failover loop, which calls
-    # fm.record_failure(provider.id, "gone", 410) to mark the provider
-    # with a 10-minute cooldown and fail over to the next provider.
+    """410 must mark the provider failed and fail over to the next one."""
+    import packages.ai.failover_client as fc
+    src = inspect.getsource(fc)
+    # 410 Gone is per-MODEL: try the next model on the same provider first.
     assert "410" in src
     assert "record_failure" in src
-    assert "brain_failover" in src or "get_failover_manager" in src
+
+    import agent.loop as loop_mod
+    loop_src = inspect.getsource(loop_mod)
+    assert "failover_chat_completion" in loop_src, (
+        "agent/loop.py no longer delegates to the shared failover client, so the "
+        "410 handling asserted above is not reachable from the agent loop"
+    )
 
 
 def test_agent_loop_429_records_failure():
-    """agent/loop.py 429 handler must record the failure for watchdog tracking."""
-    import agent.loop as loop_mod
-    src = inspect.getsource(loop_mod)
-    # The 429 block must call record_failure so sustained rate-limiting
-    # triggers a failover after 3 consecutive 429s
+    """429 must record the failure so sustained rate-limiting trips failover."""
+    import packages.ai.failover_client as fc
+    src = inspect.getsource(fc)
     assert "429" in src
     assert "record_failure" in src
+    assert "get_failover_manager" in src
+
+    import agent.loop as loop_mod
+    assert "failover_chat_completion" in inspect.getsource(loop_mod)
 
 
 def test_dispatch_retry_limit_lowered():

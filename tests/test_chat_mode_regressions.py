@@ -580,6 +580,28 @@ def test_chat_send_uses_provider_default_model_for_agent_mode_when_model_is_omit
     )
 
     assert response.status_code == 202, response.text
+
+    # 202 means the agent run was QUEUED, not completed — _run_agent_loop is
+    # dispatched as a background task, so `captured` is empty until it actually
+    # runs. Asserting straight after the POST is a race that fails whenever the
+    # event loop has not yet scheduled the task, which is why this test failed
+    # in CI while passing in isolation. Wait for the job the same way the other
+    # agent-mode tests in this file do.
+    job_id = response.json()["job_id"]
+    for _ in range(20):
+        job = client.get(
+            f"/api/chat/agent-jobs/{job_id}", headers=_auth_headers(client)
+        )
+        assert job.status_code == 200, job.text
+        if job.json()["status"] in ("succeeded", "failed"):
+            break
+    assert (
+        client.get(
+            f"/api/chat/agent-jobs/{job_id}", headers=_auth_headers(client)
+        ).json()["status"]
+        == "succeeded"
+    )
+
     # Ollama executor (code-writing) preset defaults to Cohere's North Mini Code
     # 1.0 — agent-mode chat with the model omitted runs the coding loop on it.
     assert captured["requested_model"] == "north-mini-code-1.0"
@@ -638,6 +660,24 @@ def test_chat_send_uses_saved_agent_role_models_for_agent_mode(
     )
 
     assert response.status_code == 202, response.text
+
+    # Same queued-not-completed race as the test above: wait for the background
+    # agent job before inspecting what it captured.
+    job_id = response.json()["job_id"]
+    for _ in range(20):
+        job = client.get(
+            f"/api/chat/agent-jobs/{job_id}", headers=_auth_headers(client)
+        )
+        assert job.status_code == 200, job.text
+        if job.json()["status"] in ("succeeded", "failed"):
+            break
+    assert (
+        client.get(
+            f"/api/chat/agent-jobs/{job_id}", headers=_auth_headers(client)
+        ).json()["status"]
+        == "succeeded"
+    )
+
     assert captured["requested_model"] == "executor-custom"
     assert captured["model_overrides"] == {
         "default": "executor-custom",
