@@ -124,6 +124,34 @@ def _is_ollama(provider: Any) -> bool:
     )
 
 
+_BILLING_SIGNALS: tuple[str, ...] = (
+    "credit balance is too low",
+    "insufficient balance",
+    "insufficient_quota",
+    "quota exceeded",
+    "billing",
+    "payment required",
+    "exceeded your current quota",
+)
+
+
+def _is_billing_refusal(resp: httpx.Response) -> bool:
+    """True when a 4xx body says the account is out of credit or quota.
+
+    Providers disagree on the status code for "you have no money": DeepSeek uses
+    402, Anthropic uses 400 with an ``invalid_request_error``. Both mean every
+    model on that provider will refuse identically, so both must fail over to the
+    next provider instead of burning the remaining model attempts.
+    """
+    if not (400 <= resp.status_code < 500):
+        return False
+    try:
+        body = resp.text[:600].lower()
+    except Exception:  # noqa: BLE001 — a body we cannot read is not a billing signal
+        return False
+    return any(signal in body for signal in _BILLING_SIGNALS)
+
+
 def _parse_success(resp: httpx.Response) -> tuple[str, int, int]:
     """Extract ``(text, prompt_tokens, completion_tokens)`` from a 2xx body.
 
@@ -241,9 +269,23 @@ async def _try_provider(
         if resp.status_code in (401, 403):
             fm.record_failure(provider.id, "auth_failed", resp.status_code)
             return None, f"{provider.id} {resp.status_code} unauthorized/forbidden"
+        if resp.status_code == 402:
+            fm.record_failure(provider.id, "payment_required", resp.status_code)
+            return None, f"{provider.id} 402 payment required (out of credit)"
         if resp.status_code >= 500:
             fm.record_failure(provider.id, "server_error", resp.status_code)
             return None, f"{provider.id} {resp.status_code} server error"
+
+        # A 4xx that is really a billing/quota refusal, not a bad request.
+        # Anthropic returns 400 with "credit balance is too low" — semantically
+        # the same class as 402: no model on this provider can succeed, so the
+        # next two model attempts are guaranteed to repeat it verbatim.
+        if _is_billing_refusal(resp):
+            fm.record_failure(provider.id, "payment_required", resp.status_code)
+            return None, (
+                f"{provider.id} {resp.status_code} out of credit/quota: "
+                f"{resp.text[:120]}"
+            )
 
         last_error = f"{provider.id} {resp.status_code}: {resp.text[:200]}"
         log.warning(
@@ -268,16 +310,24 @@ def _log_recovery(result: FailoverResult, failures: list[str]) -> None:
         )
 
 
-def _log_exhaustion(tried: set[str], failures: list[str]) -> None:
+def _log_exhaustion(attempted: list[str], failures: list[str]) -> None:
     """The one and only error-level log in the dispatch path.
 
     Emitted solely when the chain is exhausted and the caller genuinely cannot
     proceed, and it names every provider that failed so the log line alone is
     enough to act on.
+
+    Takes ``attempted`` (an append-only list) rather than the caller's ``tried``
+    set: ``tried`` is the exclusion set and ``_recover_all_unhealthy`` clears it
+    so providers can be retried after a breaker reset, which made it wrong for
+    reporting — production logs showed ``tried=[9 providers]`` beside 14 distinct
+    failures, with one provider listed twice. ``failures`` is deduped by the
+    caller for the same reason.
     """
     log.error(
-        "brain_failover: all providers exhausted (tried=%s) — %s",
-        sorted(tried) or "none", "; ".join(failures) or "no provider attempted",
+        "brain_failover: all %d provider(s) exhausted (%s) — %s",
+        len(attempted), ", ".join(attempted) or "none",
+        "; ".join(failures) or "no provider attempted",
     )
 
 
@@ -320,7 +370,8 @@ async def failover_chat_completion(
 
     requested_model = str(payload.get("model") or "")
     fm = get_failover_manager()
-    tried: set[str] = set()
+    tried: set[str] = set()          # exclusion set; cleared on breaker reset
+    attempted: list[str] = []        # append-only record, for reporting
     attempts: list[str] = []
     failures: list[str] = []
     last_error = ""
@@ -330,14 +381,12 @@ async def failover_chat_completion(
         if provider is None:
             provider = _recover_all_unhealthy(fm, tried, requested_model)
             if provider is None:
-                # Not terminal on its own — fall through to the single terminal
-                # error below so the chain reports one error, not two.
-                log.warning(
-                    "brain_failover: no healthy providers left (tried=%s)", tried
-                )
+                # Falls through to the single terminal error below, not two.
+                log.warning("brain_failover: no healthy providers left")
                 break
 
         tried.add(provider.id)
+        attempted = list(dict.fromkeys([*attempted, provider.id]))
         result, provider_error = await _try_provider(
             provider, payload, fm, attempts, timeout_sec
         )
@@ -345,8 +394,8 @@ async def failover_chat_completion(
             _log_recovery(result, failures)
             return result
         if provider_error:
-            failures.append(provider_error)
+            failures = list(dict.fromkeys([*failures, provider_error]))
             last_error = provider_error
 
-    _log_exhaustion(tried, failures)
-    raise BrainFailoverExhausted(last_error, tried, failures)
+    _log_exhaustion(attempted, failures)
+    raise BrainFailoverExhausted(last_error, set(attempted), failures)

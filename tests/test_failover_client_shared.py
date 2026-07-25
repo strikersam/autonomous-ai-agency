@@ -453,3 +453,122 @@ async def test_terminal_error_names_every_failed_provider(patch_chain) -> None:
     assert "minimax" in message and "rate-limited" in message
     assert "ollama" in message and "network error" in message
     assert len(excinfo.value.failures) == 3
+
+
+# ── Billing refusals and accurate accounting ────────────────────────────────
+#
+# From a real production chain where all 14 providers failed. Two defects showed
+# up in that log: DeepSeek's 402 "Insufficient Balance" and Anthropic's 400
+# "credit balance is too low" were not recognised as provider-level, so each
+# burned three model attempts repeating an identical refusal; and the reported
+# `tried=` list showed 9 providers beside 14 failures with ollama listed twice.
+
+
+@pytest.mark.asyncio
+async def test_402_insufficient_balance_moves_to_next_provider(patch_chain) -> None:
+    """DeepSeek's 402 must not burn the other model slots."""
+    manager, calls = patch_chain(
+        [
+            _StubProvider("deepseek", "https://api.deepseek.com/v1", ["a", "b", "c"]),
+            _StubProvider("groq", "https://api.groq.com/openai/v1", ["llama-3.3-70b"]),
+        ],
+        [
+            httpx.Response(402, json={"error": {"message": "Insufficient Balance"}}),
+            httpx.Response(200, json=_openai_body("recovered")),
+        ],
+    )
+
+    result = await failover_chat_completion(
+        {"model": "a", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert result.provider_id == "groq"
+    # One call to deepseek only — models "b" and "c" must NOT be tried.
+    assert len(calls) == 2
+    assert ("deepseek", "payment_required") in manager.failures
+
+
+@pytest.mark.asyncio
+async def test_anthropic_400_credit_balance_is_treated_as_billing(patch_chain) -> None:
+    """A 400 whose body is really "you have no money" is provider-level."""
+    manager, calls = patch_chain(
+        [
+            _StubProvider(
+                "anthropic", "https://api.anthropic.com", ["m1", "m2", "m3"],
+                tier="paid",
+            ),
+            _StubProvider("groq", "https://api.groq.com/openai/v1", ["llama-3.3-70b"]),
+        ],
+        [
+            httpx.Response(
+                400,
+                json={
+                    "type": "error",
+                    "error": {
+                        "type": "invalid_request_error",
+                        "message": (
+                            "Your credit balance is too low to access the "
+                            "Anthropic API. Please go to Plans & Billing."
+                        ),
+                    },
+                },
+            ),
+            httpx.Response(200, json=_openai_body("recovered")),
+        ],
+    )
+
+    result = await failover_chat_completion(
+        {"model": "m1", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert result.provider_id == "groq"
+    assert len(calls) == 2, "the other two Anthropic models must not be retried"
+    assert ("anthropic", "payment_required") in manager.failures
+
+
+@pytest.mark.asyncio
+async def test_a_plain_400_still_tries_the_next_model(patch_chain) -> None:
+    """Only billing-shaped 400s bail out; a genuine bad request is per-model."""
+    manager, calls = patch_chain(
+        [_StubProvider("nvidia", "https://integrate.api.nvidia.com", ["bad", "good"])],
+        [
+            httpx.Response(400, json={"error": "unsupported parameter for model"}),
+            httpx.Response(200, json=_openai_body("second model")),
+        ],
+    )
+
+    result = await failover_chat_completion(
+        {"model": "bad", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert result.model == "good"
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_exhaustion_reports_each_provider_once(patch_chain) -> None:
+    """The failure list must not double-count a provider, nor undercount."""
+    patch_chain(
+        [
+            _StubProvider("zhipu", "https://open.bigmodel.cn/api/paas/v4", ["glm-4"]),
+            _StubProvider("groq", "https://api.groq.com/openai/v1", ["llama"]),
+            _StubProvider("ollama", "http://localhost:11434", ["qwen"]),
+        ],
+        [
+            httpx.Response(401, json={"error": "unauthorized"}),
+            httpx.Response(429, json={"error": "rate limited"}),
+            httpx.ConnectError("All connection attempts failed"),
+        ],
+    )
+
+    with pytest.raises(BrainFailoverExhausted) as excinfo:
+        await failover_chat_completion(
+            {"model": "glm-4", "messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    failures = excinfo.value.failures
+    assert len(failures) == 3, f"expected one entry per provider, got {failures}"
+    # The count in the message must match the number of distinct providers.
+    assert "All 3 brain provider attempt(s) failed" in str(excinfo.value)
+    # And every attempted provider must be reported.
+    assert excinfo.value.tried == {"zhipu", "groq", "ollama"}
