@@ -685,20 +685,24 @@ _FREE_IDS = ["nvidia", "groq", "cerebras", "zhipu", "deepseek", "together",
 
 
 def _free_tier() -> list[_StubProvider]:
+    """The operator's free-tier shape: ten providers, all with keys."""
     return [_StubProvider(p, f"https://{p}.test/v1", ["m1"]) for p in _FREE_IDS]
 
 
 def _paid(pid: str = "aerolink", healthy: bool = True) -> _StubProvider:
+    """A paid-tier provider, optionally in cooldown."""
     p = _StubProvider(pid, f"https://{pid}.test/v1", ["m1"], tier="paid")
     p.is_healthy = healthy
     return p
 
 
 def _rate_limited(n: int) -> list[httpx.Response]:
+    """``n`` scripted 429s — the state every free provider was reported in."""
     return [httpx.Response(429, json={"error": "rate limited"}) for _ in range(n)]
 
 
 def _hit_ids(calls: list[str]) -> list[str]:
+    """Provider ids actually contacted, in order, parsed from the request URLs."""
     return [c.split("//")[1].split(".")[0] for c in calls]
 
 

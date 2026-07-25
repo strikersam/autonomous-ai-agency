@@ -99,6 +99,12 @@ _WALL_CLOCK_BUDGET_SEC = _env_float("BRAIN_FAILOVER_BUDGET_SEC", 180.0)
 # free tier at least one attempt), clamped rather than rejected so a fat-fingered
 # value degrades predictably instead of failing a deploy at import time.
 def _paid_reserve() -> int:
+    """Read BRAIN_PAID_RESERVE_ATTEMPTS, clamped to a range that cannot starve.
+
+    ``0`` means off. The upper bound is ``_MAX_TOTAL_ATTEMPTS - 1`` so the free
+    tier always keeps at least one attempt. Unparseable input falls back to the
+    default rather than raising, because a bad env var must not stop a boot.
+    """
     raw = (os.environ.get("BRAIN_PAID_RESERVE_ATTEMPTS") or "").strip()
     try:
         value = int(raw) if raw else 2
