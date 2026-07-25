@@ -174,8 +174,15 @@ class RuntimeHealthService:
             else:
                 circuit.record_failure()
         except Exception as exc:
-            log.error("Health check failed for %s: %s (circuit failures: %d)",
-                      runtime_id, exc, circuit.consecutive_failures + 1)
+            # WARNING, not ERROR: a failed probe is not an outage. The circuit
+            # breaker retries, and an unavailable runtime makes the router fall
+            # back to internal_agent rather than failing the task. Logging every
+            # probe at ERROR turned a sleeping free-tier sidecar (Hermes on
+            # Render spins down after ~15 min idle) into a stream of errors, each
+            # of which log_monitor's ERROR handler could file an issue for. The
+            # circuit-OPEN transition is reported by record_failure() below.
+            log.warning("Health check failed for %s: %s (circuit failures: %d)",
+                        runtime_id, exc, circuit.consecutive_failures + 1)
             circuit.record_failure()
             self._cache[runtime_id] = RuntimeHealth(
                 runtime_id=runtime_id,

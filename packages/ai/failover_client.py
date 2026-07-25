@@ -43,20 +43,36 @@ _CONNECT_TIMEOUT_SEC = 10.0
 
 
 class BrainFailoverExhausted(RuntimeError):
-    """Every provider in the failover chain failed.
+    """Every provider in the failover chain failed — the terminal error.
 
-    ``last_error`` carries the most recent provider-level failure so callers can
-    surface a specific cause rather than a generic "no brain available".
+    Carries the reason **every** provider failed, not just the last one. Reporting
+    only the last error made a whole-chain outage look like a single-provider
+    problem: an operator seeing "401 Unauthorized for open.bigmodel.cn" would fix
+    the Zhipu key and still be dead, because four other providers were also
+    failing for their own reasons. ``failures`` lists each one so the real
+    remediation is visible from the message alone.
     """
 
-    def __init__(self, last_error: str, tried: set[str] | None = None) -> None:
+    def __init__(
+        self,
+        last_error: str,
+        tried: set[str] | None = None,
+        failures: list[str] | None = None,
+    ) -> None:
         self.last_error = last_error
         self.tried = set(tried or ())
-        super().__init__(
-            f"All brain providers exhausted. Last error: {last_error}"
-            if last_error
-            else "All brain providers exhausted."
-        )
+        self.failures = list(failures or ())
+        if self.failures:
+            detail = "; ".join(self.failures)
+            super().__init__(
+                f"All {len(self.failures)} brain provider attempt(s) failed: {detail}"
+            )
+        elif last_error:
+            super().__init__(f"All brain providers exhausted. Last error: {last_error}")
+        else:
+            super().__init__(
+                "All brain providers exhausted — none configured or all in cooldown."
+            )
 
 
 @dataclass
@@ -139,6 +155,12 @@ async def _try_provider(
 
     Returns ``(result, last_error)``. ``result`` is ``None`` when every model on
     this provider failed, in which case the caller moves to the next provider.
+
+    Every failure here is logged at WARNING, never ERROR: while the chain still
+    has untried providers a single provider failing is a recoverable step, not an
+    outage. Only the caller, once the whole chain is exhausted, logs an error.
+    This also keeps ``agent/log_monitor``'s ERROR-triggered issue-filing from
+    opening a ticket for a provider the system successfully failed over.
     """
     from packages.ai.router import ProviderRouter, with_ollama_reasoning_effort
 
@@ -233,6 +255,32 @@ async def _try_provider(
     return None, last_error
 
 
+def _log_recovery(result: FailoverResult, failures: list[str]) -> None:
+    """Report a successful failover at INFO — recovery is not an incident.
+
+    Everything logged before this point was a warning, so a call that recovered
+    leaves no ERROR behind, and ``agent/log_monitor`` files no issue for it.
+    """
+    if failures:
+        log.info(
+            "brain_failover: recovered via %s/%s after %d failed attempt(s): %s",
+            result.provider_id, result.model, len(failures), "; ".join(failures),
+        )
+
+
+def _log_exhaustion(tried: set[str], failures: list[str]) -> None:
+    """The one and only error-level log in the dispatch path.
+
+    Emitted solely when the chain is exhausted and the caller genuinely cannot
+    proceed, and it names every provider that failed so the log line alone is
+    enough to act on.
+    """
+    log.error(
+        "brain_failover: all providers exhausted (tried=%s) — %s",
+        sorted(tried) or "none", "; ".join(failures) or "no provider attempted",
+    )
+
+
 def _recover_all_unhealthy(
     fm: Any, tried: set[str], requested_model: str
 ) -> Any | None:
@@ -274,6 +322,7 @@ async def failover_chat_completion(
     fm = get_failover_manager()
     tried: set[str] = set()
     attempts: list[str] = []
+    failures: list[str] = []
     last_error = ""
 
     for _attempt in range(fm.max_attempts()):
@@ -281,7 +330,11 @@ async def failover_chat_completion(
         if provider is None:
             provider = _recover_all_unhealthy(fm, tried, requested_model)
             if provider is None:
-                log.error("brain_failover: no healthy providers left (tried=%s)", tried)
+                # Not terminal on its own — fall through to the single terminal
+                # error below so the chain reports one error, not two.
+                log.warning(
+                    "brain_failover: no healthy providers left (tried=%s)", tried
+                )
                 break
 
         tried.add(provider.id)
@@ -289,7 +342,11 @@ async def failover_chat_completion(
             provider, payload, fm, attempts, timeout_sec
         )
         if result is not None:
+            _log_recovery(result, failures)
             return result
-        last_error = provider_error or last_error
+        if provider_error:
+            failures.append(provider_error)
+            last_error = provider_error
 
-    raise BrainFailoverExhausted(last_error, tried)
+    _log_exhaustion(tried, failures)
+    raise BrainFailoverExhausted(last_error, tried, failures)

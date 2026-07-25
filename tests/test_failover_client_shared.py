@@ -358,3 +358,98 @@ def test_dispatcher_stays_within_the_function_length_limit() -> None:
         f"failover_chat_completion is {len(source_lines)} lines; the repo caps "
         f"functions at 50. Extract another helper."
     )
+
+
+# ── Log severity: fallback working is not an incident ────────────────────────
+#
+# agent/log_monitor.py attaches an ERROR-level handler that auto-files GitHub
+# issues, and its operational-skip list covers 429/502/503/504 but NOT 401. So an
+# intermediate provider failure logged at ERROR opened a ticket for a provider
+# the system had already successfully failed over.
+
+
+@pytest.mark.asyncio
+async def test_successful_failover_logs_no_error(patch_chain, caplog) -> None:
+    """A recovered call must leave zero ERROR records behind."""
+    patch_chain(
+        [
+            _StubProvider("zhipu", "https://open.bigmodel.cn/api/paas/v4", ["glm-4"]),
+            _StubProvider("groq", "https://api.groq.com/openai/v1", ["llama-3.3-70b"]),
+        ],
+        [
+            httpx.Response(401, json={"error": "unauthorized"}),
+            httpx.Response(200, json=_openai_body("recovered")),
+        ],
+    )
+
+    with caplog.at_level("WARNING", logger="qwen-proxy"):
+        result = await failover_chat_completion(
+            {"model": "glm-4", "messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    assert result.text == "recovered"
+    errors = [r for r in caplog.records if r.levelname in ("ERROR", "CRITICAL")]
+    assert not errors, (
+        "fallback recovered but still logged an error, which would trip "
+        f"log_monitor's issue-filing: {[r.getMessage() for r in errors]}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_exhausted_chain_logs_exactly_one_error(patch_chain, caplog) -> None:
+    """The terminal failure is a real error — and only one."""
+    patch_chain(
+        [
+            _StubProvider("zhipu", "https://open.bigmodel.cn/api/paas/v4", ["glm-4"]),
+            _StubProvider("minimax", "https://api.minimax.chat/v1", ["mimo-v2-flash"]),
+        ],
+        [
+            httpx.Response(401, json={"error": "unauthorized"}),
+            httpx.Response(401, json={"error": "unauthorized"}),
+        ],
+    )
+
+    with caplog.at_level("WARNING", logger="qwen-proxy"):
+        with pytest.raises(BrainFailoverExhausted):
+            await failover_chat_completion(
+                {"model": "glm-4", "messages": [{"role": "user", "content": "hi"}]}
+            )
+
+    errors = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert len(errors) == 1, (
+        f"expected exactly one terminal error, got {len(errors)}: "
+        f"{[r.getMessage() for r in errors]}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_terminal_error_names_every_failed_provider(patch_chain) -> None:
+    """Reporting only the last provider hid the other broken keys.
+
+    The production symptom: "401 Unauthorized for open.bigmodel.cn" made a
+    whole-chain outage look like one bad Zhipu key.
+    """
+    patch_chain(
+        [
+            _StubProvider("zhipu", "https://open.bigmodel.cn/api/paas/v4", ["glm-4"]),
+            _StubProvider("minimax", "https://api.minimax.chat/v1", ["mimo-v2-flash"]),
+            _StubProvider("ollama", "http://localhost:11434", ["qwen3-coder:30b"]),
+        ],
+        [
+            httpx.Response(401, json={"error": "unauthorized"}),
+            httpx.Response(429, json={"error": "rate limited"}),
+            httpx.ConnectError("All connection attempts failed"),
+        ],
+    )
+
+    with pytest.raises(BrainFailoverExhausted) as excinfo:
+        await failover_chat_completion(
+            {"model": "glm-4", "messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    message = str(excinfo.value)
+    # Every provider, with its own distinct reason, must be visible.
+    assert "zhipu" in message and "401" in message
+    assert "minimax" in message and "rate-limited" in message
+    assert "ollama" in message and "network error" in message
+    assert len(excinfo.value.failures) == 3
