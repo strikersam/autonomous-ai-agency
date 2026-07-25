@@ -688,7 +688,7 @@ def _free_tier() -> list[_StubProvider]:
     return [_StubProvider(p, f"https://{p}.test/v1", ["m1"]) for p in _FREE_IDS]
 
 
-def _paid(pid="aerolink", healthy=True) -> _StubProvider:
+def _paid(pid: str = "aerolink", healthy: bool = True) -> _StubProvider:
     p = _StubProvider(pid, f"https://{pid}.test/v1", ["m1"], tier="paid")
     p.is_healthy = healthy
     return p
@@ -810,3 +810,50 @@ def test_paid_reserve_is_operator_tunable() -> None:
     assert fc._PAID_RESERVE_ATTEMPTS < fc._MAX_TOTAL_ATTEMPTS, (
         "a reserve at or above the total cap would starve the free tier instead"
     )
+
+
+@pytest.mark.parametrize(
+    ("env_value", "expected", "why"),
+    [
+        (None, 2, "the default"),
+        ("0", 0, "0 must mean OFF — the documented escape hatch"),
+        ("1", 1, "a valid value passes through"),
+        ("5", 5, "the largest value that still leaves the free tier one attempt"),
+        ("6", 5, "at the cap: clamped, or the free tier gets nothing"),
+        ("20", 5, "far above the cap: clamped, not silently paid-first"),
+        ("-3", 0, "negative is nonsense; treat it as off"),
+        ("abc", 2, "unparseable falls back to the default"),
+    ],
+)
+def test_the_reserve_is_bounded_when_read_from_the_environment(
+    monkeypatch, env_value, expected, why
+) -> None:
+    """Read through the ENV, not the constant — that is where the bug lived.
+
+    ``_env_int`` floors at 1, so ``BRAIN_PAID_RESERVE_ATTEMPTS=0`` silently
+    became 1 and the documented off switch did nothing. A sibling test that
+    monkeypatches ``_PAID_RESERVE_ATTEMPTS`` directly cannot catch that, because
+    it bypasses the parsing entirely. And an unclamped value at or above the cap
+    left the free tier a single attempt, quietly turning a cost-control knob into
+    a paid-first switch.
+    """
+    import packages.ai.failover_client as fc
+
+    if env_value is None:
+        monkeypatch.delenv("BRAIN_PAID_RESERVE_ATTEMPTS", raising=False)
+    else:
+        monkeypatch.setenv("BRAIN_PAID_RESERVE_ATTEMPTS", env_value)
+
+    assert fc._paid_reserve() == expected, why
+
+
+def test_the_free_tier_always_keeps_at_least_one_attempt() -> None:
+    """No reserve value may lock the free tier out from the very first attempt."""
+    import packages.ai.failover_client as fc
+
+    for reserve in range(0, fc._MAX_TOTAL_ATTEMPTS + 5):
+        budget = fc._Budget(fc._MAX_TOTAL_ATTEMPTS, 180.0)
+        assert budget.unpaid_slice_spent(reserve) is False, (
+            f"reserve={reserve} excludes free providers before a single attempt "
+            f"has been made"
+        )

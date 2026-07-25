@@ -6997,6 +6997,7 @@ async def brain_providers(user: dict = Depends(get_current_user)) -> dict:
     held only in the local SQLite file, which an ephemeral disk wipes on deploy.
     """
     from services.brain_failover import (
+        describe_disabled_reason,
         disabled_providers,
         get_failover_manager,
         state_is_durable,
@@ -7006,6 +7007,9 @@ async def brain_providers(user: dict = Depends(get_current_user)) -> dict:
     providers = []
     for p in get_failover_manager().get_providers():
         enabled = p.id not in off
+        # Rendered server-side, next to where the reason strings are produced, so
+        # the UI has the status code and the remedy without parsing prose.
+        why = describe_disabled_reason(off.get(p.id, ""))
         providers.append({
             "id": p.id,
             "name": p.name,
@@ -7014,7 +7018,10 @@ async def brain_providers(user: dict = Depends(get_current_user)) -> dict:
             "healthy": p.is_healthy,
             "online": enabled and p.is_healthy,
             "disabled_reason": off.get(p.id, ""),
-            "auto_disabled": off.get(p.id, "").startswith("auto:"),
+            "disabled_code": why["code"],
+            "disabled_summary": why["summary"],
+            "disabled_action": why["action"],
+            "auto_disabled": why["auto"],
             "default_model": p.default_model,
             "failure_count": p.failure_count,
             "total_calls": p.total_calls,

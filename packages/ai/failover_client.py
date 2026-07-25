@@ -90,7 +90,24 @@ _WALL_CLOCK_BUDGET_SEC = _env_float("BRAIN_FAILOVER_BUDGET_SEC", 180.0)
 # The reserve is inert unless a paid provider is both admitted (allow_paid, which
 # is still the sole spend gate) and untried, so an operator running free-only
 # keeps the entire budget for the free tier and sees no change.
-_PAID_RESERVE_ATTEMPTS = _env_int("BRAIN_PAID_RESERVE_ATTEMPTS", 2)
+#
+# Parsed with its own bounded reader rather than _env_int, which floors at 1 and
+# so cannot express "off", and does not cap against the total. Both mattered:
+# 0 silently became 1, and a reserve at or above the cap left the free tier a
+# single attempt — turning a cost-control knob into an accidental paid-first
+# switch. The range is 0 (off) through _MAX_TOTAL_ATTEMPTS - 1 (always leave the
+# free tier at least one attempt), clamped rather than rejected so a fat-fingered
+# value degrades predictably instead of failing a deploy at import time.
+def _paid_reserve() -> int:
+    raw = (os.environ.get("BRAIN_PAID_RESERVE_ATTEMPTS") or "").strip()
+    try:
+        value = int(raw) if raw else 2
+    except ValueError:
+        return 2
+    return max(0, min(value, _MAX_TOTAL_ATTEMPTS - 1))
+
+
+_PAID_RESERVE_ATTEMPTS = _paid_reserve()
 
 
 class BrainFailoverExhausted(RuntimeError):

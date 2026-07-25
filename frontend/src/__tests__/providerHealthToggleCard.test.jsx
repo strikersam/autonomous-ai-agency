@@ -25,6 +25,7 @@ import ProviderHealthToggleCard from '../v5/components/ProviderHealthToggleCard'
 const row = (over = {}) => ({
   id: 'groq', name: 'Groq', tier: 'free', default_model: 'llama-3.3-70b-versatile',
   enabled: true, healthy: true, online: true, disabled_reason: '',
+  disabled_code: '', disabled_summary: '', disabled_action: '',
   auto_disabled: false, total_calls: 12, total_failures: 0, last_error: '',
   ...over,
 });
@@ -61,6 +62,9 @@ describe('ProviderHealthToggleCard', () => {
       providers: [row({
         enabled: false, online: false, auto_disabled: true,
         disabled_reason: 'auto: 401 invalid or expired API key',
+        disabled_code: '401',
+        disabled_summary: 'Invalid or expired API key',
+        disabled_action: 'Update the key, then switch it back on.',
         total_failures: 3,
       })],
     });
@@ -69,8 +73,72 @@ describe('ProviderHealthToggleCard', () => {
     // Both the status pill and the switch read "OFF" for a disabled provider.
     await waitFor(() => expect(screen.getAllByText('OFF')).toHaveLength(2));
     expect(screen.getByRole('button', { name: /Enable Groq/i })).toBeInTheDocument();
-    expect(screen.getByText(/401 invalid or expired API key/)).toBeInTheDocument();
-    expect(screen.getByText('(auto)')).toBeInTheDocument();
+    expect(screen.getByText('401')).toBeInTheDocument();
+    expect(screen.getByText(/Invalid or expired API key/)).toBeInTheDocument();
+    expect(screen.getByText(/Update the key/)).toBeInTheDocument();
+    expect(screen.getByText('(automatic)')).toBeInTheDocument();
+  });
+
+  it('puts the code and reason in the same cell as the toggle', async () => {
+    // The operator reads the cause and flips the switch in one glance. If the
+    // reason drifts back into a distant column this test fails.
+    respond({
+      providers: [row({
+        enabled: false, online: false, auto_disabled: true,
+        disabled_reason: 'auto: 402 out of credit',
+        disabled_code: '402',
+        disabled_summary: 'No credit left on the account',
+        disabled_action: 'Top up the account, then switch it back on.',
+      })],
+    });
+    render(<ProviderHealthToggleCard />);
+
+    const button = await screen.findByRole('button', { name: /Enable Groq/i });
+    const cell = button.closest('td');
+    expect(cell).toHaveTextContent('402');
+    expect(cell).toHaveTextContent('No credit left on the account');
+    expect(cell).toHaveTextContent('Top up the account');
+  });
+
+  it('keeps the raw stored reason available on hover', async () => {
+    respond({
+      providers: [row({
+        enabled: false, online: false, auto_disabled: true,
+        disabled_reason: 'auto: no accessible model (404 model_not_found)',
+        disabled_code: '404',
+        disabled_summary: "Account cannot access any of this provider's models",
+        disabled_action: "Check the account's model entitlements.",
+      })],
+    });
+    render(<ProviderHealthToggleCard />);
+
+    await waitFor(() => expect(screen.getByText('404')).toBeInTheDocument());
+    expect(screen.getByTitle('auto: no accessible model (404 model_not_found)'))
+      .toBeInTheDocument();
+  });
+
+  it('shows no reason beside the toggle for a provider that is on', async () => {
+    respond({ providers: [row()] });
+    render(<ProviderHealthToggleCard />);
+
+    const button = await screen.findByRole('button', { name: /Disable Groq/i });
+    expect(button.closest('td')).toHaveTextContent(/^ON$/);
+  });
+
+  it('labels a manual switch-off as manual, not automatic', async () => {
+    respond({
+      providers: [row({
+        enabled: false, online: false, auto_disabled: false,
+        disabled_reason: 'disabled by operator',
+        disabled_code: '', disabled_summary: 'Turned off manually',
+        disabled_action: 'Switch it back on when you want it in the rotation.',
+      })],
+    });
+    render(<ProviderHealthToggleCard />);
+
+    await waitFor(() =>
+      expect(screen.getByText(/Turned off manually/)).toBeInTheDocument());
+    expect(screen.queryByText('(automatic)')).not.toBeInTheDocument();
   });
 
   it('distinguishes a rate-limit cooldown from an operator switch-off', async () => {

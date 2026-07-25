@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import os
 import secrets
+from collections.abc import Iterator
+from pathlib import Path
 
 # ── Single source of truth for admin password ────────────────────────────────
 # MUST run before ANY import that touches backend.server (which reads
@@ -284,7 +286,9 @@ def _isolate_brain_data_layer(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def _isolate_operator_provider_state(tmp_path, monkeypatch):
+def _isolate_operator_provider_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
     """Keep the suite out of the developer's real operator-state database.
 
     ``services/brain_failover.py`` reads two settings from ``SQLITE_PATH`` on the
