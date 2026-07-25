@@ -174,6 +174,23 @@ Goal states:
 success on the dashboard, and the supervisor must not keep re-driving something
 already given up on.
 
+### A failed drive does not abandon the goal
+
+`_close_ledger_goal()` closes a goal only on an `OK` verdict. `PARTIAL` and
+`FAILED` leave it **open**.
+
+The escalation ladder is bounded to a single drive, so a failure caused by a
+transient condition — a runtime that was asleep, a provider mid-429 — would
+otherwise be recorded as permanent the instant it happened. Leaving the goal open
+hands ownership to the supervisor, which re-drives it after the stall window and
+abandons it only once the intervention budget is spent. The supervisor is the one
+component with the budget to make that call, so it is the only one that makes it.
+
+A re-drive **re-plans from scratch**: `_open_ledger_goal()` replaces the subtask
+list rather than appending, because the previous drive's subtasks no longer
+describe the work. The goal's `interventions` counter and `notes` carry that
+history instead.
+
 ---
 
 ## The 24x7 supervisor

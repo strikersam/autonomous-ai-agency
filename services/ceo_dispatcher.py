@@ -29,9 +29,12 @@ import os
 import secrets
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agent.loop import AgentRunner
+
+if TYPE_CHECKING:  # import for typing only — keeps the runtime import lazy
+    from services.ceo_micromanager import SubtaskPlan
 
 log = logging.getLogger("agency.ceo")
 
@@ -102,7 +105,7 @@ class SpecialistTask:
     #: scope, outcome and ``writes_code`` flag the anti-slop gate judges
     #: against. ``None`` on the legacy single-specialist fast path, where there
     #: is no plan to judge and the result is accepted as-is.
-    plan: Any = None
+    plan: "SubtaskPlan | None" = None
 
 
 @dataclass
@@ -403,6 +406,12 @@ class CEODispatcher:
         with pending sub-tasks rather than nothing at all. Returns ``None`` when
         the ledger is unavailable — micro-management still works in-process, it
         just is not durable.
+
+        When ``goal_id`` names an existing goal (a supervisor re-drive), the
+        sub-task list is *replaced* rather than appended to. A re-drive re-plans
+        from scratch, so the previous drive's sub-tasks no longer describe the
+        work; the goal's ``interventions`` counter and ``notes`` carry that
+        history instead.
         """
         try:
             from services.ceo_ledger import GoalRecord, SubtaskRecord, get_ceo_ledger
@@ -437,11 +446,17 @@ class CEODispatcher:
             return None
 
     def _close_ledger_goal(self, record: Any, result: CEOResult) -> None:
-        """Mark the goal closed or abandoned once the fan-out has settled.
+        """Settle the ledger goal once the fan-out has finished.
 
-        ``closed`` and ``abandoned`` are kept distinct on purpose: a goal whose
-        sub-tasks failed must never read as success in the dashboard, and the
-        supervisor must not keep re-driving something already given up on.
+        A goal is closed only on an ``OK`` verdict. A ``PARTIAL`` or ``FAILED``
+        verdict deliberately leaves the goal **open** rather than abandoning it:
+        the escalation ladder is bounded to one drive, so a failure caused by a
+        transient condition — a runtime that was asleep, a provider mid-429 —
+        would otherwise be recorded as permanent the moment it happened. Leaving
+        it open hands ownership to the supervisor, which re-drives it after the
+        stall window and abandons it only once the intervention budget is spent.
+        That is the one place a goal is allowed to be given up on, and it is the
+        place with the budget to decide.
         """
         if record is None:
             return
@@ -449,7 +464,7 @@ class CEODispatcher:
             from services.ceo_ledger import get_ceo_ledger
 
             record.verdict = result.verdict
-            record.state = "closed" if result.verdict == "OK" else "abandoned"
+            record.state = "closed" if result.verdict == "OK" else "open"
             record.last_progress_at = time.time()
             record.notes.append(result.summary[:300])
             get_ceo_ledger().upsert(record)

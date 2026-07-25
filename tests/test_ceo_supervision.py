@@ -352,6 +352,40 @@ async def test_delegate_accepts_the_orchestrator_call_signature():
     )
 
 
+def test_ok_verdict_closes_the_goal(ledger):
+    from services.ceo_dispatcher import CEOResult
+
+    record = _seed_goal(ledger)
+    CEODispatcher()._close_ledger_goal(record, CEOResult(goal="g", verdict="OK", summary="done"))
+    assert ledger.get("g-1").state == "closed"
+
+
+def test_failed_verdict_leaves_the_goal_open_for_the_supervisor(ledger):
+    """A bounded drive failing is not proof the goal is impossible.
+
+    Abandoning here would record a transient failure — a sleeping runtime, a
+    provider mid-429 — as permanent. Only the supervisor, which holds the
+    intervention budget, is allowed to give up.
+    """
+    from services.ceo_dispatcher import CEOResult
+
+    for verdict in ("PARTIAL", "FAILED"):
+        record = _seed_goal(ledger, goal_id=f"g-{verdict}")
+        CEODispatcher()._close_ledger_goal(
+            record, CEOResult(goal="g", verdict=verdict, summary="half done")
+        )
+        stored = ledger.get(f"g-{verdict}")
+        assert stored.state == "open", f"{verdict} must stay open"
+        assert stored.verdict == verdict
+
+
+def _seed_goal(ledger, goal_id: str = "g-1") -> GoalRecord:
+    goal = _goal(goal_id)
+    goal.subtasks = [SubtaskRecord(subtask_id="s1", title="a", status="running")]
+    ledger.upsert(goal)
+    return goal
+
+
 # ── Supervisor ────────────────────────────────────────────────────────────────
 
 
