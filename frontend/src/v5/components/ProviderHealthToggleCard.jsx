@@ -138,13 +138,17 @@ export default function ProviderHealthToggleCard() {
                     </div>
                   </td>
                   <td style={{ padding: '8px' }}><StatusPill row={row} /></td>
+                  {/* Last transient error only. The reason a provider is switched
+                      OFF now sits beside the switch, so this column is not a
+                      second copy of it — it shows why a still-enabled provider is
+                      in cooldown, which is a different question. */}
                   <td style={{ padding: '8px', maxWidth: 320 }}>
                     <span style={{ color: 'var(--text-muted, #8b8b9a)' }}>
-                      {row.disabled_reason || row.last_error || '—'}
+                      {row.last_error || '—'}
                     </span>
-                    {row.auto_disabled && (
+                    {!row.enabled && row.auto_disabled && (
                       <span style={{ marginLeft: 6, fontSize: 10, color: '#f59e0b' }}>
-                        (auto)
+                        (automatic)
                       </span>
                     )}
                   </td>
@@ -155,22 +159,53 @@ export default function ProviderHealthToggleCard() {
                     )}
                   </td>
                   <td style={{ padding: '8px', textAlign: 'right' }}>
-                    <button
-                      type="button"
-                      onClick={() => toggle(row)}
-                      disabled={busy === row.id}
-                      aria-label={`${row.enabled ? 'Disable' : 'Enable'} ${row.name || row.id}`}
-                      style={{
-                        cursor: busy === row.id ? 'wait' : 'pointer',
-                        background: row.enabled ? 'rgba(16,185,129,.15)' : 'transparent',
-                        color: row.enabled ? '#10b981' : 'var(--text-muted, #8b8b9a)',
-                        border: `1px solid ${row.enabled ? '#10b981' : 'var(--border, #2a2a35)'}`,
-                        borderRadius: 999, padding: '4px 12px', fontSize: 11,
-                        fontWeight: 700, minWidth: 56,
-                      }}
-                    >
-                      {busy === row.id ? '…' : row.enabled ? 'ON' : 'OFF'}
-                    </button>
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: 8,
+                      justifyContent: 'flex-end', flexWrap: 'wrap',
+                    }}>
+                      {/* Why it is off, right next to the switch that turns it
+                          back on — the operator needs the cause and the switch
+                          in the same glance, not in separate columns. */}
+                      {!row.enabled && row.disabled_summary && (
+                        <span
+                          title={row.disabled_reason}
+                          style={{
+                            fontSize: 11, textAlign: 'right', maxWidth: 260,
+                            color: 'var(--text-muted, #8b8b9a)',
+                          }}
+                        >
+                          {row.disabled_code && (
+                            <span style={{
+                              fontFamily: 'ui-monospace, monospace', fontWeight: 700,
+                              color: row.auto_disabled ? '#f59e0b' : 'inherit',
+                              marginRight: 5,
+                            }}>{row.disabled_code}</span>
+                          )}
+                          {row.disabled_summary}
+                          {row.disabled_action && (
+                            <span style={{ display: 'block', opacity: 0.75 }}>
+                              {row.disabled_action}
+                            </span>
+                          )}
+                        </span>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => toggle(row)}
+                        disabled={busy === row.id}
+                        aria-label={`${row.enabled ? 'Disable' : 'Enable'} ${row.name || row.id}`}
+                        style={{
+                          cursor: busy === row.id ? 'wait' : 'pointer',
+                          background: row.enabled ? 'rgba(16,185,129,.15)' : 'transparent',
+                          color: row.enabled ? '#10b981' : 'var(--text-muted, #8b8b9a)',
+                          border: `1px solid ${row.enabled ? '#10b981' : 'var(--border, #2a2a35)'}`,
+                          borderRadius: 999, padding: '4px 12px', fontSize: 11,
+                          fontWeight: 700, minWidth: 56, flexShrink: 0,
+                        }}
+                      >
+                        {busy === row.id ? '…' : row.enabled ? 'ON' : 'OFF'}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

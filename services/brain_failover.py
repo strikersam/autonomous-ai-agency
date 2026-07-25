@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 import time
 from dataclasses import dataclass, field
@@ -343,6 +344,59 @@ def auto_disable_provider(provider_id: str, reason: str) -> None:
     if provider_id in disabled_providers():
         return
     set_provider_enabled(provider_id, False, f"auto: {reason}")
+
+
+# Stored reasons are written by ``packages/ai/failover_client._auto_disable`` and
+# there are exactly four shapes, plus the manual switch-off. Mapping them here —
+# in the module that owns the disabled state — keeps the wording in one place
+# instead of a parallel table in the UI that drifts when a reason string changes.
+# ``summary`` says what is wrong, ``action`` says what the operator must do, and
+# the raw reason is always returned too so nothing is hidden by a failed match.
+_REASON_TABLE: tuple[tuple[str, str, str], ...] = (
+    ("invalid or expired api key", "Invalid or expired API key",
+     "Update the key, then switch it back on."),
+    ("out of credit/quota", "Out of credit or quota",
+     "Top up the account or wait for the quota to reset, then switch it back on."),
+    ("out of credit", "No credit left on the account",
+     "Top up the account, then switch it back on."),
+    ("no accessible model", "Account cannot access any of this provider's models",
+     "Check the account's model entitlements or set a model it can reach."),
+)
+
+
+def describe_disabled_reason(reason: str) -> dict[str, str]:
+    """Render a stored disable reason for display.
+
+    Returns ``code`` (the HTTP status that caused it, when the reason carries
+    one), ``summary``, ``action``, ``auto`` and the untouched ``reason``. An
+    unrecognised reason is passed through as its own summary rather than being
+    dropped — a reason the operator cannot read is still better than none.
+    """
+    raw = (reason or "").strip()
+    if not raw:
+        return {"code": "", "summary": "", "action": "", "auto": False, "reason": ""}
+    auto = raw.startswith("auto:")
+    body = raw[len("auto:"):].strip() if auto else raw
+    code = ""
+    head = body.split(None, 1)[0] if body else ""
+    if head.isdigit() and len(head) == 3:
+        code, body = head, body[len(head):].strip()
+    else:
+        # "no accessible model (404 model_not_found)" carries its code inline.
+        match = re.search(r"\((\d{3})\b", body)
+        if match:
+            code = match.group(1)
+    lowered = body.lower()
+    for needle, summary, action in _REASON_TABLE:
+        if needle in lowered:
+            return {"code": code, "summary": summary, "action": action,
+                    "auto": auto, "reason": raw}
+    if not auto:
+        return {"code": code, "summary": "Turned off manually",
+                "action": "Switch it back on when you want it in the rotation.",
+                "auto": False, "reason": raw}
+    return {"code": code, "summary": body or raw, "action": "", "auto": True,
+            "reason": raw}
 
 
 def _paid_allowed_mongo() -> bool | None:

@@ -126,3 +126,44 @@ class TestSwitch:
                               json={"enabled": False})
         assert r.status_code == 401
         assert "groq" not in bf.disabled_providers(force=True)
+
+
+class TestDisabledReasonIsReadableNextToTheSwitch:
+    """The operator has to know WHY before deciding to switch it back on.
+
+    The raw stored string is kept for fidelity, but the endpoint also returns the
+    status code and a plain-language summary + remedy, so the UI can render them
+    beside the toggle without parsing prose.
+    """
+
+    def test_auto_disable_exposes_code_summary_and_remedy(self, app_client) -> None:
+        bf.auto_disable_provider("groq", "401 invalid or expired API key")
+
+        row = next(p for p in _get(app_client)["providers"] if p["id"] == "groq")
+        assert row["disabled_code"] == "401"
+        assert row["disabled_summary"] == "Invalid or expired API key"
+        assert "Update the key" in row["disabled_action"]
+        assert row["auto_disabled"] is True
+        assert row["disabled_reason"] == "auto: 401 invalid or expired API key", (
+            "the raw reason must survive alongside the rendered one"
+        )
+
+    def test_out_of_credit_reports_its_own_code(self, app_client) -> None:
+        bf.auto_disable_provider("cerebras", "402 out of credit")
+
+        row = next(p for p in _get(app_client)["providers"] if p["id"] == "cerebras")
+        assert row["disabled_code"] == "402"
+        assert row["disabled_summary"] == "No credit left on the account"
+
+    def test_manual_switch_off_is_not_reported_as_automatic(self, app_client) -> None:
+        app_client.put("/api/brain/providers/groq/enabled", json={"enabled": False})
+
+        row = next(p for p in _get(app_client)["providers"] if p["id"] == "groq")
+        assert row["auto_disabled"] is False
+        assert row["disabled_summary"] == "Turned off manually"
+
+    def test_an_online_provider_reports_no_reason(self, app_client) -> None:
+        row = next(p for p in _get(app_client)["providers"] if p["id"] == "groq")
+        assert row["disabled_code"] == ""
+        assert row["disabled_summary"] == ""
+        assert row["disabled_action"] == ""

@@ -10,6 +10,7 @@ readers sit on the sync hot path inside the event loop.
 """
 from __future__ import annotations
 
+import os
 import time
 import uuid
 
@@ -336,3 +337,120 @@ def test_real_mongo_round_trip(monkeypatch, tmp_path) -> None:
         from pymongo import MongoClient
         MongoClient(url, serverSelectionTimeoutMS=2000).drop_database(db_name)
         bf.reset_kv_state()
+
+
+# ── The suite must not touch the real operator database ──────────────────────
+
+def test_conftest_isolates_operator_state_for_every_test() -> None:
+    """Both halves matter, and the second one is easy to drop.
+
+    Redirecting ``SQLITE_PATH`` alone is insufficient: both reads are cached for
+    5-10 s, so one test that read the developer's real ``.data/agency.db`` left
+    ``allow_paid=True`` in ``_PAID_CACHE`` and every test for the next ten
+    seconds inherited it regardless of its own path. That is what made
+    ``test_paid_providers_skipped_by_default`` fail only in a full run. The
+    caches must be dropped per test as well as the path.
+    """
+    from pathlib import Path
+
+    src = (Path(__file__).parent / "conftest.py").read_text()
+    head, _, body = src.partition("_isolate_operator_provider_state")
+    assert body, "the autouse operator-state isolation fixture is gone"
+    assert head.rstrip().endswith("@pytest.fixture(autouse=True)\ndef"), (
+        "the fixture must stay autouse — a fixture nothing requests protects "
+        "nothing, and the leak it prevents is silent"
+    )
+    assert "SQLITE_PATH" in body, "the fixture must redirect the kv path"
+    assert "reset_kv_state" in body, (
+        "the fixture must also drop the read caches — the path alone leaks"
+    )
+
+
+def test_the_running_test_is_not_pointed_at_the_real_database() -> None:
+    path = os.environ.get("SQLITE_PATH", "")
+    assert path, "SQLITE_PATH must be redirected during tests"
+    assert not path.endswith(".data/agency.db"), (
+        f"tests would read and WRITE the real operator database ({path}) — the "
+        f"kill switch persists there, so a test run would switch off providers "
+        f"in a developer's actual configuration"
+    )
+
+
+# ── The operator must be able to read WHY a provider was switched off ────────
+
+class TestDisabledReasonRendering:
+    """``describe_disabled_reason`` is rendered next to the on/off switch.
+
+    The stored strings come from ``failover_client._auto_disable`` and there are
+    exactly the shapes below. Each is asserted against the literal string that
+    module writes, so a reason reworded there fails here instead of silently
+    degrading to raw text in the UI.
+    """
+
+    def test_invalid_key_carries_its_status_code(self) -> None:
+        out = bf.describe_disabled_reason("auto: 401 invalid or expired API key")
+        assert out["code"] == "401"
+        assert out["summary"] == "Invalid or expired API key"
+        assert "Update the key" in out["action"]
+        assert out["auto"] is True
+
+    def test_forbidden_maps_the_same_way_with_its_own_code(self) -> None:
+        assert bf.describe_disabled_reason(
+            "auto: 403 invalid or expired API key")["code"] == "403"
+
+    def test_no_credit(self) -> None:
+        out = bf.describe_disabled_reason("auto: 402 out of credit")
+        assert out["code"] == "402"
+        assert out["summary"] == "No credit left on the account"
+        assert "Top up" in out["action"]
+
+    def test_billing_refusal_keeps_the_odd_status_it_arrived_with(self) -> None:
+        """Anthropic sends 400 for an empty balance, not 402."""
+        out = bf.describe_disabled_reason("auto: 400 out of credit/quota")
+        assert out["code"] == "400"
+        assert out["summary"] == "Out of credit or quota"
+
+    def test_no_accessible_model_finds_the_code_inside_the_parentheses(self) -> None:
+        out = bf.describe_disabled_reason(
+            "auto: no accessible model (404 model_not_found)")
+        assert out["code"] == "404"
+        assert "cannot access any" in out["summary"]
+
+    def test_manual_switch_off_is_not_labelled_automatic(self) -> None:
+        out = bf.describe_disabled_reason("disabled by operator")
+        assert out["auto"] is False
+        assert out["summary"] == "Turned off manually"
+
+    def test_an_unmapped_reason_is_passed_through_not_dropped(self) -> None:
+        """A reason the operator cannot read still beats no reason at all."""
+        out = bf.describe_disabled_reason("auto: 418 teapot overheated")
+        assert out["code"] == "418"
+        assert out["summary"] == "teapot overheated"
+        assert out["reason"] == "auto: 418 teapot overheated"
+
+    def test_an_enabled_provider_has_nothing_to_explain(self) -> None:
+        out = bf.describe_disabled_reason("")
+        assert out == {"code": "", "summary": "", "action": "", "auto": False,
+                       "reason": ""}
+
+    def test_every_reason_failover_client_writes_is_mapped(self) -> None:
+        """Guards the seam: the writer and this renderer must not drift apart.
+
+        Scans the literals passed to ``_auto_disable`` and asserts each one lands
+        on a real summary rather than the raw-passthrough fallback.
+        """
+        import re as _re
+        from pathlib import Path
+
+        src = (Path(__file__).resolve().parents[1]
+               / "packages" / "ai" / "failover_client.py").read_text()
+        written = _re.findall(r'_auto_disable\(\s*provider\.id,\s*f?"([^"]+)"', src)
+        assert written, "no _auto_disable call sites found — did the writer move?"
+        for literal in written:
+            reason = "auto: " + literal.replace("{resp.status_code}", "401")
+            out = bf.describe_disabled_reason(reason)
+            assert out["action"], (
+                f"reason {reason!r} has no mapped remedy — add it to _REASON_TABLE "
+                f"or the operator sees raw text next to the switch"
+            )
+            assert out["code"], f"reason {reason!r} lost its status code"
