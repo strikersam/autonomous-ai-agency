@@ -110,6 +110,12 @@ Consistent with the "check the proof" ethos above, none of this is described onl
 
 Full gap analysis and every new configuration variable: [docs/AGENT_AUTONOMY_ROADMAP.md](docs/AGENT_AUTONOMY_ROADMAP.md).
 
+## What's New (2026-07-25)
+
+**Claude now handles images and function calls end-to-end.** Two silent data-loss bugs are fixed in the Anthropic translation layer: (1) messages with image content (vision requests) were silently dropped — they now convert cleanly from the OpenAI `image_url` format to Anthropic's `image` source format; (2) `tools` / `tool_choice` were never forwarded to Claude — function calling through Claude now works without any changes to the calling code. Responses also now surface `tool_calls` in OpenAI format and preserve extended-thinking text in `message.thinking`.
+
+**`claude-opus-5` and `claude-haiku-4-5` in the cost table.** The Claude 5 family is now fully tracked: `claude-opus-5` ($15/$75/M) was missing, and `claude-haiku-4-5` is added as a date-suffix-free alias so cost attribution works regardless of which model ID variant an operator uses.
+
 ## What's New (2026-07-24)
 
 **Structured output strict mode + refusal handling.** The OpenAI `json_schema` + `strict: true` pattern is now the preferred way to request schema-conformant JSON from any model (replacing the legacy `json_object` mode). The proxy translates strict-mode requests into a tighter system-prompt constraint for Anthropic and other providers that don't natively support it, and detects model refusals (`choices[0].message.refusal`) so callers get a clear error instead of empty/garbled JSON.
