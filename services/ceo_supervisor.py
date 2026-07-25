@@ -19,11 +19,15 @@ cadence and, for every goal the CEO still owns, does one of four things:
 It also wakes sleeping runtimes on every sweep, so a Render free-tier spin-down
 or an idle Hermes does not quietly become a permanent outage.
 
-Every loop that runs unattended needs bounds, and this one has four: a sweep
-interval, a per-goal intervention cap, a per-goal age cap, and a cap on how
-many goals a single sweep will re-drive. All four are in
-:class:`SupervisorConfig` and all four are clamped when read from the
+Every loop that runs unattended needs bounds, and this one has five: a sweep
+interval, a stall threshold, a per-goal intervention cap, a per-goal age cap,
+and a cap on how many goals a single sweep will re-drive. All five are in
+:class:`SupervisorConfig` and all five are clamped when read from the
 environment.
+
+The re-drive claim is taken in the *shared* ledger, not just in this process:
+``RUN_BACKGROUND_IN_WEB`` defaults to true, so a deployment running the
+dedicated worker as well has two processes sweeping the same goals.
 """
 from __future__ import annotations
 
@@ -206,8 +210,7 @@ class CEOSupervisor:
             from services.ceo_ledger import get_ceo_ledger
 
             ledger = get_ceo_ledger()
-        self._spawn_redrive(ledger, goal)
-        return True
+        return self._spawn_redrive(ledger, goal)
 
     def get_status(self) -> dict[str, Any]:
         """Status for the health endpoint and dashboard."""
@@ -267,9 +270,12 @@ class CEOSupervisor:
                     self._abandon(ledger, goal, now=now)
                     report.abandoned += 1
                 elif action == "redrive":
-                    redrives += 1
-                    report.redriven += 1
-                    self._spawn_redrive(ledger, goal)
+                    if self._spawn_redrive(ledger, goal):
+                        redrives += 1
+                        report.redriven += 1
+                    else:
+                        # Another sweeper won the claim — not our goal this round.
+                        report.in_flight += 1
                 else:
                     report.in_flight += 1
             except Exception as exc:  # noqa: BLE001 — one bad goal must not stop the sweep
@@ -324,7 +330,7 @@ class CEOSupervisor:
             goal.goal_id, reason, goal.goal[:120],
         )
 
-    def _spawn_redrive(self, ledger: Any, goal: Any) -> None:
+    def _spawn_redrive(self, ledger: Any, goal: Any) -> bool:
         """Mark a stalled goal as intervened and start re-driving it.
 
         The re-drive runs as a detached task so one slow goal cannot hold up
@@ -332,6 +338,16 @@ class CEOSupervisor:
         task starts, so a sweep that fires while the re-drive is still running
         skips the goal instead of starting a second one.
         """
+        # Claim the goal in the *shared* ledger before doing anything. With two
+        # sweeping processes (web + worker both run background services), the
+        # in-process _driving set below is not a claim either of them can see;
+        # only this compare-and-set decides who owns the re-drive.
+        if not ledger.claim_intervention(goal.goal_id, expected=goal.interventions):
+            log.info(
+                "CEO supervisor: goal %s claimed by another sweeper, skipping",
+                goal.goal_id,
+            )
+            return False
         goal.interventions += 1
         goal.last_progress_at = time.time()
         goal.notes.append(
@@ -353,6 +369,7 @@ class CEOSupervisor:
             self._driving.discard(gid)
 
         task.add_done_callback(_done)
+        return True
 
     async def _redrive(self, goal: Any) -> None:
         """Re-delegate a stalled goal through the CEO, reusing its ledger entry.

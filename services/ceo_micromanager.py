@@ -629,24 +629,15 @@ async def decompose(
     return fallback_decomposition(request, complexity=complexity, role=role, nonce=nonce), "fallback"
 
 
-# ── Re-exports ────────────────────────────────────────────────────────────────
-# The quality gate and the escalation ladder live in ``services.ceo_quality``
-# (see that module's docstring for why). They are re-exported here because
-# callers reason about "the micro-manager" as one surface, and because moving
-# them should not churn every import site.
-from services.ceo_quality import (  # noqa: E402  — circular-safe: ceo_quality imports only names defined above
-    EscalationDecision,
-    QualityVerdict,
-    assess_quality,
-    decide_escalation,
-    first_sentence,
-    touched_tests,
-)
+# The quality gate and the escalation ladder live in ``services.ceo_quality``,
+# which imports *from* this module. They are deliberately NOT re-exported here:
+# a bottom-of-file `from services.ceo_quality import ...` creates a genuine
+# import cycle — importing ``services.ceo_quality`` first runs this module to
+# the bottom, which then imports back from the still-initialising quality
+# module and raises ImportError. Import them from ``services.ceo_quality``.
 
 __all__ = [
-    "EscalationDecision", "MicroManagerConfig", "QualityVerdict", "SubtaskPlan",
-    "TIER_LADDER", "TIER_PROFILES", "Tier", "TierProfile", "assess_quality",
-    "build_subtask_brief", "decide_escalation", "decompose",
-    "fallback_decomposition", "first_sentence", "get_config", "next_tier",
-    "resolve_runtime", "starting_tier", "tier_profile", "touched_tests",
+    "MicroManagerConfig", "SubtaskPlan", "TIER_LADDER", "TIER_PROFILES", "Tier",
+    "TierProfile", "build_subtask_brief", "decompose", "fallback_decomposition",
+    "get_config", "next_tier", "resolve_runtime", "starting_tier", "tier_profile",
 ]

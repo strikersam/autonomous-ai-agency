@@ -281,7 +281,8 @@ class CEODispatcher:
             )
             fanout_used = True
 
-        ledger_goal = self._open_ledger_goal(
+        ledger_goal = await _offload(
+            self._open_ledger_goal,
             goal_id=goal_id,
             goal=goal or request,
             request=request,
@@ -332,7 +333,7 @@ class CEODispatcher:
             workspace_root=workspace_root, ollama_base=ollama_base,
             github_token=github_token, user_id=user_id,
         )
-        self._close_ledger_goal(ledger_goal, result)
+        await _offload(self._close_ledger_goal, ledger_goal, result)
         return result
 
     # ── Micro-management: plan, brief, and ledger ────────────────────────────
@@ -690,13 +691,12 @@ class CEODispatcher:
         executions, never an unbounded retry storm on an unattended loop.
         """
         from services.ceo_micromanager import (
-            assess_quality,
             build_subtask_brief,
-            decide_escalation,
             get_config,
             resolve_runtime,
             tier_profile,
         )
+        from services.ceo_quality import assess_quality, decide_escalation
 
         config = get_config()
         previous_failure: str | None = None
@@ -994,6 +994,25 @@ class CEODispatcher:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+async def _offload(fn: Any, *args: Any, **kwargs: Any) -> Any:
+    """Run a synchronous ledger call without blocking the event loop.
+
+    ``CEOLedger`` is deliberately synchronous — it is written from the
+    supervisor's background context as well as from async request handlers — so
+    every call from an async path has to be offloaded. In Mongo mode a slow
+    update or a server-selection stall would otherwise freeze the entire API
+    loop before a single agent had started.
+
+    Falls back to a direct call when Starlette is unavailable (the ledger is
+    usable outside the web process too).
+    """
+    try:
+        from fastapi.concurrency import run_in_threadpool
+    except Exception:  # noqa: BLE001 — no web stack; a direct call is correct here
+        return fn(*args, **kwargs)
+    return await run_in_threadpool(fn, *args, **kwargs)
 
 
 def _harvest_changed_files(result: Any) -> tuple[list[str], bool]:

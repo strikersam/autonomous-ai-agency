@@ -499,6 +499,74 @@ class CEOLedger:
             ]
         return [GoalRecord.from_dict(d) for d in docs]
 
+    def claim_intervention(self, goal_id: str, *, expected: int) -> bool:
+        """Atomically bump ``interventions`` from *expected* to *expected + 1*.
+
+        Returns ``True`` only for the caller that won the race; everyone else
+        gets ``False`` and must not start work.
+
+        This exists because the supervisor's in-process ``_driving`` set is not
+        enough. ``RUN_BACKGROUND_IN_WEB`` defaults to true, so a deployment that
+        also runs the dedicated worker has **two** processes sweeping the same
+        shared ledger. Both would classify the same stalled goal, both would
+        spawn a re-drive, and the intervention counter would race — duplicating
+        edits and doubling token spend on exactly the goals already in trouble.
+        A compare-and-set on the shared store is the only claim both processes
+        can see.
+        """
+        now = _now()
+        if self._mode == "mongo":
+            try:
+                res = self._collection.update_one(
+                    {"goal_id": goal_id, "interventions": expected},
+                    {"$inc": {"interventions": 1}, "$set": {"last_progress_at": now}},
+                )
+                return bool(res.matched_count)
+            except Exception as exc:  # noqa: BLE001
+                log.warning("CEOLedger.claim_intervention failed: %s", exc)
+                return False
+        if self._mode == "sqlite" and self._sqlite is not None:
+            try:
+                with self._lock:
+                    # BEGIN IMMEDIATE takes the write lock up front, so a second
+                    # process reading the same file cannot interleave between the
+                    # read and the write below.
+                    self._sqlite.execute("BEGIN IMMEDIATE")
+                    try:
+                        cur = self._sqlite.execute(
+                            f"SELECT doc FROM {_TBL} WHERE goal_id = ?", (goal_id,)  # nosec B608 — _TBL is a constant
+                        )
+                        row = cur.fetchone()
+                        if not row:
+                            self._sqlite.execute("ROLLBACK")
+                            return False
+                        doc = json.loads(row[0])
+                        if int(doc.get("interventions") or 0) != expected:
+                            self._sqlite.execute("ROLLBACK")
+                            return False
+                        doc["interventions"] = expected + 1
+                        doc["last_progress_at"] = now
+                        doc["updated_at"] = now
+                        self._sqlite.execute(
+                            f"UPDATE {_TBL} SET doc = ?, updated_at = ?, last_progress_at = ? "  # nosec B608 — _TBL is a constant
+                            "WHERE goal_id = ?",
+                            (json.dumps(doc), now, now, goal_id),
+                        )
+                        self._sqlite.execute("COMMIT")
+                        return True
+                    except Exception:
+                        self._sqlite.execute("ROLLBACK")
+                        raise
+            except Exception as exc:  # noqa: BLE001
+                log.warning("CEOLedger.claim_intervention (sqlite) failed: %s", exc)
+                return False
+        doc = self._mem.get(goal_id)
+        if doc is None or int(doc.get("interventions") or 0) != expected:
+            return False
+        doc["interventions"] = expected + 1
+        doc["last_progress_at"] = now
+        return True
+
     def stats(self) -> dict[str, Any]:
         """Aggregate counts for the dashboard and the health endpoint."""
         recent = self.recent(limit=200)

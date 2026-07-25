@@ -145,6 +145,77 @@ def test_ledger_degrades_to_memory_without_a_backend(monkeypatch):
     assert [g.goal_id for g in store.open_goals()] == ["mem-1"]
 
 
+def test_claim_intervention_is_won_by_exactly_one_caller(ledger):
+    """Two sweeping processes must not both re-drive the same goal.
+
+    `RUN_BACKGROUND_IN_WEB` defaults to true, so a deployment that also runs the
+    dedicated worker has two processes sweeping the same shared ledger. The
+    in-process `_driving` set is invisible across them; only this compare-and-set
+    decides who owns the re-drive.
+    """
+    ledger.upsert(_goal("contested", interventions=0))
+
+    assert ledger.claim_intervention("contested", expected=0) is True
+    # The loser sees a stale expectation and must not start work.
+    assert ledger.claim_intervention("contested", expected=0) is False
+    assert ledger.get("contested").interventions == 1
+
+    # The next round claims from the new value.
+    assert ledger.claim_intervention("contested", expected=1) is True
+    assert ledger.get("contested").interventions == 2
+
+
+def test_claim_intervention_on_a_missing_goal_is_refused(ledger):
+    assert ledger.claim_intervention("does-not-exist", expected=0) is False
+
+
+@pytest.mark.asyncio
+async def test_a_lost_claim_does_not_spawn_a_redrive(ledger):
+    """A sweeper that loses the claim reports in-flight, not redriven."""
+    goal = _goal("contested-2", last_progress_at=time.time() - 5000)
+    goal.subtasks = [SubtaskRecord(subtask_id="s1", title="a", status="running")]
+    ledger.upsert(goal)
+
+    # Simulate the other process having already claimed it.
+    ledger.claim_intervention("contested-2", expected=0)
+
+    delegated = {"n": 0}
+
+    class _FakeCEO:
+        async def delegate(self, request, **kwargs):
+            delegated["n"] += 1
+            return None
+
+    with patch("services.ceo_dispatcher.get_ceo_dispatcher", return_value=_FakeCEO()):
+        report = await _supervisor(stall_s=600).sweep()
+        await asyncio.sleep(0)
+
+    assert report.redriven == 0
+    assert delegated["n"] == 0
+
+
+def test_quality_module_imports_standalone():
+    """Regression guard for a circular import introduced by the module split.
+
+    `services.ceo_quality` imports from `services.ceo_micromanager`. A
+    bottom-of-file re-export in the other direction made importing the quality
+    module *first* raise ImportError — invisible to tests that happen to import
+    the micromanager first.
+    """
+    import subprocess
+    import sys
+
+    # A subprocess is the only honest check: this test session has already
+    # imported both modules, so an in-process import would trivially succeed.
+    # Fixed argv built from sys.executable and a constant string — no user
+    # input, no shell. nosec B603.
+    result = subprocess.run(  # nosec B603
+        [sys.executable, "-c", "import services.ceo_quality"],
+        capture_output=True, text=True, timeout=120, check=False,
+    )
+    assert result.returncode == 0, result.stderr[-1500:]
+
+
 # ── changed-file harvesting ───────────────────────────────────────────────────
 
 

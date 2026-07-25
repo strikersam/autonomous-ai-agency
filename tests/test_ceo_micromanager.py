@@ -21,17 +21,15 @@ from services.ceo_micromanager import (
     SubtaskPlan,
     Tier,
     _extract_json_object,
-    assess_quality,
     build_subtask_brief,
-    decide_escalation,
     decompose,
     fallback_decomposition,
     next_tier,
     resolve_runtime,
     starting_tier,
     tier_profile,
-    touched_tests,
 )
+from services.ceo_quality import assess_quality, decide_escalation, touched_tests
 
 
 def _plan(**kw) -> SubtaskPlan:
