@@ -87,6 +87,10 @@
 | `handlers/anthropic_compat.py` | Anthropic API adapter | 708 | Medium |
 | `backend/server.py` | Dashboard API server | 6,487 | HIGH |
 | `services/workflow_orchestrator.py` | Workflow execution engine | 1,119 | HIGH |
+| `services/ceo_dispatcher.py` | CEO delegation + supervised escalation loop | 1,037 | HIGH |
+| `services/ceo_micromanager.py` | Tier ladder, subtask briefs, anti-slop gate | 809 | Medium |
+| `services/ceo_ledger.py` | Durable goal/subtask/attempt record | 493 | Medium |
+| `services/ceo_supervisor.py` | 24x7 sweep: close / re-drive / abandon goals | 374 | HIGH |
 | `services/company_graph_store.py` | Company knowledge graph persistence | 1,660 | Medium |
 | `services/scanner.py` | Tech stack scanner (Playwright) | 1,377 | Medium |
 
