@@ -1193,12 +1193,29 @@ PREDEFINED_MODELS: dict[str, list[dict]] = {
             "tier": "balanced",
         },
     ],
+    # Gemma is a separate open-weight family Google does NOT serve through the
+    # generative-language endpoint this provider points at, so "gemma-4" 404s
+    # unconditionally — the same defect already corrected for the seeded
+    # provider's default_model. The picker must only offer models this endpoint
+    # actually serves.
     "google": [
         {
-            "id": "gemma-4",
-            "name": "Gemma 4",
+            "id": "gemini-2.5-flash",
+            "name": "Gemini 2.5 Flash",
             "role": ["planner", "executor", "verifier"],
-            "tier": "balanced",
+            "tier": "fast",
+        },
+        {
+            "id": "gemini-2.5-pro",
+            "name": "Gemini 2.5 Pro",
+            "role": ["planner", "verifier"],
+            "tier": "flagship",
+        },
+        {
+            "id": "gemini-2.0-flash",
+            "name": "Gemini 2.0 Flash",
+            "role": ["planner", "executor", "verifier"],
+            "tier": "fast",
         },
     ],
     "moonshot": [
@@ -1210,6 +1227,21 @@ PREDEFINED_MODELS: dict[str, list[dict]] = {
         },
     ],
 }
+
+# GEMINI_MODEL is operator-overridable to any model the endpoint serves, but the
+# catalog above is static. Without this, an override outside the listed set (e.g.
+# GEMINI_MODEL=gemini-2.0-flash-lite) would be assigned to all three Google agent
+# roles while being unselectable in the picker. Register the configured model so
+# the catalog and the role assignments below can never disagree.
+if not any(m["id"] == GEMINI_MODEL for m in PREDEFINED_MODELS["google"]):
+    PREDEFINED_MODELS["google"].append(
+        {
+            "id": GEMINI_MODEL,
+            "name": GEMINI_MODEL,
+            "role": ["planner", "executor", "verifier"],
+            "tier": "balanced",
+        }
+    )
 
 # Which model handles each agent role per provider type.
 # Planner/Verifier → strong reasoning model; Executor → best instruction-following model.
@@ -1260,9 +1292,9 @@ AGENT_ROLE_MODELS: dict[str, dict[str, str]] = {
         "verifier": "mimo-v2-flash",
     },
     "google": {
-        "planner": "gemma-4",
-        "executor": "gemma-4",
-        "verifier": "gemma-4",
+        "planner": GEMINI_MODEL,
+        "executor": GEMINI_MODEL,
+        "verifier": GEMINI_MODEL,
     },
     "moonshot": {
         "planner": "kimi-k2.6",
@@ -4576,8 +4608,51 @@ async def call_llm(
             },
         ) from exc
     except ProviderFallbackError as exc:
-        log.error("LLM provider fallback exhausted: %s", exc)
-        raise HTTPException(status_code=503, detail="Internal server error") from exc
+        # The DB-configured provider records are exhausted. Before giving up,
+        # try the env-configured brain-failover chain (nvidia, groq, cerebras,
+        # zai, zhipu, deepseek, together, dashscope, moonshot, mistral, …),
+        # which the agent loop has always used but call_llm never reached.
+        # Without this the CEO strategic assessment degrades to its rule-based
+        # path while a dozen healthy providers sit untried. Paid providers stay
+        # gated inside brain_failover._build_registry (ALLOW_PAID_BRAIN or the
+        # Providers UI toggle) — this widens reach, never policy.
+        log.warning(
+            "LLM provider fallback exhausted (%s) — trying brain-failover chain", exc
+        )
+        try:
+            from packages.ai.failover_client import (
+                BrainFailoverExhausted,
+                failover_chat_completion,
+            )
+
+            fo = await failover_chat_completion(
+                {
+                    "model": model or OLLAMA_MODEL,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "stream": False,
+                },
+                timeout_sec=provider_timeout_sec,
+            )
+        except BrainFailoverExhausted as failover_exc:
+            log.exception(
+                "LLM provider fallback exhausted, brain-failover chain also "
+                "exhausted: %s",
+                failover_exc,
+            )
+            raise HTTPException(
+                status_code=503, detail="Internal server error"
+            ) from failover_exc
+        except Exception as failover_exc:  # noqa: BLE001 — never mask the original
+            log.exception("brain-failover chain failed: %s", failover_exc)
+            raise HTTPException(
+                status_code=503, detail="Internal server error"
+            ) from failover_exc
+        log.info(
+            "brain-failover chain recovered the call via %s/%s",
+            fo.provider_id, fo.model,
+        )
+        return fo.text
     except httpx.HTTPStatusError as exc:
         # Surface helpful provider-specific guidance.
         status = exc.response.status_code
@@ -4974,7 +5049,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                 session_id=sid,
                 requested_model=requested_agent_model,
                 model_overrides=role_models,
-                github_token=user.get("github_repo_token"),
+                github_token=await _resolve_user_github_token(user),
                 provider_chain=router.providers[1:],
                 allow_commercial_fallback=policy["allow_commercial_fallback"],
                 workspace_root=workspace_root,
@@ -5018,7 +5093,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
         )
 
     if not use_agent:
-        github_connected = bool(user.get("github_repo_token"))
+        github_connected = bool(await _resolve_user_github_token(user))
         assistant_meta = _direct_chat_agent_handoff(
             body.content,
             github_connected=github_connected,
@@ -8412,6 +8487,38 @@ async def _get_github_token(user_id: str) -> Optional[str]:
     return doc.get("token") if doc else None
 
 
+async def _resolve_user_github_token(user: Optional[dict]) -> Optional[str]:
+    """Return the caller's GitHub token from EITHER place it can be stored.
+
+    A token reaches the backend by routes that write to two different places:
+
+    * ``github_settings.token``    — the popup OAuth callback
+      (``/api/github/oauth/callback``); the canonical location.
+    * ``users.github_repo_token``  — ``PUT /api/github/token`` and the
+      server-side ``/api/auth/github/repo`` redirect flow.
+
+    Checking only the user document reports "no GitHub token" for every account
+    that connected through the popup, even though the token is valid and every
+    other GitHub endpoint finds it. The callback deliberately does NOT mirror
+    the token into the user document — duplicating a bearer credential across
+    two collections widens the blast radius of any future read or leak — so
+    consumers MUST use this resolver rather than reading either field directly.
+    """
+    if not user:
+        return None
+    token = user.get("github_repo_token")
+    if token:
+        return token
+    user_id = user.get("_id")
+    if not user_id:
+        return None
+    try:
+        return await _get_github_token(user_id)
+    except Exception as exc:  # noqa: BLE001 — a diagnostics lookup must not 500
+        log.debug("github token lookup failed for %s: %s", user_id, exc)
+        return None
+
+
 def _gh_headers(token: str) -> dict:
     return {
         "Authorization": f"Bearer {token}",
@@ -8553,6 +8660,7 @@ async def github_oauth_callback(
 
     login: str = gh_user.get("login", "")
 
+    now_iso = datetime.now(timezone.utc).isoformat()
     await get_db().github_settings.update_one(
         {"user_id": user_id},
         {
@@ -8560,10 +8668,24 @@ async def github_oauth_callback(
                 "user_id": user_id,
                 "token": access_token,
                 "github_login": login,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": now_iso,
             }
         },
         upsert=True,
+    )
+    # Record the connection on the user document WITHOUT copying the token into
+    # it. Readers split across both storage locations, but the fix for that is
+    # _resolve_user_github_token(), which reads both — duplicating the bearer
+    # credential into a second collection would widen the blast radius of any
+    # future read/leak for no functional gain.
+    await get_db().users.update_one(
+        _user_id_filter(user_id),
+        {
+            "$set": {
+                "github_login": login,
+                "github_updated_at": now_iso,
+            }
+        },
     )
     await log_activity("github", f"GitHub OAuth connected — @{login}", user_id=user_id)
     if state_doc.get("redirect"):
@@ -9244,8 +9366,8 @@ async def get_doctor_report(user: Optional[dict] = Depends(get_optional_user)) -
     import datetime
 
     github_token = (
-        (user or {}).get("github_repo_token")
-        or os.environ.get("GH_PAT") 
+        await _resolve_user_github_token(user)
+        or os.environ.get("GH_PAT")
         or os.environ.get("GH_TOKEN")
         or os.environ.get("GITHUB_TOKEN")
     )
@@ -9546,8 +9668,9 @@ async def get_doctor_diagnostics(
 
     # User-specific diagnostics: use ONLY the caller's own GitHub token, never
     # the server-wide env fallback — otherwise a user with no GitHub connection
-    # would falsely report healthy against the host's token.
-    github_token = user.get("github_repo_token")
+    # would falsely report healthy against the host's token. Both storage
+    # locations count as "the caller's own" (see _resolve_user_github_token).
+    github_token = await _resolve_user_github_token(user)
     doctor = DirectChatDoctor(github_token=github_token)
 
     checks: list[_DoctorCheck] = []
@@ -9882,7 +10005,7 @@ async def workflow_orchestrator_execute(
     body.user_id = _wfo_resolve_user_id(user)
     # Execution must act with the CALLER's GitHub permissions, never the
     # server-wide service-account token.
-    body.github_token = user.get("github_repo_token")
+    body.github_token = await _resolve_user_github_token(user)
     run = await orchestrator.execute(body)
     return {"status": run.status, "run": run.as_dict()}
 

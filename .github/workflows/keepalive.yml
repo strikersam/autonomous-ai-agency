@@ -70,3 +70,41 @@ jobs:
             # Do not fail the scheduled job on a single missed wake-up; the next
             # run retries. Flip to 'exit 1' if you want failure notifications.
           fi
+
+      - name: Warm the Hermes sidecar
+        env:
+          # The agency-hermes service (render.yaml) is a SEPARATE free-tier web
+          # service, so it sleeps on its own schedule regardless of how warm the
+          # main backend is. Keep it in sync with HERMES_BASE_URL on the web
+          # service; override with a HERMES_KEEPALIVE_URL repo variable.
+          HERMES_URL: ${{ vars.HERMES_KEEPALIVE_URL || 'https://agency-hermes.onrender.com' }}
+        run: |
+          set -u
+          # Why this step exists: runtimes/adapters/hermes.py is a SIDECAR
+          # adapter — it only speaks HTTP to an already-running Hermes server and
+          # never starts one. When agency-hermes is asleep its /health probe
+          # fails, RuntimeHealthService opens the circuit, and every task that
+          # should have routed to Hermes (AGENT_TASK_TYPE_ROUTING sends
+          # code_generation there) silently falls back to internal_agent. On the
+          # free plan that is the steady state, not an edge case: the service
+          # sleeps after ~15 min idle and only agent traffic would wake it —
+          # traffic that never arrives because the adapter reads it as down.
+          # Pinging it here breaks that deadlock.
+          hermes_ok=0
+          for attempt in 1 2 3 4 5 6; do
+            code=$(curl -s -o /tmp/hermes.txt -w '%{http_code}' --max-time 60 "$HERMES_URL/health" || echo "000")
+            echo "attempt $attempt: GET $HERMES_URL/health -> $code"
+            if [ "$code" = "200" ]; then hermes_ok=1; break; fi
+            sleep 15
+          done
+          if [ "$hermes_ok" = "1" ]; then
+            echo "Hermes sidecar is awake."
+            cat /tmp/hermes.txt || true
+            echo ""
+          else
+            # Non-fatal and deliberately a warning, not a failure: if the
+            # operator has not deployed agency-hermes at all, this step must not
+            # turn the keepalive job red every 3 minutes. Hermes being down only
+            # costs a fallback to internal_agent, never a failed task.
+            echo "::warning::Hermes did not answer /health after retries. Either agency-hermes is not deployed, or it is cold-starting. Tasks will fall back to internal_agent until it responds."
+          fi

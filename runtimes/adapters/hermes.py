@@ -47,6 +47,14 @@ from runtimes.base import (
 log = logging.getLogger("runtime.hermes")
 
 
+def _env_float(name: str, default: float) -> float:
+    """Read a float env var, falling back to *default* on unset/garbage."""
+    try:
+        return float((os.environ.get(name) or "").strip() or default)
+    except (TypeError, ValueError):
+        return default
+
+
 class HermesAdapter(RuntimeAdapter):
     """Adapter for Hermes Agent — FIRST CLASS autonomous runtime."""
 
@@ -111,7 +119,17 @@ class HermesAdapter(RuntimeAdapter):
     async def health_check(self) -> RuntimeHealth:
         t0 = time.monotonic()
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            # Cold-start tolerance. Hermes runs as its own Render service; on the
+            # free plan it spins down after ~15 min idle and takes 30-60s to
+            # wake. A 5s probe could never survive that, so Hermes read as
+            # permanently DOWN and every task silently fell back to
+            # internal_agent. RuntimeHealthService caches this result behind its
+            # own 30s asyncio budget and probes in the background, so this is not
+            # on the dispatch path — the default stays inside that 30s ceiling.
+            # The keepalive workflow also pings Hermes so it should rarely be
+            # cold; this timeout is the safety net, not the mechanism.
+            _timeout = _env_float("HERMES_HEALTH_TIMEOUT_SEC", 25.0)
+            async with httpx.AsyncClient(timeout=_timeout) as client:
                 resp = await client.get(
                     f"{self._base_url}/health",
                     headers=self._headers(),

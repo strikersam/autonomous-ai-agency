@@ -372,8 +372,13 @@ class CompanyAgencyService:
                     specialist.name, best_runtime, specialist.family,
                 )
             except Exception as exc:
-                log.error(
-                    "CompanyAgency: failed to assign runtime for %s: %s",
+                # Warning, not error: the very next line falls back to
+                # internal_agent, so the assignment still succeeds. Logging this
+                # at ERROR reported a handled fallback as an incident and tripped
+                # log_monitor's ERROR-triggered issue-filing.
+                log.warning(
+                    "CompanyAgency: runtime assignment for %s failed (%s) — "
+                    "falling back to internal_agent",
                     specialist.id, exc,
                 )
                 runtime_assignments[specialist.id] = "internal_agent"

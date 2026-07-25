@@ -48,3 +48,27 @@ gTTS>=2.5.0
 # get_langfuse_client() logs "langfuse package not installed" and no traces
 # are emitted, even when LANGFUSE_PUBLIC_KEY/SECRET_KEY are set on Render.
 langfuse>=4.14.0,<5
+
+# ── Runtime deps that shipped code imports directly ──────────────────────────
+# Same failure mode as the scanner/langfuse entries above: Dockerfile.backend
+# installs THIS file, never the root requirements.txt, so anything imported by
+# shipped code and listed only there is silently absent in production.
+# tests/test_backend_requirements_cover_runtime_imports.py guards this drift.
+
+# Anthropic SDK — agent/loop.py imports it for the native Messages API path.
+# Without it the import raises, the loop silently falls through to the
+# OpenAI-compatible failover, and paid Claude calls degrade.
+anthropic>=0.117.0
+
+# E2B Firecracker micro-VM sandbox — services/e2b_config.is_e2b_sdk_importable().
+# Without it the Providers screen reports "e2b OFFLINE / SDK not installed"
+# no matter how E2B_API_KEY is configured.
+e2b-code-interpreter>=1.0.0,<2.0.0
+
+# config/models.yaml catalog loader (packages/ai/brain_config.py and 4 other
+# call sites). Present transitively via uvicorn[standard] today; pinned here so
+# a transitive change can't remove the model catalog.
+PyYAML>=6.0.3
+
+# handlers/v3_models.py /stats imports psutil unguarded — absent it 500s.
+psutil>=7.2.2
