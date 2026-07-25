@@ -101,6 +101,11 @@ class SpecialistTask:
     #: Tier this attempt runs at. Escalation rewrites it in place between
     #: attempts, so it always reflects the tier of the *current* attempt.
     tier: str = "midlevel"
+    #: The caller's own step ceiling, when one was given. Escalation re-clamps
+    #: against it, so a caller that asked for a tighter budget than the tier
+    #: allows keeps that budget across retries instead of silently inheriting
+    #: the full tier envelope on the second attempt.
+    caller_max_steps: int | None = None
     #: The micro-manager's plan for this sub-task, when one exists. Carries the
     #: scope, outcome and ``writes_code`` flag the anti-slop gate judges
     #: against. ``None`` on the legacy single-specialist fast path, where there
@@ -284,6 +289,8 @@ class CEODispatcher:
             domain=domain,
             strategy=strategy,
             sub_tasks=sub_tasks,
+            workspace_root=workspace_root,
+            user_id=user_id,
         )
 
         specialists_out = await self._run_subtasks(
@@ -383,6 +390,7 @@ class CEODispatcher:
                     max_steps=min(max_steps or profile.max_steps, profile.max_steps),
                     dependencies=list(plan.dependencies),
                     tier=plan.tier.value,
+                    caller_max_steps=max_steps,
                     plan=plan,
                 )
             )
@@ -398,6 +406,8 @@ class CEODispatcher:
         domain: str,
         strategy: str,
         sub_tasks: list[SpecialistTask],
+        workspace_root: str | None = None,
+        user_id: str | None = None,
     ) -> Any:
         """Record the goal and its sub-tasks in the ledger before any work runs.
 
@@ -427,6 +437,11 @@ class CEODispatcher:
             )
             record.strategy = strategy
             record.state = "open"
+            # Replayed verbatim by a supervisor re-drive so the intervention
+            # edits the same checkout the first attempt did. Only non-secret
+            # identifiers are stored — never a token.
+            record.workspace_root = workspace_root or record.workspace_root
+            record.user_id = user_id or record.user_id
             record.subtasks = [
                 SubtaskRecord(
                     subtask_id=st.task_id,
@@ -728,7 +743,13 @@ class CEODispatcher:
             st.plan.tier = decision.tier
             st.tier = decision.tier.value
             profile = tier_profile(decision.tier)
-            st.max_steps = profile.max_steps
+            # Re-clamp against the caller's own ceiling, exactly as the initial
+            # plan did. Assigning profile.max_steps outright would hand a caller
+            # who asked for a tighter budget the full tier envelope from the
+            # second attempt onward.
+            st.max_steps = min(
+                st.caller_max_steps or profile.max_steps, profile.max_steps
+            )
             st.runtime_id = resolve_runtime(
                 st.role, decision.tier, ROLE_RUNTIME_PREFERENCE
             )
@@ -763,6 +784,12 @@ class CEODispatcher:
                 provider_preference=st.runtime_id,  # ← routes to the right runtime
                 model_preference=st.model,
                 allow_paid_escalation=False,
+                # The tier's step budget only means something if the runtime
+                # sees it. InternalAgentAdapter reads spec.context["max_steps"]
+                # to cap AgentRunner.run(); without this the per-tier ceiling was
+                # decorative and every sub-task ran at the global AGENT_MAX_STEPS
+                # default, defeating the spend bound the ladder exists to impose.
+                context={"max_steps": st.max_steps},
             )
             result, decision = await mgr.execute(spec)
             changed_files, files_reported = _harvest_changed_files(result)

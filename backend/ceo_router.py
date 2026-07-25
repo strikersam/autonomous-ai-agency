@@ -29,9 +29,17 @@ log = logging.getLogger("ceo_router")
 
 
 def _require_admin(user: dict) -> None:
-    """Reject non-admin callers for routes that spend provider budget."""
-    role = str((user or {}).get("role") or "").strip().lower()
-    if role != "admin":
+    """Reject non-admin callers for routes that spend provider budget.
+
+    Delegates to ``backend.company_api._is_admin`` — the backend app's single
+    role-tag authority — rather than comparing the role string here, so this
+    router cannot drift into a second, subtly different admin rule. (The
+    ``_get_admin_identity_from_request`` helper belongs to ``proxy.py``, a
+    different app with a different auth model; it is not importable here.)
+    """
+    from backend.company_api import _is_admin
+
+    if not user or not _is_admin(user):
         raise HTTPException(status_code=403, detail="Admin role required")
 
 
@@ -41,17 +49,23 @@ def build_ceo_router(get_current_user: Callable[..., Any]) -> APIRouter:
     @router.get("/status")
     async def ceo_status(user: dict = Depends(get_current_user)) -> dict:
         """Supervisor state plus ledger aggregates."""
+        from fastapi.concurrency import run_in_threadpool
+
         from services.ceo_ledger import get_ceo_ledger
         from services.ceo_micromanager import TIER_LADDER, get_config
         from services.ceo_supervisor import get_ceo_supervisor, supervisor_enabled
 
         config = get_config()
+        # CEOLedger is deliberately synchronous (it is written from the
+        # supervisor's background context too), so its SQLite/Mongo calls must
+        # not run inline on the event loop.
+        stats = await run_in_threadpool(get_ceo_ledger().stats)
         return {
             "supervisor": {
                 "enabled": supervisor_enabled(),
                 **get_ceo_supervisor().get_status(),
             },
-            "ledger": get_ceo_ledger().stats(),
+            "ledger": stats,
             "micromanager": {
                 "tier_ladder": [t.value for t in TIER_LADDER],
                 "max_subtasks": config.max_subtasks,
@@ -69,16 +83,22 @@ def build_ceo_router(get_current_user: Callable[..., Any]) -> APIRouter:
         user: dict = Depends(get_current_user),
     ) -> dict:
         """Recent goals, newest first. ``?state=open`` returns only open ones."""
+        from fastapi.concurrency import run_in_threadpool
+
         from services.ceo_ledger import get_ceo_ledger
 
         ledger = get_ceo_ledger()
-        goals = (
-            ledger.open_goals(limit=limit)
-            if (state or "").strip().lower() == "open"
-            else ledger.recent(limit=limit)
-        )
-        if state and state.strip().lower() != "open":
-            goals = [g for g in goals if g.state == state.strip().lower()]
+        wanted = (state or "").strip().lower()
+        if wanted == "open":
+            goals = await run_in_threadpool(ledger.open_goals, limit=limit)
+        elif wanted:
+            # Filtering after a LIMIT silently under-reports: ?state=abandoned
+            # could return nothing while abandoned goals sat just outside the
+            # newest-N window. Over-fetch, filter, then slice.
+            candidates = await run_in_threadpool(ledger.recent, limit=max(limit * 10, 200))
+            goals = [g for g in candidates if g.state == wanted][:limit]
+        else:
+            goals = await run_in_threadpool(ledger.recent, limit=limit)
         # Subtask histories are large; the list view returns headline fields
         # only, and the detail route carries the attempts.
         summaries = []
@@ -92,9 +112,11 @@ def build_ceo_router(get_current_user: Callable[..., Any]) -> APIRouter:
     @router.get("/goals/{goal_id}")
     async def get_goal(goal_id: str, user: dict = Depends(get_current_user)) -> dict:
         """One goal with its full subtask and attempt history."""
+        from fastapi.concurrency import run_in_threadpool
+
         from services.ceo_ledger import get_ceo_ledger
 
-        goal = get_ceo_ledger().get(goal_id)
+        goal = await run_in_threadpool(get_ceo_ledger().get, goal_id)
         if goal is None:
             raise HTTPException(status_code=404, detail="Goal not found")
         return goal.as_dict()
@@ -118,15 +140,21 @@ def build_ceo_router(get_current_user: Callable[..., Any]) -> APIRouter:
         loop a permanently broken goal.
         """
         _require_admin(user)
+        from fastapi.concurrency import run_in_threadpool
+
         from services.ceo_ledger import get_ceo_ledger
         from services.ceo_supervisor import get_ceo_supervisor
 
         ledger = get_ceo_ledger()
-        goal = ledger.get(goal_id)
+        goal = await run_in_threadpool(ledger.get, goal_id)
         if goal is None:
             raise HTTPException(status_code=404, detail="Goal not found")
         supervisor = get_ceo_supervisor()
-        if goal.interventions >= supervisor.config.max_interventions:
+        # request_redrive keeps the budget check and the in-flight claim
+        # together, so this route cannot bypass either by construction.
+        if supervisor.is_driving(goal_id):
+            raise HTTPException(status_code=409, detail="Goal is already being re-driven")
+        if not supervisor.request_redrive(goal, ledger):
             raise HTTPException(
                 status_code=409,
                 detail=(
@@ -134,9 +162,6 @@ def build_ceo_router(get_current_user: Callable[..., Any]) -> APIRouter:
                     f"({goal.interventions}/{supervisor.config.max_interventions})"
                 ),
             )
-        if goal_id in supervisor._driving:
-            raise HTTPException(status_code=409, detail="Goal is already being re-driven")
-        supervisor._spawn_redrive(ledger, goal)
         return {"goal_id": goal_id, "interventions": goal.interventions, "status": "redriving"}
 
     return router

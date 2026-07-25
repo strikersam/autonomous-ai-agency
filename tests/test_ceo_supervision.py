@@ -316,6 +316,47 @@ async def test_good_first_attempt_is_not_retried():
 
 
 @pytest.mark.asyncio
+async def test_step_budget_reaches_the_runtime():
+    """The tier ceiling is only real if the adapter can see it.
+
+    InternalAgentAdapter caps AgentRunner via spec.context["max_steps"]; without
+    it every sub-task ran at the global AGENT_MAX_STEPS default and the tier
+    budget was decorative.
+    """
+    mgr = _ScriptedManager([
+        _TaskResult(success=True, output="Added the route and a test for it.",
+                    metadata={"changed_files": ["api.py", "tests/test_api.py"]})
+    ])
+    st = _task(Tier.MIDLEVEL)
+    st.max_steps = 7
+    ceo = CEODispatcher()
+    await ceo._run_supervised(mgr, st, sem=asyncio.Semaphore(2), results={})
+
+    assert mgr.calls[0].context["max_steps"] == 7
+
+
+@pytest.mark.asyncio
+async def test_escalation_keeps_the_callers_step_ceiling(monkeypatch):
+    """A caller who asked for a tighter budget keeps it across retries."""
+    monkeypatch.setenv("CEO_MAX_ATTEMPTS_PER_SUBTASK", "2")
+    mgr = _ScriptedManager([
+        _TaskResult(success=True, output="All done.", metadata={"changed_files": []}),
+        _TaskResult(success=True, output="Added the route and a test for it.",
+                    metadata={"changed_files": ["api.py", "tests/test_api.py"]}),
+    ])
+    st = _task(Tier.INTERN)
+    st.max_steps = 2
+    st.caller_max_steps = 2  # tighter than every tier profile
+    ceo = CEODispatcher()
+    await ceo._run_supervised(mgr, st, sem=asyncio.Semaphore(2), results={})
+
+    assert len(mgr.calls) == 2
+    # The retry ran one tier up but must not inherit that tier's full envelope.
+    assert st.tier == Tier.JUNIOR.value
+    assert mgr.calls[1].context["max_steps"] == 2
+
+
+@pytest.mark.asyncio
 async def test_legacy_task_without_a_plan_is_not_judged():
     """The low-complexity fast path has no plan, so there is nothing to gate on."""
     mgr = _ScriptedManager([_TaskResult(success=True, output="ok")])
@@ -346,7 +387,10 @@ async def test_delegate_accepts_the_orchestrator_call_signature():
         request="Fix the bug",
         complexity="medium",
         domain="testing",
-        workspace_root="/tmp/wt",
+        # A placeholder path, never touched — bind() only type-checks the call.
+        # Deliberately not under /tmp: Bandit flags hardcoded temp paths (B108)
+        # and the Security Gate fails the PR on any new alert.
+        workspace_root="/workspace/wt",
         specialists=["s1"],
         max_steps=5,
     )
@@ -427,19 +471,22 @@ async def test_sweep_redrives_a_stalled_goal(ledger):
     ledger.upsert(goal)
 
     driven = {}
+    delegated = asyncio.Event()
 
     class _FakeCEO:
         async def delegate(self, request, **kwargs):
             driven["request"] = request
             driven["goal_id"] = kwargs.get("goal_id")
+            driven["workspace_root"] = kwargs.get("workspace_root")
+            delegated.set()
             return None
 
     with patch("services.ceo_dispatcher.get_ceo_dispatcher", return_value=_FakeCEO()):
         supervisor = _supervisor(stall_s=600)
         report = await supervisor.sweep()
-        # The re-drive runs as a detached task; let it complete.
-        await asyncio.sleep(0)
-        await asyncio.sleep(0)
+        # The re-drive runs as a detached task. Waiting on an event is
+        # deterministic; counting sleep(0) yields is not.
+        await asyncio.wait_for(delegated.wait(), timeout=5)
 
     assert report.redriven == 1
     stored = ledger.get("stalled-1")
@@ -569,13 +616,13 @@ async def test_run_forever_keeps_going_after_a_failing_sweep(monkeypatch):
         return SweepReport()
 
     monkeypatch.setattr(supervisor, "sweep", _flaky)
-    # Make the inter-sweep sleep instant so the test does not wait 30s. The real
-    # sleep is captured first — referring to asyncio.sleep inside the
-    # replacement would call the replacement.
-    real_sleep = asyncio.sleep
-    monkeypatch.setattr(
-        "services.ceo_supervisor.asyncio.sleep", lambda _s: real_sleep(0)
-    )
+    # Shorten only this supervisor's inter-sweep delay. Patching
+    # services.ceo_supervisor.asyncio.sleep would replace asyncio.sleep for the
+    # whole process — that module attribute *is* the stdlib module.
+    async def _instant(_seconds):
+        return None
+
+    monkeypatch.setattr(supervisor, "_sleep", _instant)
 
     await asyncio.wait_for(supervisor.run_forever(), timeout=5)
     assert calls["n"] >= 2, "the loop must survive the first failure and sweep again"

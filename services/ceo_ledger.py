@@ -35,12 +35,31 @@ log = logging.getLogger("agency.ceo.ledger")
 
 _MONGO_URL = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
 _DB_NAME = os.environ.get("DB_NAME", "llm_platform")
-_SELECTION_TIMEOUT_MS = int(os.environ.get("MONGO_SELECTION_TIMEOUT_MS", "2000"))
 _COLLECTION = "ceo_ledger"
 # _TBL is a module-level constant, never user input, so the f-string SQL below
 # has no injection surface. Bandit cannot distinguish that from a query built
 # with user data, hence the `# nosec B608` markers at each use site.
 _TBL = _COLLECTION
+
+
+def _selection_timeout_ms() -> int:
+    """Mongo server-selection timeout, read and clamped at call time.
+
+    Parsing this at import time with a bare ``int()`` means
+    ``MONGO_SELECTION_TIMEOUT_MS=abc`` raises ``ValueError`` while importing this
+    module, which takes down the whole CEO subsystem — and anything importing it
+    — instead of degrading. Every other env read in this subsystem is clamped and
+    defaulted; this one is too.
+    """
+    raw = os.environ.get("MONGO_SELECTION_TIMEOUT_MS", "").strip()
+    if not raw:
+        return 2000
+    try:
+        return max(50, min(30000, int(raw)))
+    except ValueError:
+        log.warning("MONGO_SELECTION_TIMEOUT_MS=%r is not an integer; using 2000", raw)
+        return 2000
+
 
 def _sqlite_path() -> str:
     """Resolve the SQLite path at construction time, not import time.
@@ -174,6 +193,16 @@ class GoalRecord:
     complexity: str = "medium"
     domain: str = "general"
     strategy: str = "fallback"  # llm | fallback — how the split was produced
+    #: Workspace the goal was originally executed against. A supervisor re-drive
+    #: replays it so the intervention edits the same checkout the first attempt
+    #: did, rather than falling back to the process working directory.
+    workspace_root: str = ""
+    #: Who the goal was run for. Replayed so a re-drive keeps the same task
+    #: attribution. **Credentials are deliberately not stored** — a durable
+    #: ledger is the wrong place for a token, and the constitution forbids
+    #: writing secrets to disk. A re-drive therefore runs with the server's own
+    #: repo access, not the original caller's; see the note in ``_redrive``.
+    user_id: str = ""
     created_at: float = field(default_factory=_now)
     updated_at: float = field(default_factory=_now)
     #: Monotonic-ish wall clock of the last observed progress. The supervisor
@@ -210,6 +239,8 @@ class GoalRecord:
             "complexity": self.complexity,
             "domain": self.domain,
             "strategy": self.strategy,
+            "workspace_root": self.workspace_root,
+            "user_id": self.user_id,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "last_progress_at": self.last_progress_at,
@@ -230,6 +261,8 @@ class GoalRecord:
             complexity=str(d.get("complexity") or "medium"),
             domain=str(d.get("domain") or "general"),
             strategy=str(d.get("strategy") or "fallback"),
+            workspace_root=str(d.get("workspace_root") or ""),
+            user_id=str(d.get("user_id") or ""),
             created_at=float(d.get("created_at") or _now()),
             updated_at=float(d.get("updated_at") or _now()),
             last_progress_at=float(d.get("last_progress_at") or _now()),
@@ -278,7 +311,7 @@ class CEOLedger:
 
             client = pymongo.MongoClient(
                 mongo_url or _MONGO_URL,
-                serverSelectionTimeoutMS=_SELECTION_TIMEOUT_MS,
+                serverSelectionTimeoutMS=_selection_timeout_ms(),
             )
             client.admin.command("ping")  # fail fast into memory mode when offline
             self._collection = client[db_name or _DB_NAME][_COLLECTION]
@@ -317,8 +350,20 @@ class CEOLedger:
                 "goal_id TEXT PRIMARY KEY,"
                 "state   TEXT NOT NULL,"
                 "doc     TEXT NOT NULL,"
-                "updated_at REAL NOT NULL"
+                "updated_at REAL NOT NULL,"
+                "last_progress_at REAL NOT NULL DEFAULT 0"
                 ")"
+            )
+            # Existing databases predate the column; ADD COLUMN is a no-op
+            # once it exists, so this migrates in place without a version check.
+            try:
+                self._sqlite.execute(
+                    f"ALTER TABLE {_TBL} ADD COLUMN last_progress_at REAL NOT NULL DEFAULT 0"  # nosec B608 — _TBL is a constant
+                )
+            except sqlite3.OperationalError:
+                pass  # column already present
+            self._sqlite.execute(
+                f"CREATE INDEX IF NOT EXISTS {_TBL}_progress_idx ON {_TBL} (state, last_progress_at)"  # nosec B608 — _TBL is a constant
             )
             self._sqlite.commit()
             self._mode = "sqlite"
@@ -347,9 +392,10 @@ class CEOLedger:
             try:
                 with self._lock:
                     self._sqlite.execute(
-                        f"INSERT OR REPLACE INTO {_TBL} (goal_id, state, doc, updated_at) "  # nosec B608 — _TBL is a constant
-                        "VALUES (?, ?, ?, ?)",
-                        (goal.goal_id, goal.state, json.dumps(doc), doc["updated_at"]),
+                        f"INSERT OR REPLACE INTO {_TBL} (goal_id, state, doc, updated_at, last_progress_at) "  # nosec B608 — _TBL is a constant
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (goal.goal_id, goal.state, json.dumps(doc), doc["updated_at"],
+                         doc["last_progress_at"]),
                     )
                     self._sqlite.commit()
                 return
@@ -407,7 +453,7 @@ class CEOLedger:
                 with self._lock:
                     cur = self._sqlite.execute(
                         f"SELECT doc FROM {_TBL} WHERE state NOT IN ('closed','abandoned') "  # nosec B608 — _TBL is a constant
-                        "ORDER BY updated_at ASC LIMIT ?",
+                        "ORDER BY last_progress_at ASC LIMIT ?",
                         (limit,),
                     )
                     rows = cur.fetchall()
@@ -419,11 +465,11 @@ class CEOLedger:
             docs = [d for d in self._mem.values() if d.get("state") not in CLOSED_STATES]
             docs.sort(key=lambda d: d.get("last_progress_at", 0.0))
             docs = docs[:limit]
-        goals = [GoalRecord.from_dict(d) for d in docs]
-        if self._mode in {"mongo", "memory"}:
-            return goals
-        goals.sort(key=lambda g: g.last_progress_at)
-        return goals
+        # Every backend now orders by last_progress_at inside the query, so
+        # the limit keeps the most-stalled goals rather than truncating them
+        # away. Re-sorting the returned page here would not have fixed that:
+        # it only reorders rows the LIMIT already chose.
+        return [GoalRecord.from_dict(d) for d in docs]
 
     def recent(self, *, limit: int = 25) -> list[GoalRecord]:
         """Return the most recently updated goals regardless of state."""

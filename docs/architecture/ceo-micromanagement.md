@@ -25,7 +25,7 @@ The visible symptom was an agency that looked busy and quietly dropped tasks.
 
 ---
 
-## The four pieces
+## The pieces
 
 | Module | Responsibility |
 |--------|----------------|
@@ -74,7 +74,7 @@ may serve which role.
 
 Every delegated subtask carries the same seven sections:
 
-```
+```text
 # Context              the overall goal, this subtask's part in it, upstream results
 # Scope                exactly what to accomplish
 # Focus                only this work; report anything out of scope, don't act on it
@@ -109,11 +109,19 @@ out of.
 - the subtask was expected to change files, the runtime **does** report changed
   files, and it changed none — the strongest slop signal available
 
-**Penalties** (accumulate; accepted at ≥ 0.5):
+**Penalties** — recorded on the verdict's `score` for the ledger and the
+dashboard, but **never** rejecting on their own:
 
 - summary shorter than `CEO_MIN_OUTPUT_CHARS`
 - source files changed but no test file touched
 - the runtime cannot report changed files (small penalty; see below)
+
+Acceptance is categorical: only the hard signals reject. An earlier version
+gated on `score >= 0.5`, which meant a terse summary (−0.3) plus a missing
+test (−0.3) landed on 0.4 and escalated a correct-but-brief change through the
+whole ladder — two documented *warnings* silently becoming an error. That kind
+of emergent threshold is expensive on an unattended loop, so the numeric gate
+is gone.
 
 ### Two deliberate narrowings
 
@@ -133,7 +141,7 @@ failure.
 
 ## Escalation, and why it terminates
 
-```
+```text
 attempt 1 (intern)  → rejected → escalate
 attempt 2 (junior)  → rejected → escalate
 attempt 3 (midlevel)→ rejected → budget spent → record hard failure
@@ -215,7 +223,7 @@ before the task starts — otherwise a re-drive slower than the sweep interval
 would be started again on the next sweep, duplicating the work it was meant to
 rescue.
 
-### Four bounds
+### Five bounds
 
 | Bound | Default | Stops |
 |-------|---------|-------|
@@ -262,6 +270,12 @@ it is not a way around the budget.
 | `CEO_DECOMPOSITION_TIMEOUT_S` | `45` | Before falling back to the deterministic split |
 | `CEO_ESCALATION_ENABLED` | `true` | Master switch for re-delegation |
 | `CEO_SUPERVISOR_ENABLED` | `true` | 24x7 sweep; off under `TESTING` |
+| `CEO_SUPERVISOR_INTERVAL_S` | `180` | Seconds between sweeps |
+| `CEO_SUPERVISOR_STALL_S` | `1800` | No progress for longer than this counts as stalled |
+| `CEO_SUPERVISOR_MAX_INTERVENTIONS` | `3` | Re-drives allowed per goal before it is abandoned |
+| `CEO_SUPERVISOR_MAX_GOAL_AGE_S` | `86400` | Age past which a goal is abandoned regardless of progress |
+| `CEO_SUPERVISOR_MAX_REDRIVES_PER_SWEEP` | `2` | Cap on re-drives started by one sweep |
+| `CEO_SUPERVISOR_WAKE_RUNTIMES` | `true` | Force-wake sleeping runtimes each sweep |
 
 Every micro-manager environment read lives in `MicroManagerConfig.from_env()` and
 every supervisor read in `SupervisorConfig.from_env()` — a single configuration

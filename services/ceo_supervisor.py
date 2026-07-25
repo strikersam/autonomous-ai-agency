@@ -137,6 +137,11 @@ class CEOSupervisor:
         #: that takes longer than the sweep interval would be started again on
         #: the next sweep, duplicating the work it was meant to rescue.
         self._driving: set[str] = set()
+        #: Strong references to in-flight re-drive tasks. ``asyncio`` only keeps
+        #: a weak reference to a running task, so a task held nowhere else can
+        #: be garbage collected mid-flight; ``add_done_callback`` does not keep
+        #: it alive either.
+        self._tasks: set[asyncio.Task] = set()
 
     # ── Lifecycle ─────────────────────────────────────────────────────────
 
@@ -162,7 +167,7 @@ class CEOSupervisor:
                     raise
                 except Exception as exc:  # noqa: BLE001 — the loop must survive
                     log.warning("CEO supervisor sweep failed: %s", exc, exc_info=True)
-                await asyncio.sleep(self.config.interval_s)
+                await self._sleep(self.config.interval_s)
         except asyncio.CancelledError:
             log.info("CEO supervisor stopped")
             raise
@@ -171,6 +176,38 @@ class CEOSupervisor:
 
     def stop(self) -> None:
         self._running = False
+
+    async def _sleep(self, seconds: float) -> None:
+        """Inter-sweep delay, behind a method so tests can shorten it.
+
+        Patching ``asyncio.sleep`` through this module would replace it for the
+        whole process — ``services.ceo_supervisor.asyncio`` *is* the stdlib
+        module — which would silently speed up every other coroutine on the loop.
+        """
+        await asyncio.sleep(seconds)
+
+    def is_driving(self, goal_id: str) -> bool:
+        """True when this process already has a re-drive in flight for *goal_id*."""
+        return goal_id in self._driving
+
+    def request_redrive(self, goal: Any, ledger: Any = None) -> bool:
+        """Start a re-drive of *goal*, honouring the intervention budget.
+
+        Returns ``False`` when the goal has spent its budget or is already being
+        driven. Keeping the budget check and the ``_driving`` claim together in
+        one public method means the HTTP layer cannot accidentally bypass either
+        — the manual re-drive route is not a way around the cap.
+        """
+        if goal.interventions >= self.config.max_interventions:
+            return False
+        if self.is_driving(goal.goal_id):
+            return False
+        if ledger is None:
+            from services.ceo_ledger import get_ceo_ledger
+
+            ledger = get_ceo_ledger()
+        self._spawn_redrive(ledger, goal)
+        return True
 
     def get_status(self) -> dict[str, Any]:
         """Status for the health endpoint and dashboard."""
@@ -307,12 +344,30 @@ class CEOSupervisor:
             goal.goal_id, goal.interventions, self.config.max_interventions, goal.goal[:100],
         )
         task = asyncio.create_task(self._redrive(goal))
-        # Keep a reference until completion so the task is not garbage
-        # collected mid-flight, and always release the claim.
-        task.add_done_callback(lambda _t, gid=goal.goal_id: self._driving.discard(gid))
+        # Hold a strong reference until completion so the task is not garbage
+        # collected mid-flight, and always release the claim when it finishes.
+        self._tasks.add(task)
+
+        def _done(finished: asyncio.Task, gid: str = goal.goal_id) -> None:
+            self._tasks.discard(finished)
+            self._driving.discard(gid)
+
+        task.add_done_callback(_done)
 
     async def _redrive(self, goal: Any) -> None:
-        """Re-delegate a stalled goal through the CEO, reusing its ledger entry."""
+        """Re-delegate a stalled goal through the CEO, reusing its ledger entry.
+
+        The original workspace and user id are replayed so the intervention acts
+        on the same checkout and keeps the same attribution — without them the
+        re-drive silently fell back to the process working directory, which for a
+        company-scoped goal is the wrong repository.
+
+        Credentials are **not** replayed: the ledger deliberately stores no
+        tokens, so a re-drive runs with the server's own repo access. A goal that
+        only succeeded because of a caller's elevated GitHub token will therefore
+        fail its push step on re-drive rather than silently acting with different
+        permissions than the operator expects.
+        """
         try:
             from services.ceo_dispatcher import get_ceo_dispatcher
 
@@ -323,6 +378,8 @@ class CEOSupervisor:
                 goal_id=goal.goal_id,
                 complexity=goal.complexity,
                 domain=goal.domain,
+                workspace_root=goal.workspace_root or None,
+                user_id=goal.user_id or None,
             )
         except asyncio.CancelledError:
             raise

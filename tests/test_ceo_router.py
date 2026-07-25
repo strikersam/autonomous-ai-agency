@@ -13,6 +13,7 @@ from __future__ import annotations
 import time
 
 import pytest
+from unittest.mock import patch
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
@@ -148,6 +149,39 @@ def test_admin_can_run_a_sweep_on_demand(ledger):
     body = client.post("/api/ceo/sweep").json()
     assert body["closed"] == 1
     assert ledger.get("done-1").state == "closed"
+
+
+def test_admin_can_force_a_redrive(ledger):
+    """The happy path — the branch that actually spends provider budget."""
+    _seed(ledger, "live-1", last_progress_at=time.time() - 9999)
+
+    class _FakeCEO:
+        async def delegate(self, request, **kwargs):
+            return None
+
+    with patch("services.ceo_dispatcher.get_ceo_dispatcher", return_value=_FakeCEO()):
+        client = TestClient(_make_app(_ADMIN))
+        body = client.post("/api/ceo/goals/live-1/redrive").json()
+
+    assert body["status"] == "redriving"
+    assert body["interventions"] == 1
+    # The budget spend is durable, so a restart cannot hand the goal a free
+    # extra intervention. Asserting on `is_driving` instead would be racy —
+    # the detached task may already have finished by the time the call returns.
+    stored = ledger.get("live-1")
+    assert stored.interventions == 1
+    assert any("intervention #1" in n for n in stored.notes)
+
+
+def test_state_filter_is_not_truncated_by_the_limit(ledger):
+    """Filtering after a LIMIT silently under-reported matching goals."""
+    for i in range(30):
+        _seed(ledger, f"open-{i}")
+    _seed(ledger, "old-abandoned", state="abandoned")
+
+    client = TestClient(_make_app(_ADMIN))
+    body = client.get("/api/ceo/goals?state=abandoned&limit=5").json()
+    assert [g["goal_id"] for g in body["goals"]] == ["old-abandoned"]
 
 
 def test_redrive_refuses_a_goal_that_spent_its_budget(ledger):

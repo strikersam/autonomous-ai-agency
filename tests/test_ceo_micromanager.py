@@ -373,6 +373,30 @@ def test_short_summary_is_penalised():
     assert any("too short" in r for r in verdict.reasons)
 
 
+def test_soft_penalties_never_combine_into_a_rejection():
+    """Two documented warnings must not silently become an error.
+
+    Under the previous 0.5 numeric threshold, a terse summary (-0.3) plus a
+    missing test (-0.3) landed on 0.4 and rejected — escalating a
+    correct-but-brief change through the whole tier ladder even though each
+    signal alone is specified as a warning. Acceptance is categorical now.
+    """
+    verdict = assess_quality(
+        _plan(), _ok_result(summary="Added it.", changed_files=["providers/x.py"])
+    )
+    assert len(verdict.reasons) >= 2, "both soft penalties should be recorded"
+    assert verdict.accepted is True
+    assert verdict.score < 0.5, "the score still reflects the warnings"
+
+
+def test_hard_reject_still_wins_over_a_perfect_score():
+    verdict = assess_quality(
+        _plan(writes_code=True),
+        _ok_result(changed_files=[], files_reported=True),
+    )
+    assert verdict.accepted is False
+
+
 def test_touched_tests_recognises_common_layouts():
     assert touched_tests(["tests/test_x.py"])
     assert touched_tests(["backend/test_server.py"])
