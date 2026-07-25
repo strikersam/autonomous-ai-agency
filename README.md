@@ -110,6 +110,16 @@ Consistent with the "check the proof" ethos above, none of this is described onl
 
 Full gap analysis and every new configuration variable: [docs/AGENT_AUTONOMY_ROADMAP.md](docs/AGENT_AUTONOMY_ROADMAP.md).
 
+## What's New (2026-07-24)
+
+**Structured output strict mode + refusal handling.** The OpenAI `json_schema` + `strict: true` pattern is now the preferred way to request schema-conformant JSON from any model (replacing the legacy `json_object` mode). The proxy translates strict-mode requests into a tighter system-prompt constraint for Anthropic and other providers that don't natively support it, and detects model refusals (`choices[0].message.refusal`) so callers get a clear error instead of empty/garbled JSON.
+
+**MCP tools/list TTL caching.** The agent's MCP client now respects the `ttlMs` field from `tools/list` responses (per the MCP spec 2026-07-28 RC), eliminating redundant round-trips to stable tool registries. Configurable default: 60 s.
+
+**New model catalog entries.** The cost-attribution table now includes the July 2026 model releases: **GPT-5.6 Sol/Terra/Luna** (OpenAI's o3 successors, GA July 9), **Claude Sonnet 5** (1M context, adaptive thinking), and **o3** (with deprecation flag for late August). Provider cost breakdowns on the Observability screen update automatically.
+
+---
+
 ## Honest model economics
 
 - The **free 24h sandbox** runs on free-tier models (Cerebras, Groq, NVIDIA NIM) with automatic failover. It demonstrates the orchestration loop end to end; it is *not* the output quality you'd run a company on.

@@ -45,16 +45,23 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "llama-3.3-70b-versatile": (0.0, 0.0),
     "deepseek-r1-distill-llama-70b": (0.0, 0.0),
     "llama-3.1-8b-instant": (0.0, 0.0),
-    # --- Anthropic (paid) — Claude Sonnet 4.x / Opus 4.x ---
+    # --- Anthropic (paid) — Claude Sonnet 5 / Sonnet 4.x / Opus 4.x ---
+    "claude-sonnet-5": (3.0, 15.0),        # GA July 2026, 1M context, adaptive thinking
+    "claude-sonnet-5-20260501": (3.0, 15.0),
+    "claude-fable-5": (3.0, 15.0),
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-opus-4-8": (15.0, 75.0),
     "claude-haiku-4-5-20251001": (0.8, 4.0),
     "claude-3-5-sonnet-20241022": (3.0, 15.0),
     "claude-3-5-haiku-20241022": (0.8, 4.0),
-    # --- OpenAI (paid) ---
+    # --- OpenAI (paid) — GPT-5.6 family (GA July 9 2026) + legacy ---
+    "gpt-5.6-sol": (5.0, 30.0),            # Sol: complex reasoning/coding, o3 successor
+    "gpt-5.6-terra": (1.5, 7.5),           # Terra: balanced/lower cost
+    "gpt-5.6-luna": (0.5, 2.0),            # Luna: fast/high-volume
     "gpt-4o": (2.5, 10.0),
     "gpt-4o-mini": (0.15, 0.6),
     "o1": (15.0, 60.0),
+    "o3": (10.0, 40.0),                    # Deprecating late August 2026; migrate to gpt-5.6-sol
     "o3-mini": (1.1, 4.4),
     # --- North Mini Code (local/OpenRouter free) ---
     "north-mini-code-1.0": (0.0, 0.0),

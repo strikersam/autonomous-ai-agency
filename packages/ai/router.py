@@ -336,6 +336,19 @@ def _openai_url(base_url: str, path: str) -> str:
     return f"{base}/v1{path}"
 
 
+def is_anthropic_base_url(base_url: str | None) -> bool:
+    """True when ``base_url`` points at Anthropic's native Messages API.
+
+    Anthropic's own API exposes ``/v1/messages`` and rejects both the
+    ``/chat/completions`` route and ``Authorization: Bearer`` auth, so callers
+    that build OpenAI-compatible requests must branch on this. Gateways that
+    re-expose Claude behind an OpenAI-compatible surface (OpenRouter, Aerolink)
+    are deliberately NOT matched — they speak ``/chat/completions``.
+    """
+    host = (urlparse((base_url or "").strip()).hostname or "").lower()
+    return host == "anthropic.com" or host.endswith(".anthropic.com")
+
+
 def _ollama_reasoning_effort() -> str:
     """Return the configured ``OLLAMA_REASONING_EFFORT`` (``high``/``medium``/
     ``low``) or ``""`` when unset/invalid. Never raises."""
@@ -1301,7 +1314,18 @@ class ProviderRouter:
                     await _release_provider_probe(provider.provider_id)
                     if not payload.get("stream"):
                         try:
-                            await put_cached(payload, result.response.json())
+                            _resp_body = result.response.json()
+                            # Detect strict-mode refusals — do not cache them so a
+                            # rephrased request gets a fresh model attempt.
+                            from packages.ai.structured_output import extract_refusal as _exr
+                            _refusal = _exr(_resp_body)
+                            if _refusal:
+                                log.info(
+                                    "Structured-output refusal from %s/%s: %s",
+                                    result.provider.provider_id, result.model, _refusal[:120],
+                                )
+                            else:
+                                await put_cached(payload, _resp_body)
                         except Exception as _store_exc:
                             log.debug("Response cache store error (ignored): %s", _store_exc)
                     return result
