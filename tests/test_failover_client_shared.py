@@ -665,3 +665,199 @@ def test_budget_is_operator_tunable() -> None:
     assert "BRAIN_MAX_PROVIDER_ATTEMPTS" in src
     assert "BRAIN_FAILOVER_BUDGET_SEC" in src
     assert fc._MAX_TOTAL_ATTEMPTS >= 1
+
+
+# ── The paid tier must be reachable, not starved by the free tier ────────────
+#
+# BRAIN_MAX_PROVIDER_ATTEMPTS caps total attempts across the whole chain, and
+# providers are ordered free → local → paid. An operator with ten free keys
+# therefore spent every attempt inside the free tier and the chain raised
+# BrainFailoverExhausted having never contacted the paid provider they pay for —
+# precisely when it was needed, since the free tiers were all rate-limited.
+#
+# _PAID_RESERVE_ATTEMPTS holds back a slice of the budget that only paid-tier
+# providers may spend. It stays inert for a free-only deployment, and allow_paid
+# (enforced in brain_failover._build_registry, which simply omits paid providers)
+# remains the sole spend gate — this changes reachability, never authority.
+
+_FREE_IDS = ["nvidia", "groq", "cerebras", "zhipu", "deepseek", "together",
+             "dashscope", "moonshot", "zai", "mistral"]
+
+
+def _free_tier() -> list[_StubProvider]:
+    """The operator's free-tier shape: ten providers, all with keys."""
+    return [_StubProvider(p, f"https://{p}.test/v1", ["m1"]) for p in _FREE_IDS]
+
+
+def _paid(pid: str = "aerolink", healthy: bool = True) -> _StubProvider:
+    """A paid-tier provider, optionally in cooldown."""
+    p = _StubProvider(pid, f"https://{pid}.test/v1", ["m1"], tier="paid")
+    p.is_healthy = healthy
+    return p
+
+
+def _rate_limited(n: int) -> list[httpx.Response]:
+    """``n`` scripted 429s — the state every free provider was reported in."""
+    return [httpx.Response(429, json={"error": "rate limited"}) for _ in range(n)]
+
+
+def _hit_ids(calls: list[str]) -> list[str]:
+    """Provider ids actually contacted, in order, parsed from the request URLs."""
+    return [c.split("//")[1].split(".")[0] for c in calls]
+
+
+@pytest.mark.asyncio
+async def test_paid_provider_is_reached_when_the_free_tier_burns_the_budget(
+    patch_chain,
+) -> None:
+    """The regression this reserve exists for: €50 of paid capacity, never used."""
+    import packages.ai.failover_client as fc
+
+    _, calls = patch_chain(_free_tier() + [_paid()], _rate_limited(40))
+
+    with pytest.raises(BrainFailoverExhausted):
+        await failover_chat_completion(
+            {"model": "m1", "messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    assert "aerolink" in _hit_ids(calls), (
+        "the paid provider must be contacted before the chain gives up — without "
+        "the reserve the free tier consumes all "
+        f"{fc._MAX_TOTAL_ATTEMPTS} attempts and paid capacity is unreachable"
+    )
+    assert len(calls) <= fc._MAX_TOTAL_ATTEMPTS, (
+        "the reserve must come OUT of the existing budget, not extend it — "
+        "extending it would reintroduce the fan-out that caused the 429s"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_free_only_deployment_keeps_the_whole_budget(patch_chain) -> None:
+    """No paid provider admitted → the reserve is inert, nothing changes."""
+    import packages.ai.failover_client as fc
+
+    _, calls = patch_chain(_free_tier(), _rate_limited(40))
+
+    with pytest.raises(BrainFailoverExhausted):
+        await failover_chat_completion(
+            {"model": "m1", "messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    assert len(calls) == fc._MAX_TOTAL_ATTEMPTS, (
+        "an operator running free-only must not lose attempts to a reserve that "
+        "no provider can spend"
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_reserve_never_fires_while_the_free_tier_is_working(
+    patch_chain,
+) -> None:
+    """A healthy free provider still answers in one attempt, at no cost."""
+    _, calls = patch_chain(
+        _free_tier() + [_paid()],
+        [httpx.Response(200, json=_openai_body("free tier answered"))],
+    )
+
+    result = await failover_chat_completion(
+        {"model": "m1", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert result.text == "free tier answered"
+    assert _hit_ids(calls) == ["nvidia"]
+
+
+@pytest.mark.asyncio
+async def test_free_tier_uses_the_reserve_when_no_paid_provider_is_selectable(
+    patch_chain,
+) -> None:
+    """A paid provider in cooldown must not strand the reserve unspent."""
+    import packages.ai.failover_client as fc
+
+    _, calls = patch_chain(
+        _free_tier() + [_paid(healthy=False)], _rate_limited(40)
+    )
+
+    with pytest.raises(BrainFailoverExhausted):
+        await failover_chat_completion(
+            {"model": "m1", "messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    assert len(calls) == fc._MAX_TOTAL_ATTEMPTS
+    assert "aerolink" not in _hit_ids(calls)
+
+
+@pytest.mark.asyncio
+async def test_the_reserve_can_be_switched_off(patch_chain, monkeypatch) -> None:
+    """BRAIN_PAID_RESERVE_ATTEMPTS=0 restores the flat cap for cost-sensitive ops."""
+    import packages.ai.failover_client as fc
+
+    monkeypatch.setattr(fc, "_PAID_RESERVE_ATTEMPTS", 0)
+    _, calls = patch_chain(_free_tier() + [_paid()], _rate_limited(40))
+
+    with pytest.raises(BrainFailoverExhausted):
+        await failover_chat_completion(
+            {"model": "m1", "messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    assert "aerolink" not in _hit_ids(calls)
+    assert len(calls) == fc._MAX_TOTAL_ATTEMPTS
+
+
+def test_paid_reserve_is_operator_tunable() -> None:
+    import inspect
+
+    import packages.ai.failover_client as fc
+
+    assert "BRAIN_PAID_RESERVE_ATTEMPTS" in inspect.getsource(fc)
+    assert fc._PAID_RESERVE_ATTEMPTS >= 0
+    assert fc._PAID_RESERVE_ATTEMPTS < fc._MAX_TOTAL_ATTEMPTS, (
+        "a reserve at or above the total cap would starve the free tier instead"
+    )
+
+
+@pytest.mark.parametrize(
+    ("env_value", "expected", "why"),
+    [
+        (None, 2, "the default"),
+        ("0", 0, "0 must mean OFF — the documented escape hatch"),
+        ("1", 1, "a valid value passes through"),
+        ("5", 5, "the largest value that still leaves the free tier one attempt"),
+        ("6", 5, "at the cap: clamped, or the free tier gets nothing"),
+        ("20", 5, "far above the cap: clamped, not silently paid-first"),
+        ("-3", 0, "negative is nonsense; treat it as off"),
+        ("abc", 2, "unparseable falls back to the default"),
+    ],
+)
+def test_the_reserve_is_bounded_when_read_from_the_environment(
+    monkeypatch, env_value, expected, why
+) -> None:
+    """Read through the ENV, not the constant — that is where the bug lived.
+
+    ``_env_int`` floors at 1, so ``BRAIN_PAID_RESERVE_ATTEMPTS=0`` silently
+    became 1 and the documented off switch did nothing. A sibling test that
+    monkeypatches ``_PAID_RESERVE_ATTEMPTS`` directly cannot catch that, because
+    it bypasses the parsing entirely. And an unclamped value at or above the cap
+    left the free tier a single attempt, quietly turning a cost-control knob into
+    a paid-first switch.
+    """
+    import packages.ai.failover_client as fc
+
+    if env_value is None:
+        monkeypatch.delenv("BRAIN_PAID_RESERVE_ATTEMPTS", raising=False)
+    else:
+        monkeypatch.setenv("BRAIN_PAID_RESERVE_ATTEMPTS", env_value)
+
+    assert fc._paid_reserve() == expected, why
+
+
+def test_the_free_tier_always_keeps_at_least_one_attempt() -> None:
+    """No reserve value may lock the free tier out from the very first attempt."""
+    import packages.ai.failover_client as fc
+
+    for reserve in range(0, fc._MAX_TOTAL_ATTEMPTS + 5):
+        budget = fc._Budget(fc._MAX_TOTAL_ATTEMPTS, 180.0)
+        assert budget.unpaid_slice_spent(reserve) is False, (
+            f"reserve={reserve} excludes free providers before a single attempt "
+            f"has been made"
+        )

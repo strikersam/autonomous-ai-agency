@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import os
 import secrets
+from collections.abc import Iterator
+from pathlib import Path
 
 # ── Single source of truth for admin password ────────────────────────────────
 # MUST run before ANY import that touches backend.server (which reads
@@ -281,6 +283,39 @@ def _isolate_brain_data_layer(request, monkeypatch):
     def _fake_get_db():
         return db
     monkeypatch.setattr("backend.server.get_db", _fake_get_db)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_operator_provider_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> Iterator[None]:
+    """Keep the suite out of the developer's real operator-state database.
+
+    ``services/brain_failover.py`` reads two settings from ``SQLITE_PATH`` on the
+    dispatch hot path — the per-provider kill switch and the paid-provider policy
+    — and **writes** the kill switch there. Two things went wrong without this:
+
+    1. The suite wrote into the real ``.data/agency.db``. That file was found
+       holding ``provider_disabled:p1``, where ``p1`` is a stub provider id from
+       ``tests/test_provider_enable_disable.py`` — so running the tests had been
+       switching off providers in a developer's actual configuration.
+    2. Redirecting the path alone is not enough, which is the subtler half. Both
+       reads are cached for 5-10 s, so a test that read the real database left
+       ``allow_paid=True`` in ``_PAID_CACHE`` and every test for the next ten
+       seconds inherited it regardless of its own ``SQLITE_PATH``. That is what
+       made ``test_paid_providers_skipped_by_default`` fail only in a full run,
+       and only on a machine where the Providers UI had ever enabled paid
+       providers. The caches must be dropped per test, not just the path.
+    """
+    monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "operator-state.db"))
+    try:
+        import services.brain_failover as bf
+    except ImportError:  # pragma: no cover — module always importable in-repo
+        yield
+        return
+    bf.reset_kv_state()
+    yield
+    bf.reset_kv_state()
 
 
 @pytest.fixture(autouse=True)
