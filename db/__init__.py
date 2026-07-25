@@ -55,6 +55,17 @@ def reset_store():
     Note: SQLiteStore.close() is async, so we can't await it here (reset_store
     is sync). The SQLite connections are cleaned up when the process exits
     or when the next SQLiteStore is created (it recreates the connection pool).
+
+    **Every** cached motor client must be cleared here, not just the one in
+    ``packages.storage.mongo``. ``services.company_graph_store`` builds its own
+    ``AsyncIOMotorClient`` on a module-level singleton, so clearing only the
+    storage-layer client left that one bound to the event loop of whichever test
+    first touched it — and any later test in the same session that reached it got
+    ``RuntimeError: Event loop is closed``. That presents as an ordering-dependent
+    failure: the test passes alone and fails after a few hundred others, which is
+    exactly the flake this function exists to prevent. Any future module that
+    caches a motor client or db handle must be reset here too; the test in
+    ``tests/test_reset_store_clears_motor_singletons.py`` enumerates them.
     """
     global _store
     _store = None
@@ -63,6 +74,15 @@ def reset_store():
         from packages.storage import mongo as _ms
         _ms._client = None
         _ms._db = None
+    except ImportError:
+        pass
+    # Company graph store: module-level singleton holding its own motor client.
+    try:
+        from services import company_graph_store as _cgs
+        if getattr(_cgs, "_graph_store", None) is not None:
+            # Drop the store itself, not just its client — the next
+            # get_company_graph_store() rebuilds both on the current loop.
+            _cgs._graph_store = None
     except ImportError:
         pass
 
