@@ -35,6 +35,9 @@ _DEFAULT_POLL_INTERVAL = 10.0
 _trend_watch_task: "asyncio.Task | None" = None
 # Module-level handle to the single ephemeral-company reaper task (idempotency).
 _ephemeral_reaper_task: "asyncio.Task | None" = None
+# Module-level handle to the single CEO supervisor task (idempotency): a second
+# sweeper would double every re-drive it decides to make.
+_ceo_supervisor_task: "asyncio.Task | None" = None
 
 
 def run_background_in_web() -> bool:
@@ -73,9 +76,15 @@ class BackgroundServices:
             for result in results:
                 if isinstance(result, Exception) and not isinstance(result, asyncio.CancelledError):
                     log.warning("Autonomy task shutdown error: %s", result)
-        global _trend_watch_task, _ephemeral_reaper_task
+        global _trend_watch_task, _ephemeral_reaper_task, _ceo_supervisor_task
         _trend_watch_task = None
         _ephemeral_reaper_task = None
+        _ceo_supervisor_task = None
+        try:
+            from services.ceo_supervisor import get_ceo_supervisor
+            get_ceo_supervisor().stop()
+        except Exception as exc:  # noqa: BLE001 — shutdown is best-effort
+            log.warning("Failed to stop CEO supervisor: %s", exc)
         # Stop the threaded autonomy engines (best-effort, but never silent).
         for getter in ("get_self_healing_agent", "get_improvement_loop"):
             try:
@@ -254,7 +263,34 @@ def _start_autonomy_loops(scheduler: "AgentScheduler") -> list:
         except Exception as exc:  # noqa: BLE001
             log.warning("TrendWatcher could not start: %s", exc)
 
-    # 5. Ephemeral company reaper — destroy expired non-admin agencies (free
+    # 5. CEO supervisor — the 24x7 babysitter. Sweeps the CEO ledger, closes
+    #    finished goals, re-drives stalled ones, and abandons the ones that
+    #    spent their budget. Without it a delegation that dies mid-flight (a
+    #    recycled process, a sleeping runtime) stays open forever and the
+    #    agency silently drops work while looking busy.
+    try:
+        from services.ceo_supervisor import get_ceo_supervisor, supervisor_enabled
+        if supervisor_enabled():
+            try:
+                running = asyncio.get_running_loop()
+            except RuntimeError:
+                running = None
+            global _ceo_supervisor_task
+            if running is not None and (
+                _ceo_supervisor_task is None or _ceo_supervisor_task.done()
+            ):
+                supervisor = get_ceo_supervisor()
+                _ceo_supervisor_task = running.create_task(supervisor.run_forever())
+                tasks.append(_ceo_supervisor_task)
+                log.info("CEO supervisor started — stalled goals are re-driven to closure 24x7")
+            elif running is None:
+                log.info("CEO supervisor not started (no running event loop)")
+        else:
+            log.info("CEO supervisor disabled (CEO_SUPERVISOR_ENABLED=false)")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("CEO supervisor could not start: %s", exc)
+
+    # 6. Ephemeral company reaper — destroy expired non-admin agencies (free
     #    Render hosting policy). Persistent (admin) companies are never touched.
     try:
         from services.ephemeral_reaper import reaper_enabled, ephemeral_reaper_loop
