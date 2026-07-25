@@ -211,6 +211,19 @@ loops:
     gate: none
     purpose: Watch industry trends and scope them against the repo.
 
+  - id: ceo-supervisor
+    name: CEO Supervisor (24x7 babysitter)
+    pattern: infra-heartbeat
+    level: L3
+    trigger: daemon
+    cadence: every 3 min
+    runs_per_day: 480
+    cost: low
+    source: services/ceo_supervisor.py
+    self_heal: true
+    gate: none
+    purpose: Sweep the CEO ledger — close finished goals, re-drive stalled ones, abandon spent ones.
+
   - id: ephemeral-company-reaper
     name: Ephemeral Company Reaper
     pattern: infra-heartbeat

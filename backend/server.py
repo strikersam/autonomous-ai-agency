@@ -10030,6 +10030,8 @@ import backend.admin_local_brain_router as admin_local_brain_router_module  # no
 app.include_router(admin_local_brain_router_module.build_admin_local_brain_router(get_current_user))
 import backend.spec_router as spec_router_module  # noqa: E402
 app.include_router(spec_router_module.build_spec_router(get_current_user))
+import backend.ceo_router as ceo_router_module  # noqa: E402
+app.include_router(ceo_router_module.build_ceo_router(get_current_user))
 
 app.include_router(runtime_router)
 app.include_router(task_router)

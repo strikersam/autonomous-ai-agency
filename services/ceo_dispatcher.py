@@ -26,11 +26,15 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import secrets
 import time
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agent.loop import AgentRunner
+
+if TYPE_CHECKING:  # import for typing only — keeps the runtime import lazy
+    from services.ceo_micromanager import SubtaskPlan
 
 log = logging.getLogger("agency.ceo")
 
@@ -94,6 +98,19 @@ class SpecialistTask:
     model: str | None = None
     max_steps: int = _DEFAULT_MAX_STEPS
     dependencies: list[str] = field(default_factory=list)
+    #: Tier this attempt runs at. Escalation rewrites it in place between
+    #: attempts, so it always reflects the tier of the *current* attempt.
+    tier: str = "midlevel"
+    #: The caller's own step ceiling, when one was given. Escalation re-clamps
+    #: against it, so a caller that asked for a tighter budget than the tier
+    #: allows keeps that budget across retries instead of silently inheriting
+    #: the full tier envelope on the second attempt.
+    caller_max_steps: int | None = None
+    #: The micro-manager's plan for this sub-task, when one exists. Carries the
+    #: scope, outcome and ``writes_code`` flag the anti-slop gate judges
+    #: against. ``None`` on the legacy single-specialist fast path, where there
+    #: is no plan to judge and the result is accepted as-is.
+    plan: "SubtaskPlan | None" = None
 
 
 @dataclass
@@ -181,6 +198,7 @@ def _single_specialist_task(
     *,
     role: str = "dev",
     runtime_id: str = "internal_agent",
+    max_steps: int | None = None,
 ) -> list[SpecialistTask]:
     """Build a single-task sub-task list (low-complexity fast path)."""
     return [
@@ -189,7 +207,7 @@ def _single_specialist_task(
             instruction=request,
             role=role,
             runtime_id=runtime_id,
-            max_steps=_DEFAULT_MAX_STEPS,
+            max_steps=max_steps or _DEFAULT_MAX_STEPS,
         )
     ]
 
@@ -209,6 +227,7 @@ class CEODispatcher:
         self,
         request: str,
         *,
+        goal: str | None = None,
         complexity: str = "medium",
         domain: str = "general",
         specialists: list[str] | None = None,
@@ -217,8 +236,22 @@ class CEODispatcher:
         github_token: str | None = None,
         workspace_root: str | None = None,
         ollama_base: str | None = None,
+        max_steps: int | None = None,
+        goal_id: str | None = None,
     ) -> CEOResult:
-        """Decompose the request, wake runtimes, run sub-tasks concurrently, merge."""
+        """Decompose the request, wake runtimes, run sub-tasks concurrently, merge.
+
+        ``goal`` and ``max_steps`` are accepted because
+        ``WorkflowOrchestrator._handle_execute`` has always passed them. Until
+        this was fixed the call raised ``TypeError`` — which the orchestrator
+        re-raises rather than catching — so every medium- and high-complexity
+        EXECUTE phase failed before a single specialist ran. The unit test for
+        that path used an ``AsyncMock`` dispatcher, which accepts any keyword,
+        so the mismatch never showed up in CI.
+
+        ``goal_id`` lets the 24x7 supervisor re-drive an existing ledger goal
+        instead of opening a duplicate one.
+        """
         started = time.monotonic()
 
         # Wake sleeping runtimes (rate-limited, parallel probes). The
@@ -232,16 +265,34 @@ class CEODispatcher:
                 request,
                 role=(specialists or ["dev"])[0],
                 runtime_id=(runtimes or ROLE_RUNTIME_PREFERENCE["dev"])[0],
+                max_steps=max_steps,
             )
             fanout_used = False
+            strategy = "single"
         else:
-            sub_tasks = _decompose_into_subtasks(
+            sub_tasks, strategy = await self._micromanage_plan(
                 request,
+                goal=goal or request,
+                complexity=complexity,
                 domain=domain,
-                hint_specialists=specialists,
-                hint_runtimes=runtimes,
+                specialists=specialists,
+                runtimes=runtimes,
+                max_steps=max_steps,
             )
             fanout_used = True
+
+        ledger_goal = await _offload(
+            self._open_ledger_goal,
+            goal_id=goal_id,
+            goal=goal or request,
+            request=request,
+            complexity=complexity,
+            domain=domain,
+            strategy=strategy,
+            sub_tasks=sub_tasks,
+            workspace_root=workspace_root,
+            user_id=user_id,
+        )
 
         specialists_out = await self._run_subtasks(
             sub_tasks,
@@ -249,6 +300,8 @@ class CEODispatcher:
             github_token=github_token,
             workspace_root=workspace_root,
             ollama_base=ollama_base,
+            ledger_goal=ledger_goal,
+            goal=goal or request,
         )
 
         ok_count = sum(1 for s in specialists_out if s.get("status") == "ok")
@@ -280,7 +333,159 @@ class CEODispatcher:
             workspace_root=workspace_root, ollama_base=ollama_base,
             github_token=github_token, user_id=user_id,
         )
+        await _offload(self._close_ledger_goal, ledger_goal, result)
         return result
+
+    # ── Micro-management: plan, brief, and ledger ────────────────────────────
+
+    async def _micromanage_plan(
+        self,
+        request: str,
+        *,
+        goal: str,
+        complexity: str,
+        domain: str,
+        specialists: list[str] | None,
+        runtimes: list[str] | None,
+        max_steps: int | None,
+    ) -> tuple[list[SpecialistTask], str]:
+        """Split the request into briefed, tier-assigned specialist sub-tasks.
+
+        Returns the sub-tasks and the strategy that produced them (``"llm"`` or
+        ``"fallback"``), so a brain outage is visible in the ledger instead of
+        silently degrading every future decomposition to the two-subtask
+        baseline.
+        """
+        from services.ceo_micromanager import (
+            build_subtask_brief,
+            decompose,
+            get_config,
+            resolve_runtime,
+            tier_profile,
+        )
+
+        config = get_config()
+        plans, strategy = await decompose(
+            request,
+            goal=goal,
+            complexity=complexity,
+            domain=domain,
+            role=(specialists or ["dev"])[0],
+            config=config,
+        )
+
+        sub_tasks: list[SpecialistTask] = []
+        for plan in plans:
+            profile = tier_profile(plan.tier)
+            # An explicit caller runtime hint outranks the tier heuristic — the
+            # orchestrator knows things about this run that the CEO does not.
+            runtime_id = (runtimes or [None])[0] or resolve_runtime(
+                plan.role, plan.tier, ROLE_RUNTIME_PREFERENCE
+            )
+            sub_tasks.append(
+                SpecialistTask(
+                    task_id=plan.subtask_id,
+                    instruction=build_subtask_brief(plan, goal=goal),
+                    role=plan.role,
+                    runtime_id=runtime_id,
+                    max_steps=min(max_steps or profile.max_steps, profile.max_steps),
+                    dependencies=list(plan.dependencies),
+                    tier=plan.tier.value,
+                    caller_max_steps=max_steps,
+                    plan=plan,
+                )
+            )
+        return sub_tasks, strategy
+
+    def _open_ledger_goal(
+        self,
+        *,
+        goal_id: str | None,
+        goal: str,
+        request: str,
+        complexity: str,
+        domain: str,
+        strategy: str,
+        sub_tasks: list[SpecialistTask],
+        workspace_root: str | None = None,
+        user_id: str | None = None,
+    ) -> Any:
+        """Record the goal and its sub-tasks in the ledger before any work runs.
+
+        Writing the plan *before* execution is what makes closure trackable: if
+        the process dies mid-fan-out, the supervisor still finds an open goal
+        with pending sub-tasks rather than nothing at all. Returns ``None`` when
+        the ledger is unavailable — micro-management still works in-process, it
+        just is not durable.
+
+        When ``goal_id`` names an existing goal (a supervisor re-drive), the
+        sub-task list is *replaced* rather than appended to. A re-drive re-plans
+        from scratch, so the previous drive's sub-tasks no longer describe the
+        work; the goal's ``interventions`` counter and ``notes`` carry that
+        history instead.
+        """
+        try:
+            from services.ceo_ledger import GoalRecord, SubtaskRecord, get_ceo_ledger
+
+            ledger = get_ceo_ledger()
+            existing = ledger.get(goal_id) if goal_id else None
+            record = existing or GoalRecord(
+                goal_id=goal_id or f"goal-{secrets.token_hex(6)}",
+                goal=goal[:500],
+                request=request,
+                complexity=complexity,
+                domain=domain,
+            )
+            record.strategy = strategy
+            record.state = "open"
+            # Replayed verbatim by a supervisor re-drive so the intervention
+            # edits the same checkout the first attempt did. Only non-secret
+            # identifiers are stored — never a token.
+            record.workspace_root = workspace_root or record.workspace_root
+            record.user_id = user_id or record.user_id
+            record.subtasks = [
+                SubtaskRecord(
+                    subtask_id=st.task_id,
+                    title=(getattr(st.plan, "title", "") or st.role)[:120],
+                    role=st.role,
+                    tier=st.tier,
+                    dependencies=list(st.dependencies),
+                    writes_code=bool(getattr(st.plan, "writes_code", True)),
+                )
+                for st in sub_tasks
+            ]
+            record.last_progress_at = time.time()
+            ledger.upsert(record)
+            return record
+        except Exception as exc:  # noqa: BLE001 — ledger outage must not block work
+            log.warning("CEO: ledger unavailable, running without durable tracking: %s", exc)
+            return None
+
+    def _close_ledger_goal(self, record: Any, result: CEOResult) -> None:
+        """Settle the ledger goal once the fan-out has finished.
+
+        A goal is closed only on an ``OK`` verdict. A ``PARTIAL`` or ``FAILED``
+        verdict deliberately leaves the goal **open** rather than abandoning it:
+        the escalation ladder is bounded to one drive, so a failure caused by a
+        transient condition — a runtime that was asleep, a provider mid-429 —
+        would otherwise be recorded as permanent the moment it happened. Leaving
+        it open hands ownership to the supervisor, which re-drives it after the
+        stall window and abandons it only once the intervention budget is spent.
+        That is the one place a goal is allowed to be given up on, and it is the
+        place with the budget to decide.
+        """
+        if record is None:
+            return
+        try:
+            from services.ceo_ledger import get_ceo_ledger
+
+            record.verdict = result.verdict
+            record.state = "closed" if result.verdict == "OK" else "open"
+            record.last_progress_at = time.time()
+            record.notes.append(result.summary[:300])
+            get_ceo_ledger().upsert(record)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("CEO: could not close ledger goal: %s", exc)
 
     async def _maybe_cross_verify(
         self,
@@ -346,6 +551,8 @@ class CEODispatcher:
         github_token: str | None,
         workspace_root: str | None,
         ollama_base: str | None,
+        ledger_goal: Any = None,
+        goal: str = "",
     ) -> list[dict[str, Any]]:
         """Run sub-tasks through RuntimeManager so each one is actually routed
         to the runtime selected by ROLE_RUNTIME_PREFERENCE.
@@ -387,6 +594,8 @@ class CEODispatcher:
                 workspace_root=workspace_root or os.getcwd(),
                 github_token=github_token,
                 user_id=user_id,
+                ledger_goal=ledger_goal,
+                goal=goal,
             )
         except Exception as exc:
             log.warning(
@@ -410,14 +619,19 @@ class CEODispatcher:
         workspace_root: str,
         github_token: str | None,
         user_id: str | None,
+        ledger_goal: Any = None,
+        goal: str = "",
     ) -> list[dict[str, Any]]:
         """Run sub-tasks via RuntimeManager with per-sub-task provider_preference.
 
         Respects dependencies: tasks with no pending deps run in parallel up
         to max_concurrent; tasks with deps run after their deps complete.
-        """
-        from runtimes.base import TaskSpec as RT_TaskSpec
 
+        Each sub-task is micro-managed rather than fired and forgotten: the
+        result is judged by the anti-slop gate, and a rejected result is
+        re-delegated one tier up with the failure reason attached, until it
+        passes or the attempt budget runs out.
+        """
         sem = asyncio.Semaphore(self.max_concurrent)
         results: dict[str, dict[str, Any]] = {}
         remaining = list(sub_tasks)
@@ -440,63 +654,231 @@ class CEODispatcher:
                     }
                 break
 
-            async def _run_one(st: SpecialistTask) -> dict[str, Any]:
-                async with sem:
-                    try:
-                        # Build context from completed dependencies so the
-                        # downstream task has the upstream's summary.
-                        dep_context = ""
-                        if st.dependencies:
-                            dep_lines = []
-                            for dep_id in st.dependencies:
-                                dep_result = results.get(dep_id, {})
-                                dep_summary = dep_result.get("summary", "")
-                                if dep_summary:
-                                    dep_lines.append(
-                                        f"[{dep_id}] {dep_summary[:300]}"
-                                    )
-                            if dep_lines:
-                                dep_context = (
-                                    "\n\nUpstream specialist results:\n"
-                                    + "\n".join(dep_lines)
-                                )
-                        spec = RT_TaskSpec(
-                            task_id=st.task_id,
-                            instruction=st.instruction + dep_context,
-                            task_type=st.role,
-                            provider_preference=st.runtime_id,  # ← routes to the right runtime
-                            model_preference=st.model,
-                            allow_paid_escalation=False,
-                        )
-                        result, decision = await mgr.execute(spec)
-                        entry: dict[str, Any] = {
-                            "task_id": st.task_id,
-                            "role": st.role,
-                            "runtime_id": decision.selected_runtime_id,  # actual runtime used
-                            "status": "ok" if result.success else "error",
-                            "summary": result.output or "",
-                            "changed_files": [],  # runtime results don't carry per-file diffs
-                        }
-                        if not result.success:
-                            entry["error"] = result.error or "runtime returned failure"
-                        return entry
-                    except Exception as exc:
-                        log.warning("CEO specialist %s via RuntimeManager failed: %s", st.task_id, exc)
-                        return {
-                            "task_id": st.task_id,
-                            "role": st.role,
-                            "runtime_id": st.runtime_id,
-                            "status": "error",
-                            "error": str(exc),
-                        }
-
-            batch = await asyncio.gather(*(_run_one(st) for st in runnable))
+            batch = await asyncio.gather(
+                *(
+                    self._run_supervised(
+                        mgr, st,
+                        sem=sem,
+                        results=results,
+                        ledger_goal=ledger_goal,
+                        goal=goal,
+                    )
+                    for st in runnable
+                )
+            )
             for entry in batch:
                 results[entry["task_id"]] = entry
             remaining = [st for st in remaining if st.task_id not in results]
 
         # Preserve original sub-task ordering in the output.
         return [results[st.task_id] for st in sub_tasks if st.task_id in results]
+
+    async def _run_supervised(
+        self,
+        mgr: Any,
+        st: SpecialistTask,
+        *,
+        sem: asyncio.Semaphore,
+        results: dict[str, dict[str, Any]],
+        ledger_goal: Any = None,
+        goal: str = "",
+    ) -> dict[str, Any]:
+        """Run one sub-task, judge the result, and escalate it if it is slop.
+
+        The loop is bounded twice over — by the tier ladder (a sub-task at the
+        top tier has nowhere to escalate to) and by the attempt budget — so the
+        worst case for one sub-task is ``CEO_MAX_ATTEMPTS_PER_SUBTASK``
+        executions, never an unbounded retry storm on an unattended loop.
+        """
+        from services.ceo_micromanager import (
+            build_subtask_brief,
+            get_config,
+            resolve_runtime,
+            tier_profile,
+        )
+        from services.ceo_quality import assess_quality, decide_escalation
+
+        config = get_config()
+        previous_failure: str | None = None
+        entry: dict[str, Any] = {}
+        attempts = 0
+
+        while True:
+            attempts += 1
+            async with sem:
+                entry = await self._execute_once(mgr, st, results=results)
+            self._record_attempt(ledger_goal, st, entry)
+
+            # No plan means the legacy fast path — nothing to judge against.
+            if st.plan is None:
+                return entry
+
+            verdict = assess_quality(st.plan, entry, config=config)
+            entry["quality"] = verdict.as_dict()
+            self._record_verdict(ledger_goal, st, verdict, accepted=verdict.accepted)
+
+            if verdict.accepted:
+                return entry
+
+            decision = decide_escalation(
+                st.plan, verdict, attempts_used=attempts, config=config
+            )
+            if not decision.should_retry or decision.tier is None:
+                log.warning(
+                    "CEO: sub-task %s not accepted after %d attempt(s) — %s",
+                    st.task_id, attempts, decision.reason,
+                )
+                entry["status"] = "error"
+                entry.setdefault(
+                    "error",
+                    "rejected by CEO quality gate: " + "; ".join(verdict.reasons[:3]),
+                )
+                return entry
+
+            log.info("CEO: %s", decision.reason)
+            previous_failure = "; ".join(verdict.reasons[:3]) or entry.get("error", "")
+            # Re-brief at the higher tier. The brief is rebuilt (not appended
+            # to) so the new tier gets its own remit and a clean scope, plus an
+            # explicit account of what already failed.
+            st.plan.tier = decision.tier
+            st.tier = decision.tier.value
+            profile = tier_profile(decision.tier)
+            # Re-clamp against the caller's own ceiling, exactly as the initial
+            # plan did. Assigning profile.max_steps outright would hand a caller
+            # who asked for a tighter budget the full tier envelope from the
+            # second attempt onward.
+            st.max_steps = min(
+                st.caller_max_steps or profile.max_steps, profile.max_steps
+            )
+            st.runtime_id = resolve_runtime(
+                st.role, decision.tier, ROLE_RUNTIME_PREFERENCE
+            )
+            st.instruction = build_subtask_brief(
+                st.plan,
+                goal=goal or st.plan.title,
+                upstream=self._upstream_summaries(st, results),
+                previous_failure=previous_failure,
+            )
+
+    async def _execute_once(
+        self,
+        mgr: Any,
+        st: SpecialistTask,
+        *,
+        results: dict[str, dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Dispatch one attempt of *st* to its runtime and normalise the result."""
+        from runtimes.base import TaskSpec as RT_TaskSpec
+
+        try:
+            dep_context = ""
+            upstream = self._upstream_summaries(st, results)
+            if upstream:
+                dep_context = "\n\nUpstream specialist results:\n" + "\n".join(
+                    f"[{sid}] {summary[:300]}" for sid, summary in upstream
+                )
+            spec = RT_TaskSpec(
+                task_id=st.task_id,
+                instruction=st.instruction + dep_context,
+                task_type=st.role,
+                provider_preference=st.runtime_id,  # ← routes to the right runtime
+                model_preference=st.model,
+                allow_paid_escalation=False,
+                # The tier's step budget only means something if the runtime
+                # sees it. InternalAgentAdapter reads spec.context["max_steps"]
+                # to cap AgentRunner.run(); without this the per-tier ceiling was
+                # decorative and every sub-task ran at the global AGENT_MAX_STEPS
+                # default, defeating the spend bound the ladder exists to impose.
+                context={"max_steps": st.max_steps},
+            )
+            result, decision = await mgr.execute(spec)
+            changed_files, files_reported = _harvest_changed_files(result)
+            entry: dict[str, Any] = {
+                "task_id": st.task_id,
+                "role": st.role,
+                "tier": st.tier,
+                "runtime_id": decision.selected_runtime_id,  # actual runtime used
+                "status": "ok" if result.success else "error",
+                "summary": result.output or "",
+                "changed_files": changed_files,
+                "files_reported": files_reported,
+            }
+            if not result.success:
+                entry["error"] = result.error or "runtime returned failure"
+            return entry
+        except Exception as exc:
+            log.warning("CEO specialist %s via RuntimeManager failed: %s", st.task_id, exc)
+            return {
+                "task_id": st.task_id,
+                "role": st.role,
+                "tier": st.tier,
+                "runtime_id": st.runtime_id,
+                "status": "error",
+                "error": str(exc),
+            }
+
+    @staticmethod
+    def _upstream_summaries(
+        st: SpecialistTask, results: dict[str, dict[str, Any]]
+    ) -> list[tuple[str, str]]:
+        """Return ``(subtask_id, summary)`` for each completed dependency."""
+        out: list[tuple[str, str]] = []
+        for dep_id in st.dependencies:
+            summary = (results.get(dep_id, {}) or {}).get("summary", "")
+            if summary:
+                out.append((dep_id, summary))
+        return out
+
+    # ── Ledger writes ────────────────────────────────────────────────────────
+
+    def _record_attempt(self, ledger_goal: Any, st: SpecialistTask, entry: dict[str, Any]) -> None:
+        """Append this attempt to the sub-task's ledger history."""
+        if ledger_goal is None:
+            return
+        try:
+            from services.ceo_ledger import Attempt, get_ceo_ledger
+
+            record = ledger_goal.subtask(st.task_id)
+            if record is None:
+                return
+            record.tier = st.tier
+            record.status = "running"
+            record.attempts.append(
+                Attempt(
+                    tier=st.tier,
+                    started_at=time.time(),
+                    finished_at=time.time(),
+                    status="error" if entry.get("status") != "ok" else "running",
+                    runtime_id=str(entry.get("runtime_id") or ""),
+                    summary=str(entry.get("summary") or ""),
+                    error=str(entry.get("error") or ""),
+                )
+            )
+            record.changed_files = list(entry.get("changed_files") or [])
+            ledger_goal.last_progress_at = time.time()
+            get_ceo_ledger().upsert(ledger_goal)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("CEO: ledger attempt write skipped: %s", exc)
+
+    def _record_verdict(
+        self, ledger_goal: Any, st: SpecialistTask, verdict: Any, *, accepted: bool
+    ) -> None:
+        """Attach the quality verdict to the sub-task's latest attempt."""
+        if ledger_goal is None:
+            return
+        try:
+            from services.ceo_ledger import get_ceo_ledger
+
+            record = ledger_goal.subtask(st.task_id)
+            if record is None or not record.attempts:
+                return
+            record.attempts[-1].status = "accepted" if accepted else "rejected"
+            record.attempts[-1].quality = verdict.as_dict()
+            record.status = "done" if accepted else "failed"
+            ledger_goal.last_progress_at = time.time()
+            get_ceo_ledger().upsert(ledger_goal)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("CEO: ledger verdict write skipped: %s", exc)
 
     async def _run_via_swarm(
         self,
@@ -612,6 +994,55 @@ class CEODispatcher:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+
+async def _offload(fn: Any, *args: Any, **kwargs: Any) -> Any:
+    """Run a synchronous ledger call without blocking the event loop.
+
+    ``CEOLedger`` is deliberately synchronous — it is written from the
+    supervisor's background context as well as from async request handlers — so
+    every call from an async path has to be offloaded. In Mongo mode a slow
+    update or a server-selection stall would otherwise freeze the entire API
+    loop before a single agent had started.
+
+    Falls back to a direct call when Starlette is unavailable (the ledger is
+    usable outside the web process too).
+    """
+    try:
+        from fastapi.concurrency import run_in_threadpool
+    except Exception:  # noqa: BLE001 — no web stack; a direct call is correct here
+        return fn(*args, **kwargs)
+    return await run_in_threadpool(fn, *args, **kwargs)
+
+
+def _harvest_changed_files(result: Any) -> tuple[list[str], bool]:
+    """Extract the files a runtime touched. Returns ``(files, reported)``.
+
+    Adapters disagree about where this lives: ``internal_agent`` puts the list
+    in ``metadata["changed_files"]`` *and* ``artifacts``, ``e2b`` puts it in
+    ``artifacts`` only, and ``hermes`` / ``claude_code`` / ``goose`` return
+    prose with no file list at all. The previous implementation hardcoded an
+    empty list here, so the orchestrator's ``ExecutionResult.changed_files``
+    was always empty for CEO-executed work regardless of what actually changed.
+
+    The second element distinguishes "this runtime says it changed nothing"
+    from "this runtime cannot tell us". The anti-slop gate needs that
+    distinction — without it, every successful Hermes sub-task would be
+    rejected for changing no files.
+    """
+    metadata = getattr(result, "metadata", None) or {}
+    raw = metadata.get("changed_files")
+    if raw is None:
+        artifacts = getattr(result, "artifacts", None) or []
+        # ``artifacts`` is typed as list[dict] but internal_agent and e2b both
+        # assign a plain list[str] of paths, so accept either shape.
+        raw = [a for a in artifacts if isinstance(a, str)] or None
+        if raw is None:
+            paths = [a.get("path") for a in artifacts if isinstance(a, dict) and a.get("path")]
+            raw = paths or None
+    if raw is None:
+        return [], False
+    return [str(f) for f in raw if f], True
 
 
 def _runtime_id_for_role(role: str) -> str:

@@ -87,8 +87,22 @@
 | `handlers/anthropic_compat.py` | Anthropic API adapter | 708 | Medium |
 | `backend/server.py` | Dashboard API server | 6,487 | HIGH |
 | `services/workflow_orchestrator.py` | Workflow execution engine | 1,119 | HIGH |
+| `services/ceo_dispatcher.py` | CEO delegation + supervised escalation loop | 1,064 | HIGH |
+| `services/ceo_micromanager.py` | Tier ladder, decomposition, subtask briefs | 652 | Medium |
+| `services/ceo_quality.py` | Anti-slop gate + bounded escalation ladder | 222 | Medium |
+| `services/ceo_ledger.py` | Durable goal/subtask/attempt record | 539 | Medium |
+| `services/ceo_supervisor.py` | 24x7 sweep: close / re-drive / abandon goals | 431 | HIGH |
 | `services/company_graph_store.py` | Company knowledge graph persistence | 1,660 | Medium |
 | `services/scanner.py` | Tech stack scanner (Playwright) | 1,377 | Medium |
+
+> **File-size exception.** `services/ceo_dispatcher.py` exceeds the 800-line
+> limit in §8. It is a pre-existing orchestration hub (652 lines before the
+> micro-management work) and sits on the EXECUTE hot path, so splitting it is a
+> standalone refactor rather than a rider on a behaviour change. Decompose it
+> along the seam the CEO work already exposes: delegation/planning, supervised
+> execution, and ledger writes. `services/ceo_micromanager.py` was split at that
+> same seam — the judging half moved to `services/ceo_quality.py` — and both
+> halves are now within the limit.
 
 ---
 
