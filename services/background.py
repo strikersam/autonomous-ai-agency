@@ -15,7 +15,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from runtimes.manager import get_runtime_manager
 from tasks.automation import TaskAutomationService
@@ -35,6 +35,85 @@ _DEFAULT_POLL_INTERVAL = 10.0
 _trend_watch_task: "asyncio.Task | None" = None
 # Module-level handle to the single ephemeral-company reaper task (idempotency).
 _ephemeral_reaper_task: "asyncio.Task | None" = None
+# Module-level handle to the in-process Hermes sidecar (idempotency + shutdown).
+_hermes_server: "Any | None" = None
+_hermes_task: "asyncio.Task | None" = None
+
+# Hermes binds here. 127.0.0.1 deliberately, NEVER 0.0.0.0: POST /tasks executes
+# arbitrary agent work and its bearer check is optional (HERMES_API_KEY may be
+# unset), so exposing it on a public interface would be a remote-execution hole.
+# Loopback keeps it reachable by the adapter in this same container and by
+# nothing else.
+_HERMES_HOST = "127.0.0.1"
+_HERMES_PORT = 8100
+_HERMES_STARTUP_TIMEOUT_SEC = 20.0
+
+
+async def _await_hermes_ready(server: Any, task: "asyncio.Task") -> None:
+    """Block until uvicorn is genuinely accepting connections.
+
+    Without this the RuntimeManager's first health probe races the bind and marks
+    Hermes down for a whole cooldown despite it coming up milliseconds later —
+    which presents as "Hermes is offline" on a deployment where it is running.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _HERMES_STARTUP_TIMEOUT_SEC
+    while not getattr(server, "started", False):
+        if task.done() or loop.time() > deadline:
+            raise RuntimeError("Hermes server did not start within timeout")
+        await asyncio.sleep(0.05)
+
+
+async def _start_hermes_in_process() -> "asyncio.Task | None":
+    """Run the agency's own Hermes server inside this process, on loopback.
+
+    ``RUN_HERMES_IN_PROCESS`` and ``settings.is_hermes_in_process`` existed since
+    the flag was introduced, and ``CLAUDE.md`` documents "Hermes in-process :8100"
+    as production behaviour — but **nothing ever consumed the flag**. The only way
+    to run Hermes was ``Dockerfile.hermes`` as the separate ``agency-hermes``
+    Render service. On a single-service deployment the adapter therefore probed
+    its default ``http://localhost:8100``, found nothing listening, and reported
+    the runtime permanently offline — so ``RUNTIME_CODE_GENERATION=hermes``
+    silently fell back to ``internal_agent`` forever.
+
+    This closes that gap: same process, same event loop, no second service, no
+    new configuration source. Returns the serving task, or ``None`` when the flag
+    is off or startup failed — Hermes is an optimisation, so a failure must
+    degrade to the existing fallback rather than break boot.
+    """
+    global _hermes_server, _hermes_task
+    if _hermes_task is not None and not _hermes_task.done():
+        return _hermes_task  # idempotent: web + worker may both call in one process
+
+    from packages.config.settings import settings
+    if not settings.is_hermes_in_process:
+        log.info("Hermes in-process server disabled (RUN_HERMES_IN_PROCESS)")
+        return None
+
+    try:
+        import uvicorn
+        from services.hermes_server import app as hermes_app
+
+        config = uvicorn.Config(
+            hermes_app, host=_HERMES_HOST, port=_HERMES_PORT,
+            log_level="warning", access_log=False,
+        )
+        _hermes_server = uvicorn.Server(config)
+        _hermes_task = asyncio.create_task(_hermes_server.serve())
+
+        await _await_hermes_ready(_hermes_server, _hermes_task)
+    except Exception as exc:  # noqa: BLE001 — never break boot for an optimisation
+        log.warning(
+            "Hermes in-process server not started (%s) — code tasks will fall "
+            "back to internal_agent", exc,
+        )
+        _hermes_server = None
+        _hermes_task = None
+        return None
+
+    log.info("Hermes in-process server listening on http://%s:%d",
+             _HERMES_HOST, _HERMES_PORT)
+    return _hermes_task
 
 
 def run_background_in_web() -> bool:
@@ -51,6 +130,8 @@ class BackgroundServices:
     dispatcher: "TaskDispatcher"
     dispatcher_task: asyncio.Task  # type: ignore[type-arg]
     autonomy_tasks: list = field(default_factory=list)  # type: ignore[type-arg]
+    # In-process Hermes sidecar; None when disabled or it failed to start.
+    hermes_task: "asyncio.Task | None" = None  # type: ignore[type-arg]
     _stopped: bool = field(default=False, init=False, repr=False)
 
     async def stop(self) -> None:
@@ -88,8 +169,33 @@ class BackgroundServices:
                     inst.stop()
             except Exception as exc:  # noqa: BLE001 — shutdown is best-effort
                 log.warning("Failed to stop autonomy engine %s: %s", getter, exc)
+        await self._stop_hermes()
         await self.runtime_manager.stop()
         log.info("RuntimeManager stopped")
+
+    async def _stop_hermes(self) -> None:
+        """Shut the in-process Hermes down so port 8100 is released.
+
+        Uvicorn's own graceful path is used first: setting ``should_exit`` lets
+        it close listeners and finish in-flight tasks. Cancelling the task
+        outright would leave the socket bound until the process dies, which on a
+        reload turns the next boot's bind into an "address already in use" and
+        silently costs the runtime.
+        """
+        global _hermes_server, _hermes_task
+        if self.hermes_task is None:
+            return
+        if _hermes_server is not None:
+            _hermes_server.should_exit = True
+        try:
+            await asyncio.wait_for(self.hermes_task, timeout=10.0)
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            self.hermes_task.cancel()
+        except Exception as exc:  # noqa: BLE001 — shutdown is best-effort
+            log.warning("Hermes in-process shutdown error: %s", exc)
+        _hermes_server = None
+        _hermes_task = None
+        log.info("Hermes in-process server stopped")
 
 
 async def start_background_services(
@@ -143,6 +249,11 @@ async def start_background_services(
     except Exception as exc:
         log.warning("Scheduler durable persistence not attached: %s", exc)
 
+    # Must precede runtime_manager.start(): that call runs the first health
+    # probe, and a Hermes that is not yet listening is marked down for a whole
+    # cooldown even though it comes up milliseconds later.
+    hermes_task = await _start_hermes_in_process()
+
     await runtime_manager.start()
     log.info(
         "RuntimeManager started (%d runtimes registered)",
@@ -165,6 +276,7 @@ async def start_background_services(
         dispatcher=dispatcher,
         dispatcher_task=dispatcher_task,
         autonomy_tasks=autonomy_tasks,
+        hermes_task=hermes_task,
     )
 
 

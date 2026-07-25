@@ -84,6 +84,31 @@ async def health() -> dict[str, Any]:
     }
 
 
+def _resolve_model_preference(requested: str | None) -> str | None:
+    """Pick the model for a Hermes run: the caller's choice, else the coder.
+
+    This is what makes routing a task to Hermes different from internal_agent.
+    Hermes executes *through* ``InternalAgentAdapter``, so on the same model it
+    is byte-for-byte what the fallback would have done plus an HTTP hop, and
+    ``RUNTIME_CODE_GENERATION=hermes`` would buy nothing. Preferring the
+    coding specialist is the difference.
+
+    ``resolve_coding_model_preference`` is reused rather than reimplemented (one
+    source of truth), and returns ``None`` unless the coding brain is enabled and
+    the active provider can serve it — so a deployment that has not opted in is
+    unchanged. A resolver failure is never fatal: a model preference is an
+    optimisation, not a precondition for running the task.
+    """
+    if requested:
+        return requested
+    try:
+        from packages.ai.brain_config import resolve_coding_model_preference
+        return resolve_coding_model_preference()
+    except Exception as exc:  # noqa: BLE001 — never fail a task over a preference
+        log.debug("hermes_server: coding-model preference unavailable: %s", exc)
+        return None
+
+
 @app.post("/tasks")
 async def run_task(
     body: TaskIn,
@@ -91,13 +116,11 @@ async def run_task(
 ) -> dict[str, Any]:
     """Execute a task synchronously via the InternalAgentAdapter (our brain).
 
-    The response keys match what ``HermesAdapter.execute`` reads back, so the
-    adapter treats this server like any Hermes server.
+    Response keys match what ``HermesAdapter.execute`` reads back.
     """
     _check_auth(authorization)
 
-    # Local imports keep app import cheap and avoid a heavy import at module load
-    # (the adapter/agent stack pulls in a lot). They are resolved per-request.
+    # Local imports: the adapter/agent stack is heavy, so resolve per-request.
     from runtimes.adapters.internal_agent import InternalAgentAdapter
     from runtimes.base import TaskSpec
 
@@ -107,7 +130,7 @@ async def run_task(
         instruction=body.instruction,
         task_type=body.task_type or "code_review",
         workspace_path=body.workspace_path,
-        model_preference=body.model,
+        model_preference=_resolve_model_preference(body.model),
         timeout_sec=int(body.timeout_sec or 600),
         context=body.context or {},
         tool_allowlist=body.tool_allowlist,
