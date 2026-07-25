@@ -226,6 +226,22 @@ def _is_billing_refusal(resp: httpx.Response) -> bool:
     return any(signal in body for signal in _BILLING_SIGNALS)
 
 
+def _auto_disable(provider_id: str, reason: str) -> None:
+    """Take a permanently-broken provider out of rotation until a human returns it.
+
+    Only called for states no retry can fix: an invalid key, an empty balance, or
+    an account with no access to any of the provider's models. Transient states
+    (429, 5xx, network) are deliberately excluded — they already have circuit
+    breakers, and disabling on a 429 would switch off every free provider the
+    first time a burst tripped a rate limit.
+    """
+    try:
+        from services.brain_failover import auto_disable_provider
+        auto_disable_provider(provider_id, reason)
+    except Exception as exc:  # noqa: BLE001 — never fail a call over bookkeeping
+        log.debug("brain_failover: auto-disable of %s failed: %s", provider_id, exc)
+
+
 def _parse_success(resp: httpx.Response) -> tuple[str, int, int]:
     """Extract ``(text, prompt_tokens, completion_tokens)`` from a 2xx body.
 
@@ -346,9 +362,11 @@ async def _try_provider(
             return None, f"{provider.id} 413 payload too large"
         if resp.status_code in (401, 403):
             fm.record_failure(provider.id, "auth_failed", resp.status_code)
+            _auto_disable(provider.id, f"{resp.status_code} invalid or expired API key")
             return None, f"{provider.id} {resp.status_code} unauthorized/forbidden"
         if resp.status_code == 402:
             fm.record_failure(provider.id, "payment_required", resp.status_code)
+            _auto_disable(provider.id, "402 out of credit")
             return None, f"{provider.id} 402 payment required (out of credit)"
         if resp.status_code >= 500:
             fm.record_failure(provider.id, "server_error", resp.status_code)
@@ -360,6 +378,7 @@ async def _try_provider(
         # next two model attempts are guaranteed to repeat it verbatim.
         if _is_billing_refusal(resp):
             fm.record_failure(provider.id, "payment_required", resp.status_code)
+            _auto_disable(provider.id, f"{resp.status_code} out of credit/quota")
             return None, (
                 f"{provider.id} {resp.status_code} out of credit/quota: "
                 f"{resp.text[:120]}"
@@ -372,6 +391,10 @@ async def _try_provider(
         )
 
     fm.record_failure(provider.id, "all_models_failed")
+    if "model_not_found" in (last_error or "") or "does not exist" in (last_error or ""):
+        # Every model on this provider was rejected as unknown/inaccessible —
+        # an account-entitlement or config problem, not something that self-heals.
+        _auto_disable(provider.id, "no accessible model (404 model_not_found)")
     return None, last_error
 
 

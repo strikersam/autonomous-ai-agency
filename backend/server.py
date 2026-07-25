@@ -6977,6 +6977,100 @@ async def brain_failover_status() -> dict:
     return get_failover_manager().status_snapshot()
 
 
+class ProviderEnabledBody(BaseModel):
+    """Body for the provider on/off switch."""
+
+    enabled: bool
+
+
+@app.get("/api/brain/providers")
+async def brain_providers(user: dict = Depends(get_current_user)) -> dict:
+    """Every configured provider with its health AND its on/off state.
+
+    Powers the Providers screen's toggle. A provider is ``online`` only when it is
+    both enabled and its circuit breaker is closed. ``disabled_reason`` explains an
+    auto-disable ("auto: 401 invalid or expired API key") so the operator knows
+    what to fix before switching it back on. No API keys are returned.
+    """
+    from services.brain_failover import disabled_providers, get_failover_manager
+
+    off = disabled_providers(force=True)
+    providers = []
+    for p in get_failover_manager().get_providers():
+        enabled = p.id not in off
+        providers.append({
+            "id": p.id,
+            "name": p.name,
+            "tier": p.tier,
+            "enabled": enabled,
+            "healthy": p.is_healthy,
+            "online": enabled and p.is_healthy,
+            "disabled_reason": off.get(p.id, ""),
+            "auto_disabled": off.get(p.id, "").startswith("auto:"),
+            "default_model": p.default_model,
+            "failure_count": p.failure_count,
+            "total_calls": p.total_calls,
+            "total_failures": p.total_failures,
+            "avg_latency_ms": round(p.avg_latency_ms, 1),
+            "last_error": p.last_error or "",
+        })
+    providers.sort(key=lambda r: (not r["online"], r["tier"], r["id"]))
+    return {
+        "providers": providers,
+        "online_count": sum(1 for r in providers if r["online"]),
+        "total_count": len(providers),
+    }
+
+
+@app.put("/api/brain/providers/{provider_id}/enabled")
+async def set_brain_provider_enabled(
+    provider_id: str,
+    body: ProviderEnabledBody,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Turn a provider on or off. Manual re-enable clears an auto-disable.
+
+    Auto-disable only ever fires for states a retry cannot fix (invalid key, no
+    credit, no accessible model), so re-enabling without fixing the underlying
+    cause will simply auto-disable it again on the next call — which is the
+    intended feedback loop, not a bug.
+    """
+    from services.brain_failover import (
+        disabled_providers,
+        get_failover_manager,
+        set_provider_enabled,
+    )
+
+    known = {p.id for p in get_failover_manager().get_providers()}
+    if provider_id not in known:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown provider {provider_id!r}. Configured: {sorted(known)}",
+        )
+    set_provider_enabled(
+        provider_id, body.enabled,
+        reason="" if body.enabled else "disabled by operator",
+    )
+    if body.enabled:
+        # Clear the breaker too, so a manual re-enable takes effect immediately
+        # instead of waiting out a cooldown left over from the failures that
+        # caused the auto-disable.
+        try:
+            get_failover_manager().record_success(provider_id)
+        except Exception as exc:  # noqa: BLE001
+            log.debug("provider re-enable: breaker reset failed: %s", exc)
+    await log_activity(
+        "providers",
+        f"Provider {provider_id} {'enabled' if body.enabled else 'disabled'}",
+        user_id=user.get("_id"),
+    )
+    return {
+        "provider_id": provider_id,
+        "enabled": body.enabled,
+        "disabled_reason": disabled_providers(force=True).get(provider_id, ""),
+    }
+
+
 @app.get("/api/telegram/diag")
 async def telegram_diag() -> dict[str, object]:
     """Telegram bot diagnostic endpoint — surfaces the bot's runtime config.

@@ -549,6 +549,13 @@ export const postLocalBrainToggle = (data)  => API.post('/admin/api/local-brain/
 // readiness score, loop-cost estimate, and drift status. Powers the Loops screen.
 export const getLoops             = ()                  => API.get('/api/loops');
 
+// Provider on/off switch. `getBrainProviders` returns health AND enabled state so
+// the UI can show "online" (enabled AND breaker closed) and surface the reason a
+// provider was auto-disabled. All API calls go through this shared instance.
+export const getBrainProviders    = ()                  => API.get('/api/brain/providers');
+export const setBrainProviderEnabled = (providerId, enabled) =>
+  API.put(`/api/brain/providers/${providerId}/enabled`, { enabled });
+
 // ── SAM Voice Agent (issue #666) ──────────────────────────────────────────
 export const samStatus = () => API.get('/agent/sam/status');
 export const samChat   = (text, sessionId) => API.post('/agent/sam/chat', { text, session_id: sessionId || 'default' });
