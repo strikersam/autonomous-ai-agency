@@ -98,14 +98,58 @@ jobs:
           MONGO_URL: "mongodb://localhost:27017"
           DB_NAME: "llm_wiki_dashboard_ci"
         run: |
-          pytest -x -v --tb=short --timeout=120 --ignore=tests/test_hardware.py --ignore=tests/test_backend_runtime_bootstrap.py
+          pytest -x -v --tb=short --timeout=120 --ignore=tests/test_hardware.py --ignore=tests/test_backend_runtime_bootstrap.py \
+            --junitxml=pytest-report.xml
+
+      # The failure summary must be readable WITHOUT scrolling the whole job log.
+      # The runner appends the MongoDB service container's log to the end of this
+      # job, and that output is large enough to bury the pytest summary — every
+      # attempt to read the tail of this job's log landed inside mongo's JSON
+      # lines instead of the failing assertion. Printing a compact summary in its
+      # own step keeps the actual cause at the top of a short, dedicated log.
+      - name: Failure summary (which test, and why)
+        if: failure()
+        run: |
+          set -u
+          if [ ! -f pytest-report.xml ]; then
+            echo "No pytest-report.xml — pytest died before writing a report"
+            echo "(collection error, import failure, or the process was killed)."
+            exit 0
+          fi
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          tree = ET.parse("pytest-report.xml")
+          bad = []
+          for case in tree.iter("testcase"):
+              for kind in ("failure", "error"):
+                  node = case.find(kind)
+                  if node is not None:
+                      bad.append((kind, case.get("classname", ""), case.get("name", ""), node))
+
+          if not bad:
+              print("Report contains no failure/error entries.")
+          for kind, classname, name, node in bad:
+              print("=" * 78)
+              print(f"{kind.upper()}: {classname}::{name}")
+              print(f"message: {(node.get('message') or '').strip()[:500]}")
+              body = (node.text or "").strip()
+              # Last lines carry the assertion; the head is usually fixture setup.
+              tail = body.splitlines()[-25:]
+              print("-" * 78)
+              print("\n".join(tail))
+          print("=" * 78)
+          print(f"total failures/errors: {len(bad)}")
+          PY
 
       - name: Upload test results
         if: failure()
         uses: actions/upload-artifact@v7
         with:
           name: test-results-${{ matrix.python-version }}
-          path: .pytest_cache/
+          path: |
+            .pytest_cache/
+            pytest-report.xml
           retention-days: 7
 
   lint:
