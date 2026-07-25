@@ -572,3 +572,96 @@ async def test_exhaustion_reports_each_provider_once(patch_chain) -> None:
     assert "All 3 brain provider attempt(s) failed" in str(excinfo.value)
     # And every attempted provider must be reported.
     assert excinfo.value.tried == {"zhipu", "groq", "ollama"}
+
+
+# ── Fan-out budget ──────────────────────────────────────────────────────────
+#
+# Without a cap the attempt count multiplies and self-inflicts the 429s the chain
+# is trying to route around: 14 providers x 3 models x 4 parse retries x 5 task
+# re-queues = up to 840 HTTP calls for ONE task, against free tiers, while the
+# agency runs many tasks and 34 loops concurrently.
+
+
+def _many_providers(n: int) -> list:
+    return [
+        _StubProvider(f"p{i}", f"https://p{i}.test/v1", ["m1", "m2", "m3"])
+        for i in range(n)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_total_attempts_are_capped_across_the_whole_chain(
+    patch_chain, monkeypatch
+) -> None:
+    """The cap is global, not per provider — worst case linear, not a product."""
+    import packages.ai.failover_client as fc
+
+    monkeypatch.setattr(fc, "_MAX_TOTAL_ATTEMPTS", 6)
+    # 10 providers x 3 models = 30 attempts if uncapped.
+    _, calls = patch_chain(
+        _many_providers(10),
+        [httpx.Response(500, json={"error": "boom"}) for _ in range(40)],
+    )
+
+    with pytest.raises(BrainFailoverExhausted) as excinfo:
+        await failover_chat_completion(
+            {"model": "m1", "messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    assert len(calls) <= 6, (
+        f"budget not enforced: {len(calls)} HTTP calls made, cap is 6"
+    )
+    assert "budget exhausted" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_budget_does_not_block_an_early_success(patch_chain, monkeypatch) -> None:
+    """A healthy first provider must still answer in one attempt."""
+    import packages.ai.failover_client as fc
+
+    monkeypatch.setattr(fc, "_MAX_TOTAL_ATTEMPTS", 6)
+    _, calls = patch_chain(
+        _many_providers(10), [httpx.Response(200, json=_openai_body("fast"))]
+    )
+
+    result = await failover_chat_completion(
+        {"model": "m1", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert result.text == "fast"
+    assert len(calls) == 1, "a healthy provider must not consume extra budget"
+
+
+@pytest.mark.asyncio
+async def test_budget_still_allows_real_failover(patch_chain, monkeypatch) -> None:
+    """Capping must not defeat the point: recovery within budget still works."""
+    import packages.ai.failover_client as fc
+
+    monkeypatch.setattr(fc, "_MAX_TOTAL_ATTEMPTS", 6)
+    _, calls = patch_chain(
+        _many_providers(10),
+        [
+            httpx.Response(429, json={"error": "rate limited"}),
+            httpx.Response(401, json={"error": "unauthorized"}),
+            httpx.Response(200, json=_openai_body("third provider")),
+        ],
+    )
+
+    result = await failover_chat_completion(
+        {"model": "m1", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert result.text == "third provider"
+    assert len(calls) == 3
+
+
+def test_budget_is_operator_tunable() -> None:
+    """Breadth vs quota is the operator's call, so both budgets are env vars."""
+    import inspect
+
+    import packages.ai.failover_client as fc
+
+    src = inspect.getsource(fc)
+    assert "BRAIN_MAX_PROVIDER_ATTEMPTS" in src
+    assert "BRAIN_FAILOVER_BUDGET_SEC" in src
+    assert fc._MAX_TOTAL_ATTEMPTS >= 1

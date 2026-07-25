@@ -25,6 +25,7 @@ Policy is unchanged: paid providers are admitted to the chain only by
 from __future__ import annotations
 
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -40,6 +41,41 @@ _MAX_MODELS_PER_PROVIDER = 3
 
 _DEFAULT_TIMEOUT_SEC = 120.0
 _CONNECT_TIMEOUT_SEC = 10.0
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int((os.environ.get(name) or "").strip() or default))
+    except (TypeError, ValueError):
+        return default
+
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return max(1.0, float((os.environ.get(name) or "").strip() or default))
+    except (TypeError, ValueError):
+        return default
+
+
+# ── Fan-out budget ───────────────────────────────────────────────────────────
+#
+# Without a cap the attempt count MULTIPLIES and self-inflicts the very 429s it
+# is trying to route around. Measured on the real registry:
+#
+#   14 providers x 3 models                        =  42 HTTP calls per call
+#   x up to 4 _chat_json parse retries             = 168 per planning step
+#   x _DISPATCH_RETRY_LIMIT (5) task re-queues     = 840 per task
+#
+# ...and the agency runs many tasks plus 34 loops concurrently. No free tier
+# survives that, so every provider returns 429 and every task ends up BLOCKED —
+# which looks like "all providers are broken" when the caller is the cause.
+#
+# These two budgets bound one logical completion. BRAIN_MAX_PROVIDER_ATTEMPTS is
+# the total HTTP attempts across ALL providers and models (not per provider), so
+# the worst case is linear instead of the product above. Raise it if you have
+# paid capacity and want more breadth; lower it to protect a tight free tier.
+_MAX_TOTAL_ATTEMPTS = _env_int("BRAIN_MAX_PROVIDER_ATTEMPTS", 6)
+_WALL_CLOCK_BUDGET_SEC = _env_float("BRAIN_FAILOVER_BUDGET_SEC", 180.0)
 
 
 class BrainFailoverExhausted(RuntimeError):
@@ -73,6 +109,44 @@ class BrainFailoverExhausted(RuntimeError):
             super().__init__(
                 "All brain providers exhausted — none configured or all in cooldown."
             )
+
+
+class _Budget:
+    """Shared attempt + wall-clock budget for one logical completion.
+
+    Bounds the whole chain rather than each provider, so the cost of a failing
+    call is linear in the budget instead of the product of providers x models x
+    parse retries x task re-queues.
+    """
+
+    def __init__(self, max_attempts: int, deadline_sec: float) -> None:
+        self._max = max_attempts
+        self._used = 0
+        self._started = time.monotonic()
+        self._deadline = deadline_sec
+
+    def charge(self) -> None:
+        self._used += 1
+
+    def spent(self) -> bool:
+        if self._used >= self._max:
+            return True
+        return (time.monotonic() - self._started) >= self._deadline
+
+    @property
+    def used(self) -> int:
+        return self._used
+
+    def reason(self) -> str:
+        if self._used >= self._max:
+            return (
+                f"attempt budget exhausted after {self._used} provider attempt(s) "
+                f"(BRAIN_MAX_PROVIDER_ATTEMPTS={self._max})"
+            )
+        return (
+            f"time budget exhausted after {self._used} attempt(s) "
+            f"(BRAIN_FAILOVER_BUDGET_SEC={self._deadline:.0f}s)"
+        )
 
 
 @dataclass
@@ -178,6 +252,7 @@ async def _try_provider(
     fm: Any,
     attempts: list[str],
     timeout_sec: float,
+    budget: "_Budget",
 ) -> tuple[FailoverResult | None, str]:
     """Try up to ``_MAX_MODELS_PER_PROVIDER`` models on one provider.
 
@@ -201,6 +276,9 @@ async def _try_provider(
     last_error = ""
 
     for try_model in models_to_try[:_MAX_MODELS_PER_PROVIDER]:
+        if budget.spent():
+            return None, last_error or f"{provider.id} skipped (budget spent)"
+        budget.charge()
         call_payload = {**payload, "model": try_model}
         post_payload = with_ollama_reasoning_effort(
             call_payload, is_ollama=_is_ollama(provider)
@@ -370,6 +448,7 @@ async def failover_chat_completion(
 
     requested_model = str(payload.get("model") or "")
     fm = get_failover_manager()
+    budget = _Budget(_MAX_TOTAL_ATTEMPTS, _WALL_CLOCK_BUDGET_SEC)
     tried: set[str] = set()          # exclusion set; cleared on breaker reset
     attempted: list[str] = []        # append-only record, for reporting
     attempts: list[str] = []
@@ -377,6 +456,9 @@ async def failover_chat_completion(
     last_error = ""
 
     for _attempt in range(fm.max_attempts()):
+        if budget.spent():
+            failures = list(dict.fromkeys([*failures, budget.reason()]))
+            break
         provider = fm.next_provider(exclude=tried, requested_model=requested_model)
         if provider is None:
             provider = _recover_all_unhealthy(fm, tried, requested_model)
@@ -388,7 +470,7 @@ async def failover_chat_completion(
         tried.add(provider.id)
         attempted = list(dict.fromkeys([*attempted, provider.id]))
         result, provider_error = await _try_provider(
-            provider, payload, fm, attempts, timeout_sec
+            provider, payload, fm, attempts, timeout_sec, budget
         )
         if result is not None:
             _log_recovery(result, failures)
