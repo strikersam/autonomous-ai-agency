@@ -453,3 +453,215 @@ async def test_terminal_error_names_every_failed_provider(patch_chain) -> None:
     assert "minimax" in message and "rate-limited" in message
     assert "ollama" in message and "network error" in message
     assert len(excinfo.value.failures) == 3
+
+
+# ── Billing refusals and accurate accounting ────────────────────────────────
+#
+# From a real production chain where all 14 providers failed. Two defects showed
+# up in that log: DeepSeek's 402 "Insufficient Balance" and Anthropic's 400
+# "credit balance is too low" were not recognised as provider-level, so each
+# burned three model attempts repeating an identical refusal; and the reported
+# `tried=` list showed 9 providers beside 14 failures with ollama listed twice.
+
+
+@pytest.mark.asyncio
+async def test_402_insufficient_balance_moves_to_next_provider(patch_chain) -> None:
+    """DeepSeek's 402 must not burn the other model slots."""
+    manager, calls = patch_chain(
+        [
+            _StubProvider("deepseek", "https://api.deepseek.com/v1", ["a", "b", "c"]),
+            _StubProvider("groq", "https://api.groq.com/openai/v1", ["llama-3.3-70b"]),
+        ],
+        [
+            httpx.Response(402, json={"error": {"message": "Insufficient Balance"}}),
+            httpx.Response(200, json=_openai_body("recovered")),
+        ],
+    )
+
+    result = await failover_chat_completion(
+        {"model": "a", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert result.provider_id == "groq"
+    # One call to deepseek only — models "b" and "c" must NOT be tried.
+    assert len(calls) == 2
+    assert ("deepseek", "payment_required") in manager.failures
+
+
+@pytest.mark.asyncio
+async def test_anthropic_400_credit_balance_is_treated_as_billing(patch_chain) -> None:
+    """A 400 whose body is really "you have no money" is provider-level."""
+    manager, calls = patch_chain(
+        [
+            _StubProvider(
+                "anthropic", "https://api.anthropic.com", ["m1", "m2", "m3"],
+                tier="paid",
+            ),
+            _StubProvider("groq", "https://api.groq.com/openai/v1", ["llama-3.3-70b"]),
+        ],
+        [
+            httpx.Response(
+                400,
+                json={
+                    "type": "error",
+                    "error": {
+                        "type": "invalid_request_error",
+                        "message": (
+                            "Your credit balance is too low to access the "
+                            "Anthropic API. Please go to Plans & Billing."
+                        ),
+                    },
+                },
+            ),
+            httpx.Response(200, json=_openai_body("recovered")),
+        ],
+    )
+
+    result = await failover_chat_completion(
+        {"model": "m1", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert result.provider_id == "groq"
+    assert len(calls) == 2, "the other two Anthropic models must not be retried"
+    assert ("anthropic", "payment_required") in manager.failures
+
+
+@pytest.mark.asyncio
+async def test_a_plain_400_still_tries_the_next_model(patch_chain) -> None:
+    """Only billing-shaped 400s bail out; a genuine bad request is per-model."""
+    manager, calls = patch_chain(
+        [_StubProvider("nvidia", "https://integrate.api.nvidia.com", ["bad", "good"])],
+        [
+            httpx.Response(400, json={"error": "unsupported parameter for model"}),
+            httpx.Response(200, json=_openai_body("second model")),
+        ],
+    )
+
+    result = await failover_chat_completion(
+        {"model": "bad", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert result.model == "good"
+    assert len(calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_exhaustion_reports_each_provider_once(patch_chain) -> None:
+    """The failure list must not double-count a provider, nor undercount."""
+    patch_chain(
+        [
+            _StubProvider("zhipu", "https://open.bigmodel.cn/api/paas/v4", ["glm-4"]),
+            _StubProvider("groq", "https://api.groq.com/openai/v1", ["llama"]),
+            _StubProvider("ollama", "http://localhost:11434", ["qwen"]),
+        ],
+        [
+            httpx.Response(401, json={"error": "unauthorized"}),
+            httpx.Response(429, json={"error": "rate limited"}),
+            httpx.ConnectError("All connection attempts failed"),
+        ],
+    )
+
+    with pytest.raises(BrainFailoverExhausted) as excinfo:
+        await failover_chat_completion(
+            {"model": "glm-4", "messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    failures = excinfo.value.failures
+    assert len(failures) == 3, f"expected one entry per provider, got {failures}"
+    # The count in the message must match the number of distinct providers.
+    assert "All 3 brain provider attempt(s) failed" in str(excinfo.value)
+    # And every attempted provider must be reported.
+    assert excinfo.value.tried == {"zhipu", "groq", "ollama"}
+
+
+# ── Fan-out budget ──────────────────────────────────────────────────────────
+#
+# Without a cap the attempt count multiplies and self-inflicts the 429s the chain
+# is trying to route around: 14 providers x 3 models x 4 parse retries x 5 task
+# re-queues = up to 840 HTTP calls for ONE task, against free tiers, while the
+# agency runs many tasks and 34 loops concurrently.
+
+
+def _many_providers(n: int) -> list:
+    return [
+        _StubProvider(f"p{i}", f"https://p{i}.test/v1", ["m1", "m2", "m3"])
+        for i in range(n)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_total_attempts_are_capped_across_the_whole_chain(
+    patch_chain, monkeypatch
+) -> None:
+    """The cap is global, not per provider — worst case linear, not a product."""
+    import packages.ai.failover_client as fc
+
+    monkeypatch.setattr(fc, "_MAX_TOTAL_ATTEMPTS", 6)
+    # 10 providers x 3 models = 30 attempts if uncapped.
+    _, calls = patch_chain(
+        _many_providers(10),
+        [httpx.Response(500, json={"error": "boom"}) for _ in range(40)],
+    )
+
+    with pytest.raises(BrainFailoverExhausted) as excinfo:
+        await failover_chat_completion(
+            {"model": "m1", "messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    assert len(calls) <= 6, (
+        f"budget not enforced: {len(calls)} HTTP calls made, cap is 6"
+    )
+    assert "budget exhausted" in str(excinfo.value)
+
+
+@pytest.mark.asyncio
+async def test_budget_does_not_block_an_early_success(patch_chain, monkeypatch) -> None:
+    """A healthy first provider must still answer in one attempt."""
+    import packages.ai.failover_client as fc
+
+    monkeypatch.setattr(fc, "_MAX_TOTAL_ATTEMPTS", 6)
+    _, calls = patch_chain(
+        _many_providers(10), [httpx.Response(200, json=_openai_body("fast"))]
+    )
+
+    result = await failover_chat_completion(
+        {"model": "m1", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert result.text == "fast"
+    assert len(calls) == 1, "a healthy provider must not consume extra budget"
+
+
+@pytest.mark.asyncio
+async def test_budget_still_allows_real_failover(patch_chain, monkeypatch) -> None:
+    """Capping must not defeat the point: recovery within budget still works."""
+    import packages.ai.failover_client as fc
+
+    monkeypatch.setattr(fc, "_MAX_TOTAL_ATTEMPTS", 6)
+    _, calls = patch_chain(
+        _many_providers(10),
+        [
+            httpx.Response(429, json={"error": "rate limited"}),
+            httpx.Response(401, json={"error": "unauthorized"}),
+            httpx.Response(200, json=_openai_body("third provider")),
+        ],
+    )
+
+    result = await failover_chat_completion(
+        {"model": "m1", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert result.text == "third provider"
+    assert len(calls) == 3
+
+
+def test_budget_is_operator_tunable() -> None:
+    """Breadth vs quota is the operator's call, so both budgets are env vars."""
+    import inspect
+
+    import packages.ai.failover_client as fc
+
+    src = inspect.getsource(fc)
+    assert "BRAIN_MAX_PROVIDER_ATTEMPTS" in src
+    assert "BRAIN_FAILOVER_BUDGET_SEC" in src
+    assert fc._MAX_TOTAL_ATTEMPTS >= 1

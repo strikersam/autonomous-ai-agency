@@ -4,6 +4,7 @@ import { useSafeData } from '../hooks/useSafeData';
 import * as api from '../../api';
 import BrainCard from '../components/BrainCard';
 import LocalBrainToggleCard from '../components/LocalBrainToggleCard';
+import ProviderHealthToggleCard from '../components/ProviderHealthToggleCard';
 
 
 // providers.jsx — V5.0: All providers + Ollama model management + MCP servers tab
@@ -692,6 +693,7 @@ function ProvidersScreen() {
               backend/local_brain_router.py (gated on SERVICE_TOKEN).
               Local daemon: scripts/local_controller.py. */}
           <LocalBrainToggleCard />
+          <ProviderHealthToggleCard />
 
           {/* Paid-Provider Kill Switch */}
           <div style={{

@@ -70,6 +70,101 @@ _PAID_CACHE: tuple[bool, float] = (False, 0.0)
 _PAID_CACHE_TTL = 10.0  # seconds — short so the UI toggle takes effect quickly
 
 
+# ── Per-provider enable/disable (operator-controlled kill switch) ─────────
+#
+# A provider whose key is invalid, whose account is out of credit, or whose model
+# the account cannot access will fail identically forever. Leaving it in the
+# rotation costs a wasted attempt on every single call and buries the providers
+# that do work. Those states are auto-disabled here and require an explicit
+# manual re-enable, because only a human can actually fix them.
+#
+# Transient states are deliberately NOT auto-disabled: 429 (quota refills), 5xx,
+# and network errors already have circuit breakers and cooldowns, and disabling
+# on a 429 would permanently switch off every free provider the first time a
+# burst hit a rate limit — strictly worse than the problem it solves.
+_DISABLED_KEY_PREFIX = "provider_disabled:"
+_DISABLED_CACHE: tuple[dict[str, str], float] = ({}, 0.0)
+_DISABLED_CACHE_TTL = 5.0
+
+
+def _kv_path() -> str:
+    return os.environ.get("SQLITE_PATH", ".data/agency.db")
+
+
+def _kv_connect():
+    import sqlite3
+    conn = sqlite3.connect(_kv_path())
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS kv_store (key TEXT PRIMARY KEY, value TEXT)"
+    )
+    return conn
+
+
+def disabled_providers(force: bool = False) -> dict[str, str]:
+    """Return ``{provider_id: reason}`` for every disabled provider.
+
+    Cached briefly so the hot path does not hit SQLite on every attempt.
+    Never raises — a storage problem must not take the brain offline.
+    """
+    global _DISABLED_CACHE
+    cached, at = _DISABLED_CACHE
+    if not force and (time.time() - at) < _DISABLED_CACHE_TTL:
+        return cached
+    out: dict[str, str] = {}
+    try:
+        conn = _kv_connect()
+        rows = conn.execute(
+            "SELECT key, value FROM kv_store WHERE key LIKE ?",
+            (_DISABLED_KEY_PREFIX + "%",),
+        ).fetchall()
+        conn.close()
+        for key, value in rows:
+            pid = key[len(_DISABLED_KEY_PREFIX):]
+            if pid and value:
+                out[pid] = value
+    except Exception as exc:  # noqa: BLE001 — never brick dispatch on kv failure
+        log.debug("brain_failover: disabled-provider read failed: %s", exc)
+        return cached
+    _DISABLED_CACHE = (out, time.time())
+    return out
+
+
+def set_provider_enabled(provider_id: str, enabled: bool, reason: str = "") -> None:
+    """Enable or disable *provider_id*, persisted across restarts."""
+    global _DISABLED_CACHE
+    try:
+        conn = _kv_connect()
+        key = _DISABLED_KEY_PREFIX + provider_id
+        if enabled:
+            conn.execute("DELETE FROM kv_store WHERE key = ?", (key,))
+        else:
+            conn.execute(
+                "INSERT OR REPLACE INTO kv_store (key, value) VALUES (?, ?)",
+                (key, reason or "disabled by operator"),
+            )
+        conn.commit()
+        conn.close()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("brain_failover: could not persist %s enabled=%s: %s",
+                    provider_id, enabled, exc)
+        return
+    _DISABLED_CACHE = ({}, 0.0)  # force re-read
+    log.info("brain_failover: provider %s %s%s", provider_id,
+             "ENABLED" if enabled else "DISABLED",
+             "" if enabled else f" ({reason})")
+
+
+def auto_disable_provider(provider_id: str, reason: str) -> None:
+    """Disable a provider that failed in a way only a human can fix.
+
+    Idempotent, and never overwrites an existing reason so the first (usually
+    most specific) diagnosis is what the operator sees in the UI.
+    """
+    if provider_id in disabled_providers():
+        return
+    set_provider_enabled(provider_id, False, f"auto: {reason}")
+
+
 def _is_paid_allowed_db() -> bool:
     """Check if the DB-stored provider policy allows paid providers.
 
@@ -587,10 +682,11 @@ class BrainFailoverManager:
         self._build_registry()
         exclude = exclude or set()
 
+        off = disabled_providers()
         with self._lock:
             healthy = [
                 p for p in self._providers.values()
-                if p.id not in exclude and p.is_healthy
+                if p.id not in exclude and p.is_healthy and p.id not in off
             ]
 
         if not healthy:
