@@ -69,10 +69,18 @@ def _sqlite_path() -> str:
     impossible to point somewhere else in a test without reloading the module.
     Reading it per-construction costs nothing and removes both problems.
     """
-    return os.environ.get(
-        "AGENCY_SQLITE_DB_PATH",
-        str(Path(os.environ.get("AGENCY_DATA_DIR", ".data")) / "agency.db"),
-    )
+    explicit = os.environ.get("AGENCY_SQLITE_DB_PATH", "").strip()
+    if explicit:
+        return explicit
+    # Under TESTING, never fall back to the shared on-disk default. Any test
+    # that exercises a code path which writes to the ledger — CEODispatcher's
+    # delegate() now does — would otherwise share one `.data/agency.db` with
+    # every other test in the session, and with the developer's real database.
+    # Tests that genuinely need durability set AGENCY_SQLITE_DB_PATH (or pass
+    # sqlite_path=) and are unaffected.
+    if os.environ.get("TESTING", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return ":memory:"
+    return str(Path(os.environ.get("AGENCY_DATA_DIR", ".data")) / "agency.db")
 
 
 def _backend() -> str:
@@ -339,7 +347,8 @@ class CEOLedger:
     def _init_sqlite(self, sqlite_path: str) -> None:
         try:
             path = Path(sqlite_path)
-            path.parent.mkdir(parents=True, exist_ok=True)
+            if sqlite_path != ":memory:":
+                path.parent.mkdir(parents=True, exist_ok=True)
             # check_same_thread=False: written from the FastAPI loop and from
             # the supervisor thread. Every write is serialised on self._lock.
             self._sqlite = sqlite3.connect(str(path), check_same_thread=False)
