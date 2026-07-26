@@ -250,6 +250,74 @@ def _build_request(provider: Any) -> tuple[str, dict[str, str], bool]:
     return _openai_url(provider.base_url, "/chat/completions"), headers, False
 
 
+def _looks_unknown_model(last_error: str | None) -> bool:
+    """True when the provider rejected the model id itself, not the request."""
+    text = last_error or ""
+    return "model_not_found" in text or "does not exist" in text
+
+
+def _models_to_try(provider: Any, provider_model: str) -> list[str]:
+    """Order the models to attempt on *provider*, correcting a stale catalogue.
+
+    Cache-only: discovery never runs here, because a chat request must not wait
+    on a second HTTP round trip. When nothing has been discovered yet this
+    returns exactly the static ordering it always did.
+    """
+    from packages.ai.model_discovery import cached_models
+
+    static = [provider_model] + [m for m in provider.models if m != provider_model]
+    served = cached_models(provider.id)
+    if not served:
+        return static
+
+    known = set(served)
+    ordered = [m for m in static if m in known]
+    # Anything the key serves but the catalogue never listed is still a valid
+    # fallback, and on a drifted catalogue it is the only one left.
+    ordered += [m for m in served if m not in ordered]
+    return ordered or static
+
+
+async def _disable_unless_key_serves_other_models(
+    provider: Any, tried: list[str]
+) -> None:
+    """Auto-disable *provider*, unless its key demonstrably serves other models.
+
+    "No accessible model" is a claim about the account, and acting on it flips a
+    kill switch an operator has to notice and undo by hand. A stale catalogue
+    produces the identical symptom, so confirm the claim against the provider's
+    own model list before believing it — and when the list names models nobody
+    tried, the catalogue was wrong, not the account.
+    """
+    from packages.ai.model_discovery import cached_models, discover_models
+
+    # Whether the attempt that just failed was already using the discovered
+    # list. If it was, the key's own models were tried and rejected, and a
+    # further round would repeat them verbatim — so the reprieve below is
+    # granted exactly once and this always converges.
+    already_corrected = cached_models(provider.id) is not None
+
+    served = await discover_models(provider)
+    if served is None:
+        # Discovery unavailable: no evidence either way, so keep the established
+        # behaviour rather than leaving a provider that really is misconfigured
+        # to fail forever.
+        _auto_disable(provider.id, "no accessible model (404 model_not_found)")
+        return
+
+    untried = [m for m in served if m not in set(tried)]
+    if untried and not already_corrected:
+        log.warning(
+            "brain_failover: %s rejected %s as unknown, but its key serves %d "
+            "models (%s...) — the catalogue is stale, not the account. Leaving "
+            "the provider enabled; the next call retries with the real list.",
+            provider.id, ", ".join(tried), len(served), ", ".join(untried[:3]),
+        )
+        return
+
+    _auto_disable(provider.id, "no accessible model (404 model_not_found)")
+
+
 def _is_ollama(provider: Any) -> bool:
     return (
         "ollama" in (getattr(provider, "id", "") or "").lower()
@@ -345,9 +413,7 @@ async def _try_provider(
     requested_model = str(payload.get("model") or "")
     chat_url, headers, is_anthropic = _build_request(provider)
     provider_model = fm.resolve_model(provider, requested_model)
-    models_to_try = [provider_model] + [
-        m for m in provider.models if m != provider_model
-    ]
+    models_to_try = _models_to_try(provider, provider_model)
     last_error = ""
 
     for try_model in models_to_try[:_MAX_MODELS_PER_PROVIDER]:
@@ -455,10 +521,8 @@ async def _try_provider(
         )
 
     fm.record_failure(provider.id, "all_models_failed")
-    if "model_not_found" in (last_error or "") or "does not exist" in (last_error or ""):
-        # Every model on this provider was rejected as unknown/inaccessible —
-        # an account-entitlement or config problem, not something that self-heals.
-        _auto_disable(provider.id, "no accessible model (404 model_not_found)")
+    if _looks_unknown_model(last_error):
+        await _disable_unless_key_serves_other_models(provider, models_to_try)
     return None, last_error
 
 

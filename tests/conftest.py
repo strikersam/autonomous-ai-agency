@@ -319,6 +319,20 @@ def _isolate_operator_provider_state(
 
 
 @pytest.fixture(autouse=True)
+def _clear_discovered_models() -> Iterator[None]:
+    """Drop the per-provider model listings between tests.
+
+    ``packages/ai/model_discovery`` caches in a module global for six hours, and
+    the dispatcher consults it when ordering model attempts. A list left behind
+    by one test silently changes which model the next one tries.
+    """
+    import packages.ai.model_discovery as md
+    md.reset_cache()
+    yield
+    md.reset_cache()
+
+
+@pytest.fixture(autouse=True)
 def _clear_response_cache():
     """Clear the LRU+TTL response cache between tests to prevent cross-test contamination."""
     import packages.ai.response_cache as rc
