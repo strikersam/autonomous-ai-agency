@@ -9722,6 +9722,71 @@ async def get_public_doctor() -> _DoctorReport:
         explanation="Ollama is the local LLM engine. Ensure it is running." if not ollama_ok else None,
     ))
 
+    # 3b. Brain failover chain — the check that explains BLOCKED tasks.
+    #
+    # The Ollama probe above only covers the local engine. When every cloud
+    # provider is switched off or cooling down the chain is EMPTY, and
+    # failover_chat_completion raises "All brain providers exhausted — none
+    # configured or all in cooldown". That surfaces to the dispatcher as the
+    # generic "No runtime available", which names neither the real cause nor the
+    # remedy — so an operator sees blocked tasks with no way to find out why
+    # without authenticating. This check answers it on the public endpoint.
+    #
+    # Reports provider ids, tiers and the pre-mapped remedy only. No API keys,
+    # no key fragments, no base URLs, and no raw provider error text (which can
+    # echo a token) — see brain_availability_summary().
+    try:
+        from services.brain_failover import brain_availability_summary
+
+        brain = brain_availability_summary()
+        usable, total = brain["usable"], brain["total"]
+        if total == 0:
+            brain_status, brain_detail = "fail", "No brain providers configured"
+            brain_fix = "Set at least one provider API key (e.g. NVIDIA_API_KEY, CEREBRAS_API_KEY, GROQ_API_KEY)."
+        elif usable == 0:
+            bits = [f"{d['id']}: {d['summary']}" for d in brain["disabled"]]
+            if brain["cooling"]:
+                bits.append("cooling down: " + ", ".join(brain["cooling"]))
+            brain_status = "fail"
+            brain_detail = f"0/{total} brain providers usable — " + "; ".join(bits)
+            actions = [d["action"] for d in brain["disabled"] if d.get("auto")]
+            brain_fix = (
+                " ".join(dict.fromkeys(actions))
+                or "All providers are in circuit-breaker cooldown; they recover automatically."
+            )
+        elif brain["disabled"] or brain["cooling"]:
+            brain_status = "warn"
+            brain_detail = (
+                f"{usable}/{total} brain providers usable"
+                + (f" — off: {', '.join(d['id'] for d in brain['disabled'])}" if brain["disabled"] else "")
+                + (f" — cooling: {', '.join(brain['cooling'])}" if brain["cooling"] else "")
+            )
+            brain_fix = "Tasks still run, but capacity is reduced."
+        else:
+            brain_status = "pass"
+            brain_detail = f"{usable}/{total} brain providers usable"
+            brain_fix = None
+        if not brain.get("state_durable", True) and brain["disabled"]:
+            brain_fix = (brain_fix or "") + (
+                " Provider on/off state is NOT durable here — it will reset on the next deploy."
+            )
+        checks.append(_DoctorCheck(
+            id="brain_providers",
+            category="Provider",
+            label="Brain failover chain",
+            status=brain_status,
+            detail=brain_detail,
+            explanation=brain_fix,
+        ))
+    except Exception as exc:  # noqa: BLE001 — a diagnostic must never 500
+        checks.append(_DoctorCheck(
+            id="brain_providers",
+            category="Provider",
+            label="Brain failover chain",
+            status="warn",
+            detail=f"Could not query: {exc}",
+        ))
+
     # 4. Runtime health
     try:
         mgr = get_runtime_manager()

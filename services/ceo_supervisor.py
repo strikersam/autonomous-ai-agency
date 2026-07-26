@@ -115,6 +115,13 @@ class SweepReport:
     in_flight: int = 0
     runtimes_woken: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    #: True when no brain provider could answer at sweep time. Re-drives and
+    #: abandonment are both suspended in that state, so this is the field that
+    #: explains a sweep which did nothing.
+    brain_unavailable: bool = False
+    #: Goals left untouched because the brain was down. They are neither
+    #: re-driven nor abandoned — they wait for the brain to come back.
+    paused: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -123,6 +130,8 @@ class SweepReport:
             "redriven": self.redriven,
             "abandoned": self.abandoned,
             "in_flight": self.in_flight,
+            "brain_unavailable": self.brain_unavailable,
+            "paused": self.paused,
             "runtimes_woken": self.runtimes_woken,
             "errors": self.errors[:10],
         }
@@ -256,6 +265,13 @@ class CEOSupervisor:
         report.scanned = len(open_goals)
         now = time.time()
         redrives = 0
+        # A goal cannot make progress without a brain, and re-driving one at a
+        # dead brain still costs an intervention — so three sweeps of an outage
+        # would abandon the entire backlog for a reason that has nothing to do
+        # with any of it. When the chain is empty we still close finished goals
+        # (that needs no brain) but suspend both re-drive and abandonment. A
+        # paused goal is recoverable; an abandoned one is not.
+        report.brain_unavailable = not self._brain_available()
 
         for goal in open_goals:
             if goal.goal_id in self._driving:
@@ -263,6 +279,9 @@ class CEOSupervisor:
                 continue
             try:
                 action = self._classify(goal, now=now, redrives_used=redrives)
+                if report.brain_unavailable and action in ("redrive", "abandon"):
+                    report.paused += 1
+                    continue
                 if action == "close":
                     self._close(ledger, goal)
                     report.closed += 1
@@ -412,6 +431,36 @@ class CEOSupervisor:
                     ledger.upsert(current)
             except Exception:  # noqa: BLE001 — diagnostics only
                 log.debug("CEO supervisor could not record re-drive failure")
+
+    def _brain_available(self) -> bool:
+        """True when at least one brain provider is switched on and out of cooldown.
+
+        Waking runtimes is not enough: every runtime ultimately plans through the
+        brain, so an empty failover chain makes each one fail with "No runtime
+        available" no matter how awake it is. Checking availability directly is
+        what stops the supervisor spending budget on work that cannot succeed.
+
+        Fails **open** — if the check itself errors we assume the brain is fine
+        and let the normal path run, because wrongly pausing every goal is worse
+        than one wasted re-drive.
+        """
+        try:
+            from services.brain_failover import brain_availability_summary
+
+            summary = brain_availability_summary()
+            if summary.get("usable", 0) > 0:
+                return True
+            log.warning(
+                "CEO supervisor: no brain provider usable (%d configured, %d off, %d cooling) "
+                "— re-drives and abandonment suspended until one returns",
+                summary.get("total", 0),
+                len(summary.get("disabled", [])),
+                len(summary.get("cooling", [])),
+            )
+            return False
+        except Exception as exc:  # noqa: BLE001 — fail open, see docstring
+            log.debug("CEO supervisor: brain availability check skipped: %s", exc)
+            return True
 
     async def _wake_runtimes(self) -> list[str]:
         """Force-wake sleeping runtimes so idle infrastructure self-recovers."""

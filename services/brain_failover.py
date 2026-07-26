@@ -1164,3 +1164,63 @@ def reset_failover_manager() -> None:
     global _manager
     with _manager_lock:
         _manager = None
+
+
+def brain_availability_summary() -> dict[str, Any]:
+    """Non-secret answer to "can the brain answer a request right now?".
+
+    Three callers need this and must not disagree: the public doctor endpoint
+    (so an operator can see a brain outage without authenticating), the CEO
+    supervisor (so it does not spend its intervention budget re-driving goals
+    at a brain that cannot answer), and the Providers screen. Deriving it here —
+    in the module that owns provider state — keeps them consistent.
+
+    ``usable`` is the number of providers that are both switched on and outside
+    their circuit-breaker cooldown. **Zero is the condition that blocks tasks**:
+    ``failover_chat_completion`` raises "All brain providers exhausted — none
+    configured or all in cooldown" when the chain is empty, which surfaces to the
+    dispatcher as "No runtime available" and leaves the task BLOCKED.
+
+    Deliberately excludes API keys, key fragments, provider base URLs and raw
+    ``last_error`` text (a provider error body can echo a token). Only the
+    provider id, its tier, and the pre-mapped human remedy are reported, so this
+    is safe to serve unauthenticated.
+    """
+    off = disabled_providers(force=True)
+    total = 0
+    usable = 0
+    disabled: list[dict[str, Any]] = []
+    cooling: list[str] = []
+    try:
+        providers = get_failover_manager().get_providers()
+    except Exception as exc:  # noqa: BLE001 — a diagnostic must never raise
+        log.warning("brain_availability_summary: provider registry unavailable: %s", exc)
+        return {
+            "total": 0, "usable": 0, "disabled": [], "cooling": [],
+            "state_durable": False, "error": str(exc)[:200],
+        }
+
+    for p in providers:
+        total += 1
+        is_off = p.id in off
+        if is_off:
+            why = describe_disabled_reason(off.get(p.id, ""))
+            disabled.append({
+                "id": p.id,
+                "tier": p.tier,
+                "summary": why["summary"],
+                "action": why["action"],
+                "auto": why["auto"],
+            })
+        elif not p.is_healthy:
+            cooling.append(p.id)
+        else:
+            usable += 1
+
+    return {
+        "total": total,
+        "usable": usable,
+        "disabled": disabled,
+        "cooling": cooling,
+        "state_durable": state_is_durable(),
+    }

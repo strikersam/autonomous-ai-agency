@@ -55,12 +55,21 @@ def build_ceo_router(get_current_user: Callable[..., Any]) -> APIRouter:
         from services.ceo_micromanager import TIER_LADDER, get_config
         from services.ceo_supervisor import get_ceo_supervisor, supervisor_enabled
 
+        from services.brain_failover import brain_availability_summary
+
         config = get_config()
         # CEOLedger is deliberately synchronous (it is written from the
         # supervisor's background context too), so its SQLite/Mongo calls must
         # not run inline on the event loop.
         stats = await run_in_threadpool(get_ceo_ledger().stats)
+        # Both are sync + do I/O (provider registry, durable-state read), so
+        # they belong off the loop for the same reason.
+        brain = await run_in_threadpool(brain_availability_summary)
         return {
+            # Surfaced here because "the CEO is doing nothing" is almost always
+            # this: with no usable provider the supervisor suspends re-drives,
+            # and every dispatched task fails with "No runtime available".
+            "brain": brain,
             "supervisor": {
                 "enabled": supervisor_enabled(),
                 **get_ceo_supervisor().get_status(),
