@@ -9736,9 +9736,14 @@ async def get_public_doctor() -> _DoctorReport:
     # no key fragments, no base URLs, and no raw provider error text (which can
     # echo a token) — see brain_availability_summary().
     try:
+        from fastapi.concurrency import run_in_threadpool
+
         from services.brain_failover import brain_availability_summary
 
-        brain = brain_availability_summary()
+        # Sync + does storage I/O, so it belongs off the loop — the same reason
+        # ceo_status wraps this identical call. The Ollama and storage checks
+        # above are already async; this one was the odd one out.
+        brain = await run_in_threadpool(brain_availability_summary)
         usable, total = brain["usable"], brain["total"]
         if total == 0:
             brain_status, brain_detail = "fail", "No brain providers configured"

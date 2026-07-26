@@ -91,6 +91,24 @@ def test_summary_never_leaks_secrets(monkeypatch):
     assert "sk-" not in blob
 
 
+def test_summary_survives_a_failing_durability_check(monkeypatch):
+    """The durability probe must not be able to 500 /api/ceo/status.
+
+    ceo_status calls this with no try/except of its own, so an unguarded raise
+    here would take down the endpoint whose whole job is explaining an outage.
+    """
+    import services.brain_failover as bf
+
+    _patch_providers(monkeypatch, [_P("groq")])
+    def _boom():
+        raise RuntimeError("mongo down")
+    monkeypatch.setattr(bf, "state_is_durable", _boom)
+
+    s = bf.brain_availability_summary()
+    assert s["usable"] == 1, "provider data is still reported"
+    assert s["state_durable"] is False, "durability degrades to false, not an exception"
+
+
 def test_summary_never_raises(monkeypatch):
     import services.brain_failover as bf
 
@@ -201,17 +219,19 @@ async def test_a_brain_outage_pauses_instead_of_abandoning(monkeypatch, tmp_path
         "services.brain_failover.brain_availability_summary",
         lambda: {"total": 1, "usable": 0, "disabled": [], "cooling": ["groq"]},
     )
-    report = await _sup(stall_s=600).sweep()
+    try:
+        report = await _sup(stall_s=600).sweep()
 
-    assert report.brain_unavailable is True
-    assert report.paused == 2
-    assert report.redriven == 0
-    assert report.abandoned == 0, "an outage must never abandon a goal"
-    # Nothing was spent, so the goals are still recoverable when the brain returns.
-    assert ledger.get("stalled").interventions == 0
-    assert ledger.get("stalled").state == "open"
-    assert ledger.get("spent").state == "open"
-    reset_ceo_ledger()
+        assert report.brain_unavailable is True
+        assert report.paused == 2
+        assert report.redriven == 0
+        assert report.abandoned == 0, "an outage must never abandon a goal"
+        # Nothing was spent, so the goals are still recoverable when the brain returns.
+        assert ledger.get("stalled").interventions == 0
+        assert ledger.get("stalled").state == "open"
+        assert ledger.get("spent").state == "open"
+    finally:
+        reset_ceo_ledger()
 
 
 @pytest.mark.asyncio
@@ -232,7 +252,9 @@ async def test_finished_goals_still_close_during_an_outage(monkeypatch, tmp_path
         "services.brain_failover.brain_availability_summary",
         lambda: {"total": 1, "usable": 0, "disabled": [], "cooling": ["groq"]},
     )
-    report = await _sup(stall_s=600).sweep()
-    assert report.closed == 1
-    assert ledger.get("done").state == "closed"
-    reset_ceo_ledger()
+    try:
+        report = await _sup(stall_s=600).sweep()
+        assert report.closed == 1
+        assert ledger.get("done").state == "closed"
+    finally:
+        reset_ceo_ledger()

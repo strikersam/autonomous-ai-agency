@@ -1186,7 +1186,10 @@ def brain_availability_summary() -> dict[str, Any]:
     provider id, its tier, and the pre-mapped human remedy are reported, so this
     is safe to serve unauthenticated.
     """
-    off = disabled_providers(force=True)
+    # Cached read on purpose: disabled_providers keeps a ~5s cache, which is far
+    # fresher than any consumer needs (the supervisor sweeps every 180s) and
+    # spares a Mongo/SQLite round-trip on every dashboard poll.
+    off = disabled_providers()
     total = 0
     usable = 0
     disabled: list[dict[str, Any]] = []
@@ -1217,10 +1220,19 @@ def brain_availability_summary() -> dict[str, Any]:
         else:
             usable += 1
 
+    # Guarded for the same reason the registry read is: this function is called
+    # by ceo_status without its own try/except, so an exception here would 500
+    # the endpoint whose entire purpose is explaining an outage.
+    try:
+        durable = state_is_durable()
+    except Exception as exc:  # noqa: BLE001 — a diagnostic must never raise
+        log.debug("brain_availability_summary: durability check failed: %s", exc)
+        durable = False
+
     return {
         "total": total,
         "usable": usable,
         "disabled": disabled,
         "cooling": cooling,
-        "state_durable": state_is_durable(),
+        "state_durable": durable,
     }
