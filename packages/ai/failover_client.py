@@ -475,7 +475,7 @@ def _log_recovery(result: FailoverResult, failures: list[str]) -> None:
         )
 
 
-def _describe_registry(fm: Any = None) -> str:
+def _describe_registry() -> str:
     """Explain a zero-attempt outcome, from the module that owns provider state.
 
     "no provider attempted" has exactly three causes needing opposite responses —
@@ -513,9 +513,7 @@ def _describe_registry(fm: Any = None) -> str:
     return " | ".join(parts)
 
 
-def _log_exhaustion(
-    attempted: list[str], failures: list[str], fm: Any = None
-) -> None:
+def _log_exhaustion(attempted: list[str], failures: list[str]) -> None:
     """The one and only error-level log in the dispatch path.
 
     Emitted solely when the chain is exhausted and the caller genuinely cannot
@@ -529,11 +527,11 @@ def _log_exhaustion(
     failures, with one provider listed twice. ``failures`` is deduped by the
     caller for the same reason.
     """
-    if not attempted and fm is not None:
+    if not attempted:
         # Zero attempts is not "everything failed", it is "nothing was tried".
         # Report the registry state instead of an empty failure list.
         log.error(
-            "brain_failover: no provider attempted — %s", _describe_registry(fm),
+            "brain_failover: no provider attempted — %s", _describe_registry(),
         )
         return
     log.error(
@@ -628,7 +626,16 @@ def _disabled_ids() -> dict[str, str]:
     try:
         from services.brain_failover import disabled_providers
         return dict(disabled_providers())
-    except Exception:  # noqa: BLE001 — never let a kv problem break dispatch
+    except Exception as exc:  # noqa: BLE001 — never let a kv problem break dispatch
+        # Fail-open, but never silently: this treats every switched-off provider
+        # as enabled for this call, which is the decision the kill switch exists
+        # to prevent. disabled_providers() is documented not to raise, so
+        # reaching here means something unusual (an import failure) and the
+        # operator needs a trace of it.
+        log.warning(
+            "brain_failover: kill-switch read failed in dispatcher (%s) — "
+            "treating all providers as enabled for this call", exc,
+        )
         return {}
 
 
@@ -679,5 +686,5 @@ async def failover_chat_completion(
             failures = list(dict.fromkeys([*failures, provider_error]))
             last_error = provider_error
 
-    _log_exhaustion(attempted, failures, fm)
+    _log_exhaustion(attempted, failures)
     raise BrainFailoverExhausted(last_error, set(attempted), failures)
