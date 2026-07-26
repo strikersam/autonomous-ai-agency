@@ -12,11 +12,14 @@ before believing the account is at fault, and use that answer on the next call.
 """
 from __future__ import annotations
 
+import time
+
 import httpx
 import pytest
 
 from packages.ai import model_discovery as md
 from packages.ai.failover_client import (
+    _MAX_MODELS_PER_PROVIDER,
     _disable_unless_key_serves_other_models,
     _looks_unknown_model,
     _models_to_try,
@@ -166,24 +169,24 @@ class TestModelOrdering:
         ]
 
     def test_models_the_key_cannot_use_are_dropped(self) -> None:
-        md._CACHE["cerebras"] = (2**31, ["llama-3.1-8b", "gpt-oss-120b"])
+        md._CACHE["cerebras"] = (time.time() + 3600, ["llama-3.1-8b", "gpt-oss-120b"])
         order = _models_to_try(_StubProvider(), "qwen-3-coder-480b")
         assert "qwen-3-coder-480b" not in order, (
             "attempting a model the key cannot use burns the attempt budget"
         )
 
     def test_served_models_missing_from_the_catalogue_are_added(self) -> None:
-        md._CACHE["cerebras"] = (2**31, ["gpt-oss-120b"])
+        md._CACHE["cerebras"] = (time.time() + 3600, ["gpt-oss-120b"])
         assert _models_to_try(_StubProvider(), "qwen-3-coder-480b") == ["gpt-oss-120b"]
 
     def test_a_catalogue_hit_keeps_its_priority(self) -> None:
-        md._CACHE["cerebras"] = (2**31, ["gpt-oss-120b", "llama-3.3-70b"])
+        md._CACHE["cerebras"] = (time.time() + 3600, ["gpt-oss-120b", "llama-3.3-70b"])
         order = _models_to_try(_StubProvider(), "llama-3.3-70b")
         assert order[0] == "llama-3.3-70b", "the resolved model stays first"
 
     def test_an_empty_discovery_falls_back_to_the_catalogue(self) -> None:
         """A provider that lists nothing must not leave the chain with no model."""
-        md._CACHE["cerebras"] = (2**31, [])
+        md._CACHE["cerebras"] = (time.time() + 3600, [])
         assert _models_to_try(_StubProvider(), "llama-3.3-70b") != []
 
 
@@ -251,14 +254,14 @@ class TestDisableGate:
         assert [pid for pid, _ in disabled] == ["cerebras"]
 
     @pytest.mark.asyncio
-    async def test_the_reprieve_is_granted_only_once(
+    async def test_it_disables_once_every_served_model_has_failed(
         self, monkeypatch, disabled
     ) -> None:
         """Without this the provider would retry a broken account forever.
 
-        Round one learns the real list and skips the kill switch. If the very
-        models the key advertises then fail too, the account really is unusable
-        and the switch must throw.
+        Round one learns the real list and skips the kill switch. Once the very
+        models the key advertises have all failed too, the account really is
+        unusable and the switch must throw.
         """
         _mock_get(monkeypatch, _ok({"data": [{"id": "gpt-oss-120b"}]}))
         provider = _StubProvider()
@@ -269,6 +272,70 @@ class TestDisableGate:
         # Round two: the corrected list was used and still failed.
         await _disable_unless_key_serves_other_models(provider, ["gpt-oss-120b"])
         assert [pid for pid, _ in disabled] == ["cerebras"]
+
+    @pytest.mark.asyncio
+    async def test_a_key_serving_more_models_than_the_cap_is_not_disabled(
+        self, monkeypatch, disabled
+    ) -> None:
+        """Only ``_MAX_MODELS_PER_PROVIDER`` models are sent per round.
+
+        A key serving more than that can never have its whole list exercised in
+        one round, so treating the untruncated order as "tried" would disable it
+        on evidence that was never gathered — defeating the guarantee entirely
+        for exactly the providers with the richest catalogues.
+        """
+        served = [f"m{i}" for i in range(8)]
+        _mock_get(monkeypatch, _ok({"data": [{"id": m} for m in served]}))
+
+        await _disable_unless_key_serves_other_models(
+            _StubProvider(), served[:_MAX_MODELS_PER_PROVIDER]
+        )
+
+        assert disabled == [], (
+            f"{len(served) - _MAX_MODELS_PER_PROVIDER} served models were never "
+            "attempted — that is not evidence the account is dead"
+        )
+
+    @pytest.mark.asyncio
+    async def test_successive_rounds_cover_the_list_and_then_disable(
+        self, monkeypatch, disabled
+    ) -> None:
+        """The guarantee has to terminate, or a dead account retries forever.
+
+        Each round attempts a further slice, and the switch throws on the round
+        that completes the coverage — never before.
+        """
+        served = [f"m{i}" for i in range(8)]
+        _mock_get(monkeypatch, _ok({"data": [{"id": m} for m in served]}))
+        provider = _StubProvider()
+
+        rounds = 0
+        for start in range(0, len(served), _MAX_MODELS_PER_PROVIDER):
+            rounds += 1
+            await _disable_unless_key_serves_other_models(
+                provider, served[start:start + _MAX_MODELS_PER_PROVIDER]
+            )
+
+        assert rounds == 3, "8 models at 3 per round is three rounds"
+        assert [pid for pid, _ in disabled] == ["cerebras"], (
+            "the final round completed the coverage and must disable"
+        )
+
+    def test_untried_models_are_ordered_first(self) -> None:
+        """What makes the coverage above actually progress.
+
+        Without this the same head of the list is retried every round and the
+        tail is never reached, so the gate can neither clear nor converge.
+        """
+        served = [f"m{i}" for i in range(6)]
+        md._CACHE["cerebras"] = (time.time() + 3600, served)
+        md.record_attempted("cerebras", served[:3])
+
+        order = _models_to_try(_StubProvider(models=served), "m0")
+
+        assert set(order[:3]) == set(served[3:]), (
+            "models no round has tried yet must be attempted before repeats"
+        )
 
     @pytest.mark.asyncio
     async def test_the_disable_reason_is_unchanged(

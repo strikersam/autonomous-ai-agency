@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import time
-from typing import Any
+from typing import Any, Iterable
 
 import httpx
 
@@ -38,6 +38,9 @@ _TIMEOUT_SEC = 10.0
 
 # provider_id -> (expires_at, models or None)
 _CACHE: dict[str, tuple[float, list[str] | None]] = {}
+# provider_id -> models already sent by a round that failed on unknown models.
+# Kept alongside the listing because the two are only meaningful together.
+_ATTEMPTED: dict[str, set[str]] = {}
 
 
 def _models_url(provider: Any) -> tuple[str, dict[str, str]]:
@@ -105,15 +108,36 @@ def cached_models(provider_id: str) -> list[str] | None:
     The dispatcher's hot path uses this: a request must never wait on discovery,
     so an unpopulated cache simply means the static catalogue is used.
     """
-    entry = _CACHE.get(provider_id)
-    if entry is None or entry[0] <= time.time():
-        return None
-    return entry[1]
+    entry = _fresh_entry(provider_id)
+    return entry[1] if entry is not None else None
+
+
+def record_attempted(provider_id: str, models: Iterable[str]) -> None:
+    """Remember which of *provider_id*'s models a failed round already sent.
+
+    The failover chain tries at most ``_MAX_MODELS_PER_PROVIDER`` models per
+    call, so a provider serving more than that can never have its whole list
+    exercised in one round. Accumulating the attempts across rounds is what lets
+    the disable gate wait for complete evidence instead of concluding an account
+    is dead after seeing a fraction of it.
+    """
+    _ATTEMPTED.setdefault(provider_id, set()).update(models)
+
+
+def attempted(provider_id: str) -> set[str]:
+    """Return every model of *provider_id* tried so far by a failed round."""
+    return set(_ATTEMPTED.get(provider_id, ()))
 
 
 def reset_cache() -> None:
-    """Drop every cached list. For tests and for an explicit operator refresh."""
+    """Drop every cached list and attempt record.
+
+    For tests, and for an explicit operator refresh: re-asking a provider is
+    also how an operator recovers after fixing an account, so the attempt record
+    must clear with the listing rather than outliving it.
+    """
     _CACHE.clear()
+    _ATTEMPTED.clear()
 
 
 async def discover_models(provider: Any) -> list[str] | None:
@@ -150,6 +174,12 @@ async def discover_models(provider: Any) -> list[str] | None:
 
 
 def _remember(provider_id: str, models: list[str] | None) -> list[str] | None:
+    """Cache *models* under *provider_id* and return it unchanged.
+
+    A successful listing is held far longer than a failed one: the answer changes
+    on the order of weeks, whereas a provider that just refused to answer is
+    likely still refusing a minute later.
+    """
     ttl = _TTL_OK_SEC if models else _TTL_FAIL_SEC
     _CACHE[provider_id] = (time.time() + ttl, models)
     return models

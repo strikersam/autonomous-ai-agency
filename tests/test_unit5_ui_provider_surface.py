@@ -20,6 +20,7 @@ automatically surfaces it in the UI" contract.
 from __future__ import annotations
 
 import re
+import time
 from pathlib import Path
 
 import pytest
@@ -177,7 +178,7 @@ def test_brain_provider_status_reports_served_models(app_client):
 def test_brain_provider_status_surfaces_a_discovered_list(app_client):
     import packages.ai.model_discovery as md
 
-    md._CACHE["cerebras"] = (2**31, ["gpt-oss-120b", "llama3.1-8b"])
+    md._CACHE["cerebras"] = (time.time() + 3600, ["gpt-oss-120b", "llama3.1-8b"])
     try:
         providers = app_client.get("/admin/api/policy/brain").json()["providers"]
         cerebras = next(p for p in providers if p["provider_id"] == "cerebras")

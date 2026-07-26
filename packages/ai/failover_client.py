@@ -263,7 +263,7 @@ def _models_to_try(provider: Any, provider_model: str) -> list[str]:
     on a second HTTP round trip. When nothing has been discovered yet this
     returns exactly the static ordering it always did.
     """
-    from packages.ai.model_discovery import cached_models
+    from packages.ai.model_discovery import attempted, cached_models
 
     static = [provider_model] + [m for m in provider.models if m != provider_model]
     served = cached_models(provider.id)
@@ -275,7 +275,15 @@ def _models_to_try(provider: Any, provider_model: str) -> list[str]:
     # Anything the key serves but the catalogue never listed is still a valid
     # fallback, and on a drifted catalogue it is the only one left.
     ordered += [m for m in served if m not in ordered]
-    return ordered or static
+    if not ordered:
+        return static
+
+    # Only the first _MAX_MODELS_PER_PROVIDER entries are ever sent, so a key
+    # serving more than that would otherwise have its tail retried forever and
+    # its head retried every round. Models no round has tried yet go first, which
+    # is what lets successive rounds cover the whole list.
+    fresh = attempted(provider.id)
+    return sorted(ordered, key=lambda m: m in fresh)
 
 
 async def _disable_unless_key_serves_other_models(
@@ -286,16 +294,20 @@ async def _disable_unless_key_serves_other_models(
     "No accessible model" is a claim about the account, and acting on it flips a
     kill switch an operator has to notice and undo by hand. A stale catalogue
     produces the identical symptom, so confirm the claim against the provider's
-    own model list before believing it — and when the list names models nobody
-    tried, the catalogue was wrong, not the account.
-    """
-    from packages.ai.model_discovery import cached_models, discover_models
+    own model list before believing it.
 
-    # Whether the attempt that just failed was already using the discovered
-    # list. If it was, the key's own models were tried and rejected, and a
-    # further round would repeat them verbatim — so the reprieve below is
-    # granted exactly once and this always converges.
-    already_corrected = cached_models(provider.id) is not None
+    *tried* must be the models this round actually sent, not the full ordered
+    list: only ``_MAX_MODELS_PER_PROVIDER`` of them are attempted, so counting
+    the rest as tried would let a key serving more models than the cap be
+    disabled on evidence that was never gathered.
+
+    Attempts accumulate across rounds, so this terminates: each round covers up
+    to ``_MAX_MODELS_PER_PROVIDER`` previously-untried models, and once the
+    record covers everything the key serves, the account really is unusable.
+    """
+    from packages.ai.model_discovery import attempted, discover_models, record_attempted
+
+    record_attempted(provider.id, tried)
 
     served = await discover_models(provider)
     if served is None:
@@ -305,13 +317,16 @@ async def _disable_unless_key_serves_other_models(
         _auto_disable(provider.id, "no accessible model (404 model_not_found)")
         return
 
-    untried = [m for m in served if m not in set(tried)]
-    if untried and not already_corrected:
+    seen = attempted(provider.id)
+    untried = [m for m in served if m not in seen]
+    if untried:
         log.warning(
             "brain_failover: %s rejected %s as unknown, but its key serves %d "
-            "models (%s...) — the catalogue is stale, not the account. Leaving "
-            "the provider enabled; the next call retries with the real list.",
-            provider.id, ", ".join(tried), len(served), ", ".join(untried[:3]),
+            "models, %d of them never tried (%s...) — the catalogue is stale, "
+            "not the account. Leaving the provider enabled; the next call "
+            "tries the ones still outstanding.",
+            provider.id, ", ".join(tried), len(served), len(untried),
+            ", ".join(untried[:3]),
         )
         return
 
@@ -413,10 +428,12 @@ async def _try_provider(
     requested_model = str(payload.get("model") or "")
     chat_url, headers, is_anthropic = _build_request(provider)
     provider_model = fm.resolve_model(provider, requested_model)
-    models_to_try = _models_to_try(provider, provider_model)
+    # Bind the capped list once: the disable gate must be told exactly what was
+    # sent, and slicing it in two places is how the two drift apart.
+    models_to_try = _models_to_try(provider, provider_model)[:_MAX_MODELS_PER_PROVIDER]
     last_error = ""
 
-    for try_model in models_to_try[:_MAX_MODELS_PER_PROVIDER]:
+    for try_model in models_to_try:
         if budget.spent():
             return None, last_error or f"{provider.id} skipped (budget spent)"
         budget.charge()
