@@ -143,6 +143,18 @@ class BrainFailoverExhausted(RuntimeError):
             )
         elif last_error:
             super().__init__(f"All brain providers exhausted. Last error: {last_error}")
+        elif self.tried:
+            # Providers WERE attempted but none reported a reason — previously
+            # this fell through to "none configured", sending operators to look
+            # for missing API keys while the real cause was a chain that ran and
+            # failed silently. Name what was tried instead of denying it happened.
+            super().__init__(
+                f"All brain providers exhausted after attempting "
+                f"{len(self.tried)} provider(s) ({', '.join(sorted(self.tried))}) — "
+                "no provider reported a reason. Check the model ids configured for "
+                "these providers; a decommissioned model returns 410 for every "
+                "request without a usable error."
+            )
         else:
             super().__init__(
                 "All brain providers exhausted — none configured or all in cooldown."
@@ -393,6 +405,11 @@ async def _try_provider(
 
         if resp.status_code == 410:
             # Model permanently gone — another model on this provider may serve.
+            # Record it: without this, a provider whose models have ALL been
+            # decommissioned returns an empty error, contributes nothing to
+            # `failures`, and the terminal message reports "none configured"
+            # for a provider that was configured, healthy, and fully attempted.
+            last_error = f"{provider.id} model {try_model} 410 gone"
             log.warning(
                 "brain_failover: %s model %s 410 Gone - trying next model",
                 provider.id, try_model,
@@ -486,9 +503,22 @@ def _untried_paid(fm: Any, tried: set[str]) -> set[str]:
     is the sole spend gate and simply omits them — which is what keeps the paid
     reserve inert for a free-only deployment.
     """
+    try:
+        from services.brain_failover import disabled_providers
+
+        off = disabled_providers()
+    except Exception:  # noqa: BLE001 — reserve logic must not break the chain
+        off = {}
+    # Selectable, not merely present. A paid provider that is switched off or
+    # cooling down can never be returned by next_provider(), so counting it here
+    # made the reserve hold back the free tier's last attempts for a provider
+    # that could not be reached — turning a cost-control knob into an outage.
     return {
         p.id for p in fm.get_providers()
-        if getattr(p, "tier", "") == "paid" and p.id not in tried
+        if getattr(p, "tier", "") == "paid"
+        and p.id not in tried
+        and p.id not in off
+        and getattr(p, "is_healthy", True)
     }
 
 
