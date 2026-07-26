@@ -475,7 +475,47 @@ def _log_recovery(result: FailoverResult, failures: list[str]) -> None:
         )
 
 
-def _log_exhaustion(attempted: list[str], failures: list[str]) -> None:
+def _describe_registry(fm: Any = None) -> str:
+    """Explain a zero-attempt outcome, from the module that owns provider state.
+
+    "no provider attempted" has exactly three causes needing opposite responses —
+    nothing configured (set a key), everything switched off by the kill switch
+    (fix the named cause and re-enable), everything in cooldown (wait) — and the
+    old message distinguished none of them.
+
+    Formats ``brain_failover.brain_availability_summary()`` rather than
+    recomputing it: that helper already derives total/usable/disabled+remedy/
+    cooling and is the shared answer for the public doctor endpoint, the CEO
+    supervisor and the Providers screen. A second implementation here would be
+    the one thing worse than no diagnostic — two that can disagree.
+    """
+    try:
+        from services.brain_failover import brain_availability_summary
+        summary = brain_availability_summary()
+    except Exception as exc:  # noqa: BLE001 — a diagnostic must never raise
+        return f"registry unavailable ({str(exc)[:80]})"
+    total = summary.get("total", 0)
+    if not total:
+        return "no providers configured — set at least one provider API key"
+    parts = [f"{total} configured", f"{summary.get('usable', 0)} usable"]
+    off = summary.get("disabled") or []
+    if off:
+        named = "; ".join(
+            f"{d.get('id')} ({d.get('remedy') or d.get('summary') or 'switched off'})"
+            for d in off
+        )
+        parts.append(f"{len(off)} switched OFF: {named}")
+    cooling = summary.get("cooling") or []
+    if cooling:
+        parts.append(f"{len(cooling)} in cooldown: {', '.join(map(str, cooling))}")
+    if not summary.get("state_durable", True):
+        parts.append("state not durable (switches reset on deploy)")
+    return " | ".join(parts)
+
+
+def _log_exhaustion(
+    attempted: list[str], failures: list[str], fm: Any = None
+) -> None:
     """The one and only error-level log in the dispatch path.
 
     Emitted solely when the chain is exhausted and the caller genuinely cannot
@@ -489,6 +529,13 @@ def _log_exhaustion(attempted: list[str], failures: list[str]) -> None:
     failures, with one provider listed twice. ``failures`` is deduped by the
     caller for the same reason.
     """
+    if not attempted and fm is not None:
+        # Zero attempts is not "everything failed", it is "nothing was tried".
+        # Report the registry state instead of an empty failure list.
+        log.error(
+            "brain_failover: no provider attempted — %s", _describe_registry(fm),
+        )
+        return
     log.error(
         "brain_failover: all %d provider(s) exhausted (%s) — %s",
         len(attempted), ", ".join(attempted) or "none",
@@ -503,12 +550,7 @@ def _untried_paid(fm: Any, tried: set[str]) -> set[str]:
     is the sole spend gate and simply omits them — which is what keeps the paid
     reserve inert for a free-only deployment.
     """
-    try:
-        from services.brain_failover import disabled_providers
-
-        off = disabled_providers()
-    except Exception:  # noqa: BLE001 — reserve logic must not break the chain
-        off = {}
+    off = _disabled_ids()
     # Selectable, not merely present. A paid provider that is switched off or
     # cooling down can never be returned by next_provider(), so counting it here
     # made the reserve hold back the free tier's last attempts for a provider
@@ -559,18 +601,35 @@ def _recover_all_unhealthy(
     self-heal tick lands. Returns the next provider to try, or ``None`` when
     some providers are still healthy (so the exhaustion was genuine).
     """
-    all_providers = fm.get_providers()
-    if not all_providers or any(p.is_healthy for p in all_providers):
+    # Only ENABLED providers count. A provider switched off by the kill switch is
+    # not in cooldown, so its breaker is CLOSED and it reads as healthy here —
+    # which made a single disabled provider mask the all-unhealthy condition and
+    # skip recovery entirely. Combined with every enabled provider being in 429
+    # cooldown, the dispatcher then found nothing to try and gave up having made
+    # ZERO HTTP attempts, logging "all 0 provider(s) exhausted (none)". Reproduced
+    # against the production shape before this fix.
+    off = _disabled_ids()
+    candidates = [p for p in fm.get_providers() if p.id not in off]
+    if not candidates or any(p.is_healthy for p in candidates):
         return None
     log.warning(
-        "brain_failover: all %d providers unhealthy — resetting circuit "
+        "brain_failover: all %d enabled provider(s) unhealthy — resetting circuit "
         "breakers inline (tried=%s)",
-        len(all_providers), tried,
+        len(candidates), tried,
     )
-    for p in all_providers:
+    for p in candidates:
         fm.record_success(p.id)
     tried.clear()
     return fm.next_provider(exclude=tried, requested_model=requested_model)
+
+
+def _disabled_ids() -> dict[str, str]:
+    """The operator kill-switch set, or empty when it cannot be read."""
+    try:
+        from services.brain_failover import disabled_providers
+        return dict(disabled_providers())
+    except Exception:  # noqa: BLE001 — never let a kv problem break dispatch
+        return {}
 
 
 async def failover_chat_completion(
@@ -620,5 +679,5 @@ async def failover_chat_completion(
             failures = list(dict.fromkeys([*failures, provider_error]))
             last_error = provider_error
 
-    _log_exhaustion(attempted, failures)
+    _log_exhaustion(attempted, failures, fm)
     raise BrainFailoverExhausted(last_error, set(attempted), failures)

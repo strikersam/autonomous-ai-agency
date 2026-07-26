@@ -861,3 +861,187 @@ def test_the_free_tier_always_keeps_at_least_one_attempt() -> None:
             f"reserve={reserve} excludes free providers before a single attempt "
             f"has been made"
         )
+
+
+# ── Zero-attempt deadlock: disabled providers masked the recovery path ───────
+#
+# The most common error in production was "all 0 provider(s) exhausted (none) —
+# no provider attempted": the chain gave up having made no HTTP call at all.
+#
+# Cause: a provider switched off by the kill switch is NOT in cooldown, so its
+# breaker is CLOSED and it reads as healthy. `_recover_all_unhealthy` bailed on
+# `any(p.is_healthy)` over ALL providers, so one disabled provider was enough to
+# mask the all-unhealthy condition and skip the breaker reset. Meanwhile
+# `next_provider` correctly excluded the disabled ones and returned None because
+# every ENABLED provider was in 429 cooldown. Net effect: total deadlock, zero
+# attempts, and a log line that named nothing actionable.
+
+def _mixed_registry(disabled: dict[str, str], cooling: list[str],
+                    ready: list[str]) -> tuple:
+    """Build the production shape: some switched off, some cooling, some ready."""
+    provs = []
+    for pid in list(disabled) + cooling + ready:
+        p = _StubProvider(pid, f"https://{pid}.test/v1", ["m1"])
+        p.is_healthy = pid not in cooling      # disabled ones look healthy
+        provs.append(p)
+    return provs
+
+
+@pytest.mark.asyncio
+async def test_a_disabled_provider_no_longer_blocks_breaker_recovery(
+    patch_chain, monkeypatch
+) -> None:
+    """The exact production shape: 2 switched off, 2 in 429 cooldown."""
+    import services.brain_failover as bf
+
+    disabled = {"zhipu": "auto: 401 invalid or expired API key",
+                "deepseek": "auto: 402 out of credit"}
+    monkeypatch.setattr(bf, "disabled_providers", lambda force=False: disabled)
+
+    provs = _mixed_registry(disabled, cooling=["groq", "nvidia"], ready=[])
+    manager, calls = patch_chain(
+        provs, [httpx.Response(200, json=_openai_body("recovered"))]
+    )
+
+    def _next(*, exclude=None, requested_model=None):
+        off = bf.disabled_providers()
+        for p in manager._providers:
+            if p.id not in (exclude or set()) and p.id not in off and p.is_healthy:
+                return p
+        return None
+
+    def _record_success(pid, latency_ms=0.0):
+        for p in manager._providers:
+            if p.id == pid:
+                p.is_healthy = True
+
+    monkeypatch.setattr(manager, "next_provider", _next)
+    monkeypatch.setattr(manager, "record_success", _record_success)
+
+    result = await failover_chat_completion(
+        {"model": "m1", "messages": [{"role": "user", "content": "hi"}]}
+    )
+
+    assert result.text == "recovered"
+    assert len(calls) == 1, (
+        "before the fix this made ZERO attempts and raised, because two disabled "
+        "providers read as healthy and suppressed the breaker reset"
+    )
+
+
+@pytest.mark.asyncio
+async def test_recovery_does_not_re_enable_a_switched_off_provider(
+    patch_chain, monkeypatch
+) -> None:
+    """The kill switch must survive a breaker reset, or it means nothing.
+
+    Recovery calls record_success to clear cooldowns. It must touch only enabled
+    providers — resetting a disabled one would quietly undo the operator's
+    decision, which is the whole point of a manual-re-enable switch.
+    """
+    import services.brain_failover as bf
+
+    disabled = {"zhipu": "auto: 401 invalid or expired API key"}
+    monkeypatch.setattr(bf, "disabled_providers", lambda force=False: disabled)
+
+    provs = _mixed_registry(disabled, cooling=["groq"], ready=[])
+    manager, _ = patch_chain(provs, [httpx.Response(200, json=_openai_body("ok"))])
+    revived: list[str] = []
+    monkeypatch.setattr(manager, "record_success",
+                        lambda pid, latency_ms=0.0: revived.append(pid))
+    monkeypatch.setattr(manager, "next_provider",
+                        lambda **k: next(
+                            (p for p in manager._providers
+                             if p.id not in bf.disabled_providers() and p.is_healthy),
+                            None))
+
+    with pytest.raises(BrainFailoverExhausted):
+        await failover_chat_completion(
+            {"model": "m1", "messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    assert "zhipu" not in revived, (
+        "a switched-off provider must never be revived by breaker recovery"
+    )
+
+
+class TestZeroAttemptDiagnostics:
+    """A zero-attempt exhaustion must say WHICH of the three causes it is.
+
+    Nothing configured, everything switched off, and everything in cooldown need
+    completely different operator responses, and the old message
+    ("no provider attempted") distinguished none of them.
+
+    These assert the FORMATTING only. The underlying counts come from
+    ``brain_failover.brain_availability_summary()``, which is the shared source of
+    truth for the public doctor endpoint, the CEO supervisor and the Providers
+    screen — recomputing them here would create a second implementation that can
+    disagree with the one operators actually read.
+    """
+
+    def _summary(self, monkeypatch, payload) -> None:
+        monkeypatch.setattr(
+            "services.brain_failover.brain_availability_summary",
+            lambda: payload,
+        )
+
+    def test_nothing_configured(self, monkeypatch) -> None:
+        import packages.ai.failover_client as fc
+        self._summary(monkeypatch, {"total": 0, "usable": 0})
+        out = fc._describe_registry()
+        assert "no providers configured" in out
+        assert "API key" in out, "must say what to do about it"
+
+    def test_switched_off_providers_are_named_with_their_remedy(
+        self, monkeypatch
+    ) -> None:
+        import packages.ai.failover_client as fc
+        self._summary(monkeypatch, {
+            "total": 4, "usable": 0, "cooling": ["groq", "nvidia"],
+            "disabled": [
+                {"id": "zhipu", "remedy": "Update the key, then switch it back on."},
+                {"id": "deepseek", "remedy": "Top up the account."},
+            ],
+            "state_durable": True,
+        })
+        out = fc._describe_registry()
+
+        assert "4 configured" in out
+        assert "2 switched OFF" in out
+        assert "zhipu (Update the key" in out
+        assert "deepseek (Top up the account.)" in out
+        assert "2 in cooldown: groq, nvidia" in out
+
+    def test_cooldown_is_distinguished_from_switched_off(self, monkeypatch) -> None:
+        import packages.ai.failover_client as fc
+        self._summary(monkeypatch, {
+            "total": 3, "usable": 1, "cooling": ["groq"],
+            "disabled": [{"id": "zhipu", "remedy": "Update the key."}],
+            "state_durable": True,
+        })
+        out = fc._describe_registry()
+
+        assert "1 usable" in out
+        assert "1 switched OFF" in out
+        assert "1 in cooldown: groq" in out
+
+    def test_non_durable_state_is_called_out(self, monkeypatch) -> None:
+        """An operator whose switches reset on deploy needs to know that here."""
+        import packages.ai.failover_client as fc
+        self._summary(monkeypatch, {
+            "total": 2, "usable": 0, "cooling": ["groq"],
+            "disabled": [], "state_durable": False,
+        })
+        assert "state not durable" in fc._describe_registry()
+
+    def test_diagnostics_never_raise(self, monkeypatch) -> None:
+        """A broken registry must not turn a failed call into a crash."""
+        import packages.ai.failover_client as fc
+
+        def _boom():
+            raise RuntimeError("registry exploded")
+
+        monkeypatch.setattr(
+            "services.brain_failover.brain_availability_summary", _boom
+        )
+        assert fc._describe_registry().startswith("registry unavailable")
