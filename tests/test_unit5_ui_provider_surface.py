@@ -20,6 +20,7 @@ automatically surfaces it in the UI" contract.
 from __future__ import annotations
 
 import re
+import time
 from pathlib import Path
 
 import pytest
@@ -161,3 +162,26 @@ def test_brain_card_jsx_dropdown_renders_provider_label():
     # Find the dropdown option block.
     assert "const label = providerLabel(p)" in src
     assert "{label}{tierTag}{keyTag}" in src
+
+
+def test_brain_provider_status_reports_served_models(app_client):
+    """The operator must be able to see what a key really serves.
+
+    ``candidates`` is the catalogue's guess; ``served_models`` is the provider's
+    own answer for the configured key. When they disagree the catalogue is the
+    stale one, and without both on screen there is no way to tell.
+    """
+    for p in app_client.get("/admin/api/policy/brain").json()["providers"]:
+        assert isinstance(p.get("served_models"), list)
+
+
+def test_brain_provider_status_surfaces_a_discovered_list(app_client):
+    import packages.ai.model_discovery as md
+
+    md._CACHE["cerebras"] = (time.time() + 3600, ["gpt-oss-120b", "llama3.1-8b"])
+    try:
+        providers = app_client.get("/admin/api/policy/brain").json()["providers"]
+        cerebras = next(p for p in providers if p["provider_id"] == "cerebras")
+        assert cerebras["served_models"] == ["gpt-oss-120b", "llama3.1-8b"]
+    finally:
+        md.reset_cache()

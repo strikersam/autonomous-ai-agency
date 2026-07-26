@@ -4070,8 +4070,20 @@ def _brain_provider_status() -> list[dict]:
             "base_url": provider_base_url(provider),
             "presets": PROVIDER_PRESETS.get(provider, {}),
             "candidates": PROVIDER_CANDIDATES.get(provider, []),
+            # What the configured key actually serves, once the dispatcher has
+            # had reason to ask. Empty until then — this is a cache read, so the
+            # endpoint never waits on a provider. When it disagrees with
+            # ``candidates``, the catalogue is the stale one.
+            "served_models": _served_models(provider),
         })
     return out
+
+
+def _served_models(provider_id: str) -> list[str]:
+    """Return the discovered model list for *provider_id*, or ``[]`` if unknown."""
+    from packages.ai.model_discovery import cached_models
+
+    return list(cached_models(provider_id) or [])
 
 @app.post("/api/admin/seed")
 async def admin_seed() -> dict[str, object]:

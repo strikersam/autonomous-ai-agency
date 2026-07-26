@@ -250,6 +250,89 @@ def _build_request(provider: Any) -> tuple[str, dict[str, str], bool]:
     return _openai_url(provider.base_url, "/chat/completions"), headers, False
 
 
+def _looks_unknown_model(last_error: str | None) -> bool:
+    """True when the provider rejected the model id itself, not the request."""
+    text = last_error or ""
+    return "model_not_found" in text or "does not exist" in text
+
+
+def _models_to_try(provider: Any, provider_model: str) -> list[str]:
+    """Order the models to attempt on *provider*, correcting a stale catalogue.
+
+    Cache-only: discovery never runs here, because a chat request must not wait
+    on a second HTTP round trip. When nothing has been discovered yet this
+    returns exactly the static ordering it always did.
+    """
+    from packages.ai.model_discovery import attempted, cached_models
+
+    static = [provider_model] + [m for m in provider.models if m != provider_model]
+    served = cached_models(provider.id)
+    if not served:
+        return static
+
+    known = set(served)
+    ordered = [m for m in static if m in known]
+    # Anything the key serves but the catalogue never listed is still a valid
+    # fallback, and on a drifted catalogue it is the only one left.
+    ordered += [m for m in served if m not in ordered]
+    if not ordered:
+        return static
+
+    # Only the first _MAX_MODELS_PER_PROVIDER entries are ever sent, so a key
+    # serving more than that would otherwise have its tail retried forever and
+    # its head retried every round. Models no round has tried yet go first, which
+    # is what lets successive rounds cover the whole list.
+    fresh = attempted(provider.id)
+    return sorted(ordered, key=lambda m: m in fresh)
+
+
+async def _disable_unless_key_serves_other_models(
+    provider: Any, tried: list[str]
+) -> None:
+    """Auto-disable *provider*, unless its key demonstrably serves other models.
+
+    "No accessible model" is a claim about the account, and acting on it flips a
+    kill switch an operator has to notice and undo by hand. A stale catalogue
+    produces the identical symptom, so confirm the claim against the provider's
+    own model list before believing it.
+
+    *tried* must be the models this round actually sent, not the full ordered
+    list: only ``_MAX_MODELS_PER_PROVIDER`` of them are attempted, so counting
+    the rest as tried would let a key serving more models than the cap be
+    disabled on evidence that was never gathered.
+
+    Attempts accumulate across rounds, so this terminates: each round covers up
+    to ``_MAX_MODELS_PER_PROVIDER`` previously-untried models, and once the
+    record covers everything the key serves, the account really is unusable.
+    """
+    from packages.ai.model_discovery import attempted, discover_models, record_attempted
+
+    record_attempted(provider.id, tried)
+
+    served = await discover_models(provider)
+    if served is None:
+        # Discovery unavailable: no evidence either way, so keep the established
+        # behaviour rather than leaving a provider that really is misconfigured
+        # to fail forever.
+        _auto_disable(provider.id, "no accessible model (404 model_not_found)")
+        return
+
+    seen = attempted(provider.id)
+    untried = [m for m in served if m not in seen]
+    if untried:
+        log.warning(
+            "brain_failover: %s rejected %s as unknown, but its key serves %d "
+            "models, %d of them never tried (%s...) — the catalogue is stale, "
+            "not the account. Leaving the provider enabled; the next call "
+            "tries the ones still outstanding.",
+            provider.id, ", ".join(tried), len(served), len(untried),
+            ", ".join(untried[:3]),
+        )
+        return
+
+    _auto_disable(provider.id, "no accessible model (404 model_not_found)")
+
+
 def _is_ollama(provider: Any) -> bool:
     return (
         "ollama" in (getattr(provider, "id", "") or "").lower()
@@ -345,12 +428,12 @@ async def _try_provider(
     requested_model = str(payload.get("model") or "")
     chat_url, headers, is_anthropic = _build_request(provider)
     provider_model = fm.resolve_model(provider, requested_model)
-    models_to_try = [provider_model] + [
-        m for m in provider.models if m != provider_model
-    ]
+    # Bind the capped list once: the disable gate must be told exactly what was
+    # sent, and slicing it in two places is how the two drift apart.
+    models_to_try = _models_to_try(provider, provider_model)[:_MAX_MODELS_PER_PROVIDER]
     last_error = ""
 
-    for try_model in models_to_try[:_MAX_MODELS_PER_PROVIDER]:
+    for try_model in models_to_try:
         if budget.spent():
             return None, last_error or f"{provider.id} skipped (budget spent)"
         budget.charge()
@@ -455,10 +538,8 @@ async def _try_provider(
         )
 
     fm.record_failure(provider.id, "all_models_failed")
-    if "model_not_found" in (last_error or "") or "does not exist" in (last_error or ""):
-        # Every model on this provider was rejected as unknown/inaccessible —
-        # an account-entitlement or config problem, not something that self-heals.
-        _auto_disable(provider.id, "no accessible model (404 model_not_found)")
+    if _looks_unknown_model(last_error):
+        await _disable_unless_key_serves_other_models(provider, models_to_try)
     return None, last_error
 
 
