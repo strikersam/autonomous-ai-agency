@@ -38,6 +38,8 @@ _ephemeral_reaper_task: "asyncio.Task | None" = None
 # Module-level handle to the single CEO supervisor task (idempotency): a second
 # sweeper would double every re-drive it decides to make.
 _ceo_supervisor_task: "asyncio.Task | None" = None
+# Module-level handle to the one-shot boot refresh of the remote skill registries.
+_skill_refresh_task: "asyncio.Task | None" = None
 # Module-level handle to the in-process Hermes sidecar (idempotency + shutdown).
 _hermes_server: "Any | None" = None
 _hermes_task: "asyncio.Task | None" = None
@@ -50,6 +52,51 @@ _hermes_task: "asyncio.Task | None" = None
 _HERMES_HOST = "127.0.0.1"
 _HERMES_PORT = 8100
 _HERMES_STARTUP_TIMEOUT_SEC = 20.0
+
+
+def _start_skill_registry_refresh() -> "asyncio.Task | None":
+    """Fetch the configured remote skill repos once at boot.
+
+    ``SkillRegistry.refresh_remote()`` had four callers — ``GET
+    /api/skills/discover``, ``POST /api/skills/refresh``, ``proxy.py`` and
+    ``services/onboarding.py`` — and **none of them run at startup**. A fresh
+    deploy therefore left every configured GitHub skill registry unfetched until
+    a human happened to open the skills page, while Doctor reported "N remote
+    skill repos configured but none fetched yet" and told the operator they
+    "will appear after the first refresh" — a refresh nothing triggered.
+
+    Fire-and-forget deliberately: this is one HTTP round trip per registry and
+    boot must not wait on GitHub. ``refresh_remote`` is TTL-guarded and gathers
+    with ``return_exceptions=True``, so a rate limit or an outage costs the
+    remote skills for this cycle, never the boot. Local ``.claude/skills`` are
+    unaffected either way.
+    """
+    global _skill_refresh_task
+    if _skill_refresh_task is not None and not _skill_refresh_task.done():
+        return _skill_refresh_task
+    if not _env_on("SKILL_REGISTRY_REFRESH_ON_BOOT"):
+        return None
+    try:
+        from agent.skill_registry import get_skill_registry_safe
+
+        registry = get_skill_registry_safe()
+        if registry is None:
+            log.info("Skill registry not initialised — skipping boot refresh")
+            return None
+        _skill_refresh_task = asyncio.create_task(_refresh_skills_quietly(registry))
+    except Exception as exc:  # noqa: BLE001 — optional enrichment, never fatal
+        log.warning("Skill registry boot refresh not scheduled: %s", exc)
+        return None
+    return _skill_refresh_task
+
+
+async def _refresh_skills_quietly(registry: Any) -> None:
+    """Await the refresh and log the outcome; swallow every failure."""
+    try:
+        added = await registry.refresh_remote()
+        log.info("Skill registry boot refresh: %d new remote skill(s)", added)
+    except Exception as exc:  # noqa: BLE001 — remote skills are optional
+        log.warning("Skill registry boot refresh failed (local skills unaffected): %s", exc)
 
 
 async def _await_hermes_ready(server: Any, task: "asyncio.Task") -> None:
@@ -135,6 +182,8 @@ class BackgroundServices:
     autonomy_tasks: list = field(default_factory=list)  # type: ignore[type-arg]
     # In-process Hermes sidecar; None when disabled or it failed to start.
     hermes_task: "asyncio.Task | None" = None  # type: ignore[type-arg]
+    # One-shot boot refresh of the remote skill registries; None when disabled.
+    skill_refresh_task: "asyncio.Task | None" = None  # type: ignore[type-arg]
     _stopped: bool = field(default=False, init=False, repr=False)
 
     async def stop(self) -> None:
@@ -178,9 +227,21 @@ class BackgroundServices:
                     inst.stop()
             except Exception as exc:  # noqa: BLE001 — shutdown is best-effort
                 log.warning("Failed to stop autonomy engine %s: %s", getter, exc)
+        await self._stop_skill_refresh()
         await self._stop_hermes()
         await self.runtime_manager.stop()
         log.info("RuntimeManager stopped")
+
+    async def _stop_skill_refresh(self) -> None:
+        """Cancel the boot refresh if it is still fetching at shutdown."""
+        global _skill_refresh_task
+        if self.skill_refresh_task is not None and not self.skill_refresh_task.done():
+            self.skill_refresh_task.cancel()
+            try:
+                await self.skill_refresh_task
+            except (asyncio.CancelledError, Exception):  # noqa: BLE001
+                pass
+        _skill_refresh_task = None
 
     async def _stop_hermes(self) -> None:
         """Shut the in-process Hermes down so port 8100 is released.
@@ -262,6 +323,7 @@ async def start_background_services(
     # probe, and a Hermes that is not yet listening is marked down for a whole
     # cooldown even though it comes up milliseconds later.
     hermes_task = await _start_hermes_in_process()
+    skill_refresh_task = _start_skill_registry_refresh()
 
     await runtime_manager.start()
     log.info(
@@ -286,6 +348,7 @@ async def start_background_services(
         dispatcher_task=dispatcher_task,
         autonomy_tasks=autonomy_tasks,
         hermes_task=hermes_task,
+        skill_refresh_task=skill_refresh_task,
     )
 
 
