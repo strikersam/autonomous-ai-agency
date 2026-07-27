@@ -1480,12 +1480,35 @@ class ProviderRouter:
         # and make a single best-effort attempt per skipped provider.
         # This prevents the misleading "no providers attempted" dead-end that
         # occurs when a previous request put every provider on cooldown.
-        if not attempts and skipped_on_cooldown:
+        #
+        # A provider cooling from a 429 is excluded from the bypass. The bypass
+        # exists to recover from cooldowns that may no longer reflect reality —
+        # a transient connection blip, a one-off 5xx — where a probe costs
+        # nothing but a round trip. A 429 is the opposite: the provider has
+        # explicitly said "not yet", so bypassing it spends a request to be told
+        # the same thing again and pushes the rate-limit window further out. The
+        # brain chain had the same shape of bug and it kept four free providers
+        # pinned at their limits indefinitely.
+        rate_limited_now = {
+            pid for pid in _consecutive_429_count if _consecutive_429_count.get(pid)
+        }
+        bypass_candidates = [
+            (p, primary) for (p, primary) in skipped_on_cooldown
+            if p.provider_id not in rate_limited_now
+        ]
+        if not attempts and skipped_on_cooldown and not bypass_candidates:
             log.warning(
-                "All %d providers on cooldown — making last-resort bypass attempt",
+                "All %d providers cooling from rate limits — not bypassing; "
+                "the fleet is at its limit, not mis-cooled",
                 len(skipped_on_cooldown),
             )
-            for provider, is_primary in skipped_on_cooldown:
+        if not attempts and bypass_candidates:
+            log.warning(
+                "All %d providers on cooldown — making last-resort bypass attempt "
+                "on the %d not rate-limited",
+                len(skipped_on_cooldown), len(bypass_candidates),
+            )
+            for provider, is_primary in bypass_candidates:
                 # Apply the same Bedrock-affinity filter in the bypass path so that
                 # a Bedrock model ID is never routed to a non-Bedrock provider even
                 # when all providers were on cooldown.

@@ -465,6 +465,16 @@ def _is_paid_allowed_db() -> bool:
 
 # ── Provider definitions ─────────────────────────────────────────────────
 
+# Anti-wedge valve thresholds. A provider is treated as stuck (rather than
+# legitimately cooling) only when its cooldown window is wider than any it could
+# have earned. record_failure caps the 429 backoff exponent at 4, so the widest
+# legitimate window is `cooldown_seconds * 2**4`; the factor is double that cap
+# so the valve can never fire on a healthy backoff ladder. NVIDIA has the
+# largest base in the registry at 90s → a real ladder tops out at 1440s, well
+# under its 2880s threshold.
+_STUCK_PROBE_FACTOR: float = 32.0
+_STUCK_PROBE_FLOOR_SEC: float = 900.0
+
 
 class ProviderHealth(Enum):
     """Circuit-breaker state for a provider."""
@@ -987,6 +997,75 @@ class BrainFailoverManager:
                     p.avg_latency_ms = latency_ms
                 else:
                     p.avg_latency_ms = 0.7 * p.avg_latency_ms + 0.3 * latency_ms
+
+    def allow_probe(self, provider_id: str) -> None:
+        """Permit one probe call without claiming the provider succeeded.
+
+        This is the honest version of "reset the breaker". ``record_success``
+        cannot be used for that: it sets ``health = CLOSED`` and
+        ``failure_count = 0``, and ``is_healthy`` returns True for CLOSED
+        *without ever consulting* ``cooldown_until`` — so calling it on a
+        rate-limited provider erases both the cooldown and the exponential
+        backoff counter that produced it. A caller that did this whenever every
+        provider was cooling created a doom loop: 429 on all providers → all
+        marked OPEN → next request resets them all → all hammered again → 429,
+        forever, with the backoff pinned at its base value because the counter
+        never survived a cycle.
+
+        HALF_OPEN preserves ``failure_count`` and ``cooldown_until``, so if the
+        probe fails the next backoff is computed from the *real* failure history
+        and keeps growing as it should.
+        """
+        self._build_registry()
+        with self._lock:
+            p = self._providers.get(provider_id)
+            if p is not None:
+                p.health = ProviderHealth.HALF_OPEN
+
+    def seconds_until_recovery(self) -> float | None:
+        """Seconds until the soonest cooling provider is probeable again.
+
+        ``None`` when no provider is cooling (nothing to wait for). Lets a
+        caller report "retry in 42s" and stop, instead of probing a fleet that
+        has already told it to back off.
+        """
+        self._build_registry()
+        now = time.time()
+        with self._lock:
+            waits = [
+                p.cooldown_until - now
+                for p in self._providers.values()
+                if p.health == ProviderHealth.OPEN and p.cooldown_until > now
+            ]
+        return min(waits) if waits else None
+
+    def stuck_beyond_cooldown(
+        self, provider_id: str, *, factor: float = _STUCK_PROBE_FACTOR
+    ) -> bool:
+        """True when a provider's cooldown window is wider than any it could
+        legitimately have earned.
+
+        The anti-deadlock safety valve. Cooldowns are the correct answer to a
+        429, but a corrupted or absurd ``cooldown_until`` must not wedge the
+        brain permanently, so a provider stuck well past any real backoff is
+        still allowed an occasional probe.
+
+        The threshold must sit strictly *above* the largest legitimate backoff,
+        or the valve fires on a healthy ladder and reintroduces the hammering it
+        exists to replace. ``record_failure`` caps the exponent at 4, so the
+        widest earned window is ``cooldown_seconds * 2**4`` — 1440s for NVIDIA,
+        whose 90s base is the largest in the registry. A factor of 4 would have
+        put the threshold at 360s (floored to 900s) and so fired on NVIDIA's
+        perfectly legitimate 1440s backoff — exactly the provider that
+        rate-limits most. ``_STUCK_PROBE_FACTOR`` is therefore double the
+        exponent cap, leaving clear headroom above any real ladder.
+        """
+        with self._lock:
+            p = self._providers.get(provider_id)
+            if p is None or p.health != ProviderHealth.OPEN:
+                return False
+            overdue = p.cooldown_until - p.last_failure
+            return overdue > max(factor * p.cooldown_seconds, _STUCK_PROBE_FLOOR_SEC)
 
     def record_failure(
         self,
