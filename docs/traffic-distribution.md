@@ -169,7 +169,7 @@ NVIDIA_NIM_WEIGHT=1
 
 ## Observability
 
-```
+```text
 GET /api/metrics/traffic-distribution     (authenticated)
 ```
 

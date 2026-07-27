@@ -288,6 +288,21 @@ class TestOverBudget:
         d.record_end("p", latency_ms=1)
         assert d.over_budget("p") is None
 
+    def test_fractional_max_parallel_never_becomes_a_hard_zero(
+        self, monkeypatch
+    ) -> None:
+        """`int(0.5)` is 0, and a cap of 0 makes `in_flight >= cap` true at zero
+        in-flight requests — excluding the provider permanently. A value that
+        rounds below 1 must read as unset instead."""
+        from packages.ai.brain_config import provider_max_parallel
+
+        monkeypatch.setenv("P_MAX_PARALLEL", "0.5")
+        assert provider_max_parallel("p") is None
+        assert TrafficDirector().over_budget("p") is None
+
+        monkeypatch.setenv("P_MAX_PARALLEL", "2.6")
+        assert provider_max_parallel("p") == 3
+
     def test_budget_frees_up_when_the_window_rolls(self, monkeypatch) -> None:
         monkeypatch.setenv("P_MAX_RPM", "1")
         d = TrafficDirector()
@@ -413,6 +428,59 @@ class TestRouterIntegration:
         assert stats["total_requests"] == 1
         assert stats["in_flight"] == 0  # record_end ran in the finally
         assert stats["tokens_in_window"] == 20
+
+    @pytest.mark.anyio
+    async def test_recorded_latency_excludes_local_post_processing(
+        self, monkeypatch
+    ) -> None:
+        """The director must see the provider round-trip, not the round trip
+        plus JSON parsing, task classification and cost attribution — those run
+        after the response arrives and would inflate the latency-based EWMA."""
+        from packages.ai.router import ProviderConfig, ProviderRouter
+
+        monkeypatch.delenv("LLM_ROUTING_STRATEGY", raising=False)
+
+        async def instant_post_chat(self, provider, payload, timeout_sec):
+            return httpx.Response(
+                200,
+                json={
+                    "choices": [{"message": {"content": "ok"}}],
+                    "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+                },
+                headers={"content-type": "application/json"},
+            )
+
+        # Make the post-response bookkeeping expensively slow. If record_end
+        # re-measured elapsed time instead of reusing the value captured right
+        # after the response, this delay would land in the EWMA.
+        real_record_usage = None
+        try:
+            from packages.ai import cost_tracker
+
+            real_record_usage = cost_tracker.record_usage
+
+            def slow_record_usage(*args, **kwargs):
+                time.sleep(0.4)
+                return real_record_usage(*args, **kwargs)
+
+            monkeypatch.setattr(cost_tracker, "record_usage", slow_record_usage)
+        except Exception:  # pragma: no cover - cost tracker always importable
+            pytest.skip("cost_tracker unavailable")
+
+        monkeypatch.setattr(ProviderRouter, "_post_chat", instant_post_chat)
+        router = ProviderRouter(
+            [
+                ProviderConfig(
+                    "fastprov", "openai-compatible", "https://example.com/v1",
+                    api_key="k", default_model="m", priority=0,
+                )
+            ]
+        )
+        await router.chat_completion(self._payload("latency-probe"), max_retries=0)
+
+        ewma = get_director().snapshot()["providers"]["fastprov"]["ewma_latency_ms"]
+        assert ewma is not None
+        assert ewma < 300, f"post-processing leaked into latency: {ewma}ms"
 
     @pytest.mark.anyio
     async def test_sole_provider_is_never_skipped_for_being_over_budget(

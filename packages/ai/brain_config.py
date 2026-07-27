@@ -632,9 +632,18 @@ def provider_max_parallel(provider: str) -> int | None:
     Reads ``<PROVIDER>_MAX_PARALLEL``. This is the concurrency ceiling that
     NVIDIA NIM enforces with 419 responses; setting it lets the router spread
     load to a sibling provider instead of collecting the 419 first.
+
+    A fractional value is rounded rather than truncated, and anything that
+    rounds below 1 is treated as unset. ``int(0.5)`` would otherwise be ``0``,
+    and a concurrency cap of zero makes the ``in_flight >= cap`` check true at
+    zero in-flight requests — excluding the provider permanently. That is
+    exactly the "limit of zero" outcome a malformed value must never produce.
     """
     value = _provider_positive_float(provider, "_MAX_PARALLEL")
-    return int(value) if value is not None else None
+    if value is None:
+        return None
+    rounded = round(value)
+    return rounded if rounded >= 1 else None
 
 
 def routing_strategy() -> str:

@@ -1152,7 +1152,20 @@ class ProviderRouter:
                 _status_for_director: int | None = None
                 _tokens_for_director = 0
                 if _director is not None:
-                    _director.record_start(provider.provider_id)
+                    try:
+                        _director.record_start(provider.provider_id)
+                    except Exception:  # nosec B110 - accounting must not block
+                        # A failed record_start means no in-flight increment,
+                        # so record_end's max(0, …) floor keeps the pair
+                        # balanced rather than driving the count negative.
+                        _director = None
+                # Latency reported to the director is the value measured
+                # immediately after the response arrives (or the exception is
+                # caught), never re-measured in the finally — re-measuring
+                # there would fold JSON parsing, task classification and cost
+                # attribution into what the latency-based strategy reads as
+                # provider round-trip time.
+                latency_ms: int | None = None
                 try:
                     # Proactive rate-limit check: if remaining quota for this
                     # provider is critically low, wait for the reset window
@@ -1266,7 +1279,7 @@ class ProviderRouter:
                         try:
                             _director.record_end(
                                 provider.provider_id,
-                                latency_ms=int((time.perf_counter() - started) * 1000),
+                                latency_ms=latency_ms,
                                 tokens=_tokens_for_director,
                                 status_code=_status_for_director,
                             )
