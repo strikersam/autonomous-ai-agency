@@ -384,10 +384,12 @@ class SelfHealingAgent:
         lowered = description.lower()
 
         # Infrastructure / external service unavailable — not fixable by code change.
+        # Note: generic "connection refused" / "connection reset" are NOT listed here
+        # because they belong to NETWORK.  Only service-qualified signals (e.g.
+        # "[errno 111]" together with a service name, or "econnrefused" which is a
+        # Node/OS constant) are unambiguous infrastructure failures.
         _INFRA_SIGNALS = (
             "serverselectiontimeouterror",
-            "connection refused",
-            "connection reset",
             "econnrefused",
             "mongoclient",
             "mongoerror",
