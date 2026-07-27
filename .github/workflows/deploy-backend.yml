@@ -22,23 +22,27 @@ on:
       - 'services/**'
       - 'models/**'
       - 'db/**'
+      # These four are COPYed by Dockerfile.backend but were missing here, so a
+      # change confined to any of them shipped no deploy at all. packages/ holds
+      # the whole AI layer (router, brain config, providers, traffic director);
+      # loops/ the loop registry; voice/ the TTS + SAM pipeline; .claude/ the
+      # skill descriptors /api/skills indexes at runtime.
+      - 'packages/**'
+      - 'loops/**'
+      - 'voice/**'
+      - '.claude/**'
       # Dockerfile.backend now builds the React SPA from frontend/ source (the
       # multi-stage frontend-build stage) and bakes it into the image, so a
       # frontend-only change must redeploy the backend too — otherwise the
       # backend-served UI stays on the old bundle until an unrelated change.
       - 'frontend/**'
-      # root-level modules copied by Dockerfile.backend
-      - 'provider_router.py'
-      - 'commercial_equivalent.py'
-      - 'langfuse_obs.py'
-      - 'tokens.py'
-      - 'key_store.py'
-      - 'activation.py'
-      - 'activation_api.py'
-      - 'infra_cost.py'
-      - 'rbac.py'
-      - 'secrets_store.py'
-      - 'version.py'
+      # Dockerfile.backend ships root modules wholesale (`COPY *.py ./`) after
+      # one-by-one copying repeatedly dropped newly-added modules from the
+      # image. This filter listed 11 files by name, so the same drift lived on
+      # here: 24 root modules that ARE in the image — proxy.py, chat_handlers.py,
+      # telegram_bot.py, output_filter.py, app_settings.py and the rest — could
+      # change without deploying. Match the Dockerfile: take them all.
+      - '*.py'
       # also deploy if the Dockerfile or this workflow changes
       - 'Dockerfile.backend'
       - '.github/workflows/deploy-backend.yml'
@@ -87,21 +91,57 @@ jobs:
           fi
           echo "Deploy triggered successfully (HTTP $HTTP_CODE)"
 
-      - name: Wait and verify backend health
+      - name: Verify the new build is actually live
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          HEALTH_URL: https://local-llm-server.onrender.com/api/health
         run: |
-          echo "Waiting 20s for Render to register the deploy..."
-          sleep 20
-          MAX_ATTEMPTS=20
+          # This step used to poll for *any* 200 starting 20s after triggering
+          # the deploy, and `exit 0` on timeout. Render keeps the previous
+          # instance serving until the new image builds, and this image builds
+          # a React bundle and installs Chromium — so the old instance answered
+          # within 20s and the job went green while the Render build failed.
+          # Two changes: wait for the commit we just pushed, and fail loudly.
+          echo "Waiting for $EXPECTED_SHA to come live at $HEALTH_URL"
+          MAX_ATTEMPTS=40      # 40 x 30s = 20 minutes
+          SLEEP_SECONDS=30
           ATTEMPT=0
-          until curl -sf --max-time 10 \
-              "https://local-llm-server.onrender.com/api/health" > /dev/null; do
+          UNVERIFIABLE=0
+          sleep 60             # don't bother polling before a build can finish
+
+          while [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; do
             ATTEMPT=$((ATTEMPT + 1))
-            if [ "$ATTEMPT" -ge "$MAX_ATTEMPTS" ]; then
-              echo "::warning::Health check timed out after ${MAX_ATTEMPTS} attempts."
-              echo "Render free-tier services can take 60-90s for first request."
-              exit 0
+            BODY=$(curl -sf --max-time 15 "$HEALTH_URL" || true)
+            if [ -n "$BODY" ]; then
+              LIVE_SHA=$(printf '%s' "$BODY" | jq -r '.commit // empty')
+              if [ -n "$LIVE_SHA" ]; then
+                if [ "$LIVE_SHA" = "$EXPECTED_SHA" ]; then
+                  echo "Live commit matches: $LIVE_SHA"
+                  exit 0
+                fi
+                echo "Attempt $ATTEMPT/$MAX_ATTEMPTS — live commit is ${LIVE_SHA:0:7}, still the old build"
+              else
+                # The host stamped no commit (RENDER_GIT_COMMIT unset, or the
+                # running image predates /api/health reporting it). We cannot
+                # tell old from new, so accept reachability rather than fail a
+                # deploy we have no evidence against — but say so.
+                UNVERIFIABLE=1
+                echo "Attempt $ATTEMPT/$MAX_ATTEMPTS — health OK but no commit reported"
+                if [ "$ATTEMPT" -ge 4 ]; then
+                  echo "::warning::Backend is up but does not report a build commit, so this deploy could not be verified. Set RENDER_GIT_COMMIT in the Render dashboard (Environment -> Add from Render), or wait for the first deploy that ships the commit-reporting /api/health."
+                  exit 0
+                fi
+              fi
+            else
+              echo "Attempt $ATTEMPT/$MAX_ATTEMPTS — health endpoint not responding"
             fi
-            echo "Attempt $ATTEMPT/$MAX_ATTEMPTS — retrying in 10s..."
-            sleep 10
+            sleep "$SLEEP_SECONDS"
           done
-          echo "Backend healthy at https://local-llm-server.onrender.com/api/health"
+
+          if [ "$UNVERIFIABLE" = "1" ]; then
+            echo "::warning::Could not verify the deployed commit; backend was reachable throughout."
+            exit 0
+          fi
+          echo "::error::$EXPECTED_SHA never went live after $((MAX_ATTEMPTS * SLEEP_SECONDS / 60)) minutes."
+          echo "Check the Render build log: https://dashboard.render.com -> local-llm-server -> Events"
+          exit 1
