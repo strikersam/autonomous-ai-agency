@@ -465,6 +465,12 @@ def _is_paid_allowed_db() -> bool:
 
 # ── Provider definitions ─────────────────────────────────────────────────
 
+# A provider whose OPEN window exceeds this floor (and several times its own
+# configured cooldown) is treated as stuck rather than legitimately cooling, and
+# is allowed an occasional probe. Purely an anti-wedge valve — a real 429 backoff
+# tops out far below this.
+_STUCK_PROBE_FLOOR_SEC: float = 900.0
+
 
 class ProviderHealth(Enum):
     """Circuit-breaker state for a provider."""
@@ -987,6 +993,62 @@ class BrainFailoverManager:
                     p.avg_latency_ms = latency_ms
                 else:
                     p.avg_latency_ms = 0.7 * p.avg_latency_ms + 0.3 * latency_ms
+
+    def allow_probe(self, provider_id: str) -> None:
+        """Permit one probe call without claiming the provider succeeded.
+
+        This is the honest version of "reset the breaker". ``record_success``
+        cannot be used for that: it sets ``health = CLOSED`` and
+        ``failure_count = 0``, and ``is_healthy`` returns True for CLOSED
+        *without ever consulting* ``cooldown_until`` — so calling it on a
+        rate-limited provider erases both the cooldown and the exponential
+        backoff counter that produced it. A caller that did this whenever every
+        provider was cooling created a doom loop: 429 on all providers → all
+        marked OPEN → next request resets them all → all hammered again → 429,
+        forever, with the backoff pinned at its base value because the counter
+        never survived a cycle.
+
+        HALF_OPEN preserves ``failure_count`` and ``cooldown_until``, so if the
+        probe fails the next backoff is computed from the *real* failure history
+        and keeps growing as it should.
+        """
+        self._build_registry()
+        with self._lock:
+            p = self._providers.get(provider_id)
+            if p is not None:
+                p.health = ProviderHealth.HALF_OPEN
+
+    def seconds_until_recovery(self) -> float | None:
+        """Seconds until the soonest cooling provider is probeable again.
+
+        ``None`` when no provider is cooling (nothing to wait for). Lets a
+        caller report "retry in 42s" and stop, instead of probing a fleet that
+        has already told it to back off.
+        """
+        self._build_registry()
+        now = time.time()
+        with self._lock:
+            waits = [
+                p.cooldown_until - now
+                for p in self._providers.values()
+                if p.health == ProviderHealth.OPEN and p.cooldown_until > now
+            ]
+        return min(waits) if waits else None
+
+    def stuck_beyond_cooldown(self, provider_id: str, *, factor: float = 4.0) -> bool:
+        """True when a provider has been OPEN far longer than its own cooldown.
+
+        The anti-deadlock safety valve. Cooldowns are the correct answer to a
+        429, but a corrupted or absurd ``cooldown_until`` must not wedge the
+        brain permanently, so a provider stuck well past its own backoff window
+        is still allowed an occasional probe.
+        """
+        with self._lock:
+            p = self._providers.get(provider_id)
+            if p is None or p.health != ProviderHealth.OPEN:
+                return False
+            overdue = p.cooldown_until - p.last_failure
+            return overdue > max(factor * p.cooldown_seconds, _STUCK_PROBE_FLOOR_SEC)
 
     def record_failure(
         self,

@@ -691,13 +691,49 @@ def _recover_all_unhealthy(
     candidates = [p for p in fm.get_providers() if p.id not in off]
     if not candidates or any(p.is_healthy for p in candidates):
         return None
+
+    # Every enabled provider is cooling. This used to call record_success() on
+    # all of them, which is not a breaker reset but a *lie*: record_success sets
+    # health=CLOSED and failure_count=0, and is_healthy returns True for CLOSED
+    # without ever consulting cooldown_until — so it erased both the cooldown and
+    # the exponential-backoff counter that produced it. With every free provider
+    # 429ing, that produced a doom loop: all cool → next request resets them all
+    # → all four hammered again → 429 again, every few seconds, indefinitely,
+    # with the backoff pinned at its base value because the counter never
+    # survived a cycle. Production logs showed exactly that for 20+ minutes:
+    # "all 4 provider(s) exhausted (nvidia, google, zai, groq)" on repeat.
+    #
+    # A 429 cooldown is the provider telling us to wait. Waiting is the fix, not
+    # something to route around — no ordering of four exhausted providers finds
+    # capacity that none of them has.
+    # fm is duck-typed (Any). A manager without the newer introspection methods
+    # is treated as "nothing is stuck", i.e. wait — never as licence to reset,
+    # because reset-and-hammer is the failure mode this whole branch exists to
+    # stop, and it must not come back through a missing attribute.
+    _stuck_check = getattr(fm, "stuck_beyond_cooldown", None)
+    stuck = [p for p in candidates if _stuck_check and _stuck_check(p.id)]
+    if not stuck:
+        _wait_check = getattr(fm, "seconds_until_recovery", None)
+        wait = _wait_check() if _wait_check else None
+        log.warning(
+            "brain_failover: all %d enabled provider(s) cooling — not resetting "
+            "breakers; soonest retry in %s",
+            len(candidates),
+            f"{wait:.0f}s" if wait is not None else "unknown",
+        )
+        return None
+
+    # Safety valve only: a provider wedged far beyond its own backoff window is
+    # allowed one probe. allow_probe keeps failure_count and cooldown_until, so a
+    # failed probe backs off further instead of restarting the ladder at base.
     log.warning(
-        "brain_failover: all %d enabled provider(s) unhealthy — resetting circuit "
-        "breakers inline (tried=%s)",
-        len(candidates), tried,
+        "brain_failover: %d provider(s) stuck past their cooldown window — "
+        "allowing a probe (tried=%s)",
+        len(stuck), tried,
     )
-    for p in candidates:
-        fm.record_success(p.id)
+    _probe = getattr(fm, "allow_probe", None) or fm.record_success
+    for p in stuck:
+        _probe(p.id)
     tried.clear()
     return fm.next_provider(exclude=tried, requested_model=requested_model)
 

@@ -917,6 +917,18 @@ async def test_a_disabled_provider_no_longer_blocks_breaker_recovery(
 
     monkeypatch.setattr(manager, "next_provider", _next)
     monkeypatch.setattr(manager, "record_success", _record_success)
+    monkeypatch.setattr(manager, "allow_probe", _record_success, raising=False)
+    monkeypatch.setattr(
+        manager, "seconds_until_recovery", lambda: 30.0, raising=False
+    )
+    # The two cooling providers are wedged well past their own backoff window,
+    # so the anti-deadlock valve applies and a probe is allowed. This is what
+    # keeps the original point of this test alive: the two *disabled* providers
+    # must not read as healthy and mask the all-unhealthy condition, or the
+    # chain gives up having made ZERO attempts.
+    monkeypatch.setattr(
+        manager, "stuck_beyond_cooldown", lambda pid, **kw: True, raising=False
+    )
 
     result = await failover_chat_completion(
         {"model": "m1", "messages": [{"role": "user", "content": "hi"}]}
@@ -930,14 +942,63 @@ async def test_a_disabled_provider_no_longer_blocks_breaker_recovery(
 
 
 @pytest.mark.asyncio
+async def test_ordinary_rate_limit_cooldown_is_waited_out_not_reset(
+    patch_chain, monkeypatch
+) -> None:
+    """The doom-loop guard, at the level of the whole chain.
+
+    Same shape as the test above but the cooling providers are in an *ordinary*
+    429 backoff rather than wedged. Recovery must decline to reset them and the
+    call must fail, because four rate-limited providers have no capacity that
+    reordering or re-probing can find. Production ran the opposite behaviour for
+    20+ minutes: every provider reset and re-hammered every few seconds.
+    """
+    import services.brain_failover as bf
+
+    disabled = {"zhipu": "auto: 401 invalid or expired API key"}
+    monkeypatch.setattr(bf, "disabled_providers", lambda force=False: disabled)
+
+    provs = _mixed_registry(disabled, cooling=["groq", "nvidia"], ready=[])
+    manager, calls = patch_chain(
+        provs, [httpx.Response(200, json=_openai_body("should-not-happen"))]
+    )
+
+    resets: list[str] = []
+
+    def _record_success(pid, latency_ms=0.0):
+        resets.append(pid)
+        for p in manager._providers:
+            if p.id == pid:
+                p.is_healthy = True
+
+    monkeypatch.setattr(manager, "next_provider", lambda **kw: None)
+    monkeypatch.setattr(manager, "record_success", _record_success)
+    monkeypatch.setattr(manager, "allow_probe", _record_success, raising=False)
+    monkeypatch.setattr(
+        manager, "stuck_beyond_cooldown", lambda pid, **kw: False, raising=False
+    )
+    monkeypatch.setattr(
+        manager, "seconds_until_recovery", lambda: 45.0, raising=False
+    )
+
+    with pytest.raises(Exception):
+        await failover_chat_completion(
+            {"model": "m1", "messages": [{"role": "user", "content": "hi"}]}
+        )
+
+    assert calls == [], f"rate-limited providers were re-hammered: {calls}"
+    assert resets == [], f"cooldowns were reset instead of waited out: {resets}"
+
+
+@pytest.mark.asyncio
 async def test_recovery_does_not_re_enable_a_switched_off_provider(
     patch_chain, monkeypatch
 ) -> None:
-    """The kill switch must survive a breaker reset, or it means nothing.
+    """The kill switch must survive a breaker probe, or it means nothing.
 
-    Recovery calls record_success to clear cooldowns. It must touch only enabled
-    providers — resetting a disabled one would quietly undo the operator's
-    decision, which is the whole point of a manual-re-enable switch.
+    Recovery may re-probe a wedged provider. It must touch only enabled ones —
+    probing a disabled provider would quietly undo the operator's decision,
+    which is the whole point of a manual-re-enable switch.
     """
     import services.brain_failover as bf
 
@@ -949,6 +1010,16 @@ async def test_recovery_does_not_re_enable_a_switched_off_provider(
     revived: list[str] = []
     monkeypatch.setattr(manager, "record_success",
                         lambda pid, latency_ms=0.0: revived.append(pid))
+    monkeypatch.setattr(manager, "allow_probe",
+                        lambda pid: revived.append(pid), raising=False)
+    # Wedged, so the anti-deadlock valve fires and a probe is attempted at all —
+    # which is the only way this test can observe who gets revived.
+    monkeypatch.setattr(
+        manager, "stuck_beyond_cooldown", lambda pid, **kw: True, raising=False
+    )
+    monkeypatch.setattr(
+        manager, "seconds_until_recovery", lambda: None, raising=False
+    )
     monkeypatch.setattr(manager, "next_provider",
                         lambda **k: next(
                             (p for p in manager._providers

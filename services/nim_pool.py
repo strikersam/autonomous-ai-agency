@@ -244,6 +244,16 @@ class NIMConnectionPool:
                     self._request_count += 1
                     resp = await client.request(method, url, **kwargs)
 
+                # A rate limit is a failure for the breaker even though it is a
+                # 4xx. Counting every sub-500 response as a success meant 429 and
+                # 419 — the dominant failure mode for a NIM pool — reset the
+                # failure counter, so this breaker could never open for the one
+                # condition it most needs to protect against. The response is
+                # still returned unchanged so the caller's own 429 handling is
+                # untouched; only the breaker's view of it changes.
+                if resp.status_code in (429, 419):
+                    circuit.record_failure()
+                    return resp
                 if resp.status_code < 500:
                     circuit.record_success()
                     return resp
@@ -262,8 +272,13 @@ class NIMConnectionPool:
 
             except httpx.HTTPStatusError as exc:
                 last_exc = exc
+                # Same correction as above on the raise path: a 429/419 raised as
+                # an HTTPStatusError must not be recorded as a success.
                 if exc.response.status_code >= 500:
                     circuit.record_failure()
+                elif exc.response.status_code in (429, 419):
+                    circuit.record_failure()
+                    raise
                 else:
                     circuit.record_success()
                     raise
