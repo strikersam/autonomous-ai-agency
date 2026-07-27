@@ -154,6 +154,13 @@ def main() -> int:
         return 0
 
     batch = sorted(missing)[: args.max_dispatch]
+    # An empty batch must return, not dispatch. bulk-issue-context.yml treats a
+    # blank `issue_numbers` as "discover every open issue" and applies its cap
+    # only `if max_n > 0`, so forwarding an empty batch with max_issues=0 would
+    # process the entire backlog — the exact opposite of --max-dispatch 0.
+    if not batch:
+        log.info("max-dispatch=%s leaves nothing to queue this run", args.max_dispatch)
+        return 0
     if len(missing) > len(batch):
         log.info(
             "%s issue(s) lack context; queuing %s this run (cap --max-dispatch=%s)",

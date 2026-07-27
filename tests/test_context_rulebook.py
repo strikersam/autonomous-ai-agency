@@ -22,6 +22,7 @@ import importlib.util
 import re
 import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -30,7 +31,7 @@ SCRIPTS = REPO_ROOT / ".github" / "scripts"
 RULEBOOK = REPO_ROOT / "docs" / "QUICK_NOTE_CONTEXT_RULEBOOK.md"
 
 
-def _load(name: str):
+def _load(name: str) -> ModuleType:
     spec = importlib.util.spec_from_file_location(name, SCRIPTS / f"{name}.py")
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
@@ -137,6 +138,32 @@ def test_r2_flags_a_missing_source_summary(rules) -> None:
         result, source_fetched=True, repo_root=REPO_ROOT, title="quick-note:x"
     )
     assert "R2" in _rule_ids(violations)
+
+
+def test_r2_flags_a_summary_that_pads_the_issue_title(rules) -> None:
+    """The echo branch: clearing the length gate by padding out the title.
+
+    Guards against the comparison being written backwards — asking whether the
+    (>=120-char) summary fits inside the (short) title can never be true, so
+    that direction is dead code that silently accepts padded summaries.
+    """
+    title = "quick-note:https://gist.github.com/someone/abcdef0123456789"
+    result = _good_result() | {
+        "source_summary": f"This issue is about {title} and covers it in detail. " * 3
+    }
+    violations = rules.validate(
+        result, source_fetched=True, repo_root=REPO_ROOT, title=title
+    )
+    assert "R2" in _rule_ids(violations)
+    assert any("echoes the issue title" in v.detail for v in violations)
+
+
+def test_r2_empty_title_does_not_flag_every_summary(rules) -> None:
+    """An unguarded empty title is a substring of everything."""
+    violations = rules.validate(
+        _good_result(), source_fetched=True, repo_root=REPO_ROOT, title=""
+    )
+    assert "R2" not in _rule_ids(violations)
 
 
 def test_r3_flags_a_missing_verdict(rules) -> None:
@@ -364,9 +391,75 @@ def test_ci_script_entrypoint_is_not_truncated(script: str) -> None:
     sorted(p.name for p in SCRIPTS.glob("*.py")),
 )
 def test_ci_script_ends_with_a_newline(script: str) -> None:
-    """A missing trailing newline is how both truncations announced themselves."""
+    """A missing trailing newline is how every one of the truncations showed up.
+
+    Adding the newline is not the fix — it removes the only visible symptom.
+    This guards the shape; `test_ci_script_has_no_undefined_module_level_names`
+    guards the substance.
+    """
     assert (SCRIPTS / script).read_text().endswith("\n"), (
         f"{script} has no trailing newline — check its last line is complete"
+    )
+
+
+def _bound_names(tree: ast.Module) -> set[str]:
+    """Every name the module binds anywhere — imports, assignments, defs, args.
+
+    Deliberately permissive about *where* a name is bound: the target is
+    truncated identifiers that are bound nowhere at all, and over-collecting
+    keeps comprehension and function scopes from producing false positives.
+    """
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            names.add(node.id)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                names.add(alias.asname or alias.name.split(".")[0])
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.arg):
+            names.add(node.arg)
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            names.add(node.name)
+        elif isinstance(node, ast.alias) and node.asname:
+            names.add(node.asname)
+    return names
+
+
+@pytest.mark.parametrize(
+    "script",
+    sorted(p.name for p in SCRIPTS.glob("*.py")),
+)
+def test_ci_script_has_no_undefined_module_level_names(script: str) -> None:
+    """Module-level truncation crashes on *import*, which is worse than at exec.
+
+    `nvidia_models.py` ended in `CANDIDATE_MODELS = NVIDIA_CANDIDATE_MO`. That
+    is the same truncation as the two `__main__` guards, but in a plain
+    assignment, so the guard-body test could not see it — and because it runs at
+    import time, any consumer doing `from nvidia_models import CANDIDATE_MODELS`
+    got a NameError immediately.
+    """
+    import builtins
+
+    tree = ast.parse((SCRIPTS / script).read_text())
+    known = _bound_names(tree) | set(dir(builtins)) | {"__file__", "__name__", "__doc__"}
+
+    undefined: set[str] = set()
+    for node in tree.body:
+        # Function and class bodies run later and may legitimately reference
+        # names bound elsewhere; module-level statements execute immediately.
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        for sub in ast.walk(node):
+            if isinstance(sub, ast.Name) and isinstance(sub.ctx, ast.Load):
+                if sub.id not in known:
+                    undefined.add(sub.id)
+
+    assert not undefined, (
+        f"{script} references undefined name(s) at module level: "
+        f"{', '.join(sorted(undefined))} — a truncated identifier raises "
+        "NameError on import, and compileall will not catch it"
     )
 
 

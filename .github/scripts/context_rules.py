@@ -112,8 +112,14 @@ def _check_source_summary(result: dict, title: str) -> list[Violation]:
                 "source is and what it does",
             )
         ]
-    normalised = re.sub(r"\s+", " ", summary.lower())
-    if normalised in re.sub(r"\s+", " ", title.lower()):
+    # Direction matters: the summary is already >=120 chars here, so asking
+    # whether it fits inside the (short) title can never be true. The defect to
+    # catch is the reverse — a model padding the issue title with filler until
+    # it clears the length gate. An empty title would match everything, so it is
+    # excluded rather than allowed to flag every result.
+    normalised_summary = re.sub(r"\s+", " ", summary.lower())
+    normalised_title = re.sub(r"\s+", " ", title.lower()).strip()
+    if normalised_title and normalised_title in normalised_summary:
         return [Violation("R2", "source_summary merely echoes the issue title")]
     return []
 
