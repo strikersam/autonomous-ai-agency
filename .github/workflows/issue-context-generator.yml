@@ -250,6 +250,15 @@ jobs:
           PR_NUM: ${{ steps.pr.outputs.pr_number }}
           PR_URL: ${{ steps.pr.outputs.pr_url }}
         run: |
+          # Label before commenting. The issue stays open by design, and the
+          # scheduled Process Quick Note sweep selects open issues — without
+          # this label it would pick the issue up hours later and implement the
+          # source that was just ruled out, defeating the reject entirely.
+          gh issue edit "$ISSUE_NUM" \
+            --repo "$REPO" \
+            --add-label "quick-note:rejected" \
+            2>&1 || echo "::warning::Could not add quick-note:rejected label — the scheduled sweep may re-pick this issue."
+
           gh issue comment "$ISSUE_NUM" \
             --repo "$REPO" \
             --body "$(cat <<MSG
@@ -260,9 +269,14 @@ jobs:
           The reasoning — what the source is, and specifically why it was ruled out —
           is in draft PR #${PR_NUM}: ${PR_URL}
 
-          If you disagree, say so on the issue and re-run
-          \`Bulk Issue Context Generator\` with \`regenerate: true\` and this issue
-          number, or implement it manually on \`claude/context-issue-${ISSUE_NUM}\`.
+          The issue is labelled \`quick-note:rejected\` and left open. That label is
+          what keeps the scheduled Process Quick Note sweep from picking it up and
+          building the rejected source anyway.
+
+          If you disagree: remove the \`quick-note:rejected\` label to hand it back to
+          the sweep, or re-run \`Bulk Issue Context Generator\` with \`regenerate: true\`
+          and this issue number, or implement it manually on
+          \`claude/context-issue-${ISSUE_NUM}\`.
           MSG
           )"
 
