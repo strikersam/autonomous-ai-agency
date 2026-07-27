@@ -553,28 +553,108 @@ def provider_api_key(provider: str) -> str | None:
     return (os.environ.get(env_key) or "").strip() or None
 
 
+def _provider_env_value(provider: str, suffix: str) -> str | None:
+    """Read a per-provider env var, tolerating dashes in the provider id.
+
+    Provider ids from the router are slugs like ``nvidia-nim``; naively
+    upper-casing them yields ``NVIDIA-NIM_MAX_RPM``, which most shells and
+    dashboards refuse to set. We look up the literal upper-cased name first
+    (so any var an operator already set keeps working) and then the
+    dash-to-underscore variant, which is the one that is actually settable.
+    """
+    literal = f"{provider.upper()}{suffix}"
+    raw = os.environ.get(literal)
+    if raw:
+        return raw
+    normalized = f"{provider.upper().replace('-', '_')}{suffix}"
+    if normalized != literal:
+        return os.environ.get(normalized)
+    return None
+
+
+def _provider_positive_float(provider: str, suffix: str) -> float | None:
+    """Shared parse/validate for the numeric per-provider traffic budgets.
+
+    Returns None when the var is unset, unparseable, non-finite, or <= 0 —
+    every one of which must mean "no limit configured" rather than a limit of
+    zero, which would wedge the provider out of rotation permanently.
+    """
+    raw = _provider_env_value(provider, suffix)
+    if not raw:
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    if not math.isfinite(value) or value <= 0:
+        return None
+    return value
+
+
 def provider_max_rpm(provider: str) -> float | None:
     """Return the operator-configured requests/min cap for *provider*, or
     None if unset/invalid. Reads ``<PROVIDER>_MAX_RPM`` (dynamic per-provider
     key, so any provider id works without a YAML entry — unlike
     ``PROVIDER_KEY_ENV``, this isn't a fixed table). Used by
-    ``packages/ai/rate_limiter.py`` to pace requests; centralized here
-    rather than read directly so the value is validated once, in the
-    config module, not in business logic.
+    ``packages/ai/rate_limiter.py`` to pace requests and by
+    ``packages/ai/traffic_director.py`` to route around a provider that has
+    already spent its minute; centralized here rather than read directly so
+    the value is validated once, in the config module, not in business logic.
     """
-    raw = os.environ.get(f"{provider.upper()}_MAX_RPM")
-    if not raw:
+    return _provider_positive_float(provider, "_MAX_RPM")
+
+
+def provider_max_tpm(provider: str) -> float | None:
+    """Return the operator-configured tokens/min cap for *provider*.
+
+    Reads ``<PROVIDER>_MAX_TPM``. Free tiers usually publish both a request
+    and a token ceiling, and the token one is what large-context agent calls
+    actually hit first. Unset means "unknown" — the traffic director then
+    distributes on request count alone.
+    """
+    return _provider_positive_float(provider, "_MAX_TPM")
+
+
+def provider_weight(provider: str) -> float | None:
+    """Return the operator-configured share weight for *provider*.
+
+    Reads ``<PROVIDER>_WEIGHT``. Used only by the ``weighted-shuffle``
+    routing strategy: a provider with weight 3 is picked roughly three times
+    as often as one with weight 1. Unset means the director falls back to
+    remaining RPM headroom, then to an equal share.
+    """
+    return _provider_positive_float(provider, "_WEIGHT")
+
+
+def provider_max_parallel(provider: str) -> int | None:
+    """Return the operator-configured in-flight request cap for *provider*.
+
+    Reads ``<PROVIDER>_MAX_PARALLEL``. This is the concurrency ceiling that
+    NVIDIA NIM enforces with 419 responses; setting it lets the router spread
+    load to a sibling provider instead of collecting the 419 first.
+
+    A fractional value is rounded rather than truncated, and anything that
+    rounds below 1 is treated as unset. ``int(0.5)`` would otherwise be ``0``,
+    and a concurrency cap of zero makes the ``in_flight >= cap`` check true at
+    zero in-flight requests — excluding the provider permanently. That is
+    exactly the "limit of zero" outcome a malformed value must never produce.
+    """
+    value = _provider_positive_float(provider, "_MAX_PARALLEL")
+    if value is None:
         return None
-    try:
-        rpm = float(raw)
-    except ValueError:
-        return None
-    # Reject non-finite (inf/nan) and non-positive values: inf silently
-    # produces a zero pacing interval (i.e. no pacing at all) rather than
-    # an error, which is worse than just treating it as unset.
-    if not math.isfinite(rpm) or rpm <= 0:
-        return None
-    return rpm
+    rounded = round(value)
+    return rounded if rounded >= 1 else None
+
+
+def routing_strategy() -> str:
+    """Return the configured traffic-distribution strategy (lower-cased).
+
+    Reads ``LLM_ROUTING_STRATEGY`` and defaults to ``priority``, which is the
+    router's historical strict priority order. Validation of the name against
+    the supported set lives in ``packages/ai/traffic_director.py`` so this
+    module stays free of routing logic.
+    """
+    return (os.environ.get("LLM_ROUTING_STRATEGY") or "priority").strip().lower()
 
 
 def provider_key_present(provider: str) -> bool:

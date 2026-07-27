@@ -567,3 +567,131 @@ async def _clear_probe_locks():
     except Exception:
         pass  # shared_state may not be initialised yet
     yield
+
+# ── Access-tier classification: explicit ids beat hostname inference ─────────
+#
+# Three providers are registered in _FREE_CLOUD_PROVIDER_IDS but sit on hosts
+# whose *substring* appears in the commercial host list. Because the hostname
+# check ran first, each was classified "commercial" — so any call made with
+# allow_commercial_fallback=False deferred them and raised
+# CommercialFallbackRequiredError instead of using a free provider that was
+# configured and healthy.
+
+@pytest.mark.parametrize(
+    "provider_id,base_url",
+    [
+        # api.together.xyz contains "together.xyz" (commercial list)
+        ("together-free", "https://api.together.xyz/v1"),
+        # dashscope.aliyuncs.com contains "aliyuncs.com" (commercial list)
+        ("qwen-dashscope", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+        # generativelanguage.googleapis.com contains "googleapis.com"
+        ("google-gemini-free", "https://generativelanguage.googleapis.com/v1beta/openai"),
+    ],
+)
+def test_registered_free_provider_is_not_mis_tiered_as_commercial(provider_id, base_url):
+    from packages.ai.router import provider_access_tier
+
+    provider = ProviderConfig(provider_id, "openai-compatible", base_url, api_key="k")
+    assert provider_access_tier(provider) == "free_cloud"
+    assert is_commercial_provider(provider) is False
+
+
+def test_commercial_providers_are_still_commercial():
+    """The fix must not leak the other way — paid providers stay paid."""
+    from packages.ai.router import provider_access_tier
+
+    for provider_id, base_url in [
+        ("anthropic", "https://api.anthropic.com"),
+        ("openrouter", "https://openrouter.ai/api/v1"),
+        ("bedrock", "https://bedrock-runtime.us-east-1.amazonaws.com"),
+        ("zhipu", "https://open.bigmodel.cn/api/paas/v4"),
+        ("minimax", "https://api.minimax.chat/v1"),
+    ]:
+        provider = ProviderConfig(provider_id, "openai-compatible", base_url, api_key="k")
+        assert provider_access_tier(provider) == "commercial", provider_id
+
+
+def test_unknown_provider_id_still_infers_tier_from_hostname():
+    """Hostname inference remains the fallback for ids in neither list."""
+    from packages.ai.router import provider_access_tier
+
+    assert provider_access_tier(
+        ProviderConfig("mystery", "openai-compatible", "https://api.openai.com/v1", api_key="k")
+    ) == "commercial"
+    assert provider_access_tier(
+        ProviderConfig("mystery", "openai-compatible", "https://api.cerebras.ai/v1", api_key="k")
+    ) == "free_cloud"
+    assert provider_access_tier(
+        ProviderConfig("mystery", "openai-compatible", "https://integrate.api.nvidia.com", api_key="k")
+    ) == "nvidia_nim"
+
+
+def test_longest_hostname_match_wins_for_unknown_ids():
+    """A specific free host must not be swallowed by a shorter commercial one
+    that happens to be a substring of it."""
+    from packages.ai.router import provider_access_tier
+
+    assert provider_access_tier(
+        ProviderConfig(
+            "unlisted", "openai-compatible",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1", api_key="k",
+        )
+    ) == "free_cloud"
+    # …while the shorter commercial host still wins on its own domain.
+    assert provider_access_tier(
+        ProviderConfig(
+            "unlisted", "openai-compatible",
+            "https://bailian.aliyuncs.com/v1", api_key="k",
+        )
+    ) == "commercial"
+
+
+@pytest.mark.anyio
+async def test_free_only_policy_uses_a_registered_free_provider(monkeypatch):
+    """The end-to-end consequence of the mis-tiering: with commercial fallback
+    withheld, together-free must actually be called, not deferred."""
+    calls: list[str] = []
+
+    async def fake_post_chat(self, provider, payload, timeout_sec):
+        calls.append(provider.provider_id)
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "free-ok"}}]},
+            headers={"content-type": "application/json"},
+        )
+
+    monkeypatch.setattr(ProviderRouter, "_post_chat", fake_post_chat)
+    router = ProviderRouter(
+        [
+            ProviderConfig(
+                "groq", "openai-compatible", "https://api.groq.com/openai/v1",
+                api_key="k", default_model="m0", priority=0,
+            ),
+            ProviderConfig(
+                "together-free", "openai-compatible", "https://api.together.xyz/v1",
+                api_key="k", default_model="m1", priority=10,
+            ),
+        ]
+    )
+
+    # groq is first and fails; together-free must be tried despite
+    # allow_commercial_fallback=False.
+    async def failing_then_ok(self, provider, payload, timeout_sec):
+        calls.append(provider.provider_id)
+        if provider.provider_id == "groq":
+            return httpx.Response(503, json={"error": "down"})
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": "free-ok"}}]},
+            headers={"content-type": "application/json"},
+        )
+
+    monkeypatch.setattr(ProviderRouter, "_post_chat", failing_then_ok)
+    result = await router.chat_completion(
+        {"model": "m0", "messages": [{"role": "user", "content": "tier-check"}]},
+        max_retries=0,
+        allow_commercial_fallback=False,
+    )
+
+    assert result.provider.provider_id == "together-free"
+    assert "together-free" in calls

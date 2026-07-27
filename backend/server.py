@@ -7935,6 +7935,24 @@ async def rate_limit_stats(user: dict = Depends(get_current_user)) -> dict[str, 
     return {"providers": get_tracker().get_stats()}
 
 
+@app.get("/api/metrics/traffic-distribution")
+async def traffic_distribution_stats(
+    user: dict = Depends(get_current_user),
+) -> dict[str, object]:
+    """Live traffic-distribution state: how load is spread across providers.
+
+    Shows the active routing strategy plus, per provider, in-flight requests,
+    requests/tokens used in the current 60-second window, the configured
+    budgets (``<PROVIDER>_MAX_RPM`` / ``_MAX_TPM`` / ``_MAX_PARALLEL``), EWMA
+    latency, and how many requests were routed away because the provider was
+    over budget.  This is the counterpart to /api/metrics/rate-limits: that one
+    reports what providers *told us* about their quota, this one reports what
+    the router actually did with it.  Requires authentication.
+    """
+    from packages.ai.traffic_director import get_director
+    return get_director().snapshot()
+
+
 @app.get("/api/metrics/self-heal")
 async def self_heal_stats(user: dict = Depends(get_current_user)) -> dict[str, object]:
     """Real-time self-healing activity: log-monitor capture counters plus the
