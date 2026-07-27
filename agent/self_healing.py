@@ -52,6 +52,7 @@ class FailureCategory(Enum):
     IMPORT_ERROR = "import_error"
     OOM = "out_of_memory"
     NETWORK = "network_error"
+    INFRASTRUCTURE_ERROR = "infrastructure_error"
     UNKNOWN = "unknown"
 
 
@@ -188,8 +189,20 @@ class SelfHealingAgent:
             severity="high",
             signature=sig,
         )
-        log.info("SelfHealingAgent: CI failure — %s", event.title)
-        await self._dispatch_fix(event)
+
+        if category is FailureCategory.INFRASTRUCTURE_ERROR:
+            log.warning(
+                "SelfHealingAgent: infrastructure error detected in %s — skipping code fix "
+                "(no code change can make an unavailable service respond). "
+                "Check that required external services are running.",
+                test_name,
+            )
+            # Mark awaiting_human immediately — infrastructure issues need ops intervention.
+            with self._lock:
+                event.state = HealState.AWAITING_HUMAN.value
+        else:
+            log.info("SelfHealingAgent: CI failure — %s", event.title)
+            await self._dispatch_fix(event)
         return event
 
     async def on_github_issue(self, issue: dict[str, Any]) -> HealingEvent:
@@ -361,11 +374,37 @@ class SelfHealingAgent:
     def _classify_failure(description: str) -> FailureCategory:
         """E2: Classify a failure from its description text.
 
-        Order matters: specific checks (syntax_error, import_error,
-        lint_error, timeout, OOM, network) are evaluated before the
-        generic test_failure check to avoid mis-classification.
+        Order matters: infrastructure_error is checked FIRST so a
+        MongoDB/Redis/Postgres "connection refused" during a test run is
+        never mis-classified as timeout or network_error and then dispatched
+        for a code fix — no code change can make a service that isn't running
+        answer.  Specific code-level checks (syntax, import, lint) follow, then
+        timeout, OOM, generic network, test_failure, unknown.
         """
         lowered = description.lower()
+
+        # Infrastructure / external service unavailable — not fixable by code change.
+        _INFRA_SIGNALS = (
+            "serverselectiontimeouterror",
+            "connection refused",
+            "connection reset",
+            "econnrefused",
+            "mongoclient",
+            "mongoerror",
+            "redis",
+            "rediserror",
+            "postgres",
+            "psycopg",
+            "elasticsearchexception",
+            "dockerexception",
+            "docker: error",
+            "cannot connect to the docker daemon",
+            "service unavailable",
+            "[errno 111]",
+        )
+        if any(sig in lowered for sig in _INFRA_SIGNALS):
+            return FailureCategory.INFRASTRUCTURE_ERROR
+
         if "syntax error" in lowered or "syntaxerror" in lowered:
             return FailureCategory.SYNTAX_ERROR
         if "modulenotfound" in lowered or "importerror" in lowered or "no module" in lowered:
@@ -393,6 +432,11 @@ class SelfHealingAgent:
             "import_error": "Fix the import. Check that the module exists and the path is correct.",
             "out_of_memory": "Reduce memory usage. Split large operations or free resources.",
             "network_error": "The network request failed. Add retry with backoff or check the endpoint.",
+            "infrastructure_error": (
+                "This failure is caused by an external service being unavailable "
+                "(e.g. MongoDB, Redis, Docker). No code change can fix it. "
+                "Check that the required service is running and accessible, then re-run."
+            ),
             "unknown": "Investigate the failure and apply the minimum fix.",
         }
         return hints.get(category, hints["unknown"])
