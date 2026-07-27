@@ -58,6 +58,13 @@ from the provider's own dashboard) to enable pacing for it. Wired into
 blocks a request past its own `max_wait`, and any internal error is
 swallowed so pacing can never itself cause a failure).
 
+Pacing makes one provider's traffic well-behaved; it does not spread traffic
+*between* providers, which is the other half of staying under free-tier
+limits. `packages/ai/traffic_director.py` adds that half — load-balancing
+strategies (`LLM_ROUTING_STRATEGY`) and pre-call budget checks that route
+around a provider that has spent its minute instead of blocking on it. See
+[`docs/traffic-distribution.md`](traffic-distribution.md).
+
 The other two contributors to perceived "not always running" reliability are
 infrastructure-level, not code bugs, and are out of scope for a code fix:
 the production backend's uptime depends on the hosting tier not spinning the
@@ -98,6 +105,10 @@ this PR changes.
 | `SESSION_RETRO_MIN_CLUSTER` | `3` | Occurrences before a friction cluster is filed as an issue |
 | `AGENT_CROSS_VERIFY_ENABLED` | `false` | Auto-trigger independent cross-verification for risky-module changes |
 | `<PROVIDER_ID>_MAX_RPM` | unset | Enable proactive rate-limit pacing for that provider (e.g. `CEREBRAS_MAX_RPM=28`) |
+| `LLM_ROUTING_STRATEGY` | `priority` | Traffic distribution across providers: `priority`, `weighted-shuffle`, `least-busy`, `usage-based`, `latency-based` |
+| `<PROVIDER_ID>_MAX_TPM` | unset | Tokens/minute ceiling used by the pre-call budget check |
+| `<PROVIDER_ID>_MAX_PARALLEL` | unset | In-flight request ceiling (the limit NVIDIA NIM enforces with 419) |
+| `<PROVIDER_ID>_WEIGHT` | unset | Share weight for the `weighted-shuffle` strategy |
 
 ## Verification performed
 

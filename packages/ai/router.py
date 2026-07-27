@@ -165,6 +165,22 @@ def _notify_watchdog(provider_id: str, *, success: bool) -> None:
         )
 
 
+# ── Traffic distribution (load balancing across healthy providers) ────────────
+# The director spreads traffic across providers *before* any of them starts
+# refusing, instead of only failing over after a 429. Imported lazily and
+# returned as None on any error so the request path degrades to the historical
+# strict-priority behaviour rather than breaking.
+
+def _get_director() -> Any | None:
+    """Return the process TrafficDirector, or None if it is unavailable."""
+    try:
+        from packages.ai.traffic_director import get_director
+        return get_director()
+    except Exception as exc:  # pragma: no cover - defensive
+        log.debug("provider_router: traffic director unavailable: %s", exc)
+        return None
+
+
 async def is_provider_on_cooldown(provider_id: str) -> bool:
     """Return True if provider_id is currently on cooldown."""
     from services.shared_state import cooldown_get
@@ -501,6 +517,32 @@ def _provider_field(
     return getattr(provider, field_name, default)
 
 
+def _tier_from_hostname(hostname: str) -> str | None:
+    """Infer an access tier from *hostname*, longest matching suffix winning.
+
+    Returns None when no list matches. "Longest wins" is what keeps a specific
+    free host from being swallowed by a shorter commercial one that happens to
+    be a substring of it — ``dashscope.aliyuncs.com`` must not resolve to
+    commercial just because ``aliyuncs.com`` is in the paid list, and
+    ``generativelanguage.googleapis.com`` must not resolve to commercial via
+    ``googleapis.com``. Order of the lists therefore stops mattering, which is
+    the point: adding a broad new entry to one list can no longer silently
+    re-tier an existing provider in the other.
+    """
+    best_tier: str | None = None
+    best_len = 0
+    for hosts, tier in (
+        (_KNOWN_NVIDIA_HOSTS, "nvidia_nim"),
+        (_KNOWN_COMMERCIAL_HOSTS, "commercial"),
+        (_KNOWN_FREE_HOSTS, "free_cloud"),
+    ):
+        for host in hosts:
+            if host in hostname and len(host) > best_len:
+                best_tier = tier
+                best_len = len(host)
+    return best_tier
+
+
 def provider_access_tier(provider: ProviderConfig | dict[str, Any]) -> str:
     provider_id = (
         str(_provider_field(provider, "provider_id", "") or "").strip().lower()
@@ -510,20 +552,28 @@ def provider_access_tier(provider: ProviderConfig | dict[str, Any]) -> str:
     hostname = (urlparse(base_url).hostname or "").lower()
     name = str(_provider_field(provider, "name", "") or "").strip().lower()
 
-    if provider_id in _NVIDIA_PROVIDER_IDS or any(
-        host in hostname for host in _KNOWN_NVIDIA_HOSTS
-    ):
+    # ── Explicit provider-id declarations win over hostname inference ────────
+    # A provider id appearing in one of these sets is a statement about that
+    # provider; a hostname substring is only a guess. Checking the guess first
+    # mis-tiered three providers that are *registered as free* but whose hosts
+    # are shared with a paid product: together-free (api.together.xyz matches
+    # "together.xyz"), qwen-dashscope (dashscope.aliyuncs.com matches
+    # "aliyuncs.com") and google-gemini-free (generativelanguage.googleapis.com
+    # matches "googleapis.com"). Each was classified commercial, which means
+    # any call made with allow_commercial_fallback=False deferred them and
+    # raised CommercialFallbackRequiredError rather than using three free
+    # providers that were sitting right there.
+    if provider_id in _NVIDIA_PROVIDER_IDS:
         return "nvidia_nim"
-    if provider_id in _COMMERCIAL_PROVIDER_IDS or any(
-        host in hostname for host in _KNOWN_COMMERCIAL_HOSTS
-    ):
+    if provider_id in _COMMERCIAL_PROVIDER_IDS:
         return "commercial"
+    if provider_id in _FREE_CLOUD_PROVIDER_IDS:
+        return "free_cloud"
     if provider_type.startswith("emergent-"):
         return "commercial"
-    if provider_id in _FREE_CLOUD_PROVIDER_IDS or any(
-        host in hostname for host in _KNOWN_FREE_HOSTS
-    ):
-        return "free_cloud"
+    inferred = _tier_from_hostname(hostname)
+    if inferred is not None:
+        return inferred
     if provider_type == "anthropic":
         return "commercial"
     if provider_type == "ollama" and hostname in {
@@ -1095,6 +1145,14 @@ class ProviderRouter:
                 except Exception:  # nosec B110 -- pacing must never block a request
                     pass
                 started = time.perf_counter()
+                # Traffic-distribution accounting. record_start must be paired
+                # with exactly one record_end (the finally below) or in-flight
+                # counts leak and pin the provider at its concurrency ceiling.
+                _director = _get_director()
+                _status_for_director: int | None = None
+                _tokens_for_director = 0
+                if _director is not None:
+                    _director.record_start(provider.provider_id)
                 try:
                     # Proactive rate-limit check: if remaining quota for this
                     # provider is critically low, wait for the reset window
@@ -1106,6 +1164,7 @@ class ProviderRouter:
                     response = await self._post_chat(
                         provider, provider_payload, provider_timeout_sec
                     )
+                    _status_for_director = response.status_code
                     latency_ms = int((time.perf_counter() - started) * 1000)
                     attempts.append(ProviderAttempt(
                         provider.provider_id, model, response.status_code, latency_ms=latency_ms,
@@ -1128,6 +1187,12 @@ class ProviderRouter:
                             from packages.ai.cost_tracker import record_usage as _record_cost
                             _body = response.json()
                             _usage = _body.get("usage") or {}
+                            # Feed the same usage figure to the traffic
+                            # director so its TPM window reflects real tokens.
+                            _tokens_for_director = int(_usage.get("total_tokens") or 0) or (
+                                int(_usage.get("prompt_tokens") or 0)
+                                + int(_usage.get("completion_tokens") or 0)
+                            )
                             _tag = "untagged"
                             try:
                                 from router.classifier import classify_task
@@ -1193,6 +1258,20 @@ class ProviderRouter:
                         provider.provider_id, model, None, error=str(exc), latency_ms=latency_ms,
                     ))
                     last_was_conn_error = True
+                finally:
+                    # Runs on every exit path including the success `return`,
+                    # so in-flight never leaks. Swallow errors — accounting
+                    # must not be able to fail a request that already worked.
+                    if _director is not None:
+                        try:
+                            _director.record_end(
+                                provider.provider_id,
+                                latency_ms=int((time.perf_counter() - started) * 1000),
+                                tokens=_tokens_for_director,
+                                status_code=_status_for_director,
+                            )
+                        except Exception:  # nosec B110 - accounting is best-effort
+                            pass
                 if attempt_number < max_retries:
                     base_delay = min(0.25 * (2 ** attempt_number), 2.0)
                     await asyncio.sleep(base_delay + random.uniform(0, 0.15))
@@ -1276,7 +1355,28 @@ class ProviderRouter:
         first_eligible = True
         _bedrock_only = bool(original_model and _is_bedrock_model_id(original_model))
 
-        for provider in self.providers:
+        # ── Traffic distribution ──────────────────────────────────────────────
+        # Reorder the candidate list according to LLM_ROUTING_STRATEGY. Under
+        # the default "priority" strategy this returns the list unchanged, so
+        # the historical order is preserved exactly. Reordering never crosses an
+        # access tier (group_key below), so a shuffle can never promote a paid
+        # commercial provider ahead of a free one.
+        director = _get_director()
+        candidates: list[ProviderConfig] = list(self.providers)
+        if director is not None:
+            try:
+                candidates = director.order(
+                    candidates, group_key=lambda p: provider_sort_key(p)[0]
+                )
+            except Exception as exc:  # pragma: no cover - defensive
+                log.debug("provider_router: traffic ordering failed: %s", exc)
+                candidates = list(self.providers)
+        # Skipping an over-budget provider only makes sense when there is
+        # somewhere else to send the request. With a single provider the right
+        # tool is rate_limiter.pace(), which paces instead of skipping.
+        budget_checks_enabled = director is not None and len(candidates) > 1
+
+        for provider in candidates:
             if await is_provider_on_cooldown(provider.provider_id):
                 log.info(
                     "Skipping provider %s (on cooldown)",
@@ -1292,6 +1392,30 @@ class ProviderRouter:
             if not first_eligible and is_commercial_provider(provider) and not allow_commercial_fallback:
                 deferred_commercial.append(provider.provider_id)
                 continue
+            # ── Pre-call budget check ───────────────────────────────────────────
+            # If this provider has already spent its configured per-minute
+            # request/token budget (or is at its concurrency ceiling), route to
+            # the next one rather than spending a request to be told 429. No-op
+            # unless the operator has configured <PROVIDER>_MAX_RPM / _MAX_TPM /
+            # _MAX_PARALLEL. Treated like a cooldown skip, so the last-resort
+            # bypass below still tries it if every provider is out of budget.
+            if budget_checks_enabled:
+                over = None
+                try:
+                    over = director.over_budget(provider.provider_id)
+                except Exception:  # nosec B110 - accounting must not block
+                    over = None
+                if over:
+                    log.info(
+                        "Skipping provider %s (over budget: %s)",
+                        provider.provider_id, over,
+                    )
+                    try:
+                        director.record_skip(provider.provider_id)
+                    except Exception:  # nosec B110 - diagnostics only
+                        pass
+                    skipped_on_cooldown.append((provider, first_eligible))
+                    continue
             # ── Distributed HALF_OPEN probe lock ────────────────────────────────
             # When a provider's cooldown expires, every concurrent request would
             # otherwise slam it simultaneously (thundering herd).  Acquire a
