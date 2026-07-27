@@ -76,6 +76,15 @@ jobs:
           print(d.get('title', '')[:70])
             " 2>/dev/null || echo "")
             echo "title=$SUGGESTED_TITLE" >> "$GITHUB_OUTPUT"
+            # The architect's verdict decides whether an implementation agent is
+            # dispatched at all. Dispatching one for a `reject` would send it to
+            # build the exact thing the analysis just ruled out.
+            VERDICT=$(python3 -c "
+          import json
+          d = json.load(open('/tmp/context_result.json'))
+          print(d.get('verdict', ''))
+            " 2>/dev/null || echo "")
+            echo "verdict=$VERDICT" >> "$GITHUB_OUTPUT"
           else
             echo "generated=false" >> "$GITHUB_OUTPUT"
             echo "Context generation failed — see log above."
@@ -197,7 +206,7 @@ jobs:
       # implementation workflow directly via workflow_dispatch so a real
       # code PR follows the context PR without manual intervention.
       - name: Comment + dispatch auto-implementation
-        if: steps.pr.outputs.pr_number != ''
+        if: steps.pr.outputs.pr_number != '' && steps.context.outputs.verdict != 'reject'
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           REPO: ${{ github.repository }}
@@ -226,6 +235,36 @@ jobs:
             --repo "$REPO" \
             -f issue_number="$ISSUE_NUM" \
             2>&1 || echo "::warning::Could not auto-dispatch process-quick-note (issue left open for scheduled pickup)."
+
+      # ── 7b. Rejected sources — record the decision, dispatch nothing ──────────
+      # A `reject` verdict is a complete outcome, not a failure. The draft PR
+      # holds the reasoning; auto-dispatching an implementation agent here would
+      # send it to build the feature the analysis just ruled out, which is how
+      # unrelated artifacts turned into random features in this repo.
+      - name: Comment — source rejected, no implementation dispatched
+        if: steps.pr.outputs.pr_number != '' && steps.context.outputs.verdict == 'reject'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+          PR_NUM: ${{ steps.pr.outputs.pr_number }}
+          PR_URL: ${{ steps.pr.outputs.pr_url }}
+        run: |
+          gh issue comment "$ISSUE_NUM" \
+            --repo "$REPO" \
+            --body "$(cat <<MSG
+          🛑 **Nothing here to build.** The architect pass read the linked source and
+          concluded it has no applicable feature for this repository. **No
+          implementation workflow was dispatched.**
+
+          The reasoning — what the source is, and specifically why it was ruled out —
+          is in draft PR #${PR_NUM}: ${PR_URL}
+
+          If you disagree, say so on the issue and re-run
+          \`Bulk Issue Context Generator\` with \`regenerate: true\` and this issue
+          number, or implement it manually on \`claude/context-issue-${ISSUE_NUM}\`.
+          MSG
+          )"
 
       # ── 8. Failure fallback ───────────────────────────────────────────────────
       - name: Comment — context generation failed

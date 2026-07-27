@@ -314,7 +314,7 @@ loops:
     source: .github/workflows/enrich-quick-note-context.yml
     self_heal: true
     gate: none
-    purpose: Propose context enrichment for quick-note issues (detects gaps + proposes fix).
+    purpose: Detect quick-note issues with no context document and dispatch the bulk context generator.
 
   - id: issue-context-generator
     name: Issue Context Generator

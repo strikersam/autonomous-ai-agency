@@ -190,6 +190,9 @@ jobs:
           # branch), so we need stable paths for the whole loop.
           cp .github/scripts/generate_context.py /tmp/generate_context.py
           cp .github/scripts/fetch_url.py /tmp/fetch_url.py
+          # context_rules.py is imported by generate_context.py — it must travel
+          # with it, or the quality gate import fails after a branch switch.
+          cp .github/scripts/context_rules.py /tmp/context_rules.py
           export REPO_ROOT_PATH="$(pwd)"
           export FETCH_URL_SCRIPT="/tmp/fetch_url.py"
 

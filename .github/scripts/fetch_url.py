@@ -77,7 +77,9 @@ def strip_html(html: str) -> str:
     except Exception:
         text = re.sub(r"<[^>]+>", " ", html)
     text = re.sub(r"[ \t]+", " ", text)
-    return "\n".join(ln.strip() for ln in text.splitlines() if ln.strip())
+    # Boilerplate is removed before the length check so a page that is nothing
+    # but navigation fails `meaningful()` and falls through to the next strategy.
+    return strip_boilerplate(text)
 
 
 def extract_real_url(html: str) -> str | None:
@@ -93,6 +95,69 @@ def extract_real_url(html: str) -> str | None:
             if candidate.startswith("http"):
                 return candidate
     return None
+
+
+#: Site chrome that survives tag-stripping because it does not live in
+#: script/style/nav/footer/header tags. Matched case-insensitively against a
+#: whole stripped line, so it can never truncate a line of real prose.
+CHROME_LINES = {
+    "skip to content", "sign in", "sign up", "search", "search gists",
+    "search code, repositories, users, issues, pull requests...",
+    "dismiss alert", "{{ message }}", "toggle navigation", "menu", "close",
+    "you must be signed in to star a gist", "you must be signed in to fork a gist",
+    "show gist options", "download zip", "star", "fork", "embed", "share",
+    "select an option", "raw", "no results found", "learn more about clone urls",
+    "clone via https", "clone using the web url", "instantly share code, notes, and snippets",
+    "embed this gist in your website", "copy sharable link for this gist",
+    "cookie preferences", "terms", "privacy", "about", "blog", "contact github",
+    "reload to refresh your session", "created", "footer",
+}
+
+#: Prefixes whose whole line is chrome regardless of the trailing text.
+CHROME_PREFIXES = (
+    "you signed in with another tab",
+    "you signed out in another tab",
+    "you switched accounts on another tab",
+    "clone this repository at",
+    "save ",
+)
+
+#: Only short lines are eligible for de-duplication. Real prose repeating
+#: verbatim at this length is vanishingly rare; nav blocks repeat constantly.
+MAX_DEDUPE_LINE = 120
+
+
+def strip_boilerplate(text: str) -> str:
+    """Drop site navigation chrome and repeated nav blocks from stripped text.
+
+    A fetch is capped at 6000 chars before it reaches the LLM. On a GitHub gist
+    roughly a quarter of that budget was nav furniture ("Sign in", "You must be
+    signed in to star a gist", the embed block rendered twice), which pushed the
+    actual article out of the window and left the model planning from the title.
+
+    Conservative by construction: a line is removed only on an exact match
+    against the chrome list, a known chrome prefix, or as the second-or-later
+    occurrence of a short duplicate line. Long-form content is never touched.
+    """
+    seen: dict[str, int] = {}
+    kept: list[str] = []
+    for line in text.splitlines():
+        # Sites render nav labels with non-breaking spaces ("Sign\xa0in"), which
+        # would defeat an exact match, so normalise every Unicode space first.
+        stripped = re.sub(r"\s+", " ", line).strip()
+        if not stripped:
+            continue
+        lowered = stripped.lower()
+        # Trailing punctuation varies between templates for the same nav label.
+        key = lowered.rstrip(" .")
+        if key in CHROME_LINES or lowered.startswith(CHROME_PREFIXES):
+            continue
+        if len(stripped) <= MAX_DEDUPE_LINE:
+            seen[lowered] = seen.get(lowered, 0) + 1
+            if seen[lowered] > 1:
+                continue
+        kept.append(stripped)
+    return "\n".join(kept)
 
 
 def meaningful(text: str) -> bool:

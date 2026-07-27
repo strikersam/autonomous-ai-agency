@@ -25,4 +25,4 @@ NVIDIA_CANDIDATE_MODELS: list[tuple[str, str]] = [
 NVIDIA_MODEL_IDS: list[str] = [model_id for model_id, _label in NVIDIA_CANDIDATE_MODELS]
 
 # Keep old name as alias for backward compatibility
-CANDIDATE_MODELS = NVIDIA_CANDIDATE_MO
+CANDIDATE_MODELS = NVIDIA_CANDIDATE_MODELS
