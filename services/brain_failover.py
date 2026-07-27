@@ -465,10 +465,14 @@ def _is_paid_allowed_db() -> bool:
 
 # ── Provider definitions ─────────────────────────────────────────────────
 
-# A provider whose OPEN window exceeds this floor (and several times its own
-# configured cooldown) is treated as stuck rather than legitimately cooling, and
-# is allowed an occasional probe. Purely an anti-wedge valve — a real 429 backoff
-# tops out far below this.
+# Anti-wedge valve thresholds. A provider is treated as stuck (rather than
+# legitimately cooling) only when its cooldown window is wider than any it could
+# have earned. record_failure caps the 429 backoff exponent at 4, so the widest
+# legitimate window is `cooldown_seconds * 2**4`; the factor is double that cap
+# so the valve can never fire on a healthy backoff ladder. NVIDIA has the
+# largest base in the registry at 90s → a real ladder tops out at 1440s, well
+# under its 2880s threshold.
+_STUCK_PROBE_FACTOR: float = 32.0
 _STUCK_PROBE_FLOOR_SEC: float = 900.0
 
 
@@ -1035,13 +1039,26 @@ class BrainFailoverManager:
             ]
         return min(waits) if waits else None
 
-    def stuck_beyond_cooldown(self, provider_id: str, *, factor: float = 4.0) -> bool:
-        """True when a provider has been OPEN far longer than its own cooldown.
+    def stuck_beyond_cooldown(
+        self, provider_id: str, *, factor: float = _STUCK_PROBE_FACTOR
+    ) -> bool:
+        """True when a provider's cooldown window is wider than any it could
+        legitimately have earned.
 
         The anti-deadlock safety valve. Cooldowns are the correct answer to a
         429, but a corrupted or absurd ``cooldown_until`` must not wedge the
-        brain permanently, so a provider stuck well past its own backoff window
-        is still allowed an occasional probe.
+        brain permanently, so a provider stuck well past any real backoff is
+        still allowed an occasional probe.
+
+        The threshold must sit strictly *above* the largest legitimate backoff,
+        or the valve fires on a healthy ladder and reintroduces the hammering it
+        exists to replace. ``record_failure`` caps the exponent at 4, so the
+        widest earned window is ``cooldown_seconds * 2**4`` — 1440s for NVIDIA,
+        whose 90s base is the largest in the registry. A factor of 4 would have
+        put the threshold at 360s (floored to 900s) and so fired on NVIDIA's
+        perfectly legitimate 1440s backoff — exactly the provider that
+        rate-limits most. ``_STUCK_PROBE_FACTOR`` is therefore double the
+        exponent cap, leaving clear headroom above any real ladder.
         """
         with self._lock:
             p = self._providers.get(provider_id)

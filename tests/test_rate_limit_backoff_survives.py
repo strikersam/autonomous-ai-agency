@@ -124,6 +124,40 @@ class TestBrainFailoverBackoff:
         fm.record_failure(pid, "rate_limited", 429)
         assert fm.stuck_beyond_cooldown(pid) is False
 
+    def test_valve_never_fires_on_a_maxed_out_legitimate_backoff(self) -> None:
+        """The threshold must clear the widest backoff ANY registered provider
+        can earn.
+
+        Asserted against `_PROVIDER_REGISTRY` rather than the providers that
+        happen to be configured here: the first version of this test walked
+        `get_providers()` and passed against a deliberately-broken threshold,
+        because NVIDIA — whose 90s base is the one that breaks it — has no API
+        key in this environment and so was never in the list. A guard that
+        silently skips the only case it is guarding is worse than no guard.
+
+        `record_failure` caps the 429 exponent at 4, so the widest legitimate
+        window is `cooldown * 2**4` — 1440s for NVIDIA. A threshold under that
+        reads a perfectly healthy ladder as "wedged" and probes it, restoring
+        the hammering on the provider that rate-limits most.
+        """
+        from services.brain_failover import (
+            _PROVIDER_REGISTRY,
+            _STUCK_PROBE_FACTOR,
+            _STUCK_PROBE_FLOOR_SEC,
+        )
+
+        assert _PROVIDER_REGISTRY, "registry table is empty — test is vacuous"
+        for spec in _PROVIDER_REGISTRY:
+            cooldown = float(spec["cooldown"])
+            widest_legitimate = cooldown * (2 ** 4)   # the exponent cap
+            threshold = max(_STUCK_PROBE_FACTOR * cooldown, _STUCK_PROBE_FLOOR_SEC)
+            assert widest_legitimate < threshold, (
+                f"{spec['id']}: a maxed-out legitimate backoff of "
+                f"{widest_legitimate:.0f}s exceeds the stuck threshold of "
+                f"{threshold:.0f}s (base {cooldown:.0f}s), so the anti-wedge "
+                f"valve would fire on a healthy ladder and re-hammer it"
+            )
+
     def test_a_wedged_provider_is_detected(self) -> None:
         """A corrupted/absurd cooldown must still be recoverable."""
         fm = self._manager()
