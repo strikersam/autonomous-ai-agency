@@ -193,6 +193,9 @@ jobs:
           # context_rules.py is imported by generate_context.py — it must travel
           # with it, or the quality gate import fails after a branch switch.
           cp .github/scripts/context_rules.py /tmp/context_rules.py
+          # video_transcript.py is imported by fetch_url.py for the same reason;
+          # without it a video quick-note silently falls back to page chrome.
+          cp .github/scripts/video_transcript.py /tmp/video_transcript.py
           export REPO_ROOT_PATH="$(pwd)"
           export FETCH_URL_SCRIPT="/tmp/fetch_url.py"
 

@@ -173,6 +173,24 @@ def main() -> None:
     final_url = TARGET
     status: object = None
 
+    # Strategy 0 — video transcript. A YouTube watch page strips down to nav
+    # chrome and a title, so every other strategy returns a page that contains
+    # none of what was actually said. Runs first, and only for video hosts.
+    try:
+        import video_transcript
+
+        if video_transcript.is_video_url(TARGET):
+            print(f"[fetch] Strategy 0 — video transcript: {TARGET}")
+            transcript = video_transcript.fetch_transcript(TARGET)
+            if meaningful(transcript):
+                with open(OUT_FILE, "w") as f:  # nosec: B603
+                    f.write(f"Source URL: {TARGET}\n\n{transcript}")
+                print(f"[fetch] OK — {len(transcript)} chars of transcript")
+                return
+            print("[fetch] No transcript available — falling through to page fetch")
+    except ImportError:
+        print("[fetch] video_transcript unavailable — skipping transcript strategy")
+
     # Strategy 1 — direct fetch
     print(f"[fetch] Strategy 1 — direct: {TARGET}")
     html, final_url, status = fetch(TARGET)

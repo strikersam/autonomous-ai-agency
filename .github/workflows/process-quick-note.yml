@@ -55,13 +55,22 @@ jobs:
             NUM="$ISSUE_NUMBER_OVERRIDE"
             echo "Manual override — using issue #$NUM"
           else
-            # Oldest open quick-note that has not exhausted retries
+            # Oldest open quick-note that has neither exhausted its retries nor
+            # been rejected by the architect pass.
+            #
+            # `quick-note:rejected` is set by issue-context-generator.yml when
+            # the context verdict is `reject`. Without this filter the reject
+            # only blocked the immediate dispatch: the issue stays open by
+            # design, so this 4-hourly sweep would pick it up and implement the
+            # exact source the analysis ruled out. The two labels are kept
+            # distinct because they mean different things — `exhausted` is three
+            # failed attempts, `rejected` is a deliberate decision not to build.
             NUM=$(gh issue list \
               --repo "$REPO" \
               --state open \
               --json number,labels \
               --limit 100 \
-              --jq '[.[] | select((.labels // []) | map(.name) | index("quick-note:exhausted") == null)] | sort_by(.number) | .[0].number // empty')
+              --jq '[.[] | select((.labels // []) | map(.name) | (index("quick-note:exhausted") == null and index("quick-note:rejected") == null))] | sort_by(.number) | .[0].number // empty')
           fi
           if [ -z "$NUM" ]; then
             echo "No pending quick-note issues found — nothing to do."
