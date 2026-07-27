@@ -8293,10 +8293,17 @@ async def system_status(user: dict = Depends(get_current_user)) -> dict[str, obj
 async def health():
     storage_ok = await _check_storage_health()
     backend = os.environ.get("STORAGE_BACKEND", "mongo")
+    # Build identity, so a deploy can be verified instead of assumed. Both are
+    # public facts (the version is in the repo, the SHA is a public commit) —
+    # nothing here is a secret, which is what keeps /api/health unauthenticated.
+    from version import __version__ as _app_version, deployed_commit
     return {
         "status": "ok" if storage_ok else "degraded",
         "storage": storage_ok,
         "backend": backend,
+        "version": _app_version,
+        # None when the host didn't stamp a commit — "unknown", not "mismatch".
+        "commit": deployed_commit(),
         # Backward compat: old frontend code checks health.mongo.
         # Keep it as an alias so existing dashboards don't show "MongoDB Down"
         # when the backend is actually SQLite (which is healthy).

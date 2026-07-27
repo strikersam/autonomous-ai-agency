@@ -79,3 +79,55 @@ def test_backend_image_ships_packages_dir():
         "moved modules (provider_router, brain_policy, admin_auth, scheduler, "
         "storage, etc.) will be missing from the image."
     )
+
+
+# ── /api/health reports build identity (deploy verifiability) ────────────────
+#
+# A deploy could not be verified because /api/health looked identical before and
+# after one: a poll run seconds after triggering happily passed against the old
+# instance Render was still serving, so a failed build reported a green job.
+
+def test_deployed_commit_prefers_render_then_falls_back(monkeypatch) -> None:
+    import version
+
+    for name in version._COMMIT_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    assert version.deployed_commit() is None
+
+    monkeypatch.setenv("SOURCE_COMMIT", "from-source")
+    assert version.deployed_commit() == "from-source"
+    monkeypatch.setenv("GIT_COMMIT", "from-git")
+    assert version.deployed_commit() == "from-git"
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "from-render")
+    assert version.deployed_commit() == "from-render"
+
+
+def test_deployed_commit_ignores_blank_values(monkeypatch) -> None:
+    """An env var set to empty string means unset, not a commit named ''."""
+    import version
+
+    for name in version._COMMIT_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "   ")
+    assert version.deployed_commit() is None
+
+
+def test_health_endpoint_reports_version_and_commit(client, monkeypatch) -> None:
+    monkeypatch.setenv("RENDER_GIT_COMMIT", "abc123def456")
+    body = client.get("/api/health").json()
+    assert body["commit"] == "abc123def456"
+    assert body["version"]
+    # The pre-existing contract must not regress.
+    assert "status" in body and "storage" in body and "mongo" in body
+
+
+def test_health_endpoint_commit_is_null_when_host_stamps_nothing(
+    client, monkeypatch
+) -> None:
+    """Unknown must read as unknown — a deploy check treats None as
+    'unverifiable' and must not mistake it for a mismatch."""
+    import version
+
+    for name in version._COMMIT_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+    assert client.get("/api/health").json()["commit"] is None
