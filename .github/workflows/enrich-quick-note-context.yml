@@ -5,9 +5,13 @@ on:
     - cron: '0 */4 * * *'
   workflow_dispatch:
 
+# Detection only — this workflow no longer writes to issues. It finds
+# quick-note issues with no context document and dispatches the bulk context
+# generator, which owns generation. `actions: write` is what lets it dispatch.
 permissions:
   contents: read
-  issues: write
+  issues: read
+  actions: write
 
 concurrency:
   group: quick-note-context-enrichment
@@ -33,7 +37,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install requests
 
-      - name: Enrich quick-note issues
+      - name: Queue context generation for quick-note issues missing it
         env:
           GITHUB_TOKEN: ${{ secrets.GH_PAT }}
         run: python scripts/enrich_quick_note_issues.py
