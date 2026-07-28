@@ -13,6 +13,19 @@ Supports MCP spec 2025-11-05 structured output:
     the tool result (MCP spec 2025-11-25) in addition to the text content,
     returning an ``MCPToolResult``.
 
+MCP spec 2025-11-05 §5.6.1 — tool annotations:
+
+  - Tools may include an ``annotations`` object carrying behavioural hints:
+    ``readOnlyHint`` (tool does not modify state), ``destructiveHint``
+    (tool may irreversibly modify or delete), ``idempotentHint`` (safe to
+    retry with the same arguments), ``openWorldHint`` (tool may interact
+    with external services beyond the local environment).
+  - ``get_tool_annotations(tools, name)`` extracts typed ``ToolAnnotations``
+    for a named tool from a ``list_tools()`` result.
+  - ``filter_safe_tools(tools)`` returns only tools where ``readOnlyHint``
+    is ``True`` and ``destructiveHint`` is ``False`` — useful when the agent
+    wants to explore without side-effects.
+
 MCP spec 2026-07-28 RC — tools/list TTL caching:
 
   - Servers may include ``ttlMs`` in the ``tools/list`` response to signal
@@ -40,6 +53,12 @@ Usage::
         process(result.structured)   # validated typed dict
     else:
         process(result.text)         # fallback text
+
+    # Tool annotations (MCP spec 2025-11-05 §5.6.1):
+    annotations = get_tool_annotations(tools, "delete_file")
+    if annotations.destructive_hint:
+        ...  # require confirmation before calling
+    safe = filter_safe_tools(tools)  # read-only, non-destructive tools only
 """
 from __future__ import annotations
 
@@ -85,6 +104,77 @@ class MCPToolResult:
     def content(self) -> dict[str, Any] | str:
         """Prefer structured data; fall back to text when unavailable."""
         return self.structured if self.structured is not None else self.text
+
+
+@dataclass
+class ToolAnnotations:
+    """Typed representation of MCP tool annotations (spec 2025-11-05 §5.6.1).
+
+    All hints default to ``None`` (unknown) when the server does not supply
+    them, so callers can distinguish "definitely read-only" (True) from
+    "unknown safety" (None) and handle each appropriately.
+
+    Attributes:
+        read_only_hint: Tool does not modify server state. Safe to call for
+            information gathering without side-effects.
+        destructive_hint: Tool may irreversibly modify or delete data.
+            Callers should require explicit confirmation before calling.
+        idempotent_hint: Calling with the same arguments multiple times has
+            the same effect as calling once. Enables safe retry on transient
+            errors without double-applying changes.
+        open_world_hint: Tool may interact with external systems (HTTP calls,
+            email, file system outside the workspace, etc.).
+    """
+
+    read_only_hint: bool | None = None
+    destructive_hint: bool | None = None
+    idempotent_hint: bool | None = None
+    open_world_hint: bool | None = None
+
+    @property
+    def is_safe_to_explore(self) -> bool:
+        """Return True only when the tool is definitively read-only and non-destructive.
+
+        Both hints must be explicit: read_only_hint=True AND destructive_hint=False.
+        An unknown (None) destructive hint is treated as potentially destructive —
+        the conservative choice when safety cannot be confirmed.
+        """
+        return self.read_only_hint is True and self.destructive_hint is False
+
+
+def get_tool_annotations(tools: list[dict[str, Any]], name: str) -> ToolAnnotations:
+    """Extract ``ToolAnnotations`` for a named tool from a ``list_tools()`` result.
+
+    Returns an all-``None`` ``ToolAnnotations`` when the tool is not found or
+    carries no ``annotations`` field — callers receive "unknown" rather than an
+    exception, matching the spec's intent that absent annotations mean unknown
+    (not safe, not unsafe).
+    """
+    for tool in tools:
+        if tool.get("name") == name:
+            raw = tool.get("annotations") or {}
+            return ToolAnnotations(
+                read_only_hint=raw.get("readOnlyHint"),
+                destructive_hint=raw.get("destructiveHint"),
+                idempotent_hint=raw.get("idempotentHint"),
+                open_world_hint=raw.get("openWorldHint"),
+            )
+    return ToolAnnotations()
+
+
+def filter_safe_tools(tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Return tools where ``readOnlyHint`` is True and ``destructiveHint`` is not True.
+
+    Use this when the agent is exploring or gathering information and must not
+    produce side-effects.  Tools with unknown annotations (``None``) are
+    excluded — when safety is unknown the conservative choice is to skip them.
+    """
+    result = []
+    for tool in tools:
+        ann = get_tool_annotations(tools, tool.get("name", ""))
+        if ann.is_safe_to_explore:
+            result.append(tool)
+    return result
 
 
 class MCPClient:
