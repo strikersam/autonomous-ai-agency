@@ -207,3 +207,45 @@ The strategies are ports of the ones
 `litellm/router_strategy/`, adapted to this codebase's provider model
 (providers with access tiers and a fallback chain, rather than interchangeable
 deployments of one model group).
+
+---
+
+## Adding capacity: multi-key rotation
+
+Everything above *rations* a fixed budget. Distribution spreads it, pacing
+meters it, backoff waits for it — none of them raise the ceiling. When the fleet
+is genuinely at its limit, the only code-level fix that adds capacity is using
+more than one free-tier account per provider.
+
+Free tiers are rate-limited **per key**, not per provider. Three Groq keys is
+three times the requests per minute, and the provider only goes into cooldown
+once *all* of its keys are spent.
+
+Configure with a numbered suffix on the provider's existing key variable:
+
+```bash
+GROQ_API_KEY=gsk_first
+GROQ_API_KEY_2=gsk_second
+GROQ_API_KEY_3=gsk_third
+```
+
+The scan stops at the first gap, so a typo'd `_4` cannot silently promote itself
+into the `_2` slot and leave you believing three keys are live when two are.
+Duplicate keys are collapsed — the same key twice is one budget, not two.
+
+**With one key the pool is a pass-through.** `next_key` always returns it,
+`all_cooling` is immediately true, and the provider-level cooldown behaves
+exactly as it did before rotation existed. Rotation only engages from two keys
+up, so this is inert until you opt in.
+
+On a 429 the refused key rests (honouring `Retry-After`, clamped) while its
+siblings keep serving. Only when every key is resting does the provider itself
+get cooled.
+
+> **Check the provider's terms.** Several free tiers permit multiple accounts;
+> some do not. This gives you the mechanism — whether a given provider allows it
+> is your call, and not something the code can verify.
+
+Key material never reaches a log or an API response: keys are identified in
+diagnostics by a short salted digest, never by a prefix or suffix of the key
+itself (a leading fragment identifies the account outright for some providers).

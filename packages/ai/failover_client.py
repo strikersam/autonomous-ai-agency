@@ -221,13 +221,51 @@ class FailoverResult:
     attempts: list[str] = field(default_factory=list)
 
 
-def _build_request(provider: Any) -> tuple[str, dict[str, str], bool]:
+def _key_pool() -> Any:
+    """The process key pool (lazy import keeps this module's import graph flat)."""
+    from packages.ai.key_pool import get_pool
+    return get_pool()
+
+
+def _provider_keys(provider: Any) -> list[str]:
+    """Every configured key for *provider*, primary first.
+
+    Returns an empty list when the provider's key variable cannot be resolved,
+    which makes every caller fall through to the single key already on the
+    provider record — the pre-rotation behaviour.
+    """
+    base_env = getattr(provider, "key_env", "") or ""
+    if not base_env:
+        return []
+    try:
+        from packages.ai.key_pool import api_keys_for
+        return api_keys_for(base_env)
+    except Exception as exc:  # pragma: no cover - defensive
+        log.debug("brain_failover: key pool lookup failed for %s: %s", provider.id, exc)
+        return []
+
+
+def _retry_after_seconds(resp: Any) -> float | None:
+    """Parse ``Retry-After`` from a response, or None when absent/unparseable."""
+    try:
+        from packages.ai.router import ProviderRouter
+        return ProviderRouter._parse_retry_after(resp)
+    except Exception:  # pragma: no cover - a header parse must never raise here
+        return None
+
+
+def _build_request(
+    provider: Any, *, api_key: str | None = None
+) -> tuple[str, dict[str, str], bool]:
     """Return ``(url, headers, is_anthropic_native)`` for *provider*.
 
     Anthropic's native API has no ``/chat/completions`` route and rejects
     ``Authorization: Bearer``, so sending it the OpenAI-compatible shape returns
     a deterministic 400 for every model. OpenAI-compatible Claude gateways
     (OpenRouter, Aerolink) are not Anthropic-native and keep the standard path.
+
+    ``api_key`` overrides the key on the provider record so the caller can
+    rotate across a pool; omitting it keeps the record's own key.
     """
     from packages.ai.router import (
         ProviderConfig,
@@ -235,18 +273,20 @@ def _build_request(provider: Any) -> tuple[str, dict[str, str], bool]:
         is_anthropic_base_url,
     )
 
+    key = api_key or provider.api_key
+
     if is_anthropic_base_url(provider.base_url):
         cfg = ProviderConfig(
             provider_id=provider.id,
             type="anthropic",
             base_url=provider.base_url,
-            api_key=provider.api_key or None,
+            api_key=key or None,
         )
         return f"{cfg.normalized_base_url}/v1/messages", cfg.auth_headers(), True
 
     headers = {"Content-Type": "application/json"}
-    if provider.api_key:
-        headers["Authorization"] = f"Bearer {provider.api_key}"
+    if key:
+        headers["Authorization"] = f"Bearer {key}"
     return _openai_url(provider.base_url, "/chat/completions"), headers, False
 
 
@@ -426,7 +466,14 @@ async def _try_provider(
     from packages.ai.router import ProviderRouter, with_ollama_reasoning_effort
 
     requested_model = str(payload.get("model") or "")
-    chat_url, headers, is_anthropic = _build_request(provider)
+    # Key rotation: pick this attempt's key from the provider's pool. Falls back
+    # to the single key already on the provider record when no extra keys are
+    # configured, which is the default and changes nothing.
+    pool_keys = _provider_keys(provider)
+    active_key = (
+        _key_pool().next_key(provider.id, pool_keys) if pool_keys else None
+    )
+    chat_url, headers, is_anthropic = _build_request(provider, api_key=active_key)
     provider_model = fm.resolve_model(provider, requested_model)
     # Bind the capped list once: the disable gate must be told exactly what was
     # sent, and slicing it in two places is how the two drift apart.
@@ -502,6 +549,24 @@ async def _try_provider(
         # The remaining statuses fail identically for every model on this
         # provider, so trying another model here would repeat the same error.
         if resp.status_code in (429, 419):
+            # Free tiers rate-limit per *key*, not per provider. Rest only the
+            # key that was refused; the provider itself is cooled once every key
+            # in its pool is resting. With a single key configured (the default)
+            # `all_cooling` is True immediately, so this is byte-for-byte the
+            # old behaviour — rotation only engages from two keys up.
+            if pool_keys and active_key:
+                _key_pool().mark_rate_limited(
+                    provider.id,
+                    active_key,
+                    retry_after_sec=_retry_after_seconds(resp),
+                )
+                if not _key_pool().all_cooling(provider.id, pool_keys):
+                    log.info(
+                        "brain_failover: %s key rate-limited but siblings remain "
+                        "— rotating instead of cooling the provider",
+                        provider.id,
+                    )
+                    return None, f"{provider.id} {resp.status_code} key rate-limited"
             fm.record_failure(provider.id, "rate_limited", resp.status_code)
             return None, f"{provider.id} {resp.status_code} rate-limited"
         if resp.status_code == 413:
