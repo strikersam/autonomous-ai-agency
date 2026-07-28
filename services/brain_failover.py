@@ -492,6 +492,11 @@ class ProviderInfo:
     base_url: str
     api_key: str
     default_model: str
+    # Name of the environment variable this provider's key came from. Carried so
+    # the key pool can find sibling keys (`<key_env>_2`, `_3`, …) for rotation
+    # without re-deriving the variable name from the provider id — several ids
+    # would not round-trip, and a wrong guess silently means "no extra keys".
+    key_env: str = ""
     # Models this provider serves. The failover layer maps the requested
     # model to the closest match on this provider.
     models: list[str] = field(default_factory=list)
@@ -895,6 +900,7 @@ class BrainFailoverManager:
                         default_model=default_model,
                         models=spec["models"] + ([default_model] if default_model not in spec["models"] else []),
                         cooldown_seconds=spec["cooldown"],
+                        key_env=spec.get("key_env", ""),
                         health=old.health,
                         failure_count=old.failure_count,
                         last_failure=old.last_failure,
@@ -915,6 +921,7 @@ class BrainFailoverManager:
                         default_model=default_model,
                         models=spec["models"] + ([default_model] if default_model not in spec["models"] else []),
                         cooldown_seconds=spec["cooldown"],
+                        key_env=spec.get("key_env", ""),
                     )
                 self._providers[pid] = info
 
