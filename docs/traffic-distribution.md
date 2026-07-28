@@ -242,6 +242,21 @@ On a 429 the refused key rests (honouring `Retry-After`, clamped) while its
 siblings keep serving. Only when every key is resting does the provider itself
 get cooled.
 
+### The gain is across requests, not within one
+
+Be precise about what this buys. When a key is refused, `failover_client` has
+already added that provider to the request's `tried` set, so the *current*
+request moves on to the next provider rather than immediately retrying the same
+one with the sibling key. Spending several keys on a single request would be
+the wrong trade anyway.
+
+What changes is the provider's **state afterwards**. Without rotation one 429
+cools the whole provider for 30–480s, so every request in that window skips it.
+With rotation the provider stays `CLOSED` and the *next* request reaches it on
+the next key. Across a stream of requests that is the difference between a
+provider being available and being benched — which is the whole point — but a
+single request does not get a second bite at the same provider.
+
 > **Check the provider's terms.** Several free tiers permit multiple accounts;
 > some do not. This gives you the mechanism — whether a given provider allows it
 > is your call, and not something the code can verify.
