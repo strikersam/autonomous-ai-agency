@@ -4,9 +4,7 @@
 Lightweight CLI used by CI to check/fix Dependabot and CodeQL alerts.
 Designed to fail-safe: check commands print counts; fix commands attempt work and exit 0.
 """
-
 from __future__ import annotations
-
 
 import os
 import sys
@@ -50,6 +48,31 @@ def codeql_count() -> int:
     return len(data)
 
 
+# Allowed base directories for the openclaw script
+_OPENCLAW_ALLOWED_DIRS = ("/app/openclaw",)
+_OPENCLAW_SCRIPT_NAME = "index.js"
+
+
+def _resolve_openclaw_path() -> str | None:
+    """Resolve the OpenClaw script path safely, preventing symlink traversal.
+
+    Returns the validated absolute path if it exists inside an allowed
+    directory, or None to fall back to npx.
+    """
+    for allowed_dir in _OPENCLAW_ALLOWED_DIRS:
+        candidate = os.path.join(allowed_dir, _OPENCLAW_SCRIPT_NAME)
+        if not os.path.exists(candidate):
+            continue
+        # Resolve symlinks and verify the real path stays inside the allowed dir
+        real_path = os.path.realpath(candidate)
+        real_dir = os.path.realpath(allowed_dir)
+        if not real_path.startswith(real_dir + os.sep) and real_path != os.path.join(real_dir, _OPENCLAW_SCRIPT_NAME):
+            print(f"WARNING: {candidate} resolved to {real_path} outside {real_dir} \u2014 ignoring (possible symlink attack)")
+            continue
+        return real_path
+    return None
+
+
 def main() -> int:
     import subprocess
     if len(sys.argv) < 2:
@@ -72,18 +95,19 @@ def main() -> int:
         # For fixes, we use subprocess.run with shell=False (default) and list of args
         if cmd == "--fix-dependabot":
             print("Running OpenClaw for Dependabot alerts...")
-            # Use the local index.js if it exists, otherwise fall back to npx
-            if os.path.exists("openclaw/index.js"):
-                subprocess.run(["node", "openclaw/index.js", "--fix", "dependabot"], check=False)
+            openclaw_path = _resolve_openclaw_path()
+            if openclaw_path:
+                subprocess.run(["node", openclaw_path, "--fix", "dependabot"], check=False)
             else:
-                subprocess.run(["npx", "openclaw", "--fix", "dependabot"], check=False)
+                subprocess.run(["npx", "--yes", "openclaw", "--fix", "dependabot"], check=False)
             return 0
         if cmd == "--fix-codeql":
             print("Running OpenClaw for CodeQL alerts...")
-            if os.path.exists("openclaw/index.js"):
-                subprocess.run(["node", "openclaw/index.js", "--fix", "codeql"], check=False)
+            openclaw_path = _resolve_openclaw_path()
+            if openclaw_path:
+                subprocess.run(["node", openclaw_path, "--fix", "codeql"], check=False)
             else:
-                subprocess.run(["npx", "openclaw", "--fix", "codeql"], check=False)
+                subprocess.run(["npx", "--yes", "openclaw", "--fix", "codeql"], check=False)
             return 0
 
         return 0
