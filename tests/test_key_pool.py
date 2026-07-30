@@ -33,17 +33,24 @@ def _clean_pool() -> Iterator[None]:
 # ---------------------------------------------------------------------------
 
 class TestApiKeysFor:
+    @pytest.fixture(autouse=True)
+    def _opt_in(self, monkeypatch):
+        """Rotation is off by default; these tests exercise the enabled path."""
+        monkeypatch.setenv("GROQ_KEY_ROTATION", "true")
+        monkeypatch.setenv("NOPE_KEY_ROTATION", "true")
+        yield
+
     def test_single_key_is_the_common_case(self, monkeypatch) -> None:
         monkeypatch.setenv("GROQ_API_KEY", "one")
         monkeypatch.delenv("GROQ_API_KEY_2", raising=False)
-        assert api_keys_for("GROQ_API_KEY") == ["one"]
+        assert api_keys_for("groq", "GROQ_API_KEY") == ["one"]
 
     def test_numbered_suffixes_extend_the_pool(self, monkeypatch) -> None:
         monkeypatch.setenv("GROQ_API_KEY", "one")
         monkeypatch.setenv("GROQ_API_KEY_2", "two")
         monkeypatch.setenv("GROQ_API_KEY_3", "three")
         monkeypatch.delenv("GROQ_API_KEY_4", raising=False)
-        assert api_keys_for("GROQ_API_KEY") == ["one", "two", "three"]
+        assert api_keys_for("groq", "GROQ_API_KEY") == ["one", "two", "three"]
 
     def test_scan_stops_at_the_first_gap(self, monkeypatch) -> None:
         """A typo'd `_4` must not silently promote itself into the `_2` slot —
@@ -51,7 +58,7 @@ class TestApiKeysFor:
         monkeypatch.setenv("GROQ_API_KEY", "one")
         monkeypatch.delenv("GROQ_API_KEY_2", raising=False)
         monkeypatch.setenv("GROQ_API_KEY_4", "four")
-        assert api_keys_for("GROQ_API_KEY") == ["one"]
+        assert api_keys_for("groq", "GROQ_API_KEY") == ["one"]
 
     def test_duplicate_keys_are_collapsed(self, monkeypatch) -> None:
         """The same key twice is one budget, not two. Counting it twice would
@@ -59,17 +66,17 @@ class TestApiKeysFor:
         monkeypatch.setenv("GROQ_API_KEY", "same")
         monkeypatch.setenv("GROQ_API_KEY_2", "same")
         monkeypatch.delenv("GROQ_API_KEY_3", raising=False)
-        assert api_keys_for("GROQ_API_KEY") == ["same"]
+        assert api_keys_for("groq", "GROQ_API_KEY") == ["same"]
 
     def test_unset_returns_empty(self, monkeypatch) -> None:
         monkeypatch.delenv("NOPE_API_KEY", raising=False)
         monkeypatch.delenv("NOPE_API_KEY_2", raising=False)
-        assert api_keys_for("NOPE_API_KEY") == []
+        assert api_keys_for("nope", "NOPE_API_KEY") == []
 
     def test_whitespace_only_reads_as_unset(self, monkeypatch) -> None:
         monkeypatch.setenv("GROQ_API_KEY", "   ")
         monkeypatch.delenv("GROQ_API_KEY_2", raising=False)
-        assert api_keys_for("GROQ_API_KEY") == []
+        assert api_keys_for("groq", "GROQ_API_KEY") == []
 
 
 # ---------------------------------------------------------------------------
@@ -255,3 +262,118 @@ class TestBrainChainIntegration:
             id = "mystery"
 
         assert _provider_keys(_P()) == []
+
+
+# ---------------------------------------------------------------------------
+# rotation is opt-in per provider (provider terms-of-use gate)
+# ---------------------------------------------------------------------------
+
+class TestRotationIsOptIn:
+    """Sibling keys must be ignored until the operator explicitly opts in.
+
+    Several providers' acceptable-use policies prohibit registering extra
+    accounts to exceed published limits. Discovering `<KEY>_2` and silently
+    using it would let the platform commit a terms violation on the operator's
+    behalf from nothing more than an env var being present.
+    """
+
+    def test_siblings_ignored_without_the_gate(self, monkeypatch) -> None:
+        monkeypatch.delenv("GROQ_KEY_ROTATION", raising=False)
+        monkeypatch.setenv("GROQ_API_KEY", "one")
+        monkeypatch.setenv("GROQ_API_KEY_2", "two")
+        assert api_keys_for("groq", "GROQ_API_KEY") == ["one"]
+
+    def test_siblings_used_once_opted_in(self, monkeypatch) -> None:
+        monkeypatch.setenv("GROQ_KEY_ROTATION", "true")
+        monkeypatch.setenv("GROQ_API_KEY", "one")
+        monkeypatch.setenv("GROQ_API_KEY_2", "two")
+        monkeypatch.delenv("GROQ_API_KEY_3", raising=False)
+        assert api_keys_for("groq", "GROQ_API_KEY") == ["one", "two"]
+
+    @pytest.mark.parametrize("value", ["false", "0", "no", "off", "", "maybe"])
+    def test_only_explicit_truthy_values_enable_it(self, monkeypatch, value) -> None:
+        monkeypatch.setenv("GROQ_KEY_ROTATION", value)
+        monkeypatch.setenv("GROQ_API_KEY", "one")
+        monkeypatch.setenv("GROQ_API_KEY_2", "two")
+        assert api_keys_for("groq", "GROQ_API_KEY") == ["one"]
+
+    def test_gate_is_per_provider(self, monkeypatch) -> None:
+        monkeypatch.setenv("GROQ_KEY_ROTATION", "true")
+        monkeypatch.delenv("ZAI_KEY_ROTATION", raising=False)
+        monkeypatch.setenv("ZAI_API_KEY", "one")
+        monkeypatch.setenv("ZAI_API_KEY_2", "two")
+        assert api_keys_for("zai", "ZAI_API_KEY") == ["one"]
+
+
+# ---------------------------------------------------------------------------
+# an exhausted pool must never fall back to the resting primary key
+# ---------------------------------------------------------------------------
+
+class TestExhaustedPoolDoesNotReusePrimary:
+    @pytest.mark.anyio
+    async def test_no_request_is_sent_when_every_key_is_resting(
+        self, monkeypatch
+    ) -> None:
+        """`next_key` returns None once all keys cool. Passing that to
+        `_build_request` hits its `api_key or provider.api_key` fallback and
+        sends the primary key — the one that is supposed to be resting. That is
+        reachable with shipped defaults: a 30s provider cooldown expires while
+        the 60s key cooldowns are still running."""
+        from packages.ai import failover_client as fc
+
+        class _P:
+            id = "groq"
+            base_url = "https://api.groq.com/openai/v1"
+            api_key = "PRIMARY"
+            key_env = "GROQ_API_KEY"
+
+        sent: list[str] = []
+
+        async def _boom(*args, **kwargs):
+            sent.append("dispatched")
+            raise AssertionError("a request was sent on a resting key")
+
+        monkeypatch.setattr(fc, "_provider_keys", lambda p: ["PRIMARY", "SECOND"])
+        pool = fc._key_pool()
+        pool.mark_rate_limited("groq", "PRIMARY")
+        pool.mark_rate_limited("groq", "SECOND")
+        monkeypatch.setattr(fc, "_build_request", _boom)
+
+        result, error = await fc._try_provider(
+            _P(), {"model": "m"}, object(), [], 5.0, fc._Budget(3, 60.0)
+        )
+        assert result is None
+        assert sent == [], "the exhausted pool still dispatched a request"
+        assert "key(s) rate-limited" in error
+
+    def test_single_key_provider_is_unaffected(self) -> None:
+        """One key must still be returned while cooling — there is no sibling to
+        fall back to, and withholding it would turn a provider cooldown the
+        caller already handles into a hard outage."""
+        pool = KeyPool()
+        pool.mark_rate_limited("solo", "only")
+        assert pool.next_key("solo", ["only"]) == "only"
+
+
+# ---------------------------------------------------------------------------
+# digests must not be a stable cross-process fingerprint
+# ---------------------------------------------------------------------------
+
+class TestDigestIsKeyed:
+    def test_digest_is_not_a_bare_hash_of_the_key(self) -> None:
+        """An unsalted sha256 prefix is a permanent fingerprint: the same key
+        yields the same label in every deployment forever, so a label from a log
+        can be matched against a candidate key offline."""
+        import hashlib
+
+        key = "gsk_example_key"
+        assert kp._digest(key) != hashlib.sha256(key.encode()).hexdigest()[:8]
+        assert kp._digest(key) != hashlib.blake2b(key.encode(), digest_size=4).hexdigest()
+
+    def test_digest_changes_with_the_process_salt(self, monkeypatch) -> None:
+        before = kp._digest("same-key")
+        monkeypatch.setattr(kp, "_DIGEST_SALT", b"a-different-salt-value-32-bytes!!")
+        assert kp._digest("same-key") != before
+
+    def test_digest_is_stable_within_a_process(self) -> None:
+        assert kp._digest("k") == kp._digest("k")

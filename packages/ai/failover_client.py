@@ -239,7 +239,7 @@ def _provider_keys(provider: Any) -> list[str]:
         return []
     try:
         from packages.ai.key_pool import api_keys_for
-        return api_keys_for(base_env)
+        return api_keys_for(provider.id, base_env)
     except Exception as exc:  # pragma: no cover - defensive
         log.debug("brain_failover: key pool lookup failed for %s: %s", provider.id, exc)
         return []
@@ -473,6 +473,17 @@ async def _try_provider(
     active_key = (
         _key_pool().next_key(provider.id, pool_keys) if pool_keys else None
     )
+    if pool_keys and active_key is None:
+        # Every key in a configured pool is resting. Falling through here would
+        # hand `_build_request` a None, whose `api_key or provider.api_key`
+        # fallback then sends the provider record's *primary* key — the very key
+        # that is supposed to be resting. That is reachable with the shipped
+        # defaults: a provider whose breaker reopens after 30s while its keys
+        # are still resting on the 60s key cooldown would retry the primary key
+        # and defeat the per-key backoff entirely.
+        return None, (
+            f"{provider.id} all {len(pool_keys)} key(s) rate-limited"
+        )
     chat_url, headers, is_anthropic = _build_request(provider, api_key=active_key)
     provider_model = fm.resolve_model(provider, requested_model)
     # Bind the capped list once: the disable gate must be told exactly what was

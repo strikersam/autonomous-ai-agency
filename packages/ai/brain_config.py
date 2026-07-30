@@ -657,6 +657,61 @@ def routing_strategy() -> str:
     return (os.environ.get("LLM_ROUTING_STRATEGY") or "priority").strip().lower()
 
 
+# Numbered suffixes past the base key variable are probed up to this many times.
+# The scan stops at the first gap regardless, so this only bounds a pathological
+# scan; it is not a supported number of accounts.
+_MAX_EXTRA_KEYS: int = 10
+
+
+def provider_key_rotation_enabled(provider: str) -> bool:
+    """True when the operator has explicitly opted *this provider* into using
+    more than one API key.
+
+    Deliberately opt-in per provider rather than automatic. Several providers'
+    acceptable-use policies prohibit registering additional accounts to exceed
+    published rate limits — Groq's, for one, states this explicitly — so
+    discovering ``<KEY>_2`` and silently using it would let the platform commit
+    a terms violation on the operator's behalf, from nothing more than an env
+    var being present. Requiring ``<PROVIDER>_KEY_ROTATION=true`` makes that a
+    decision someone took, for a provider they checked.
+    """
+    raw = _provider_env_value(provider, "_KEY_ROTATION") or ""
+    return raw.strip().lower() in ("1", "true", "yes", "on")
+
+
+def provider_api_keys(provider: str, base_env: str) -> list[str]:
+    """Every API key configured for *provider*, primary first.
+
+    Reads ``base_env`` then ``base_env_2``, ``_3`` … but **only** when
+    :func:`provider_key_rotation_enabled` is true for the provider; otherwise
+    just the primary key is returned and any siblings are ignored.
+
+    The scan stops at the first gap so a typo'd ``_4`` cannot silently promote
+    itself into the ``_2`` slot, leaving an operator believing three keys are
+    live when two are. Duplicates are dropped: the same key twice is one
+    budget, and counting it twice would advertise capacity that does not exist
+    while halving the real cooldown.
+
+    Lives here rather than in the pool because this module is the only place
+    permitted to read the environment (CLAUDE.md §3), and because a
+    secret-discovery path in particular should sit where the project's config
+    review looks for it.
+    """
+    keys: list[str] = []
+    primary = (os.environ.get(base_env) or "").strip()
+    if primary:
+        keys.append(primary)
+    if not provider_key_rotation_enabled(provider):
+        return keys
+    for index in range(2, _MAX_EXTRA_KEYS + 2):
+        value = (os.environ.get(f"{base_env}_{index}") or "").strip()
+        if not value:
+            break
+        if value not in keys:
+            keys.append(value)
+    return keys
+
+
 def provider_key_present(provider: str) -> bool:
     """True when the env var for *provider*'s key is set (or it's Ollama)."""
     if provider == "ollama":
