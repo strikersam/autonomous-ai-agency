@@ -697,10 +697,14 @@ def provider_api_keys(provider: str, base_env: str) -> list[str]:
     secret-discovery path in particular should sit where the project's config
     review looks for it.
     """
-    keys: list[str] = []
     primary = (os.environ.get(base_env) or "").strip()
-    if primary:
-        keys.append(primary)
+    if not primary:
+        # No primary means no keys, even when a sibling variable survives. The
+        # first-gap rule has to start at the first slot or it is not a gap rule:
+        # otherwise clearing `<BASE>` to switch a provider off would silently
+        # promote a leftover `<BASE>_2` and keep dispatching on it.
+        return []
+    keys: list[str] = [primary]
     if not provider_key_rotation_enabled(provider):
         return keys
     for index in range(2, _MAX_EXTRA_KEYS + 2):

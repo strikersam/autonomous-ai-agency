@@ -78,6 +78,19 @@ class TestApiKeysFor:
         monkeypatch.delenv("GROQ_API_KEY_2", raising=False)
         assert api_keys_for("groq", "GROQ_API_KEY") == []
 
+    def test_absent_primary_never_promotes_a_sibling(self, monkeypatch) -> None:
+        """The first-gap rule has to start at the first slot or it is not a gap
+        rule. Otherwise clearing `<BASE>` to switch a provider off would
+        silently promote a leftover `<BASE>_2` and keep dispatching on it."""
+        monkeypatch.delenv("GROQ_API_KEY", raising=False)
+        monkeypatch.setenv("GROQ_API_KEY_2", "orphan")
+        assert api_keys_for("groq", "GROQ_API_KEY") == []
+
+    def test_blank_primary_never_promotes_a_sibling(self, monkeypatch) -> None:
+        monkeypatch.setenv("GROQ_API_KEY", "   ")
+        monkeypatch.setenv("GROQ_API_KEY_2", "orphan")
+        assert api_keys_for("groq", "GROQ_API_KEY") == []
+
 
 # ---------------------------------------------------------------------------
 # rotation
@@ -329,7 +342,7 @@ class TestExhaustedPoolDoesNotReusePrimary:
 
         sent: list[str] = []
 
-        async def _boom(*args, **kwargs):
+        async def _boom(*args: object, **kwargs: object) -> None:
             sent.append("dispatched")
             raise AssertionError("a request was sent on a resting key")
 
