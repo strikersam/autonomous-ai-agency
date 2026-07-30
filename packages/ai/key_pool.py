@@ -6,45 +6,56 @@ create capacity. When a fleet is genuinely at its ceiling — as ours is, with
 four usable free providers carrying all traffic — the only code-level fix that
 raises the ceiling is using more than one free-tier account per provider.
 
-Free tiers are rate-limited **per key**, not per provider. Three Groq keys is
-three times the requests per minute, and the provider only needs to go into
-cooldown once *all* of its keys are spent rather than the first.
+Rate limits are commonly enforced **per key**, so where an operator legitimately
+holds more than one key for a provider — separate projects, separate
+organisations, a paid key alongside a free one — using them in rotation raises
+the effective ceiling, and the provider only needs cooling once *all* its keys
+are spent rather than the first.
 
-Configuration is a numbered suffix on the provider's existing key variable, so
-nothing changes for an operator who has one key:
+## This is opt-in per provider, deliberately
 
-    GROQ_API_KEY=gsk_first
-    GROQ_API_KEY_2=gsk_second
-    GROQ_API_KEY_3=gsk_third
+Rotation is **off unless the operator sets ``<PROVIDER>_KEY_ROTATION=true``**,
+even when sibling variables are present. That gate is not ceremony:
 
-With a single key the pool is a pass-through: ``next_key`` always returns it and
-``mark_rate_limited`` leaves the existing provider-level cooldown to do its job
-exactly as before. Rotation only engages once a second key exists.
+> Several providers' acceptable-use policies prohibit registering additional
+> accounts in order to exceed published rate limits. Groq's rate-limit
+> documentation states limits are per *organisation* and its policy forbids
+> orchestrating accounts around them. Automatically discovering
+> ``<KEY>_2`` and using it would let this platform commit a terms violation on
+> the operator's behalf from nothing more than an env var being present.
 
-**Only use extra keys where the provider's terms allow it.** Several free tiers
-permit multiple accounts; some do not. This module gives you the mechanism —
-whether a given provider permits it is your call, not something code can check.
+So the mechanism exists, and engaging it is a decision someone takes for a
+provider whose terms they have read. **Do not enable it to work around a
+provider's published limits.** Legitimate uses are keys you are already entitled
+to use concurrently.
+
+    ACME_API_KEY=primary
+    ACME_API_KEY_2=second-key-you-are-entitled-to-use
+    ACME_KEY_ROTATION=true
+
+With a single key — or with rotation not enabled — the pool is a pass-through:
+``next_key`` always returns the primary and ``mark_rate_limited`` leaves the
+existing provider-level cooldown to do its job exactly as before.
 
 No key material is ever logged or returned by ``snapshot()``. Keys are
-identified in diagnostics by a short salted digest, never by a prefix or suffix
-of the key itself.
+identified in diagnostics by a short digest keyed with a per-process random
+salt, never by a prefix or suffix of the key itself.
 """
 
 from __future__ import annotations
 
 import hashlib
 import logging
-import os
+import secrets
 import threading
 import time
 from dataclasses import dataclass, field
 
-log = logging.getLogger("llm-key-pool")
+log = logging.getLogger("qwen-proxy")
 
-# How many numbered suffixes to probe past the base variable. Ten accounts per
-# provider is far beyond any plausible legitimate setup; the loop stops at the
-# first gap anyway, so this is only a guard against an unbounded scan.
-_MAX_EXTRA_KEYS: int = 10
+# Per-process salt for the diagnostic digests below. Regenerated on every start,
+# never persisted, never logged. See `_digest`.
+_DIGEST_SALT: bytes = secrets.token_bytes(32)
 
 # A key that returns 429 sits out for this long unless the response carried a
 # Retry-After. Deliberately shorter than a provider-level cooldown: the point of
@@ -55,34 +66,37 @@ _MAX_KEY_COOLDOWN_SEC: float = 300.0
 
 
 def _digest(key: str) -> str:
-    """Short, stable, non-reversible label for a key (diagnostics only).
+    """Short label for a key, **stable only within this process**.
+
+    Keyed with a per-process random salt rather than a bare hash. An unsalted
+    `sha256(key)[:8]` is a deterministic fingerprint: the same key produces the
+    same label in every process and every deployment forever, so a label
+    captured from a log can be matched against a candidate key offline, and two
+    logs can be correlated as using the same account. Salting per process makes
+    the label useful for reading one process's logs — which is all it is for —
+    and useless for anything else.
 
     Never a prefix or suffix of the key itself: a leading fragment of an API key
     is enough to identify an account in a leaked log, and for some providers it
     identifies the key outright.
     """
-    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:8]
+    return hashlib.blake2b(
+        key.encode("utf-8"), key=_DIGEST_SALT, digest_size=4
+    ).hexdigest()
 
 
-def api_keys_for(base_env: str) -> list[str]:
-    """All configured keys for the variable *base_env*, in priority order.
+def api_keys_for(provider_id: str, base_env: str) -> list[str]:
+    """All keys configured for *provider_id*, primary first.
 
-    Reads ``BASE`` then ``BASE_2``, ``BASE_3`` … stopping at the first gap so a
-    typo'd ``_4`` cannot silently promote itself into the ``_2`` slot. Duplicates
-    are dropped — the same key twice is not two budgets, and treating it as two
-    would double the apparent capacity while halving the real cooldown.
+    Thin delegate to ``brain_config.provider_api_keys`` — the environment is
+    read there because that module is the only one permitted to read it
+    (CLAUDE.md §3), and a secret-discovery path in particular belongs where the
+    project's config review looks for it. Sibling keys are only returned when
+    the provider has been explicitly opted in; see
+    ``provider_key_rotation_enabled``.
     """
-    keys: list[str] = []
-    primary = (os.environ.get(base_env) or "").strip()
-    if primary:
-        keys.append(primary)
-    for index in range(2, _MAX_EXTRA_KEYS + 2):
-        value = (os.environ.get(f"{base_env}_{index}") or "").strip()
-        if not value:
-            break
-        if value not in keys:
-            keys.append(value)
-    return keys
+    from packages.ai.brain_config import provider_api_keys
+    return provider_api_keys(provider_id, base_env)
 
 
 @dataclass
