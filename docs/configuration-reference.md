@@ -251,6 +251,40 @@ Common overrides:
 | `FEATURE_ASYNC_AGENT_JOBS` | `stable` | Promote async agent jobs to stable tier |
 | `FEATURE_SIDECAE_RUNTIMES` | `false` | Disable sidecar runtimes |
 
+## Traffic Distribution and Rate Limits
+
+Controls how requests are spread across LLM providers and how the router avoids
+`429` rate limits. See [`traffic-distribution.md`](traffic-distribution.md) for
+the full explanation of each strategy.
+
+Every one of these is **unset by default**, and unset means "no limit". So does
+zero, a negative number, `inf`, `nan`, or anything unparseable — a limit of zero
+would wedge a provider out of rotation permanently, which is never what a
+malformed value should mean.
+
+`<PROVIDER>` is the provider id upper-cased. Ids containing dashes accept the
+dash-to-underscore form (`NVIDIA_NIM_MAX_RPM`), which is the one most shells and
+dashboards will actually let you set; the literal name is still read first.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LLM_ROUTING_STRATEGY` | `priority` | How traffic is spread across providers: `priority` (strict order, the historical behaviour), `weighted-shuffle`, `least-busy`, `usage-based`, `latency-based`. An unrecognised value warns once and behaves as `priority`. |
+| `<PROVIDER>_MAX_RPM` | (unset) | Requests/minute ceiling. Used both to pace requests and to route around a provider that has spent its minute. Set it to the provider's real current limit from its own dashboard — none is hardcoded, because they change and are account-specific. |
+| `<PROVIDER>_MAX_TPM` | (unset) | Tokens/minute ceiling. Free tiers usually publish one alongside the request limit, and large-context agent calls hit the token limit first. |
+| `<PROVIDER>_MAX_PARALLEL` | (unset) | In-flight request ceiling — the concurrency limit NVIDIA NIM enforces with `419`. A fractional value is rounded; anything rounding below 1 reads as unset. |
+| `<PROVIDER>_WEIGHT` | (unset) | Share weight for the `weighted-shuffle` strategy. Weight 3 receives roughly three times the traffic of weight 1. |
+| `<PROVIDER>_KEY_ROTATION` | `false` | **Opt-in** for using more than one API key for a provider (`<KEY>`, `<KEY>_2`, `<KEY>_3`...). Off unless set to `true`/`1`/`yes`/`on`; sibling keys are ignored entirely without it. **Several providers' terms prohibit registering extra accounts to exceed published limits - check yours before enabling.** |
+| `PROVIDER_COOLDOWN_SECONDS` | `30` | Default cooldown applied to a provider after a generic failure. |
+| `PROVIDER_RATELIMIT_COOLDOWN_SECONDS` | `20` | Base cooldown after a `429`. Doubles per consecutive rate limit. |
+| `PROVIDER_RATELIMIT_COOLDOWN_MAX_SECONDS` | `120` | Ceiling for the exponential 429 backoff. |
+| `PROVIDER_DEAD_MODEL_COOLDOWN_SECONDS` | `3600` | How long a model that returned `410 Gone` is skipped before being re-probed. |
+
+Observability for all of the above: `GET /api/metrics/traffic-distribution`
+(authenticated) reports the active strategy plus per-provider window usage,
+configured budgets, EWMA latency and how many requests were routed away.
+
+---
+
 ## Quick Reference — Minimal Configs
 
 ### Personal use (single key)
