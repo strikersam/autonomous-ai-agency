@@ -42,6 +42,12 @@ from packages.llm.config import (
     get_config,
 )
 from packages.llm.context import ContextManager, build_summariser
+from packages.llm.disabled import (
+    auto_disable,
+    describe,
+    disabled_provider_ids,
+    is_unfixable,
+)
 from packages.llm.distributed import get_limiter
 from packages.llm.health import BreakerState, get_tracker
 from packages.llm.keys import get_ring, resolve_keys
@@ -371,9 +377,16 @@ class LLMRouter:
         if request.model:
             pinned = self._registry.get(request.model)
 
+        # The durable off-switch, not the breaker: a provider an operator turned
+        # off (or one auto-disabled for a revoked key) must not be routed to,
+        # and that decision outlives this process.
+        switched_off = disabled_provider_ids()
+
         pool: list[Candidate] = []
         for provider_id, provider in self._providers.items():
             config = provider.config
+            if provider_id in switched_off:
+                continue
             if provider_id in request.exclude_providers:
                 continue
             if request.providers and provider_id not in request.providers:
@@ -724,6 +737,12 @@ class LLMRouter:
             error=str(error)[:200], timeout=timeout,
             counts_against_breaker=not isinstance(error, PermanentError),
         )
+        if is_unfixable(status, str(error)):
+            # A revoked key or an empty account is not a bad minute — the
+            # breaker would reopen on a timer and retry it forever. Persist the
+            # same verdict the legacy path records, so the provider stops being
+            # tried and the operator sees why on the Providers screen.
+            auto_disable(provider_id, describe(status, str(error)[:120]))
         if self._health.get(provider_id).state.value == "open":
             self._metrics.record_breaker_trip(provider=provider_id)
 
@@ -731,10 +750,19 @@ class LLMRouter:
     def _is_fatal(error: PermanentError) -> bool:
         """Errors that mean the request itself is wrong, not the provider.
 
-        A 413 or 422 will be rejected identically by every provider, so trying
+        A 414 (URI too long) or 422 (unprocessable entity) describes the shape
+        of the request, so every provider rejects it identically and trying
         five more is pure latency.
+
+        413 is deliberately NOT in that set. "Payload too large" is a statement
+        about one provider's context window, not about the request: a prompt
+        that overflows a 32k model fits a 200k one. Treating it as fatal made
+        the router stop where the legacy failover path moves to the next
+        provider and succeeds — see
+        tests/test_brain_failover_413.py::test_413_fails_over_to_next_provider_after_one_attempt,
+        which has pinned that behaviour since before this router existed.
         """
-        return error.status in {413, 414, 422}
+        return error.status in {414, 422}
 
     def _no_candidate_reason(self, request: LLMRequest) -> str:
         if not self._providers:

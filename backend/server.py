@@ -1550,14 +1550,75 @@ async def _startup_reliability_hooks() -> None:
         log.debug("Startup: harness adapter registration skipped")
 
 
+# Uvicorn does not open its listening socket until the lifespan startup
+# returns — ``Server.startup()`` awaits ``lifespan.startup()`` and only then
+# calls ``loop.create_server()``. Every awaited warm-up step below therefore
+# runs with the port closed, so a slow warm-up does not produce a slow app, it
+# produces an invisible one: Render's HTTP health check times out after 5s,
+# marks the deploy unhealthy and restarts it, and the restart runs the same
+# warm-up again. That loop is what makes /api/auth/login fail with a browser
+# "Network Error" rather than a 401 — there is nothing listening to answer it.
+#
+# Bounding the warm-up breaks the loop. Steps that finish inside the budget
+# behave exactly as before; a step that overruns keeps running in the
+# background while the app starts serving and answering health checks.
+_STARTUP_WARMUP_BUDGET_SEC = 6.0
+
+# Overflowed warm-up steps are kept referenced here: the event loop only holds
+# a weak reference to a running task, so a dropped one can be garbage-collected
+# mid-flight and silently never finish.
+_warmup_overflow: list[asyncio.Task] = []
+
+
+def _defer_to_background(task: asyncio.Task, label: str) -> None:
+    """Let an overrunning step finish out of band without leaking or warning.
+
+    Keeps the task referenced until it settles, and consumes its exception so
+    asyncio does not report it as never retrieved.
+    """
+    _warmup_overflow.append(task)
+
+    def _settled(done: asyncio.Task) -> None:
+        if done in _warmup_overflow:
+            _warmup_overflow.remove(done)
+        if not done.cancelled() and done.exception() is not None:
+            log.warning("startup: deferred %s failed (non-fatal): %s",
+                        label, done.exception())
+
+    task.add_done_callback(_settled)
+
+
+async def _warmup_step(coro, label: str, deadline: float):
+    """Await one warm-up step, deferring it to the background if it overruns.
+
+    ``deadline`` is an ``asyncio`` loop timestamp shared by every step, so the
+    budget is spent across the whole warm-up rather than per step. Exceptions
+    raised inside the budget propagate unchanged — the caller's existing
+    error handling still decides what a failed step means.
+    """
+    task = asyncio.ensure_future(coro)
+    remaining = max(0.0, deadline - asyncio.get_running_loop().time())
+    try:
+        return await asyncio.wait_for(asyncio.shield(task), timeout=remaining)
+    except (asyncio.TimeoutError, TimeoutError):
+        _defer_to_background(task, label)
+        log.warning(
+            "startup: %s exceeded the %.1fs warm-up budget — continuing in the "
+            "background so the port opens and health checks can be answered",
+            label, _STARTUP_WARMUP_BUDGET_SEC,
+        )
+        return None
+
+
 @asynccontextmanager
 async def lifespan(app_: "FastAPI"):
     from services.background import start_background_services, run_background_in_web
 
     from services.background import BackgroundServices
     bg: Optional[BackgroundServices] = None
+    warmup_deadline = asyncio.get_running_loop().time() + _STARTUP_WARMUP_BUDGET_SEC
     try:
-        await ensure_bootstrap()
+        await _warmup_step(ensure_bootstrap(), "database bootstrap", warmup_deadline)
         log.info("LLM Relay Platform started — provider=%s", LLM_PROVIDER)
     except Exception as exc:
         log.warning("MongoDB bootstrap deferred (no DB connection): %s", exc)
@@ -1593,7 +1654,9 @@ async def lifespan(app_: "FastAPI"):
         log.warning("SAM voice in-process worker not started: %s", exc)
 
     # #522 + #505: Reliability startup hooks
-    await _startup_reliability_hooks()
+    await _warmup_step(
+        _startup_reliability_hooks(), "reliability hooks", warmup_deadline
+    )
 
     # Startup schedule cleanup — deduplicate + remove stale run-once + stuck
     # agency tasks. Moved OFF the startup critical path (PR #922): runs as a
@@ -1667,7 +1730,9 @@ async def lifespan(app_: "FastAPI"):
             log.warning("Startup task dedup failed (non-fatal): %s", exc)
 
     try:
-        import asyncio
+        # NB: no local ``import asyncio`` here. A function-scoped import makes
+        # ``asyncio`` local to the whole of lifespan(), which shadows the
+        # module-level import for every earlier line too.
         asyncio.create_task(_deferred_startup_cleanup())
     except Exception as exc:  # pragma: no cover - defensive
         log.warning("Could not schedule deferred startup cleanup: %s", exc)
@@ -1772,7 +1837,7 @@ async def lifespan(app_: "FastAPI"):
     # correct from the first request. Best-effort — never blocks startup.
     try:
         from app_settings import refresh_cache
-        await refresh_cache()
+        await _warmup_step(refresh_cache(), "app-settings cache warm", warmup_deadline)
     except Exception as exc:  # noqa: BLE001
         log.warning("app_settings cache warm failed: %s", exc)
 
@@ -2425,6 +2490,46 @@ async def _ensure_tasks_source_id_unique_index() -> None:
         )
 
 
+# (collection, keys, options) for every index the app needs at boot. Declared
+# as data so they can be issued together instead of one at a time.
+_BOOTSTRAP_INDEXES: tuple[tuple[str, object, dict], ...] = (
+    ("users", "email", {"unique": True}),
+    ("wiki_pages", "slug", {"unique": True}),
+    ("wiki_pages", [("title", "text"), ("content", "text")], {}),
+    ("sources", "created_at", {}),
+    ("activity_log", "created_at", {}),
+    ("chat_sessions", "user_id", {}),
+    ("providers", "provider_id", {"unique": True}),
+    ("api_keys", "key_id", {"unique": True}),
+    ("github_settings", "user_id", {"unique": True}),
+    # oauth_states has a 10-minute TTL — MongoDB drops stale records automatically
+    ("oauth_states", "created_at", {"expireAfterSeconds": 600}),
+    # Indexes for feature routers
+    ("agent_definitions", "agent_id", {"unique": True}),
+    ("agent_definitions", "owner_id", {}),
+    ("tasks", "task_id", {"unique": True}),
+    ("tasks", "owner_id", {}),
+    ("tasks", "status", {}),
+)
+
+
+async def _create_bootstrap_indexes() -> None:
+    """Create every boot index concurrently rather than one round-trip at a time.
+
+    These fifteen indexes are independent of each other, but awaited in
+    sequence they cost fifteen serial network round-trips to MongoDB Atlas —
+    all of them spent before uvicorn opens its listening socket. Issuing them
+    together lets the driver pipeline them over the existing connection pool,
+    which is the difference between a deploy that answers Render's 5s health
+    check and one that gets restarted for not answering it.
+    """
+    db = get_db()
+    await asyncio.gather(*(
+        getattr(db, collection).create_index(keys, **options)
+        for collection, keys, options in _BOOTSTRAP_INDEXES
+    ))
+
+
 async def ensure_bootstrap() -> None:
     """Idempotent bootstrap for indexes + seeded admin/providers.
 
@@ -2438,23 +2543,7 @@ async def ensure_bootstrap() -> None:
         async with _BOOTSTRAP_LOCK:
             if _BOOTSTRAP_DONE:
                 return
-            await get_db().users.create_index("email", unique=True)
-            await get_db().wiki_pages.create_index("slug", unique=True)
-            await get_db().wiki_pages.create_index([("title", "text"), ("content", "text")])
-            await get_db().sources.create_index("created_at")
-            await get_db().activity_log.create_index("created_at")
-            await get_db().chat_sessions.create_index("user_id")
-            await get_db().providers.create_index("provider_id", unique=True)
-            await get_db().api_keys.create_index("key_id", unique=True)
-            await get_db().github_settings.create_index("user_id", unique=True)
-            # oauth_states has a 10-minute TTL — MongoDB drops stale records automatically
-            await get_db().oauth_states.create_index("created_at", expireAfterSeconds=600)
-            # Indexes for feature routers
-            await get_db().agent_definitions.create_index("agent_id", unique=True)
-            await get_db().agent_definitions.create_index("owner_id")
-            await get_db().tasks.create_index("task_id", unique=True)
-            await get_db().tasks.create_index("owner_id")
-            await get_db().tasks.create_index("status")
+            await _create_bootstrap_indexes()
             # Wire feature stores to the shared MongoDB connection
             set_agent_store(AgentStore(db=get_db()))
             set_task_store(TaskStore(db=get_db()))
@@ -3520,11 +3609,40 @@ class LoginBody(BaseModel):
     password: str
 
 
+# A login must not pay for a cold bootstrap. Seeding indexes and default rows
+# is not a precondition for checking a password, but awaiting it unbounded in
+# the handler meant the first login after a restart sat on the whole cold-start
+# cost — long enough that the browser reported "Network Error" instead of any
+# result at all.
+_LOGIN_BOOTSTRAP_BUDGET_SEC = 3.0
+
+
+async def _bootstrap_within_budget(budget: float = _LOGIN_BOOTSTRAP_BUDGET_SEC) -> bool:
+    """Run bootstrap without letting it hold a request open indefinitely.
+
+    Returns whether bootstrap completed. A slow one is left running in the
+    background and a failed one is logged: either way the caller proceeds and
+    relies on its own handling for an unreachable database.
+    """
+    if _BOOTSTRAP_DONE:
+        return True
+    task = asyncio.ensure_future(ensure_bootstrap())
+    try:
+        await asyncio.wait_for(asyncio.shield(task), timeout=budget)
+        return True
+    except (asyncio.TimeoutError, TimeoutError):
+        _defer_to_background(task, "database bootstrap")
+        log.warning("bootstrap exceeded %.1fs — serving the request anyway", budget)
+    except Exception as exc:
+        log.warning("bootstrap failed (%s) — serving the request in limited mode", exc)
+    return False
+
+
 @app.post("/api/auth/login")
 async def login(body: LoginBody):
+    await _bootstrap_within_budget()
+    email = body.email.strip().lower()
     try:
-        await ensure_bootstrap()
-        email = body.email.strip().lower()
         user = await get_db().users.find_one({"email": email})
     except Exception as exc:
         log.warning("DB query failed during login (limited mode): %s", exc)

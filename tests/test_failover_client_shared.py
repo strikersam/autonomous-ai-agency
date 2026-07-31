@@ -74,6 +74,12 @@ def _openai_body(text="hello", pt=3, ct=5):
 @pytest.fixture
 def patch_chain(monkeypatch):
     """Install a stub manager and a scripted sequence of HTTP responses."""
+    # These tests are about the LEGACY failover chain and script its transport
+    # directly. LLMRouter owns a different manager and a different client, so
+    # an ambient LLM_ROUTER_ENABLED (set in production) would bypass the whole
+    # scripted sequence. Pin it off — the router's own chain is covered by
+    # tests/test_llm_router_e2e.py.
+    monkeypatch.delenv("LLM_ROUTER_ENABLED", raising=False)
 
     def _apply(providers, responses):
         manager = _StubManager(providers)
