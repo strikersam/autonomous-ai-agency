@@ -8242,9 +8242,10 @@ async def github_webhook(request: Request) -> dict[str, object]:
     return {"ok": True, "intake": "created", "task_id": task.task_id}
 
 
-# Health-check ping ceiling. Render fails its check at 5s; staying well
-# under that keeps a slow database from being reported as a dead app.
-_HEALTH_PING_TIMEOUT_SEC = 2.0
+# Health-check ping ceiling. Render fails its check at 5s; 4.5s gives a
+# cold Atlas connection room to respond on wake-up while still reporting
+# a genuinely dead DB before Render kills the instance.
+_HEALTH_PING_TIMEOUT_SEC = 4.5
 
 
 async def _check_storage_health() -> bool:
