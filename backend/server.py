@@ -10276,6 +10276,15 @@ app.include_router(spec_router_module.build_spec_router(get_current_user))
 import backend.ceo_router as ceo_router_module  # noqa: E402
 app.include_router(ceo_router_module.build_ceo_router(get_current_user))
 
+# Render platform view (services, deploys, platform logs, metrics) served from
+# the Render MCP server. Admin-only and read-only. Mounted defensively so a
+# missing/unreachable Render config degrades this one page rather than the app.
+try:
+    import backend.render_router as render_router_module  # noqa: E402
+    app.include_router(render_router_module.build_render_router(get_current_user))
+except Exception as _render_router_err:  # noqa: BLE001
+    log.warning("Render router not mounted: %s", _render_router_err)
+
 # LLM routing layer (ADR-008) --- provider health, routing strategy, key
 # rotation, queue, cache, budgets, Prometheus metrics, and the optional
 # OpenAI-compatible gateway. Read routes are public to the dashboard;

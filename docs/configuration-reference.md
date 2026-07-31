@@ -213,6 +213,26 @@ See [docs/telegram-bot.md](telegram-bot.md) for full setup instructions.
 
 ---
 
+## Render MCP — platform debugging and environment monitoring
+
+Gives the agency the view of Render that `agent/log_monitor.py` cannot have:
+build failures, OOM kills, restart loops, stalled deploys, and memory pressure
+all happen where no Python process was alive to log them. Full guide:
+[`docs/render-mcp.md`](render-mcp.md).
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RENDER_API_KEY` | (empty) | Render API key (dashboard → Account Settings → API Keys). Nothing in this section works without it. |
+| `RENDER_MCP_URL` | `http://127.0.0.1:10000/mcp` | Streamable-HTTP endpoint of a Render MCP server. The default assumes `render-mcp-server -t http` running beside the service. |
+| `RENDER_WORKSPACE_ID` | (empty) | Render workspace (owner) ID, passed as `workspaceId` on every resource tool call. Upstream deprecated implicit session-scoped selection. |
+| `RENDER_SERVICE_IDS` | (empty) | Comma-separated service IDs the monitoring loop watches. Empty means discover every service in the workspace. |
+| `RENDER_OPS_ENABLED` | `false` | Master switch for the autonomous monitoring loop. Only honoured when `RENDER_API_KEY` is also set. |
+| `RENDER_OPS_INTERVAL_SECONDS` | `900` | Poll interval, floored at 60s. |
+| `RENDER_MCP_ALLOW_WRITES` | `false` | Permit mutating Render tools (`trigger_deploy`, `update_environment_variables`, `create_*`). The monitoring loop stays read-only regardless. |
+
+---
+
+
 ## Tunnel — Permanent Static URL (ngrok)
 
 Run `setup_ngrok.py` once to populate these automatically. Get your token free at [dashboard.ngrok.com](https://dashboard.ngrok.com).

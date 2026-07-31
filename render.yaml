@@ -340,6 +340,42 @@ services:
         sync: false
 
       # ================================================================
+      # RENDER MCP — the agency's view of the platform it runs on.
+      #
+      # agent/log_monitor.py only sees log records THIS process emitted, so
+      # a failed build, an OOM kill, or a restart loop is invisible to the
+      # self-heal chain — the process was never alive to log them. The
+      # Render MCP server (render-oss/render-mcp-server) exposes that
+      # platform view, and services/render_ops.py polls it and files what
+      # it finds into the same ImprovementLoop intake.
+      #
+      # Left OFF by default. To enable:
+      #   1. Create a Render API key (Account Settings → API Keys) and set
+      #      RENDER_API_KEY in the dashboard.
+      #   2. Point RENDER_MCP_URL at a reachable Render MCP endpoint. The
+      #      default assumes `render-mcp-server -t http` running beside the
+      #      service (it binds :10000 and serves /mcp).
+      #   3. Set RENDER_OPS_ENABLED=true.
+      #
+      # RENDER_MCP_ALLOW_WRITES stays false: the loop diagnoses production,
+      # it does not redeploy or reconfigure it.
+      # ================================================================
+      - key: RENDER_API_KEY
+        sync: false
+      - key: RENDER_MCP_URL
+        value: "http://127.0.0.1:10000/mcp"
+      - key: RENDER_WORKSPACE_ID
+        sync: false
+      - key: RENDER_SERVICE_IDS
+        sync: false
+      - key: RENDER_OPS_ENABLED
+        value: "false"
+      - key: RENDER_OPS_INTERVAL_SECONDS
+        value: "900"
+      - key: RENDER_MCP_ALLOW_WRITES
+        value: "false"
+
+      # ================================================================
       # WORKFLOW / AGENCY — golden-path execution backbone
       # orchestrator = full 11-phase golden path (default); legacy = old paths
       # ================================================================

@@ -37,6 +37,18 @@ MCP spec 2026-07-28 RC — tools/list TTL caching:
   - Call ``invalidate_tools_cache()`` to force an immediate refresh (e.g.
     after deploying a new tool to the MCP server).
 
+MCP spec 2025-03-26 — Streamable HTTP:
+
+  - Requests advertise ``Accept: application/json, text/event-stream`` and the
+    response is decoded from either media type, so the same client works
+    against this repo's plain-JSON server at ``/mcp-internal`` *and* against
+    third-party Streamable-HTTP servers such as the Render MCP server
+    (``packages/integrations/render_mcp.py``).
+  - A server-issued ``Mcp-Session-Id`` is captured and echoed on later
+    requests; servers that don't use sessions never set it.
+  - ``rpc_path`` controls the sub-path appended to ``base_url``. Pass ``""``
+    when the URL already points at the JSON-RPC endpoint.
+
 Usage::
 
     client = MCPClient("http://mcp-server:8008")
@@ -183,17 +195,37 @@ class MCPClient:
     Thread-safe only within a single asyncio event loop (no cross-loop sharing).
     """
 
-    def __init__(self, base_url: str | None = None, timeout: float = 30.0, secret_token: str | None = None) -> None:
+    def __init__(
+        self,
+        base_url: str | None = None,
+        timeout: float = 30.0,
+        secret_token: str | None = None,
+        rpc_path: str = "/mcp",
+    ) -> None:
         self.base_url = (base_url or "").rstrip("/")
         self.timeout = timeout
         self._secret_token = secret_token or os.environ.get("MCP_SECRET_TOKEN") or None
         self._id_counter = itertools.count(1)
+        # Sub-path appended to ``base_url`` to reach the JSON-RPC endpoint.
+        # Defaults to "/mcp" (the in-process server mounted at /mcp-internal).
+        # Pass "" when ``base_url`` already points at the endpoint itself, as
+        # it does for a Streamable-HTTP server whose URL ends in /mcp.
+        self._rpc_path = rpc_path
+        # Streamable-HTTP session id (MCP spec 2025-03-26). Servers that manage
+        # sessions return ``Mcp-Session-Id`` on initialize and expect it echoed
+        # on every later request; servers that don't simply never set it.
+        self._session_id: str | None = None
         # Circuit breaker state
         self._failures = 0
         self._opened_at: float | None = None
         # Tools-list TTL cache (MCP spec 2026-07-28 RC)
         self._tools_cache: list[dict[str, Any]] | None = None
         self._tools_cache_expires_at: float = 0.0
+
+    @property
+    def endpoint(self) -> str:
+        """Full URL of the JSON-RPC endpoint this client posts to."""
+        return f"{self.base_url}{self._rpc_path}"
 
     # ── circuit breaker ──────────────────────────────────────────────────────
 
@@ -221,6 +253,61 @@ class MCPClient:
 
     # ── low-level RPC ────────────────────────────────────────────────────────
 
+    def _headers(self) -> dict[str, str]:
+        """Build the request headers shared by ``_rpc`` and ``notify``.
+
+        ``Accept`` lists both media types because a Streamable-HTTP server
+        (MCP spec 2025-03-26) may answer either with a plain JSON body or with
+        a one-shot SSE stream, and rejects requests that don't accept both.
+        Servers that only ever return JSON — including this repo's in-process
+        server at /mcp-internal — ignore the header entirely.
+        """
+        headers = {"Accept": "application/json, text/event-stream"}
+        if self._secret_token:
+            headers["Authorization"] = f"Bearer {self._secret_token}"
+        if self._session_id:
+            headers["Mcp-Session-Id"] = self._session_id
+        return headers
+
+    def _capture_session(self, resp: "httpx.Response") -> None:
+        """Remember a server-issued ``Mcp-Session-Id`` for subsequent requests."""
+        session_id = resp.headers.get("Mcp-Session-Id") or resp.headers.get("mcp-session-id")
+        if session_id and session_id != self._session_id:
+            self._session_id = session_id
+            log.debug("MCP session established (%s…)", session_id[:8])
+
+    @staticmethod
+    def _parse_body(resp: "httpx.Response") -> dict[str, Any]:
+        """Decode a JSON-RPC response body from either JSON or an SSE stream.
+
+        Streamable-HTTP servers reply to a POST with ``text/event-stream`` and
+        push the JSON-RPC response as one or more ``data:`` lines. The last
+        frame carrying a JSON object with our ``jsonrpc`` envelope is the
+        response; earlier frames may be progress notifications, which we skip.
+        """
+        content_type = (resp.headers.get("content-type") or "").lower()
+        if "text/event-stream" not in content_type:
+            return resp.json()
+
+        result: dict[str, Any] | None = None
+        for line in resp.text.splitlines():
+            line = line.strip()
+            if not line.startswith("data:"):
+                continue
+            chunk = line[len("data:"):].strip()
+            if not chunk or chunk == "[DONE]":
+                continue
+            try:
+                frame = json.loads(chunk)
+            except ValueError:
+                continue
+            # Notifications carry no "id"; the response to our request does.
+            if isinstance(frame, dict) and ("result" in frame or "error" in frame):
+                result = frame
+        if result is None:
+            raise ValueError("SSE stream carried no JSON-RPC response frame")
+        return result
+
     async def _rpc(self, method: str, params: dict[str, Any] | None = None) -> Any:
         if not self.base_url:
             raise MCPUnavailableError(
@@ -237,14 +324,12 @@ class MCPClient:
             "method": method,
             "params": params or {},
         }
-        headers: dict[str, str] = {}
-        if self._secret_token:
-            headers["Authorization"] = f"Bearer {self._secret_token}"
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                resp = await client.post(f"{self.base_url}/mcp", json=payload, headers=headers)
+                resp = await client.post(self.endpoint, json=payload, headers=self._headers())
                 resp.raise_for_status()
-            body = resp.json()
+            self._capture_session(resp)
+            body = self._parse_body(resp)
         except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
             self._on_failure()
             raise MCPUnavailableError(f"MCP server unreachable: {exc}") from exc
@@ -257,6 +342,25 @@ class MCPClient:
             err = body["error"]
             raise RuntimeError(f"MCP error {err.get('code')}: {err.get('message')}")
         return body.get("result")
+
+    async def notify(self, method: str, params: dict[str, Any] | None = None) -> None:
+        """Send a JSON-RPC notification (no ``id``, no response body expected).
+
+        Used for the ``notifications/initialized`` handshake step that
+        Streamable-HTTP servers expect before they will serve tool calls.
+        Failures are swallowed: a notification the server ignores must not
+        take down the caller, and the circuit breaker still records genuine
+        transport failures via the next real RPC.
+        """
+        if not self.base_url:
+            return
+        payload = {"jsonrpc": "2.0", "method": method, "params": params or {}}
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout) as client:
+                resp = await client.post(self.endpoint, json=payload, headers=self._headers())
+            self._capture_session(resp)
+        except Exception as exc:  # noqa: BLE001 - notifications are best-effort
+            log.debug("MCP notification %s failed (ignored): %s", method, exc)
 
     # ── public API ───────────────────────────────────────────────────────────
 

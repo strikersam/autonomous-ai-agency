@@ -38,6 +38,9 @@ _ephemeral_reaper_task: "asyncio.Task | None" = None
 # Module-level handle to the single CEO supervisor task (idempotency): a second
 # sweeper would double every re-drive it decides to make.
 _ceo_supervisor_task: "asyncio.Task | None" = None
+# Module-level handle to the single Render platform-monitoring task (idempotency):
+# a duplicate would double every Render API call the loop makes.
+_render_ops_task: "asyncio.Task | None" = None
 # Module-level handle to the one-shot boot refresh of the remote skill registries.
 _skill_refresh_task: "asyncio.Task | None" = None
 # Module-level handle to the in-process Hermes sidecar (idempotency + shutdown).
@@ -207,9 +210,11 @@ class BackgroundServices:
                 if isinstance(result, Exception) and not isinstance(result, asyncio.CancelledError):
                     log.warning("Autonomy task shutdown error: %s", result)
         global _trend_watch_task, _ephemeral_reaper_task, _ceo_supervisor_task
+        global _render_ops_task
         _trend_watch_task = None
         _ephemeral_reaper_task = None
         _ceo_supervisor_task = None
+        _render_ops_task = None
         try:
             from services.ceo_supervisor import get_ceo_supervisor
             get_ceo_supervisor().stop()
@@ -485,6 +490,34 @@ def _start_autonomy_loops(scheduler: "AgentScheduler") -> list:
             log.info("Ephemeral company reaper disabled (EPHEMERAL_COMPANY_REAPER_ENABLED=false)")
     except Exception as exc:  # noqa: BLE001
         log.warning("Ephemeral reaper could not start: %s", exc)
+
+    # 7. Render platform monitor — the half of production LogMonitor cannot see.
+    #    LogMonitor attaches to this process's root logger, so a build failure,
+    #    an OOM kill, or a restart loop leaves no trace it can act on: the
+    #    process was never alive to log them. This loop polls Render over MCP
+    #    and files those platform failures into the same ImprovementLoop intake.
+    #    Read-only — it never deploys or edits env vars.
+    try:
+        from services.render_ops import render_ops_enabled, render_ops_loop
+        if render_ops_enabled():
+            try:
+                running = asyncio.get_running_loop()
+            except RuntimeError:
+                running = None
+            global _render_ops_task
+            if running is not None and (_render_ops_task is None or _render_ops_task.done()):
+                _render_ops_task = running.create_task(render_ops_loop())
+                tasks.append(_render_ops_task)
+                log.info("Render ops monitor started — deploy/log/memory failures self-heal")
+            elif running is None:
+                log.info("Render ops monitor not started (no running event loop)")
+        else:
+            log.info(
+                "Render ops monitor disabled "
+                "(set RENDER_OPS_ENABLED=true and RENDER_API_KEY to enable)"
+            )
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Render ops monitor could not start: %s", exc)
 
     return tasks
 
