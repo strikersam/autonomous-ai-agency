@@ -106,7 +106,7 @@ def round_robin(candidates: list[Candidate], ctx: RoutingContext) -> list[Candid
 def random_choice(candidates: list[Candidate], ctx: RoutingContext) -> list[Candidate]:
     """Uniform shuffle — spreads load without any shared counter."""
     shuffled = list(candidates)
-    random.shuffle(shuffled)  # noqa: S311 - load spreading, not cryptography
+    random.shuffle(shuffled)  # nosec B311 — load spreading, not cryptography
     return shuffled
 
 
@@ -156,7 +156,8 @@ def weighted(candidates: list[Candidate], ctx: RoutingContext) -> list[Candidate
 
     def sort_key(candidate: Candidate) -> float:
         weight = max(1e-6, candidate.provider.weight)
-        draw = max(1e-12, random.random())  # noqa: S311 - load spreading
+        # nosec B311 — load spreading across providers, not a security decision.
+        draw = max(1e-12, random.random())  # nosec B311
         return -math.log(draw) / weight
 
     return sorted(candidates, key=sort_key)

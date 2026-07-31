@@ -59,7 +59,10 @@ def compute_delay(attempt: int, config: RetryConfig, *, retry_after: float | Non
     if config.jitter <= 0:
         return capped
     spread = capped * config.jitter
-    return max(0.0, capped + random.uniform(-spread, spread))  # noqa: S311 - jitter, not crypto
+    # nosec B311 — retry jitter desynchronises callers; it is not a security
+    # decision and nothing derives a secret from it. A CSPRNG here would cost
+    # entropy on every retry to no benefit.
+    return max(0.0, capped + random.uniform(-spread, spread))  # nosec B311
 
 
 @dataclass
