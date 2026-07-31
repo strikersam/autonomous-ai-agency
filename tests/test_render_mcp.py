@@ -85,7 +85,11 @@ class TestStreamableHTTPTransport:
             MCPClient._parse_body(resp)
 
     def test_accept_header_lists_both_media_types(self):
-        headers = MCPClient("https://example.test", secret_token="tok")._headers()
+        # nosec B106 - dummy token for a header-construction assertion, not a
+        # credential. B106 matches the *argument name* against its password
+        # wordlist ("secret_token" contains both "secret" and "token"), so any
+        # literal here trips it regardless of the value.
+        headers = MCPClient("https://example.test", secret_token="tok")._headers()  # nosec B106
         assert "application/json" in headers["Accept"]
         assert "text/event-stream" in headers["Accept"]
         assert headers["Authorization"] == "Bearer tok"
