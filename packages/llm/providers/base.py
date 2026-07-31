@@ -50,6 +50,16 @@ _QUOTA_HINTS = (
     "quota", "insufficient_quota", "credit", "billing", "exceeded your current",
     "out of credits", "payment required",
 )
+# Body fragments that mean a per-minute budget was exceeded. Groq reports its
+# tokens-per-minute ceiling as an HTTP 413 rather than a 429 — "Request too
+# large ... on tokens per minute (TPM): Limit 12000, Requested 17599" — which
+# reads like a payload problem and is really a rate limit that clears within
+# the minute. Classifying it as permanent stopped the retry that would have
+# worked.
+_RATE_WINDOW_HINTS = (
+    "tokens per minute", "tokens-per-minute", "tpm",
+    "requests per minute", "rate_limit", "rate limit",
+)
 
 
 def classify_error(
@@ -71,6 +81,13 @@ def classify_error(
             status=status,
             scope="key",
         )
+
+    if status == 413 and any(hint in lowered for hint in _RATE_WINDOW_HINTS):
+        # A per-minute budget, wearing a payload status code. Same blame and
+        # same recovery as a 429: cool this key, rotate, and let the breaker
+        # trip only once every key is cooling.
+        return TransientError(f"{prefix}: rate limited (per-minute budget)",
+                              status=status, scope="key")
 
     if status in {404, 400, 422} and any(hint in lowered for hint in _MODEL_SCOPED_HINTS):
         # A bad model name is permanent for this model but not for the

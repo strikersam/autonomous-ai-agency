@@ -417,7 +417,7 @@ class LLMRouter:
         # Prefer models that fit the prompt, but keep the rest as a tail: the
         # context manager can shrink the conversation to make a smaller model
         # work when nothing larger is reachable.
-        fitting = [c for c in pool if c.model.context_window >= needed_context]
+        fitting = [c for c in pool if self._usable_window(c) >= needed_context]
         ordered_pool = fitting if fitting else pool
 
         context = RoutingContext(
@@ -644,9 +644,17 @@ class LLMRouter:
             attempt.error = str(exc)[:300]
             attempt.status = getattr(exc, "status", None)
             self._penalise(candidate, exc, api_key, latency_ms=latency_ms)
-            if not is_retryable(exc, self._config.routing.retry) and not isinstance(
-                exc, PermanentError
-            ):
+            if isinstance(exc, (PermanentError, TransientError)):
+                # Already classified. Re-wrapping a TransientError as permanent
+                # here discarded its ``scope`` and ``status``, and the routing
+                # loop reads scope to decide what to do next — so a key-scoped
+                # failure stopped rotating keys and a model-scoped one stopped
+                # being attributed to the model. It bit every transient status
+                # outside ``retry_statuses``: a 410 (the NVIDIA incident this
+                # router exists for) and Groq's 413 tokens-per-minute refusal
+                # both arrived at the loop as scopeless permanent errors.
+                return attempt, None, exc
+            if not is_retryable(exc, self._config.routing.retry):
                 return attempt, None, PermanentError(str(exc))
             return attempt, None, exc
 
@@ -657,12 +665,36 @@ class LLMRouter:
         self._keys.record_success(config.id, api_key)
         return attempt, response, None
 
+    @staticmethod
+    def _usable_window(candidate: Candidate) -> int:
+        """The input ceiling this candidate will actually accept.
+
+        A context window is not the only limit a request has to clear. Groq's
+        free tier serves ``llama-3.3-70b-versatile`` with a 128k window behind a
+        12,000 tokens-per-minute budget, so a 17.6k-token prompt "fits" by
+        window and is still refused — with an HTTP 413 whose body reads
+        "Request too large ... on tokens per minute (TPM): Limit 12000,
+        Requested 17599". Sizing on the window alone made that request
+        unsendable on every free provider at once, which is what blocked agent
+        tasks with "All 6 brain provider attempt(s) failed".
+
+        So the usable window is the smaller of the model's context window and
+        any declared per-minute token budget. Both were already in the config;
+        only the ordering strategy consulted them.
+        """
+        tpm = candidate.provider.tokens_per_minute or candidate.model.max_tokens_per_minute
+        window = candidate.model.context_window
+        if tpm and tpm < window:
+            return tpm
+        return window
+
     async def _fit_context(self, request: LLMRequest, candidate: Candidate) -> LLMRequest:
         """Shrink the conversation to this candidate's window if it overflows."""
         model = candidate.model
+        window = self._usable_window(candidate)
         if self._context.fits(
             request.messages,
-            context_window=model.context_window,
+            context_window=window,
             max_output_tokens=request.max_tokens,
         ):
             return request
@@ -675,7 +707,7 @@ class LLMRouter:
 
         result = await self._context.fit(
             request.messages,
-            context_window=model.context_window,
+            context_window=window,
             max_output_tokens=request.max_tokens,
             query=query,
             allow_summary=self._config.routing.escalate_context,
@@ -702,7 +734,11 @@ class LLMRouter:
             provider=provider_id, status=str(status or "error"), scope=scope
         )
 
-        if scope == "key" and status == 429:
+        # Keyed on the scope, not on the status code. A per-minute budget is a
+        # key-scoped rate limit whichever number the provider dresses it in —
+        # Groq announces its tokens-per-minute ceiling with a 413 — and it
+        # needs the cooldown-and-rotate treatment, not a breaker failure.
+        if scope == "key":
             quota = "quota" in str(error).lower()
             self._keys.record_rate_limit(
                 provider_id, api_key,

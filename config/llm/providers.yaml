@@ -101,6 +101,15 @@ providers:
     weight: 1.2
     max_concurrency: 4
     requests_per_minute: 30
+    # Groq's free tier meters tokens per minute, and enforces it with an HTTP
+    # 413 whose body reads "Request too large ... on tokens per minute (TPM):
+    # Limit 12000". Declaring it here makes the router size requests against
+    # the ceiling that actually applies instead of the 131k context window the
+    # model advertises — otherwise an oversized prompt is sent, refused, and
+    # the same thing happens on the next free provider. Raise it (or set 0 for
+    # unmetered) after upgrading the tier; the value is the account's, not the
+    # model's, which is why it lives on the provider and is env-overridable.
+    tokens_per_minute: ${GROQ_TOKENS_PER_MINUTE:-12000}
     default_model: ${GROQ_DEFAULT_MODEL:-llama-3.3-70b-versatile}
 
   nvidia:
