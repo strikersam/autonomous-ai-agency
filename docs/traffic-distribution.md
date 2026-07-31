@@ -213,34 +213,42 @@ deployments of one model group).
 ## Adding capacity: multi-key rotation
 
 Everything above *rations* a fixed budget. Distribution spreads it, pacing
-meters it, backoff waits for it — none of them raise the ceiling. When the fleet
-is genuinely at its limit, the only code-level fix that adds capacity is using
-more than one free-tier account per provider.
+meters it, backoff waits for it — none of them raise the ceiling. Where an
+operator legitimately holds more than one key for a provider, using them in
+rotation does raise it, because limits are commonly enforced per key.
 
-Free tiers are rate-limited **per key**, not per provider. Three Groq keys is
-three times the requests per minute, and the provider only goes into cooldown
-once *all* of its keys are spent.
+### Read this before enabling it
 
-Configure with a numbered suffix on the provider's existing key variable:
+> **Several providers' acceptable-use policies prohibit registering additional
+> accounts in order to exceed published rate limits.** Groq, for example,
+> documents limits at the organisation level and forbids orchestrating accounts
+> around them. Do **not** use this feature to work around a provider's published
+> limits. Legitimate uses are keys you are already entitled to use concurrently
+> — separate projects or organisations, or a paid key alongside a free one.
+
+Because of that, rotation is **off unless you explicitly enable it per
+provider**, even when sibling variables are present. Discovering `<KEY>_2` and
+silently using it would let the platform commit a terms violation on your behalf
+from nothing more than an env var existing.
 
 ```bash
-GROQ_API_KEY=gsk_first
-GROQ_API_KEY_2=gsk_second
-GROQ_API_KEY_3=gsk_third
+ACME_API_KEY=primary
+ACME_API_KEY_2=second-key-you-are-entitled-to-use
+ACME_KEY_ROTATION=true        # required; without it only the primary is used
 ```
 
 The scan stops at the first gap, so a typo'd `_4` cannot silently promote itself
 into the `_2` slot and leave you believing three keys are live when two are.
 Duplicate keys are collapsed — the same key twice is one budget, not two.
 
-**With one key the pool is a pass-through.** `next_key` always returns it,
-`all_cooling` is immediately true, and the provider-level cooldown behaves
-exactly as it did before rotation existed. Rotation only engages from two keys
-up, so this is inert until you opt in.
+**With one key, or with rotation not enabled, the pool is a pass-through.**
+`next_key` returns the primary, `all_cooling` is immediately true, and the
+provider-level cooldown behaves exactly as it did before rotation existed.
 
 On a 429 the refused key rests (honouring `Retry-After`, clamped) while its
 siblings keep serving. Only when every key is resting does the provider itself
-get cooled.
+get cooled — and at that point the chain stops dispatching to it entirely rather
+than falling back to the primary key, which would defeat the per-key backoff.
 
 ### The gain is across requests, not within one
 
@@ -257,10 +265,9 @@ the next key. Across a stream of requests that is the difference between a
 provider being available and being benched — which is the whole point — but a
 single request does not get a second bite at the same provider.
 
-> **Check the provider's terms.** Several free tiers permit multiple accounts;
-> some do not. This gives you the mechanism — whether a given provider allows it
-> is your call, and not something the code can verify.
-
 Key material never reaches a log or an API response: keys are identified in
-diagnostics by a short salted digest, never by a prefix or suffix of the key
-itself (a leading fragment identifies the account outright for some providers).
+diagnostics by a short digest keyed with a **per-process random salt**, never by
+a prefix or suffix of the key itself (a leading fragment identifies the account
+outright for some providers). The salt is regenerated on every start, so a
+digest is meaningful only while reading one process's logs and cannot be
+correlated across deployments or matched against a candidate key offline.
