@@ -42,6 +42,10 @@
 
 ### Fixed
 
+- **Health ping timeout raised from 2s to 4.5s** (2026-07-31). The 2s ceiling added in the routing layer caused `hibernate-wake-error` on Render free tier: a cold MongoDB Atlas connection on wake-up can take 3-5s, so the ping reported degraded before Atlas responded, and Render killed the waking instance. 4.5s stays under Render'''s 5s health check deadline while giving Atlas room to connect.
+
+### Fixed
+
 - **Key rotation hardened after review: an exhausted pool no longer falls back to the resting primary key, rotation is opt-in per provider, and the digest is actually keyed** (2026-07-27). Four defects in the rotation shipped hours earlier, three of them found by automated review and reproduced before fixing.
   - **An exhausted pool sent the primary key anyway.** Once every key is cooling `next_key` returns `None`, and `_build_request`'s `api_key or provider.api_key` fallback then used the provider record's primary key — the very key that was supposed to be resting. Reachable with the shipped defaults: a provider whose breaker reopens after 30s while its keys still rest on the 60s key cooldown. The chain now declines to dispatch, which is the same rule the rest of this work established — a cooldown is not something to route around.
   - **Rotation is now opt-in per provider** via `<PROVIDER>_KEY_ROTATION`, not automatic on the presence of `<KEY>_2`. Several providers' acceptable-use policies prohibit registering additional accounts to exceed published limits — Groq documents limits per organisation and forbids orchestrating accounts around them — so automatic discovery would have let the platform commit a terms violation on the operator's behalf from nothing more than an env var existing. The docs no longer use Groq as the worked example and state the constraint before the configuration.
