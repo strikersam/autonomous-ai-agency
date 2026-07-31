@@ -1,0 +1,55 @@
+# config/llm/cache.yaml — the five cache layers.
+#
+# Each layer is independent, with its own TTL and capacity. Only the layers
+# that are safe by default are on.
+#
+# The router refuses to cache — whatever this file says — when the request
+# streams, carries tools, or has temperature above 0.2. Caching a sampled
+# response would silently make a "creative" agent deterministic, which is a
+# user-visible behaviour change, not an optimisation (the Golden Rule).
+
+cache:
+
+  # Full completions keyed by an exact hash of model + messages + parameters.
+  # The safe, high-value layer: repeated identical prompts are common in
+  # agent loops that re-plan from the same state.
+  response:
+    enabled: true
+    ttl_sec: 300
+    max_entries: 512
+
+  # System-prompt prefixes, so repeated prefixes can be pinned to the same
+  # provider and hit its server-side prefix cache.
+  prompt:
+    enabled: true
+    ttl_sec: 900
+    max_entries: 256
+
+  # Vectors, keyed by text hash. The same text always yields the same vector
+  # for a given model, so this one can be long-lived and large.
+  embedding:
+    enabled: true
+    ttl_sec: 86400
+    max_entries: 4096
+
+  # Tool-call results. OFF by default: a tool result depends on the state of
+  # the world, not just its arguments, so caching one can hand an agent a
+  # stale answer. Enable only for tools you know are pure.
+  tool:
+    enabled: false
+    ttl_sec: 60
+    max_entries: 256
+
+  # Near-duplicate prompts matched by cosine similarity. OFF by default: it
+  # returns an answer written for a *different* question, which is only
+  # acceptable when the caller has decided it is. Requires an embedding
+  # provider.
+  semantic:
+    enabled: false
+    ttl_sec: 600
+    max_entries: 512
+
+  # Similarity required to count as a hit. 0.94 is intentionally strict —
+  # "how do I deploy this?" and "how do I delete this?" score high on most
+  # embedding models, and the wrong answer costs far more than the cache saves.
+  semantic_threshold: 0.94

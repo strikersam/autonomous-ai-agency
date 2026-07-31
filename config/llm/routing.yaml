@@ -1,0 +1,120 @@
+# config/llm/routing.yaml — how the router chooses, retries, and degrades.
+
+routing:
+
+  # Strategy. One of:
+  #   adaptive                   live multi-factor scoring (default)
+  #   priority                   static provider priority order
+  #   round_robin                even rotation
+  #   least_loaded               most free bulkhead capacity first
+  #   lowest_latency             fastest observed p95 first
+  #   highest_success_rate       most reliable in the rolling window first
+  #   random                     uniform shuffle
+  #   weighted                   biased by each provider's `weight`
+  #   cost_optimized             cheapest first
+  #   context_length_optimized   smallest window that still fits the prompt
+  #   token_budget_optimized     most quota headroom first
+  #   model_capability           closest capability match to the request
+  #   provider_health            strict breaker state, then failure rate
+  #   fallback_chain             the explicit chain below
+  #   automatic_failover         tiered: local -> free -> cheap -> premium
+  #
+  # Override per request with LLMRequest.strategy, per agent below, or
+  # globally with LLM_ROUTER_STRATEGY.
+  strategy: adaptive
+
+  # Used by the fallback_chain strategy, and as the tie-break order elsewhere.
+  # Anything not listed keeps its priority order behind the chain.
+  fallback_chain:
+    - cerebras
+    - groq
+    - nvidia
+    - google
+    - ollama
+
+  # Try local models before cloud. Turn on when you have a warm local GPU;
+  # leaving it off avoids paying a cold-load penalty on every request.
+  prefer_local: false
+
+  # Master switch for paid tiers. ALLOW_PAID_BRAIN=true also sets this.
+  # Free-first is the platform default (packages/ai/brain.py).
+  allow_paid: false
+
+  # Breadth of one request's search. Six providers x three models is 18
+  # possible attempts; the retry budget below is what actually bounds it.
+  max_providers_per_request: 6
+  max_models_per_provider: 3
+
+  # Degradation behaviour.
+  graceful_degradation: true    # fall back to smaller/local models under pressure
+  escalate_context: true        # jump to a larger-context model on overflow
+  downgrade_on_exhaustion: true # accept a weaker model rather than failing
+
+  retry:
+    max_attempts: 6
+    base_delay_sec: 0.5
+    max_delay_sec: 30.0
+    multiplier: 2.0
+    jitter: 0.3                 # +/- 30%, so retries never synchronise
+    respect_retry_after: true   # the provider knows its window better than we do
+    # Never add 400/401/403/404/422 here — they cannot succeed on retry, and
+    # retrying them burns the wall-clock budget a real transient failure needs.
+    retry_statuses: [408, 409, 425, 429, 500, 502, 503, 504, 529]
+    budget_sec: 300.0           # hard ceiling for one request, all attempts
+
+  # Admission control.
+  queue_enabled: true
+  queue_max_depth: 512          # beyond this, callers get QueueFull (backpressure)
+  global_max_concurrency: 32
+  dedupe_window_sec: 30.0       # collapse identical concurrent requests
+
+  # ── Per-agent policies ─────────────────────────────────────────────────
+  # Different agents want different things. A planner wants reasoning; a
+  # verifier wants speed; a summariser wants the cheapest thing that works.
+  # The `default` entry applies to any agent not named here.
+
+  agents:
+
+    default:
+      strategy: adaptive
+
+    planner:
+      strategy: model_capability
+      prefer_models: [z-ai/glm-5.2, deepseek-r1-distill-llama-70b]
+      min_context_window: 32768
+      priority: HIGH
+
+    executor:
+      strategy: adaptive
+      require_tools: true       # execution steps call tools; filter accordingly
+      priority: HIGH
+
+    verifier:
+      strategy: lowest_latency
+      priority: NORMAL
+
+    context-summariser:
+      strategy: cost_optimized
+      priority: LOW
+
+    researcher:
+      strategy: context_length_optimized
+      min_context_window: 128000
+
+    telegram:
+      strategy: lowest_latency
+      priority: CRITICAL        # a human is waiting on this one
+
+    digest:
+      strategy: cost_optimized
+      priority: BULK            # background loops yield to interactive work
+
+  # ── Budgets ────────────────────────────────────────────────────────────
+  # Advisory by default: crossing a threshold alerts, it does not stop work.
+  # An autonomous agency that silently halts at month-end is worse than an
+  # overspend the operator saw coming from the 50% alert.
+  budget:
+    daily_usd: 0.0              # 0 = unlimited
+    monthly_usd: 0.0
+    alert_at: [0.5, 0.8, 0.95]
+    enforce: false              # true = raise BudgetExceeded at 100%

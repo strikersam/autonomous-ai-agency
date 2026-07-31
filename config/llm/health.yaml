@@ -1,0 +1,46 @@
+# config/llm/health.yaml — circuit breaker and health tracking.
+#
+# The breaker has three states. CLOSED passes traffic. OPEN refuses it. After
+# open_duration_sec the breaker moves to HALF_OPEN and admits exactly
+# half_open_probes requests: if a probe succeeds the breaker closes, if it
+# fails the breaker reopens for longer.
+#
+# Half-open probing is why a recovering provider gets one request rather than
+# the full firehose — the pattern this repo adopted from OmniRoute's
+# resilience tier (ADR-008).
+
+health:
+
+  # Trip after this many consecutive failures. Five is deliberately not one:
+  # a single 500 is noise, and tripping on noise costs more capacity than the
+  # failures do.
+  failure_threshold: 5
+
+  # Or trip when the rolling failure rate crosses this, once there are enough
+  # samples to mean anything. Catches the "fails 60% of the time but never
+  # five in a row" provider that a consecutive-only rule misses entirely.
+  failure_rate_threshold: 0.5
+  min_samples: 10
+
+  # First open lasts this long; each further trip multiplies it, up to the max.
+  # A provider that is genuinely down stops being probed every minute forever,
+  # while one that blipped recovers in a minute.
+  open_duration_sec: 60.0
+  backoff_multiplier: 2.0
+  max_open_duration_sec: 900.0
+
+  # Requests admitted in HALF_OPEN. Keep this at 1 unless the provider is
+  # high-volume: more probes means more failed requests when it is still down.
+  half_open_probes: 1
+
+  # Rolling window for success rate, latency, and 429 frequency. This is what
+  # the adaptive and lowest_latency strategies score against, so it sets how
+  # fast routing reacts to a provider degrading.
+  window_sec: 300.0
+
+  # Background probing. Off by default: live traffic already measures health,
+  # and probing free providers on a timer spends quota to learn what the next
+  # real request would have told us. Turn it on when providers must be known
+  # healthy before traffic arrives — a cold start, or a mostly-idle deploy.
+  probe_enabled: false
+  probe_interval_sec: 120.0

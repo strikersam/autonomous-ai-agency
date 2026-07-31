@@ -8242,6 +8242,11 @@ async def github_webhook(request: Request) -> dict[str, object]:
     return {"ok": True, "intake": "created", "task_id": task.task_id}
 
 
+# Health-check ping ceiling. Render fails its check at 5s; staying well
+# under that keeps a slow database from being reported as a dead app.
+_HEALTH_PING_TIMEOUT_SEC = 2.0
+
+
 async def _check_storage_health() -> bool:
     """Check if the storage backend is reachable.
 
@@ -8270,10 +8275,22 @@ async def _check_storage_health() -> bool:
         except Exception:
             return False
     else:
-        # MongoDB: ping the DB
+        # MongoDB: ping the DB, bounded well under the platform health-check
+        # budget. Render times its check out at 5s; motor's own server-selection
+        # and socket timeouts are 20s, so a slow or cold Atlas made /api/health
+        # hang past the deadline and the deploy was marked unhealthy even though
+        # the app was serving. A ping that has not answered in two seconds is
+        # not "healthy pending" — it is degraded, and saying so quickly is more
+        # useful than saying nothing slowly.
         try:
-            await get_db().command("ping")
+            await asyncio.wait_for(get_db().command("ping"), timeout=_HEALTH_PING_TIMEOUT_SEC)
             return True
+        except (asyncio.TimeoutError, TimeoutError):
+            log.warning(
+                "health: storage ping exceeded %.1fs — reporting degraded",
+                _HEALTH_PING_TIMEOUT_SEC,
+            )
+            return False
         except Exception:
             return False
 
@@ -10139,6 +10156,18 @@ import backend.spec_router as spec_router_module  # noqa: E402
 app.include_router(spec_router_module.build_spec_router(get_current_user))
 import backend.ceo_router as ceo_router_module  # noqa: E402
 app.include_router(ceo_router_module.build_ceo_router(get_current_user))
+
+# LLM routing layer (ADR-008) --- provider health, routing strategy, key
+# rotation, queue, cache, budgets, Prometheus metrics, and the optional
+# OpenAI-compatible gateway. Read routes are public to the dashboard;
+# mutating routes require get_current_user. Never blocks startup: a broken
+# routing config must degrade the Router page, not the platform.
+try:
+    import packages.llm.gateway as llm_gateway_module  # noqa: E402
+    app.include_router(llm_gateway_module.build_llm_router(get_current_user))
+    log.info("LLM router API mounted at /api/llm")
+except Exception as _llm_router_err:  # noqa: BLE001 - must not block startup
+    log.warning("LLM router API not mounted: %s", _llm_router_err, exc_info=True)
 
 app.include_router(runtime_router)
 app.include_router(task_router)

@@ -1,0 +1,215 @@
+# config/llm/models.yaml — model capabilities, limits, and pricing.
+#
+# The router filters candidates against these declarations before it routes,
+# so a tool-calling request never reaches a model that cannot call tools and a
+# 200k-token prompt never reaches an 8k-context model.
+#
+# Declare capabilities conservatively. A false "supports_tools: true" produces
+# a confusing runtime failure; a false "false" only costs one routing option.
+#
+# Costs are USD per 1M tokens. Zero means free — the cost_optimized strategy
+# and the free-brain policy both key off it.
+#
+# Models discovered at runtime through /models endpoints are registered
+# automatically with cautious defaults; entries here always win.
+
+models:
+
+  # ── NVIDIA NIM (free) ──────────────────────────────────────────────────
+
+  z-ai/glm-5.2:
+    provider: nvidia
+    display_name: GLM-5.2 (Z.AI)
+    context_window: 128000
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    supports_reasoning: true
+    priority: 20
+    speed_tier: fast
+    aliases: [glm-5.2, glm]
+
+  meta/llama-3.3-70b-instruct:
+    provider: nvidia
+    display_name: Llama 3.3 70B Instruct
+    context_window: 128000
+    max_output_tokens: 4096
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    priority: 30
+    speed_tier: medium
+
+  meta/llama-4-maverick-17b-128e-instruct:
+    provider: nvidia
+    display_name: Llama 4 Maverick 17B (NIM)
+    context_window: 131072
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    priority: 15
+    speed_tier: fast
+
+  # ── Cerebras (free, fastest) ───────────────────────────────────────────
+
+  qwen-3-coder-480b:
+    provider: cerebras
+    display_name: Qwen 3 Coder 480B
+    context_window: 32768
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    priority: 10
+    speed_tier: fast
+    max_requests_per_minute: 30
+
+  # ── Groq (free, fast) ──────────────────────────────────────────────────
+
+  llama-3.3-70b-versatile:
+    provider: groq
+    display_name: Llama 3.3 70B Versatile
+    context_window: 131072
+    max_output_tokens: 32768
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    priority: 18
+    speed_tier: fast
+
+  deepseek-r1-distill-llama-70b:
+    provider: groq
+    display_name: DeepSeek R1 Distill 70B
+    context_window: 32768
+    max_output_tokens: 8192
+    supports_json: true
+    supports_streaming: true
+    supports_reasoning: true
+    priority: 22
+    speed_tier: fast
+
+  llama-4-maverick-17b-128e-instruct:
+    provider: groq
+    display_name: Llama 4 Maverick 17B (Groq)
+    context_window: 131072
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    priority: 8
+    speed_tier: fast
+
+  # ── Google Gemini (free tier) ──────────────────────────────────────────
+
+  gemini-2.5-flash:
+    provider: google
+    display_name: Gemini 2.5 Flash
+    context_window: 1048576         # the context-overflow escalation target
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    priority: 12
+    speed_tier: fast
+    max_requests_per_minute: 15
+
+  gemini-2.0-flash:
+    provider: google
+    display_name: Gemini 2.0 Flash
+    context_window: 1048576
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    priority: 28
+    speed_tier: fast
+
+  # ── Local ──────────────────────────────────────────────────────────────
+
+  qwen3-coder:30b:
+    provider: ollama
+    display_name: Qwen3 Coder 30B (local)
+    context_window: 32768
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    priority: 40
+    speed_tier: medium
+
+  deepseek-r1:32b:
+    provider: ollama
+    display_name: DeepSeek R1 32B (local)
+    context_window: 32768
+    max_output_tokens: 8192
+    supports_json: true
+    supports_streaming: true
+    supports_reasoning: true
+    priority: 42
+    speed_tier: slow
+
+  nomic-embed-text:
+    provider: ollama
+    display_name: Nomic Embed Text (local)
+    context_window: 8192
+    supports_embeddings: true
+    supports_streaming: false
+    supports_chat: false        # embeddings only — never route chat here
+    priority: 10
+
+  # ── Paid — only reachable when allow_paid is true ──────────────────────
+
+  gpt-4o-mini:
+    provider: openai
+    display_name: GPT-4o mini
+    context_window: 128000
+    max_output_tokens: 16384
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    input_cost_per_1m: 0.15
+    output_cost_per_1m: 0.60
+    priority: 60
+    speed_tier: fast
+
+  text-embedding-3-small:
+    provider: openai
+    display_name: Text Embedding 3 Small
+    context_window: 8191
+    supports_embeddings: true
+    supports_streaming: false
+    supports_chat: false        # embeddings only — never route chat here
+    input_cost_per_1m: 0.02
+    priority: 60
+
+  claude-sonnet-4-5:
+    provider: anthropic
+    display_name: Claude Sonnet 4.5
+    context_window: 200000
+    max_output_tokens: 64000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 3.0
+    output_cost_per_1m: 15.0
+    priority: 64
+    speed_tier: medium
+    aliases: [claude-sonnet, sonnet]
