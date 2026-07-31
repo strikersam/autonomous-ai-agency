@@ -1610,6 +1610,29 @@ async def _warmup_step(coro, label: str, deadline: float):
         return None
 
 
+def _task_store_for_background() -> "TaskStore":
+    """The task store the background services should use, wiring it if needed.
+
+    ``get_task_store()`` builds a store with no database when none has been
+    registered, and that constructor raises outside tests by design. That is
+    the crash that failed Render deploys: when a cold database pushed bootstrap
+    past its warm-up budget, the deferral skipped the wiring inside
+    ``ensure_bootstrap()``, and this call was the next thing to run.
+
+    Wiring eagerly at the top of the lifespan fixed the crash and broke
+    something else — it replaced stores that callers had already registered,
+    including the ones tests inject before starting a client, silently swapping
+    their data for an empty store. So repair it only when it is actually
+    missing: ask for the store first, and wire only if asking fails.
+    """
+    try:
+        return get_task_store()
+    except Exception as exc:
+        log.warning("Task store unavailable at startup (%s) — wiring it now", exc)
+        _wire_feature_stores()
+        return get_task_store()
+
+
 @asynccontextmanager
 async def lifespan(app_: "FastAPI"):
     from services.background import start_background_services, run_background_in_web
@@ -1617,12 +1640,6 @@ async def lifespan(app_: "FastAPI"):
     from services.background import BackgroundServices
     bg: Optional[BackgroundServices] = None
     warmup_deadline = asyncio.get_running_loop().time() + _STARTUP_WARMUP_BUDGET_SEC
-    # Before anything that can be deferred: the background services started
-    # below read these stores, and constructing one without a database raises.
-    try:
-        _wire_feature_stores()
-    except Exception as exc:  # pragma: no cover - defensive
-        log.warning("Feature store wiring failed: %s", exc)
     try:
         await _warmup_step(ensure_bootstrap(), "database bootstrap", warmup_deadline)
         log.info("LLM Relay Platform started — provider=%s", LLM_PROVIDER)
@@ -1635,7 +1652,7 @@ async def lifespan(app_: "FastAPI"):
     if run_background_in_web():
         bg = await start_background_services(
             workspace_root=ROOT_DIR,
-            task_store=get_task_store(),
+            task_store=_task_store_for_background(),
             scheduler=SCHEDULER,
         )
     else:
