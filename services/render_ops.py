@@ -96,8 +96,17 @@ class RenderFinding:
 
     @property
     def signature(self) -> str:
-        """Stable dedup key: same problem on same service → same signature."""
-        discriminator = str(self.evidence.get("deploy_id") or self.evidence.get("bucket") or "")
+        """Stable dedup key: same problem on same service → same signature.
+
+        Only ``deploy_id`` discriminates, because a *different* failed deploy is
+        genuinely a different problem. Nothing time-derived may appear here: an
+        earlier version also fell back to the hourly ``bucket``, which made the
+        signature change every hour and so could never be blocked by the
+        six-hour cooldown — a sustained error spike filed twelve issues a day
+        instead of four, and ``_cooldowns`` grew an entry per hour forever.
+        ``bucket`` stays in ``evidence`` for display.
+        """
+        discriminator = str(self.evidence.get("deploy_id") or "")
         raw = f"{self.kind}:{self.service_id}:{discriminator}"
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
 

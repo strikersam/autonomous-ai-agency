@@ -20,7 +20,19 @@
 # (upstream pkg/authn/authn.go `ContextWithAPITokenFromHeader`), so the only
 # key involved is the one the backend already has. A request without a token
 # can do nothing.
-FROM ghcr.io/render-oss/render-mcp-server:latest
+#
+# Pinned by digest, not `:latest`. This container proxies our Render API key to
+# every service in the workspace, so a silent upstream change is a supply-chain
+# change to the most privileged thing we deploy — it must arrive as a reviewed
+# diff, not as a rebuild. To bump:
+#   TOKEN=$(curl -s "https://ghcr.io/token?scope=repository:render-oss/render-mcp-server:pull&service=ghcr.io" | jq -r .token)
+#   curl -sI -H "Authorization: Bearer $TOKEN" \
+#     -H "Accept: application/vnd.oci.image.index.v1+json" \
+#     https://ghcr.io/v2/render-oss/render-mcp-server/manifests/latest \
+#     | grep -i docker-content-digest
+# Keep the same digest in `.mcp.json` so coding sessions and production run the
+# same build.
+FROM ghcr.io/render-oss/render-mcp-server@sha256:4b0da8fdf301c99d88a497864ce0b369b0ea8e3c8ee396e05d5846cd324adfcb
 
 WORKDIR /server
 

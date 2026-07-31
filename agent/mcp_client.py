@@ -290,20 +290,38 @@ class MCPClient:
             return resp.json()
 
         result: dict[str, Any] | None = None
-        for line in resp.text.splitlines():
-            line = line.strip()
-            if not line.startswith("data:"):
-                continue
-            chunk = line[len("data:"):].strip()
+        buffer: list[str] = []
+
+        def _flush() -> None:
+            """Decode one complete event and keep it if it is our response."""
+            nonlocal result, buffer
+            chunk = "\n".join(buffer).strip()
+            buffer = []
             if not chunk or chunk == "[DONE]":
-                continue
+                return
             try:
                 frame = json.loads(chunk)
             except ValueError:
-                continue
+                return
             # Notifications carry no "id"; the response to our request does.
             if isinstance(frame, dict) and ("result" in frame or "error" in frame):
                 result = frame
+
+        # One SSE event may span several ``data:`` lines, which the receiver
+        # joins with "\n" before decoding. Parsing each line on its own would
+        # fail every json.loads for a response the server chose to split,
+        # raising here and opening the circuit breaker — and Render's log and
+        # metric payloads are exactly the large responses a server splits.
+        # Accumulate until the blank line that terminates the event.
+        for raw_line in resp.text.splitlines():
+            line = raw_line.rstrip("\r")
+            if not line:
+                _flush()
+                continue
+            if line.startswith("data:"):
+                buffer.append(line[len("data:"):].lstrip())
+        _flush()  # a final event needs no trailing blank line
+
         if result is None:
             raise ValueError("SSE stream carried no JSON-RPC response frame")
         return result
@@ -359,8 +377,17 @@ class MCPClient:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
                 resp = await client.post(self.endpoint, json=payload, headers=self._headers())
             self._capture_session(resp)
+            # A rejected handshake notification leaves the session degraded but
+            # the caller proceeding, so the *next* tool call fails for a reason
+            # nothing explains. Report the degraded state rather than hiding it
+            # at DEBUG.
+            if resp.status_code >= 400:
+                log.warning(
+                    "MCP notification %s rejected with HTTP %d (ignored)",
+                    method, resp.status_code,
+                )
         except Exception as exc:  # noqa: BLE001 - notifications are best-effort
-            log.debug("MCP notification %s failed (ignored): %s", method, exc)
+            log.warning("MCP notification %s failed (ignored): %s", method, exc)
 
     # ── public API ───────────────────────────────────────────────────────────
 

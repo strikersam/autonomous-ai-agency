@@ -58,8 +58,15 @@ def _unavailable(exc: Exception) -> HTTPException:
 
     The distinction matters to the dashboard: 503 means "Render is unreachable,
     retry", 500 would mean "this endpoint is broken".
+
+    The client gets a fixed message; the exception text goes to the server log
+    only. Transport errors quote upstream URLs and, on an auth failure, can
+    echo request context — none of which belongs in an HTTP response body.
+    Operators read the cause via ``log.exception`` or ``/api/render/ops/status``,
+    which reports ``last_error`` behind the same admin gate.
     """
-    return HTTPException(status_code=503, detail=f"Render MCP unavailable: {exc}")
+    log.exception("Render MCP transport failure: %s", exc)
+    return HTTPException(status_code=503, detail="Render MCP unavailable")
 
 
 def build_render_router(get_current_user: Callable[..., Any]) -> APIRouter:

@@ -76,6 +76,34 @@ class TestStreamableHTTPTransport:
         resp = _response(body=body, content_type="text/event-stream")
         assert MCPClient._parse_body(resp)["result"]["value"] == 42
 
+    def test_sse_multiline_data_is_joined(self):
+        """Regression: one event may split its JSON across several data: lines.
+
+        Parsing each line alone failed every json.loads, raised, and opened the
+        circuit breaker — and Render's log/metric dumps are exactly the large
+        responses a server splits.
+        """
+        body = (
+            "event: message\n"
+            'data: {"jsonrpc":"2.0","id":1,\n'
+            'data:  "result":{"logs":["a","b"]}}\n'
+            "\n"
+        )
+        resp = _response(body=body, content_type="text/event-stream")
+        assert MCPClient._parse_body(resp)["result"] == {"logs": ["a", "b"]}
+
+    def test_sse_final_event_without_trailing_blank_line(self):
+        """A stream that ends without a terminating blank line still decodes."""
+        body = 'data: {"jsonrpc":"2.0","id":1,"result":{"ok":true}}'
+        resp = _response(body=body, content_type="text/event-stream")
+        assert MCPClient._parse_body(resp)["result"] == {"ok": True}
+
+    def test_sse_crlf_line_endings(self):
+        """SSE uses CRLF on the wire; the trailing \\r must not corrupt the JSON."""
+        body = 'data: {"jsonrpc":"2.0","id":1,"result":{"ok":true}}\r\n\r\n'
+        resp = _response(body=body, content_type="text/event-stream")
+        assert MCPClient._parse_body(resp)["result"] == {"ok": True}
+
     def test_sse_without_response_frame_raises(self):
         resp = _response(
             body='data: {"jsonrpc":"2.0","method":"notifications/progress"}\n\n',
@@ -89,7 +117,7 @@ class TestStreamableHTTPTransport:
         # credential. B106 matches the *argument name* against its password
         # wordlist ("secret_token" contains both "secret" and "token"), so any
         # literal here trips it regardless of the value.
-        headers = MCPClient("https://example.test", secret_token="tok")._headers()  # nosec B106
+        headers = MCPClient("https://example.test", secret_token="tok")._headers()  # nosec B106  # noqa: S106
         assert "application/json" in headers["Accept"]
         assert "text/event-stream" in headers["Accept"]
         assert headers["Authorization"] == "Bearer tok"
@@ -261,6 +289,49 @@ class TestRenderMCPClient:
         assert args["limit"] == 25
 
     @pytest.mark.asyncio
+    async def test_concurrent_calls_handshake_once(self):
+        """Regression: the admin routes and the ops loop share this singleton.
+
+        Without the lock both would run `initialize`, a session-managing server
+        would issue two sessions, and `_capture_session` keeps only the last —
+        leaking the other.
+        """
+        import asyncio as _asyncio
+
+        client, inner = _client({"services": []})
+        handshakes = 0
+        original = inner.initialize
+
+        async def _counting_initialize() -> dict:
+            nonlocal handshakes
+            handshakes += 1
+            await _asyncio.sleep(0)  # yield, so a racing caller can interleave
+            return await original()
+
+        inner.initialize = _counting_initialize  # type: ignore[assignment]
+        await _asyncio.gather(*(client.list_services() for _ in range(5)))
+        assert handshakes == 1
+
+    @pytest.mark.asyncio
+    async def test_failed_handshake_is_not_cached(self):
+        """A handshake that raised must be retried, not remembered as done."""
+        client, inner = _client({"services": []})
+        calls = 0
+
+        async def _flaky_initialize() -> dict:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise MCPUnavailableError("down")
+            return {}
+
+        inner.initialize = _flaky_initialize  # type: ignore[assignment]
+        with pytest.raises(MCPUnavailableError):
+            await client.list_services()
+        await client.list_services()
+        assert calls == 2
+
+    @pytest.mark.asyncio
     async def test_health_reports_unconfigured_without_raising(self):
         client = RenderMCPClient(url="https://render.test/mcp", api_key="")
         health = await client.health()
@@ -425,22 +496,18 @@ class TestRenderOpsMonitor:
         assert monitor._is_cool(finding) is False
 
     @pytest.mark.asyncio
-    async def test_cooldown_not_burned_when_filing_fails(self):
+    async def test_cooldown_not_burned_when_filing_fails(self, monkeypatch):
         """A finding that could not be filed must be retried, not silenced 6h."""
         import services.render_ops as ops
         from services.render_ops import RenderOpsMonitor
         monitor = RenderOpsMonitor(
             _FakeRender(deploys=[RenderDeploy(deploy_id="dep-1", status="build_failed")])
         )
-        original = ops._file_issue
-        ops._file_issue = lambda finding: False  # ImprovementLoop idle
-        try:
-            assert await monitor.tick() == []
-            assert monitor._cooldowns == {}
-            ops._file_issue = lambda finding: True
-            assert len(await monitor.tick()) == 1
-        finally:
-            ops._file_issue = original
+        monkeypatch.setattr(ops, "_file_issue", lambda finding: False)  # loop idle
+        assert await monitor.tick() == []
+        assert monitor._cooldowns == {}
+        monkeypatch.setattr(ops, "_file_issue", lambda finding: True)
+        assert len(await monitor.tick()) == 1
 
     @pytest.mark.asyncio
     async def test_partial_check_failure_keeps_last_error(self):
@@ -456,6 +523,42 @@ class TestRenderOpsMonitor:
         findings = await m.scan()
         assert [f.kind for f in findings] == ["deploy_failed"]
         assert "metrics down" in m.get_status()["last_error"]
+
+    def test_signature_is_not_time_derived(self):
+        """Regression: an hourly bucket in the key made the 6h cooldown a no-op.
+
+        `error_logs` and `memory_pressure` carry no deploy_id, so when the
+        signature fell back to the hour-truncated `bucket` it changed every
+        hour — a sustained spike filed 4x more issues than intended and
+        `_cooldowns` grew forever.
+        """
+        from services.render_ops import RenderFinding
+
+        def _finding(bucket: str) -> RenderFinding:
+            return RenderFinding(
+                kind="error_logs", service_id="srv-1", service_name="api",
+                severity="high", title="t", detail="d",
+                evidence={"count": 42, "bucket": bucket},
+            )
+
+        assert _finding("2026-07-31T09").signature == _finding("2026-07-31T10").signature
+
+    def test_sustained_spike_files_once_across_hours(self):
+        """The same ongoing condition stays deduped as the hour rolls over."""
+        from services.render_ops import RenderFinding, RenderOpsMonitor
+        monitor = RenderOpsMonitor(_FakeRender())
+
+        def _finding(bucket: str) -> RenderFinding:
+            return RenderFinding(
+                kind="memory_pressure", service_id="srv-1", service_name="api",
+                severity="medium", title="t", detail="d", evidence={"bucket": bucket},
+            )
+
+        first = _finding("2026-07-31T09")
+        assert monitor._is_cool(first) is True
+        monitor._claim(first)
+        assert monitor._is_cool(_finding("2026-07-31T10")) is False
+        assert len(monitor._cooldowns) == 1
 
     def test_different_deploys_are_separate_findings(self):
         from services.render_ops import RenderFinding, RenderOpsMonitor
@@ -519,8 +622,9 @@ class TestRenderSettings:
         monkeypatch.delenv("RENDER_OPS_ENABLED", raising=False)
         assert Settings().render_ops_enabled == "true"
 
-    def test_writes_default_to_denied(self):
+    def test_writes_default_to_denied(self, monkeypatch):
         from packages.config.settings import Settings
+        monkeypatch.delenv("RENDER_MCP_ALLOW_WRITES", raising=False)
         assert Settings().is_render_mcp_write_allowed is False
 
     def test_service_ids_parsed_from_csv(self):

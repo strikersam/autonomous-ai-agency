@@ -8,7 +8,7 @@
         "--rm",
         "-e",
         "RENDER_API_KEY",
-        "ghcr.io/render-oss/render-mcp-server:latest"
+        "ghcr.io/render-oss/render-mcp-server@sha256:4b0da8fdf301c99d88a497864ce0b369b0ea8e3c8ee396e05d5846cd324adfcb"
       ],
       "env": {
         "RENDER_API_KEY": "${RENDER_API_KEY}"

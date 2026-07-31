@@ -48,6 +48,7 @@ Usage::
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
@@ -215,6 +216,11 @@ class RenderMCPClient:
             rpc_path="",
         )
         self._handshaked = False
+        # Serialises the handshake. The admin routes and the ops loop share this
+        # singleton and can call in parallel, so without the lock both would run
+        # `initialize` — a session-managing server issues two sessions and
+        # `_capture_session` keeps only the last, leaking the other.
+        self._handshake_lock = asyncio.Lock()
 
     # ── plumbing ─────────────────────────────────────────────────────────────
 
@@ -230,12 +236,19 @@ class RenderMCPClient:
         expect ``notifications/initialized`` before serving tool calls. The
         result is cached so ordinary calls cost one round-trip, and a failed
         handshake is not cached — the next call retries it.
+
+        Double-checked under a lock: the fast path stays lock-free once the
+        handshake has succeeded, while concurrent first calls produce exactly
+        one session.
         """
         if self._handshaked:
             return
-        await self._client.initialize()
-        await self._client.notify("notifications/initialized")
-        self._handshaked = True
+        async with self._handshake_lock:
+            if self._handshaked:
+                return
+            await self._client.initialize()
+            await self._client.notify("notifications/initialized")
+            self._handshaked = True
 
     async def call(self, tool: str, arguments: dict[str, Any] | None = None) -> Any:
         """Call a Render MCP tool and return its decoded payload.

@@ -110,8 +110,8 @@ loops:
     pattern: self-heal
     level: L3
     trigger: daemon
-    cadence: continuous (RENDER_OPS_INTERVAL_SECONDS, default 15m)
-    runs_per_day: 96
+    cadence: continuous (RENDER_OPS_INTERVAL_SECONDS, default 10m)
+    runs_per_day: 144
     cost: low
     source: services/render_ops.py
     self_heal: true

@@ -40,7 +40,7 @@ container over stdio:
     "render": {
       "command": "docker",
       "args": ["run", "-i", "--rm", "-e", "RENDER_API_KEY",
-               "ghcr.io/render-oss/render-mcp-server:latest"],
+               "ghcr.io/render-oss/render-mcp-server@sha256:4b0da8fdf301c99d88a497864ce0b369b0ea8e3c8ee396e05d5846cd324adfcb"],
       "env": { "RENDER_API_KEY": "${RENDER_API_KEY}" }
     }
   }
@@ -59,12 +59,12 @@ it does **not** use stdio. `packages/integrations/render_mcp.py` speaks MCP
 JSON-RPC over Streamable HTTP to `RENDER_MCP_URL`, authenticating with
 `Authorization: Bearer $RENDER_API_KEY`.
 
-`render.yaml` deploys the server as a fourth service, `agency-render-mcp`, built
+`render.yaml` deploys the server as a fifth service, `agency-render-mcp`, built
 from `Dockerfile.render-mcp` (a thin wrapper over the upstream image that pins
 `ENTRYPOINT` and `CMD ["-t", "http"]`). The backend reaches it over Render's
 private network:
 
-```
+```text
 local-llm-server ──► http://agency-render-mcp:10000/mcp ──► api.render.com
    (backend)              (private network)                  (Render API)
 ```
@@ -147,9 +147,14 @@ Findings are filed through `ImprovementLoop.register_external_issue` — the
 flow into the existing plan→execute→verify machinery rather than into a second,
 parallel issue pipeline.
 
-Dedup is by `sha256(kind + service_id + discriminator)` with a 6-hour cooldown,
-so a deploy that keeps failing for one commit is one issue, and a sustained
-error spike files once per hour rather than once per tick.
+Dedup is by `sha256(kind + service_id + deploy_id)` with a 6-hour cooldown, so a
+deploy that keeps failing for one commit is one issue, and a sustained error
+spike or ongoing memory pressure files once per six hours rather than once per
+tick. Nothing time-derived belongs in that key: an earlier version also mixed in
+an hourly bucket, which changed the signature every hour and so could never be
+blocked by a six-hour cooldown. The cooldown is claimed only after a finding is
+actually filed, so a finding that arrives before the `ImprovementLoop` is up is
+retried rather than silenced.
 
 The loop never raises. Render being unreachable is recorded in `last_error` and
 surfaced through `GET /api/render/ops/status`; a monitor that dies on an
@@ -182,7 +187,7 @@ All routes are admin-only. Render deploy history and platform logs describe the
 whole deployment — including other tenants' service names in a shared workspace —
 so they are not per-user data.
 
-```
+```text
 GET /api/render/health                     MCP reachability + tool count
 GET /api/render/services                   services in the workspace
 GET /api/render/services/{id}/deploys      deploy history, newest first
