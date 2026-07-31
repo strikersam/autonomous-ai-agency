@@ -1610,6 +1610,29 @@ async def _warmup_step(coro, label: str, deadline: float):
         return None
 
 
+def _task_store_for_background() -> "TaskStore":
+    """The task store the background services should use, wiring it if needed.
+
+    ``get_task_store()`` builds a store with no database when none has been
+    registered, and that constructor raises outside tests by design. That is
+    the crash that failed Render deploys: when a cold database pushed bootstrap
+    past its warm-up budget, the deferral skipped the wiring inside
+    ``ensure_bootstrap()``, and this call was the next thing to run.
+
+    Wiring eagerly at the top of the lifespan fixed the crash and broke
+    something else — it replaced stores that callers had already registered,
+    including the ones tests inject before starting a client, silently swapping
+    their data for an empty store. So repair it only when it is actually
+    missing: ask for the store first, and wire only if asking fails.
+    """
+    try:
+        return get_task_store()
+    except Exception as exc:
+        log.warning("Task store unavailable at startup (%s) — wiring it now", exc)
+        _wire_feature_stores()
+        return get_task_store()
+
+
 @asynccontextmanager
 async def lifespan(app_: "FastAPI"):
     from services.background import start_background_services, run_background_in_web
@@ -1629,7 +1652,7 @@ async def lifespan(app_: "FastAPI"):
     if run_background_in_web():
         bg = await start_background_services(
             workspace_root=ROOT_DIR,
-            task_store=get_task_store(),
+            task_store=_task_store_for_background(),
             scheduler=SCHEDULER,
         )
     else:
@@ -2513,6 +2536,38 @@ _BOOTSTRAP_INDEXES: tuple[tuple[str, object, dict], ...] = (
 )
 
 
+def _wire_feature_stores() -> None:
+    """Point the feature stores at the shared database connection.
+
+    Deliberately synchronous and outside the bootstrap's slow section: both
+    constructors only wrap the lazy database handle, so this costs nothing and
+    performs no I/O, while index creation and seeding cost network round-trips.
+
+    Keeping it inside the timed bootstrap was a startup-crash waiting to
+    happen. When the bootstrap overran its warm-up budget and was deferred to
+    the background, these two calls had not run, so the very next line of the
+    lifespan — ``start_background_services(task_store=get_task_store(), ...)``
+    — constructed a ``TaskStore`` with no database. That constructor raises
+    outside tests by design ("cannot start without a persistent backend"), so
+    the lifespan raised, uvicorn exited with STARTUP_FAILURE, and the deploy
+    failed. Intermittently: only when the database was slow enough to blow the
+    budget, which is exactly when a cold Atlas is waking up.
+
+    Idempotent — ``ensure_bootstrap`` still calls it so entrypoints that never
+    run the lifespan are unaffected.
+
+    Both stores are built from one database handle before either setter runs.
+    Constructing inside the setter calls made the pair non-atomic: if the second
+    constructor raised, the agent store had already been replaced while the task
+    store still pointed at the old one, leaving the process half-wired.
+    """
+    db = get_db()
+    agent_store = AgentStore(db=db)
+    task_store = TaskStore(db=db)
+    set_agent_store(agent_store)
+    set_task_store(task_store)
+
+
 async def _create_bootstrap_indexes() -> None:
     """Create every boot index concurrently rather than one round-trip at a time.
 
@@ -2544,9 +2599,7 @@ async def ensure_bootstrap() -> None:
             if _BOOTSTRAP_DONE:
                 return
             await _create_bootstrap_indexes()
-            # Wire feature stores to the shared MongoDB connection
-            set_agent_store(AgentStore(db=get_db()))
-            set_task_store(TaskStore(db=get_db()))
+            _wire_feature_stores()
             await seed_admin()
             await seed_default_agents()
             await seed_default_providers()
