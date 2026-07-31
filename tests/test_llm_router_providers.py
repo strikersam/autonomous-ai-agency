@@ -224,7 +224,14 @@ async def test_anthropic_lifts_system_and_converts_tools():
             api_key="sk-test", client=client,
         )
 
-    assert captured["system"] == "You are terse."
+    # When prompt caching is enabled (the default), system becomes a content block
+    # array with cache_control; the text is preserved.
+    system = captured["system"]
+    if isinstance(system, list):
+        assert system[0]["type"] == "text"
+        assert system[0]["text"] == "You are terse."
+    else:
+        assert system == "You are terse."
     assert all(m["role"] != "system" for m in captured["messages"])
     # OpenAI-shaped tools are translated to Anthropic's input_schema form.
     assert captured["tools"][0]["name"] == "search"

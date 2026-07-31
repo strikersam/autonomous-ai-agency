@@ -5,10 +5,17 @@ system prompt is a top-level field rather than a message, tools use
 ``input_schema`` instead of a nested ``function`` object, tool results come
 back as content blocks, and streaming is a typed SSE event sequence rather
 than uniform deltas. Everything else is shared with the base adapter.
+
+Prompt caching (C6): when ANTHROPIC_PROMPT_CACHE is not "false", the system
+prompt and tool definitions are marked with cache_control so Anthropic stores
+them for 5 minutes.  On cache hit the prompt tokens are re-charged at 10% of
+the normal rate, saving ~90% on the system-prompt cost for repetitive agentic
+loops.  Requires claude-3-5-* or later; silently no-ops on older models.
 """
 from __future__ import annotations
 
 import json
+import os
 import time
 from collections.abc import AsyncIterator
 from typing import Any
@@ -31,6 +38,10 @@ from packages.llm.types import (
 )
 
 DEFAULT_API_VERSION = "2023-06-01"
+_CACHE_CONTROL = {"type": "ephemeral"}
+_PROMPT_CACHE_ENABLED = os.environ.get("ANTHROPIC_PROMPT_CACHE", "true").strip().lower() not in (
+    "false", "0", "no", "off"
+)
 
 
 class AnthropicProvider(LLMProvider):
@@ -43,6 +54,11 @@ class AnthropicProvider(LLMProvider):
         headers["anthropic-version"] = self.config.api_version or DEFAULT_API_VERSION
         if api_key:
             headers["x-api-key"] = api_key
+        if _PROMPT_CACHE_ENABLED:
+            # Prompt caching graduated to GA for claude-3-5-* and later, but
+            # including the beta header on all requests is harmless and ensures
+            # it activates on older model IDs that still require the header.
+            headers.setdefault("anthropic-beta", "prompt-caching-2024-07-31")
         return headers
 
     def build_payload(self, request: LLMRequest, model: str) -> dict[str, Any]:
@@ -108,9 +124,25 @@ class AnthropicProvider(LLMProvider):
             "temperature": request.temperature,
         }
         if system_parts:
-            payload["system"] = "\n\n".join(system_parts)
+            system_text = "\n\n".join(system_parts)
+            if _PROMPT_CACHE_ENABLED:
+                # Cache the system prompt as a structured content block. Anthropic
+                # stores it for 5 minutes; subsequent requests with the same text pay
+                # 10% of normal input-token cost (cache_read_input_tokens field).
+                payload["system"] = [
+                    {"type": "text", "text": system_text, "cache_control": _CACHE_CONTROL}
+                ]
+            else:
+                payload["system"] = system_text
         if request.tools:
-            payload["tools"] = [self._convert_tool(t) for t in request.tools]
+            converted = [self._convert_tool(t) for t in request.tools]
+            if _PROMPT_CACHE_ENABLED and converted:
+                # Mark the last tool definition as the cache breakpoint.  Anthropic
+                # caches everything up to and including the first content block that
+                # carries cache_control, so placing it on the last tool covers the
+                # entire tool-definition block in one breakpoint.
+                converted[-1] = dict(converted[-1], cache_control=_CACHE_CONTROL)
+            payload["tools"] = converted
             if request.tool_choice is not None:
                 payload["tool_choice"] = self._convert_tool_choice(request.tool_choice)
         payload.update(request.extra)
@@ -183,6 +215,7 @@ class AnthropicProvider(LLMProvider):
             prompt_tokens=int(raw_usage.get("input_tokens") or 0),
             completion_tokens=int(raw_usage.get("output_tokens") or 0),
             cached_tokens=int(raw_usage.get("cache_read_input_tokens") or 0),
+            cache_creation_tokens=int(raw_usage.get("cache_creation_input_tokens") or 0),
         )
         return LLMResponse(
             text="".join(text_parts),

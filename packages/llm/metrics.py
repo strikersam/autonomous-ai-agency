@@ -131,6 +131,10 @@ class MetricsRegistry:
         self.tokens = _Counter("Tokens consumed, by provider, model, and direction.")
         self.cost = _Counter("Cost in USD, by provider and model.")
         self.cache_events = _Counter("Cache lookups, by layer and result.")
+        self.prompt_cache_tokens = _Counter(
+            "Prompt-cache token events, by provider, model, and direction "
+            "(write=cache_creation_input_tokens, read=cache_read_input_tokens)."
+        )
         self.breaker_trips = _Counter("Circuit breaker trips, by provider.")
         self.key_rotations = _Counter("API key rotations, by provider and reason.")
 
@@ -174,13 +178,29 @@ class MetricsRegistry:
             self.retries.inc(_labels(provider=provider, reason=reason))
 
     def record_tokens(
-        self, *, provider: str, model: str, prompt: int, completion: int, cost_usd: float
+        self,
+        *,
+        provider: str,
+        model: str,
+        prompt: int,
+        completion: int,
+        cost_usd: float,
+        cache_read: int = 0,
+        cache_creation: int = 0,
     ) -> None:
         with self._lock:
             self.tokens.inc(_labels(provider=provider, model=model, direction="input"), prompt)
             self.tokens.inc(_labels(provider=provider, model=model, direction="output"), completion)
             if cost_usd:
                 self.cost.inc(_labels(provider=provider, model=model), cost_usd)
+            if cache_read:
+                self.prompt_cache_tokens.inc(
+                    _labels(provider=provider, model=model, direction="read"), cache_read
+                )
+            if cache_creation:
+                self.prompt_cache_tokens.inc(
+                    _labels(provider=provider, model=model, direction="write"), cache_creation
+                )
 
     def record_cache(self, *, layer: str, hit: bool) -> None:
         with self._lock:
@@ -256,6 +276,7 @@ class MetricsRegistry:
             ("llm_tokens_total", self.tokens),
             ("llm_cost_usd_total", self.cost),
             ("llm_cache_events_total", self.cache_events),
+            ("llm_prompt_cache_tokens_total", self.prompt_cache_tokens),
             ("llm_breaker_trips_total", self.breaker_trips),
             ("llm_key_rotations_total", self.key_rotations),
         )

@@ -43,6 +43,7 @@ class Usage:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cached_tokens: int = 0
+    cache_creation_tokens: int = 0
 
     @property
     def total_tokens(self) -> int:
@@ -53,6 +54,7 @@ class Usage:
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
             "cached_tokens": self.cached_tokens,
+            "cache_creation_tokens": self.cache_creation_tokens,
             "total_tokens": self.total_tokens,
         }
 

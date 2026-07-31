@@ -774,6 +774,8 @@ class LLMRouter:
             prompt=response.usage.prompt_tokens,
             completion=response.usage.completion_tokens,
             cost_usd=response.cost_usd,
+            cache_read=response.usage.cached_tokens,
+            cache_creation=response.usage.cache_creation_tokens,
         )
         self._budget.record(
             usage=response.usage, cost_usd=response.cost_usd,
