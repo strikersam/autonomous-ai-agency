@@ -132,6 +132,15 @@ class Settings:
             "FREELLM_API_MODEL_CATALOG_ENABLED", "true"
         ).lower()
 
+        # Whether the UNIT 8 catalog also publishes providers the LLM router
+        # knows about (config/llm/providers.yaml, ADR-008). Default OFF: the
+        # catalog document is a contract external services read, so widening
+        # it is an operator decision, not a side effect of installing the
+        # router.
+        self.freellm_catalog_include_router: str = os.environ.get(
+            "FREELLM_CATALOG_INCLUDE_ROUTER", "false"
+        ).lower()
+
         # Self-repo autonomous shipping (default ON — flag is the rollback
         # lever). When ON, portfolio-materialized and ceo_direct GitHub-issue
         # tasks get auto_commit + repo context injected so the agent's
@@ -208,6 +217,11 @@ class Settings:
         """UNIT 8: when True, the catalog is mirrored to the DB + the
         ``GET /api/catalog/models`` endpoint is enabled. Advisory-only."""
         return self.freellm_api_model_catalog_enabled == "true"
+
+    @property
+    def is_freellm_catalog_router_included(self) -> bool:
+        """When True, router-configured providers join the mirrored catalog."""
+        return self.freellm_catalog_include_router in {"1", "true", "yes", "on"}
 
     @property
     def is_self_repo_auto_commit_enabled(self) -> bool:

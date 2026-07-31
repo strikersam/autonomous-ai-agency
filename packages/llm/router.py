@@ -43,7 +43,7 @@ from packages.llm.config import (
 )
 from packages.llm.context import ContextManager, build_summariser
 from packages.llm.distributed import get_limiter
-from packages.llm.health import get_tracker
+from packages.llm.health import BreakerState, get_tracker
 from packages.llm.keys import get_ring, resolve_keys
 from packages.llm.metrics import get_metrics
 from packages.llm.providers import LLMProvider, build_provider
@@ -69,6 +69,10 @@ from packages.llm.types import (
 )
 
 log = logging.getLogger("llm.router")
+
+# Minimum spacing between gauge refreshes on the request path. Prometheus
+# scrapes far less often than the platform completes requests.
+_GAUGE_REFRESH_INTERVAL_SEC = 5.0
 
 
 class LLMRouter:
@@ -96,6 +100,7 @@ class LLMRouter:
         self._bulkhead = Bulkhead()
         self._dedupe: Deduplicator[LLMResponse] = Deduplicator(routing.dedupe_window_sec)
         self._context = ContextManager(summarise=build_summariser(self._summariser_chat))
+        self._gauges_refreshed_at = 0.0
 
         self._build_providers()
 
@@ -287,17 +292,28 @@ class LLMRouter:
                 )
                 if response.status_code >= 400:
                     raise TransientError(f"{spec.provider} HTTP {response.status_code}")
-                vectors = [
-                    list(entry.get("embedding") or [])
-                    for entry in (response.json().get("data") or [])
-                ]
+                # The OpenAI embeddings contract carries an `index` per
+                # entry and does not promise request order. Pairing positionally
+                # would store a vector under the wrong text — unrecoverable,
+                # because the cache then returns it as a hit.
+                entries = list(response.json().get("data") or [])
+                entries.sort(key=lambda e: int(e.get("index") or 0))
+                vectors = [list(entry.get("embedding") or []) for entry in entries]
+                if len(vectors) != len(pending):
+                    raise TransientError(
+                        f"{spec.provider} returned {len(vectors)} vectors "
+                        f"for {len(pending)} inputs"
+                    )
             except Exception as exc:
                 self._health.record_failure(spec.provider, error=str(exc)[:200])
                 continue
 
-            for (index, text), vector in zip(pending, vectors):
+            for (index, text), vector in zip(pending, vectors, strict=True):
                 results[index] = vector
-                self._cache.embedding.put(text_key(f"{model}:{text}"), vector)
+                # Key by the model that actually produced the vector. Keying by
+                # the requested `model` — often None — let vectors from
+                # different models, with different dimensions, share a key.
+                self._cache.embedding.put(text_key(f"{spec.id}:{text}"), vector)
             self._health.record_success(spec.provider)
             self._metrics.record_cache(layer="embedding", hit=False)
             return results
@@ -491,6 +507,7 @@ class LLMRouter:
                 continue
             if not self._health.is_available(candidate.provider.id):
                 continue
+            probing = self._health.get(candidate.provider.id).state is BreakerState.HALF_OPEN
             if not self._health.acquire_probe(candidate.provider.id):
                 continue
 
@@ -529,6 +546,11 @@ class LLMRouter:
             if attempt is not None and response is not None:
                 attempts.append(attempt)
             if attempt is None and response is None and error is None:
+                # Nothing was tried, so give the half-open probe permit back —
+                # otherwise a provider whose keys are cooling leaks its only
+                # permit and can never be probed again.
+                if probing:
+                    self._health.release_probe(provider_id)
                 continue                               # candidate skipped, not failed
 
             if response is not None:
@@ -588,14 +610,18 @@ class LLMRouter:
                 return None, None, None
 
         prepared = await self._fit_context(request, candidate)
-        budget.charge()
         attempt = Attempt(provider=config.id, model=candidate.model.id, key_index=key_index)
         started = time.monotonic()
 
         try:
             async with self._bulkhead.slot(config.id, timeout=10.0) as got_slot:
                 if not got_slot:
+                    # Skipped, not attempted. Charging here would let a
+                    # saturated provider burn the retry budget of a request
+                    # that never reached any provider at all.
                     return None, None, None
+                budget.charge()
+                started = time.monotonic()
                 response = await provider.chat(
                     prepared, model=candidate.model.id, api_key=api_key, client=client
                 )
@@ -765,6 +791,9 @@ class LLMRouter:
             "max_tokens": request.max_tokens,
             "response_format": request.response_format,
             "tools": request.tools,
+            "allow_paid": request.allow_paid,
+            "providers": sorted(request.providers) if request.providers else None,
+            "exclude_providers": sorted(request.exclude_providers),
         }
 
     def _lookup_cache(self, request: LLMRequest) -> LLMResponse | None:
@@ -799,7 +828,19 @@ class LLMRouter:
             "finish_reason": response.finish_reason,
         })
 
-    def _refresh_gauges(self) -> None:
+    def _refresh_gauges(self, *, force: bool = False) -> None:
+        """Republish gauge values.
+
+        Throttled, because this walks every provider's health, every cache
+        layer, and `budget.snapshot()` — which materialises every accounting
+        dimension. Running that on each completion put an O(providers + models
+        + agents) copy on the hot path for numbers nothing reads between
+        scrapes. A scrape passes force=True and always gets fresh values.
+        """
+        now = time.monotonic()
+        if not force and (now - self._gauges_refreshed_at) < _GAUGE_REFRESH_INTERVAL_SEC:
+            return
+        self._gauges_refreshed_at = now
         self._metrics.set_queue_depth(self._queue.depth)
         self._metrics.set_in_flight(self._bulkhead.in_flight())
         for entry in self._health.snapshot():

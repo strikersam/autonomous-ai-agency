@@ -102,12 +102,15 @@ def _include_router_providers() -> bool:
 
     The catalog document is read by external services, so widening it changes
     a published contract. Opt in with ``FREELLM_CATALOG_INCLUDE_ROUTER=true``.
+    The env read itself lives in ``packages/config/settings.py``, which is the
+    only place this repo reads configuration from the environment.
     """
-    import os
+    try:
+        from packages.config import settings
 
-    return os.environ.get("FREELLM_CATALOG_INCLUDE_ROUTER", "").strip().lower() in {
-        "1", "true", "yes", "on",
-    }
+        return settings.is_freellm_catalog_router_included
+    except Exception:  # pragma: no cover - defensive
+        return False
 
 
 # ── Pydantic models ────────────────────────────────────────────────────────

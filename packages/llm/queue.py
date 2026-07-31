@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import heapq
 import json
 import logging
 import time
@@ -124,6 +125,11 @@ def request_fingerprint(payload: dict[str, Any]) -> str:
         "temperature": payload.get("temperature"),
         "max_tokens": payload.get("max_tokens"),
         "response_format": payload.get("response_format"),
+        # Same reason as the cache key: two requests with different provider
+        # constraints must not collapse onto one in-flight call.
+        "allow_paid": payload.get("allow_paid"),
+        "providers": payload.get("providers"),
+        "exclude_providers": payload.get("exclude_providers"),
     }
     encoded = json.dumps(material, sort_keys=True, default=str)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
@@ -206,25 +212,31 @@ class Deduplicator(Generic[T]):
 # ── Priority queue ───────────────────────────────────────────────────────────
 
 @dataclass(order=True)
-class _QueueItem:
+class _Waiter:
+    """One job waiting for a concurrency slot, ordered by (priority, arrival)."""
+
     priority: int
     sequence: int
-    enqueued_at: float = field(compare=False, default=0.0)
-    job: Any = field(compare=False, default=None)
+    event: asyncio.Event = field(compare=False, default_factory=asyncio.Event)
 
 
 class RequestQueue:
     """Bounded priority queue with concurrency limits and backpressure.
 
-    Ordering is (priority, arrival) — ties inside a priority band are strict
-    FIFO, so a low-priority job cannot be starved indefinitely by a steady
-    trickle of same-priority arrivals ahead of it.
+    Admission is ordered by (priority, arrival): a CRITICAL request overtakes
+    NORMAL work already waiting, and ties inside a band are strict FIFO so no
+    job is starved by a steady trickle of same-priority arrivals.
+
+    A plain ``asyncio.Semaphore`` cannot express this — it is FIFO over the
+    order tasks happened to await it, so priority had no effect at all. Slots
+    are therefore handed out explicitly from a heap of waiters.
     """
 
     def __init__(self, *, max_depth: int = 512, max_concurrency: int = 32) -> None:
         self._max_depth = max_depth
         self._max_concurrency = max_concurrency
-        self._semaphore = asyncio.Semaphore(max_concurrency)
+        self._waiters: list[_Waiter] = []
+        self._in_flight = 0
         self._depth = 0
         self._sequence = 0
         self._peak_depth = 0
@@ -283,19 +295,49 @@ class RequestQueue:
             async with self._lock:
                 self._depth = max(0, self._depth - 1)
 
+    async def _acquire(self, priority: int) -> None:
+        """Wait for a slot, yielding to higher-priority work already queued."""
+        async with self._lock:
+            if self._in_flight < self._max_concurrency and not self._waiters:
+                self._in_flight += 1
+                return
+            self._sequence += 1
+            waiter = _Waiter(priority=priority, sequence=self._sequence)
+            heapq.heappush(self._waiters, waiter)
+        try:
+            await waiter.event.wait()
+        except asyncio.CancelledError:
+            async with self._lock:
+                if waiter in self._waiters:
+                    self._waiters.remove(waiter)
+                    heapq.heapify(self._waiters)
+                elif waiter.event.is_set():
+                    # The slot was already granted — hand it straight on.
+                    self._release_locked()
+            raise
+
+    def _release_locked(self) -> None:
+        """Give the slot to the best waiting job, or return it to the pool."""
+        if self._waiters:
+            heapq.heappop(self._waiters).event.set()
+        else:
+            self._in_flight = max(0, self._in_flight - 1)
+
+    async def _release(self) -> None:
+        async with self._lock:
+            self._release_locked()
+
     async def _run(
         self, job: Callable[[], Awaitable[T]], waited_from: float, priority: int
     ) -> T:
-        # asyncio.Semaphore is FIFO, which combined with the priority-ordered
-        # sleep below approximates a priority queue without a second scheduler
-        # loop: higher-priority work skips the politeness delay entirely.
-        if priority > int(Priority.CRITICAL):
-            await asyncio.sleep(0)
-        async with self._semaphore:
+        await self._acquire(priority)
+        try:
             self._wait_total += time.monotonic() - waited_from
             result = await job()
             self._completed += 1
             return result
+        finally:
+            await self._release()
 
     def stats(self) -> dict[str, Any]:
         return {
@@ -323,4 +365,5 @@ class RequestQueue:
         self._cancelled = 0
         self._timed_out = 0
         self._wait_total = 0.0
-        self._semaphore = asyncio.Semaphore(self._max_concurrency)
+        self._waiters.clear()
+        self._in_flight = 0

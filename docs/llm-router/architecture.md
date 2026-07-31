@@ -1,8 +1,13 @@
 # LLM Router — architecture
 
-The routing layer (`packages/llm/`) owns every LLM call the platform makes.
-Agents do not talk to OpenAI, Anthropic, Gemini, or Ollama; they talk to
-`LLMRouter`, and it decides where the request actually goes.
+The routing layer (`packages/llm/`) is the single gateway for LLM calls
+**on the enabled path**: with `LLM_ROUTER_ENABLED=true`, agents talk to
+`LLMRouter` rather than to OpenAI, Anthropic, Gemini, or Ollama, and it decides
+where the request actually goes.
+
+That is the target architecture, not yet the whole runtime. The flag defaults
+to off, and callers that have not been migrated still run through
+`packages/ai/` — see the [migration guide](migration.md).
 
 Design rationale lives in [ADR-008](../adr/008-llm-router-multi-provider.md).
 This document describes what was built.
@@ -23,7 +28,7 @@ provider, key, model, or quota can stop the platform.
 
 ## Request lifecycle
 
-```
+```text
 LLMRequest
     │
     ├─ policy      per-agent overrides merge in (routing.yaml → agents)
@@ -54,7 +59,7 @@ spent, or the error was permanent and fatal.
 | Module | Responsibility |
 |--------|----------------|
 | `types.py` | `LLMRequest`, `LLMResponse`, `StreamChunk`, `ToolCall`, error hierarchy |
-| `config.py` | Loads the six YAML files; the only module reading env for config |
+| `config.py` | Loads the six YAML files and owns the package's config-time env reads |
 | `registry.py` | Model capabilities, context windows, pricing; capability filtering |
 | `providers/` | Four adapters covering every supported endpoint |
 | `strategies.py` | Fifteen pure ranking functions over candidates |
@@ -92,7 +97,7 @@ The breaker is only allowed to open on provider-scoped failures, and on 429s
 
 ## Circuit breaker
 
-```
+```text
 CLOSED ──(5 consecutive failures, or >50% failure rate)──▶ OPEN
 OPEN ──(open window elapses)──▶ HALF_OPEN
 HALF_OPEN ──(probe succeeds)──▶ CLOSED

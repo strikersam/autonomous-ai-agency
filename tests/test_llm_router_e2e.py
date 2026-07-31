@@ -154,6 +154,13 @@ def router_factory(tmp_path, monkeypatch):
     for module in (llm_config, llm_registry, llm_health, llm_keys,
                    llm_cache, llm_budget, llm_metrics, llm_router):
         module.reset()
+    # Round-robin and adaptive counters would otherwise survive this module and
+    # change the outcome of tests/test_llm_router_strategies.py in the same run.
+    llm_strategies.reset()
+    for instance in built:
+        client = getattr(instance, "_client", None)
+        if client is not None and not client.is_closed:
+            asyncio.run(client.aclose())
 
 
 def _request(**kwargs):

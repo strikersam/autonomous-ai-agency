@@ -49,13 +49,49 @@ class GeminiProvider(LLMProvider):
         for message in request.messages:
             role = message.get("role")
             content = message.get("content")
-            text = content if isinstance(content, str) else self._flatten(content)
+
             if role == "system":
-                system_parts.append(text)
+                system_parts.append(
+                    content if isinstance(content, str) else self._flatten(content)
+                )
                 continue
+
+            # Tool results: OpenAI's role="tool" becomes a functionResponse
+            # part on a user turn. Dropping it left the second turn of a tool
+            # conversation with no result for the call the model just made.
+            if role == "tool":
+                contents.append({
+                    "role": "user",
+                    "parts": [{"functionResponse": {
+                        "name": str(message.get("name") or message.get("tool_call_id") or "tool"),
+                        "response": {"content": content if isinstance(content, str)
+                                     else self._flatten(content)},
+                    }}],
+                })
+                continue
+
+            parts: list[dict[str, Any]] = []
+            if isinstance(content, str):
+                if content:
+                    parts.append({"text": content})
+            else:
+                parts.extend(self._content_parts(content))
+
+            # Assistant turns that called tools become functionCall parts.
+            for call in (message.get("tool_calls") or []):
+                function = call.get("function") or {}
+                raw_args = function.get("arguments")
+                try:
+                    arguments = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
+                except json.JSONDecodeError:
+                    arguments = {}
+                parts.append({"functionCall": {
+                    "name": str(function.get("name") or ""), "args": arguments,
+                }})
+
             contents.append({
                 "role": "model" if role == "assistant" else "user",
-                "parts": [{"text": text}],
+                "parts": parts or [{"text": ""}],
             })
 
         generation: dict[str, Any] = {
@@ -80,6 +116,45 @@ class GeminiProvider(LLMProvider):
             }]
         payload.update(request.extra)
         return payload
+
+    @staticmethod
+    def _content_parts(content: Any) -> list[dict[str, Any]]:
+        """Translate an OpenAI content array into Gemini parts.
+
+        Image parts are carried through rather than dropped: the models
+        declare ``supports_images: true``, so the router will route a vision
+        request here and silently losing the image would produce a confident
+        answer about nothing.
+        """
+        parts: list[dict[str, Any]] = []
+        if not isinstance(content, list):
+            text = "" if content is None else str(content)
+            return [{"text": text}] if text else []
+
+        for part in content:
+            if not isinstance(part, dict):
+                continue
+            kind = part.get("type")
+            if kind == "text" or "text" in part:
+                text = str(part.get("text") or "")
+                if text:
+                    parts.append({"text": text})
+                continue
+            url = ""
+            if kind == "image_url":
+                url = str((part.get("image_url") or {}).get("url") or "")
+            elif kind in {"image", "input_image"}:
+                url = str(part.get("image_url") or part.get("url") or part.get("source") or "")
+            if not url:
+                continue
+            if url.startswith("data:"):
+                # data:<mime>;base64,<payload>
+                header, _, payload = url.partition(",")
+                mime = header[5:].split(";", 1)[0] or "image/png"
+                parts.append({"inlineData": {"mimeType": mime, "data": payload}})
+            else:
+                parts.append({"fileData": {"fileUri": url}})
+        return parts
 
     @staticmethod
     def _flatten(content: Any) -> str:
@@ -189,7 +264,7 @@ class GeminiProvider(LLMProvider):
                 if partial.text or partial.tool_calls or partial.finish_reason:
                     yield StreamChunk(
                         text=partial.text,
-                        tool_call=partial.tool_calls[0] if partial.tool_calls else None,
+                        tool_calls=partial.tool_calls,
                         finish_reason=partial.finish_reason,
                         usage=partial.usage if partial.usage.total_tokens else None,
                         provider=self.id,

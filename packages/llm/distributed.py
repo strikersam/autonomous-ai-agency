@@ -30,14 +30,21 @@ from typing import Any
 
 log = logging.getLogger("llm.distributed")
 
+# How long to wait before retrying a failed Redis connection.
+_RECONNECT_COOLDOWN_SEC = 30.0
+
 # Atomic refill-and-consume. Kept in Lua so the read-modify-write cannot
 # interleave between instances — the entire reason for using Redis here.
 _TOKEN_BUCKET_LUA = """
 local key = KEYS[1]
 local rate = tonumber(ARGV[1])
 local capacity = tonumber(ARGV[2])
-local now = tonumber(ARGV[3])
-local requested = tonumber(ARGV[4])
+local requested = tonumber(ARGV[3])
+-- Server clock, not the caller's: each instance passing its own
+-- time.time() let a fast-running clock refill the shared bucket for
+-- its own skew. Redis 7 replicates script effects, so TIME is fine.
+local t = redis.call('TIME')
+local now = tonumber(t[1]) + tonumber(t[2]) / 1000000
 
 local bucket = redis.call('HMGET', key, 'tokens', 'updated')
 local tokens = tonumber(bucket[1])
@@ -57,7 +64,7 @@ if tokens >= requested then
   allowed = 1
 end
 
-redis.call('HMSET', key, 'tokens', tokens, 'updated', now)
+redis.call('HSET', key, 'tokens', tokens, 'updated', now)
 redis.call('EXPIRE', key, 3600)
 return {allowed, tostring(tokens)}
 """
@@ -95,7 +102,11 @@ class DistributedRateLimiter:
         self._script: Any = None
         self._local: dict[str, _LocalBucket] = {}
         self._lock = threading.Lock()
-        self._connect_attempted = False
+        # A retry deadline rather than a one-shot flag: a single failed ping
+        # used to pin the process into local-only mode for its whole lifetime,
+        # so shared pacing never came back after a brief Redis blip.
+        self._next_connect_at = 0.0
+        self._redis_unavailable = False   # permanent: the package is missing
 
     @property
     def distributed(self) -> bool:
@@ -103,12 +114,15 @@ class DistributedRateLimiter:
         return self._redis is not None
 
     async def _ensure_redis(self) -> Any:
-        if self._redis is not None or self._connect_attempted or not self._redis_url:
+        if self._redis is not None or self._redis_unavailable or not self._redis_url:
             return self._redis
-        self._connect_attempted = True
+        if time.monotonic() < self._next_connect_at:
+            return None
+        self._next_connect_at = time.monotonic() + _RECONNECT_COOLDOWN_SEC
         try:
             import redis.asyncio as aioredis
         except ImportError:
+            self._redis_unavailable = True   # never going to appear at runtime
             log.info("llm.distributed: redis package absent — pacing locally")
             return None
         try:
@@ -167,7 +181,7 @@ class DistributedRateLimiter:
         if redis is not None and self._script is not None:
             try:
                 allowed, _remaining = await self._script(
-                    keys=[key], args=[rate_per_sec, capacity, time.time(), tokens]
+                    keys=[key], args=[rate_per_sec, capacity, tokens]
                 )
                 return bool(int(allowed))
             except Exception as exc:
@@ -187,6 +201,7 @@ class DistributedRateLimiter:
     def reset(self) -> None:
         with self._lock:
             self._local.clear()
+            self._next_connect_at = 0.0
 
 
 @dataclass
@@ -235,14 +250,17 @@ class PersistentQueue:
         self._namespace = namespace
         self._redis_url = redis_url
         self._redis: Any = None
-        self._connect_attempted = False
+        self._next_connect_at = 0.0
+        self._redis_unavailable = False
         self._memory: dict[str, PersistedRequest] = {}
         self._lock = threading.Lock()
 
     async def _ensure_redis(self) -> Any:
-        if self._redis is not None or self._connect_attempted or not self._redis_url:
+        if self._redis is not None or self._redis_unavailable or not self._redis_url:
             return self._redis
-        self._connect_attempted = True
+        if time.monotonic() < self._next_connect_at:
+            return None
+        self._next_connect_at = time.monotonic() + _RECONNECT_COOLDOWN_SEC
         try:
             import redis.asyncio as aioredis
 
@@ -277,19 +295,25 @@ class PersistentQueue:
             self._memory.pop(request_id, None)
 
     async def pending(self) -> list[PersistedRequest]:
-        """Everything accepted but not completed — the restart replay set."""
+        """Everything accepted but not completed — the restart replay set.
+
+        Both stores are merged. `enqueue` falls back to memory when a Redis
+        write fails, so returning only the Redis hash after recovery would
+        silently drop accepted work from the replay set.
+        """
+        merged: dict[str, PersistedRequest] = {}
+        with self._lock:
+            merged.update(self._memory)
         redis = await self._ensure_redis()
         if redis is not None:
             try:
                 entries = await redis.hgetall(self._namespace)
-                return [
-                    PersistedRequest.from_dict(json.loads(raw))
-                    for raw in entries.values()
-                ]
+                for raw in entries.values():
+                    record = PersistedRequest.from_dict(json.loads(raw))
+                    merged[record.id] = record
             except Exception as exc:
                 log.warning("llm.distributed: pending read failed (%s)", exc)
-        with self._lock:
-            return list(self._memory.values())
+        return list(merged.values())
 
     async def depth(self) -> int:
         return len(await self.pending())
@@ -297,6 +321,7 @@ class PersistentQueue:
     def reset(self) -> None:
         with self._lock:
             self._memory.clear()
+            self._next_connect_at = 0.0
 
 
 _limiter: DistributedRateLimiter | None = None

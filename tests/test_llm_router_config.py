@@ -166,8 +166,11 @@ def test_router_disabled_by_default(monkeypatch):
     assert llm_config.router_enabled() is True
 
 
-def test_shipped_config_parses():
+def test_shipped_config_parses(monkeypatch):
     """The committed config/llm/*.yaml must actually load."""
+    # load_config() with no argument resolves LLM_CONFIG_DIR. If a developer
+    # has that set, this would validate an unrelated directory.
+    monkeypatch.delenv("LLM_CONFIG_DIR", raising=False)
     cfg = llm_config.load_config()
     assert cfg.providers, "config/llm/providers.yaml produced no providers"
     assert cfg.models, "config/llm/models.yaml produced no models"

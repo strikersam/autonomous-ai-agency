@@ -135,10 +135,27 @@ class OllamaProvider(LLMProvider):
                         completion_tokens=int(event.get("eval_count") or 0),
                     )
                 text = str(message.get("content") or "")
-                if not text and not done:
+
+                # Tool calls arrive on their own chunks with empty content.
+                # Skipping text-less chunks removed streamed function calling
+                # from this provider even though _parse handles it non-streamed.
+                tool_calls: list[ToolCall] = []
+                for index, call in enumerate(message.get("tool_calls") or []):
+                    function = call.get("function") or {}
+                    arguments = function.get("arguments")
+                    tool_calls.append(ToolCall(
+                        id=str(call.get("id") or f"call_{index}"),
+                        name=str(function.get("name") or ""),
+                        arguments=arguments if isinstance(arguments, str)
+                        else json.dumps(arguments or {}),
+                        index=index,
+                    ))
+
+                if not text and not tool_calls and not done:
                     continue
                 yield StreamChunk(
                     text=text,
+                    tool_calls=tool_calls,
                     finish_reason=(event.get("done_reason") or "stop") if done else None,
                     usage=usage,
                     provider=self.id,

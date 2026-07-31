@@ -48,7 +48,8 @@ Start the LM Studio local server and load a model. It needs no API key.
 ```bash
 export VLLM_ENABLED=true
 export VLLM_BASE_URL=http://localhost:8000/v1
-export VLLM_API_KEY=optional-if-you-set-one
+# Only if your vLLM server was started with --api-key:
+# export VLLM_API_KEY=your-key
 ```
 
 ```bash

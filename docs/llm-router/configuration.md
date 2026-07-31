@@ -38,7 +38,9 @@ Environment variables override YAML.
 ```yaml
 providers:
   my-provider:
-    kind: openai              # openai | anthropic | gemini | ollama
+    kind: openai              # canonical: openai | anthropic | gemini | ollama
+                              # aliases (lmstudio, vllm, litellm, groq, …)
+                              # are accepted and map to these four
     base_url: ${MY_BASE_URL}
     key_env: [MY_API_KEY]     # NAMES, never values
     tier: free                # local | free | cheap | premium
@@ -158,6 +160,11 @@ routing:
 Never add 400/401/403/404/422 to `retry_statuses`. They cannot succeed on
 retry, and retrying them burns the wall-clock budget a genuinely transient
 failure needs.
+
+`retry_statuses` governs retries against the *current* candidate only. A
+400/404 that names a missing model is still classified model-scoped, so the
+router moves on to sibling models and other providers before giving up — it
+just does not re-send the identical request to the same place.
 
 `budget_sec` is the hard ceiling for one request across every attempt. Six
 providers × three models is eighteen possible attempts; this is what actually

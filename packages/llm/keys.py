@@ -168,7 +168,11 @@ class KeyRing:
                 return
             state.successes += 1
             state.consecutive_limits = 0
-            state.cooling_until = 0.0
+            # Deliberately does NOT clear `cooling_until`. Two requests can hold
+            # the same key concurrently: if B gets a 429 and starts the cooldown
+            # while A is still in flight, A's success would otherwise wipe it and
+            # hand the rate-limited key straight back out. Let the cooldown
+            # expire on its own clock.
             state.last_error = ""
 
     def record_failure(self, provider_id: str, key: str, error: str = "") -> None:

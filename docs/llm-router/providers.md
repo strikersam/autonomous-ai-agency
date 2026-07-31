@@ -105,8 +105,10 @@ digest — never by value.
 
 ## Writing a custom adapter
 
-Only necessary for a genuinely different wire format. Implement `LLMProvider`
-(`chat`, `stream`, `health`, and optionally `list_models`) and register it:
+Only necessary for a genuinely different wire format. Implement `LLMProvider` — `chat`, `stream`, `health`, and `cost` are required
+(`cost` feeds per-request spend attribution and the `cost_optimized`
+strategy; the base class derives it from the model registry, so override it
+only for vendor-specific pricing). `list_models` is optional. Then register it:
 
 ```python
 from packages.llm.providers import register_adapter

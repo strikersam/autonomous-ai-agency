@@ -164,7 +164,12 @@ class ModelRegistry:
                 return False
             if not allow_paid and not model.is_free:
                 return False
-            if max_cost_per_1m and model.input_cost_per_1m > max_cost_per_1m:
+            # Combined, matching the sort key below: output pricing is
+            # normally the larger half, so an input-only cap admits models
+            # far above the intended ceiling.
+            if max_cost_per_1m and (
+                model.input_cost_per_1m + model.output_cost_per_1m
+            ) > max_cost_per_1m:
                 return False
             return True
 

@@ -47,6 +47,13 @@ class _Outcome:
     latency_ms: int
     status: int | None = None
     timeout: bool = False
+    # False for key- and model-scoped failures. Those still count toward the
+    # reported success rate an operator sees, but must be excluded from the
+    # breaker's rate rule — otherwise a key exhausting its quota with 429s
+    # raises the windowed failure rate until the next provider-scoped failure
+    # trips the breaker for the whole provider, which is precisely the
+    # escalation ADR-008 §4 exists to prevent.
+    counts_against_breaker: bool = True
 
 
 @dataclass
@@ -61,6 +68,9 @@ class ProviderHealth:
     open_until: float = 0.0
     probes_in_flight: int = 0
     probes_allowed: int = 0
+    # Set by force_open: an in-flight request completing after an admin
+    # takes a provider out of rotation must not put it straight back.
+    manual_hold: bool = False
     total_requests: int = 0
     total_failures: int = 0
     total_rate_limits: int = 0
@@ -190,6 +200,19 @@ class HealthTracker:
             health.probes_in_flight += 1
             return True
 
+    def release_probe(self, provider_id: str) -> None:
+        """Hand a half-open probe permit back when nothing was actually tried.
+
+        A candidate can be skipped after the permit is claimed — every key
+        cooling, the bulkhead full, rate-limit pacing giving up. Without this
+        the permit leaks and the provider can never be probed again, so it
+        stays out of rotation until the process restarts.
+        """
+        with self._lock:
+            health = self._get(provider_id)
+            if health.state is BreakerState.HALF_OPEN:
+                health.probes_in_flight = max(0, health.probes_in_flight - 1)
+
     # ── Recording outcomes ──────────────────────────────────────────────────
 
     def record_success(self, provider_id: str, *, latency_ms: int = 0) -> None:
@@ -200,6 +223,9 @@ class HealthTracker:
             health.last_success_at = time.time()
             health.last_error = ""
             health.outcomes.append(_Outcome(time.monotonic(), True, latency_ms))
+            if health.manual_hold and time.monotonic() < health.open_until:
+                return
+            health.manual_hold = False
             if health.state is not BreakerState.CLOSED:
                 log.info("llm.health: %s breaker closed after successful probe", provider_id)
                 health.state = BreakerState.CLOSED
@@ -234,7 +260,10 @@ class HealthTracker:
                 health.total_timeouts += 1
             health.last_error = (error or f"HTTP {status}")[:200]
             health.outcomes.append(
-                _Outcome(time.monotonic(), False, latency_ms, status=status, timeout=timeout)
+                _Outcome(
+                    time.monotonic(), False, latency_ms, status=status, timeout=timeout,
+                    counts_against_breaker=counts_against_breaker,
+                )
             )
 
             if not counts_against_breaker:
@@ -250,7 +279,12 @@ class HealthTracker:
     def _should_trip(self, health: ProviderHealth) -> bool:
         if health.consecutive_failures >= self._config.failure_threshold:
             return True
-        window = health._window(self._config.window_sec)
+        # Successes count, but only breaker-eligible failures do. A provider
+        # whose keys are rate-limited is not itself unwell.
+        window = [
+            o for o in health._window(self._config.window_sec)
+            if o.ok or o.counts_against_breaker
+        ]
         if len(window) >= self._config.min_samples:
             failures = sum(1 for o in window if not o.ok)
             if failures / len(window) >= self._config.failure_rate_threshold:
@@ -282,6 +316,7 @@ class HealthTracker:
             health.state = BreakerState.OPEN
             health.opened_at = time.monotonic()
             health.open_until = health.opened_at + duration_sec
+            health.manual_hold = True
             health.last_error = "manually disabled"
 
     def force_close(self, provider_id: str) -> None:
@@ -292,6 +327,7 @@ class HealthTracker:
             health.consecutive_failures = 0
             health.trips = 0
             health.open_until = 0.0
+            health.manual_hold = False
             health.last_error = ""
 
     def snapshot(self) -> list[dict[str, Any]]:

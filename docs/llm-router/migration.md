@@ -133,6 +133,7 @@ export LLM_GATEWAY_ENABLED=true
 ```bash
 curl https://your-host/api/llm/v1/chat/completions \
   -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
   -d '{"model": "z-ai/glm-5.2", "messages": [{"role": "user", "content": "hi"}]}'
 ```
 

@@ -298,3 +298,86 @@ def test_budget_refuses_a_wait_it_cannot_afford():
     budget = RetryBudget(max_attempts=9, deadline_sec=1.0)
     assert budget.can_wait(0.1) is True
     assert budget.can_wait(30.0) is False
+
+
+# ── Regressions from the PR #1168 review ─────────────────────────────────────
+
+def test_key_and_model_failures_stay_out_of_the_breaker_rate_window():
+    """The rolling rate rule must ignore key- and model-scoped failures.
+
+    Before this fix `record_failure` appended every outcome to the same deque
+    that `_should_trip` averaged, so a key exhausting its quota with 429s raised
+    the windowed failure rate until the next provider-scoped failure opened the
+    breaker for the whole provider — the escalation ADR-008 §4 forbids.
+    """
+    tracker = HealthTracker(HealthConfig(
+        failure_threshold=99, failure_rate_threshold=0.5, min_samples=4,
+        open_duration_sec=60.0, window_sec=60.0,
+    ))
+    for _ in range(20):
+        tracker.record_failure("demo", status=429, counts_against_breaker=False)
+    tracker.record_success("demo", latency_ms=10)
+    tracker.record_failure("demo", status=500)          # one real failure
+
+    assert tracker.get("demo").state is BreakerState.CLOSED
+    assert tracker.is_available("demo") is True
+
+
+def test_manual_hold_survives_an_in_flight_success():
+    """force_open must not be undone by a request that was already running."""
+    tracker = HealthTracker(HealthConfig(open_duration_sec=60.0))
+    tracker.force_open("demo", duration_sec=60.0)
+    tracker.record_success("demo", latency_ms=5)         # in-flight completion
+
+    assert tracker.is_available("demo") is False
+    tracker.force_close("demo")
+    assert tracker.is_available("demo") is True
+
+
+def test_probe_permit_is_returned_when_nothing_was_tried():
+    tracker = HealthTracker(HealthConfig(
+        failure_threshold=1, open_duration_sec=0.01, half_open_probes=1,
+    ))
+    tracker.record_failure("demo", status=500)
+    time.sleep(0.02)
+    assert tracker.is_available("demo") is True          # -> half-open
+    assert tracker.acquire_probe("demo") is True
+    assert tracker.acquire_probe("demo") is False
+
+    tracker.release_probe("demo")
+    assert tracker.acquire_probe("demo") is True, "probe permit leaked"
+
+
+def test_concurrent_success_does_not_clear_a_key_cooldown():
+    """Request A succeeding must not wipe the cooldown request B just started."""
+    ring = llm_keys.KeyRing()
+    keys = ["k1", "k2"]
+    ring.acquire("demo", keys)
+    ring.record_rate_limit("demo", "k1", retry_after=60.0)
+    ring.record_success("demo", "k1")                    # the late completion
+
+    state = next(s for s in ring.snapshot()["demo"] if s["digest"] == _digest_of("k1"))
+    assert state["healthy"] is False, "a late success released a rate-limited key"
+
+
+def _digest_of(key: str) -> str:
+    import hashlib
+
+    return hashlib.sha256(key.encode()).hexdigest()[:8]
+
+
+def test_httpx_transport_errors_are_retryable():
+    """httpx exceptions are not OSError, so the stdlib tuple alone misses them.
+
+    Misclassifying a connect timeout as permanent stops failover dead.
+    """
+    import httpx
+
+    config = RetryConfig()
+    for error in (
+        httpx.ConnectError("refused"),
+        httpx.ConnectTimeout("timed out"),
+        httpx.ReadError("reset"),
+        httpx.RemoteProtocolError("bad frame"),
+    ):
+        assert is_retryable(error, config) is True, f"{type(error).__name__} not retryable"

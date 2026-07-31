@@ -70,6 +70,9 @@ class ProviderConfig:
     api_version: str = ""               # Azure OpenAI
     deployment: str = ""                # Azure OpenAI
     requires_key: bool = True
+    # Send OpenAI's `stream_options` on streaming calls. Off by default:
+    # only genuine OpenAI-compatible servers accept the field.
+    stream_options: bool = False
     notes: str = ""
 
     @property
@@ -238,7 +241,11 @@ def expand_env(value: Any) -> Any:
     """Recursively expand ``${VAR}`` / ``${VAR:-default}`` in loaded YAML."""
     if isinstance(value, str):
         def _sub(match: re.Match[str]) -> str:
-            return os.environ.get(match.group(1), match.group(2) or "")
+            # Shell `:-` semantics: the default applies when the variable is
+            # unset OR empty. `os.environ.get(name, default)` only covers
+            # unset, so `OLLAMA_BASE=` would yield an empty base URL.
+            current = os.environ.get(match.group(1), "")
+            return current if current else (match.group(2) or "")
         return _ENV_PATTERN.sub(_sub, value)
     if isinstance(value, dict):
         return {k: expand_env(v) for k, v in value.items()}
@@ -331,9 +338,16 @@ def _load_providers(raw: dict[str, Any]) -> dict[str, ProviderConfig]:
         key_env = body.get("key_env") or []
         if isinstance(key_env, str):
             key_env = [key_env]
-        out[str(pid)] = _build(
+        provider = _build(
             ProviderConfig, body, id=str(pid), key_env=[str(k) for k in key_env]
         )
+        if provider.enabled and not provider.base_url.strip():
+            # `base_url: ${VAR}` with VAR unset yields "". Admitting it gives a
+            # provider every request routed to it will fail against, which the
+            # env-derived path already refuses.
+            log.warning("llm config: provider %r has no base_url — disabling it", pid)
+            provider.enabled = False
+        out[str(pid)] = provider
     return out
 
 
@@ -373,7 +387,13 @@ def _load_cache(raw: dict[str, Any]) -> CacheConfig:
             body.pop(layer, None)
     threshold = body.get("semantic_threshold")
     if threshold is not None:
-        layers["semantic_threshold"] = float(threshold)
+        try:
+            layers["semantic_threshold"] = float(threshold)
+        except (TypeError, ValueError):
+            log.warning(
+                "llm config: semantic_threshold=%r is not a number — using the default",
+                threshold,
+            )
     defaults = CacheConfig()
     return CacheConfig(
         response=layers.get("response", defaults.response),
@@ -455,6 +475,19 @@ def _apply_key_env(providers: dict[str, ProviderConfig], raw: dict[str, Any]) ->
             continue
         merged = list(dict.fromkeys([*provider.key_env, *names]))
         provider.key_env = merged
+
+    # Auto-detect NAME_2 … NAME_10 / NAME_S / NAME_POOL for every provider,
+    # including those declared in providers.yaml. Without this the numbered
+    # pool convention worked only for env-derived providers — and since every
+    # shipped provider is declared in YAML, setting CEREBRAS_API_KEY_4 added
+    # nothing to the rotation and logged no warning. Key rotation is the
+    # headline 429 defence; it must not depend on remembering to list each
+    # variable in keys.yaml.
+    for provider in providers.values():
+        expanded = list(provider.key_env)
+        for name in list(provider.key_env):
+            expanded.extend(_env_key_names(name))
+        provider.key_env = list(dict.fromkeys(expanded))
 
 
 # ── Environment-derived defaults (zero-config path) ──────────────────────────
@@ -625,6 +658,19 @@ def reset() -> None:
     global _config
     with _lock:
         _config = None
+
+
+def gateway_enabled() -> bool:
+    """Whether the OpenAI-compatible passthrough routes accept traffic.
+
+    Off by default: exposing the platform's provider keys to other
+    applications must be a deliberate act. Lives here rather than in
+    ``gateway.py`` so every environment read for this package stays in the
+    config module.
+    """
+    return os.environ.get("LLM_GATEWAY_ENABLED", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
 
 
 def router_enabled() -> bool:

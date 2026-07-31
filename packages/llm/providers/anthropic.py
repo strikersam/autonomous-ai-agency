@@ -50,15 +50,55 @@ class AnthropicProvider(LLMProvider):
         messages: list[dict[str, Any]] = []
         for message in request.messages:
             role = message.get("role")
+            content = message.get("content")
+
             if role == "system":
-                content = message.get("content")
                 system_parts.append(
                     content if isinstance(content, str) else json.dumps(content)
                 )
                 continue
+
+            # A tool result. OpenAI carries these as role="tool" with a
+            # tool_call_id; Anthropic needs a tool_result block on a user turn.
+            # Without this the second turn of any tool conversation arrives
+            # missing the block Anthropic requires and the request fails.
+            if role == "tool":
+                messages.append({
+                    "role": "user",
+                    "content": [{
+                        "type": "tool_result",
+                        "tool_use_id": str(message.get("tool_call_id") or ""),
+                        "content": content if isinstance(content, str) else json.dumps(content),
+                    }],
+                })
+                continue
+
+            # An assistant turn that called tools. OpenAI puts them alongside
+            # the text; Anthropic needs tool_use blocks in the content array.
+            tool_calls = message.get("tool_calls") or []
+            if role == "assistant" and tool_calls:
+                blocks: list[dict[str, Any]] = []
+                if isinstance(content, str) and content:
+                    blocks.append({"type": "text", "text": content})
+                for call in tool_calls:
+                    function = call.get("function") or {}
+                    raw_args = function.get("arguments")
+                    try:
+                        arguments = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
+                    except json.JSONDecodeError:
+                        arguments = {}
+                    blocks.append({
+                        "type": "tool_use",
+                        "id": str(call.get("id") or ""),
+                        "name": str(function.get("name") or ""),
+                        "input": arguments,
+                    })
+                messages.append({"role": "assistant", "content": blocks})
+                continue
+
             messages.append({
                 "role": "assistant" if role == "assistant" else "user",
-                "content": message.get("content"),
+                "content": content,
             })
 
         payload: dict[str, Any] = {
@@ -94,7 +134,9 @@ class AnthropicProvider(LLMProvider):
             if choice == "required":
                 return {"type": "any"}
             if choice == "none":
-                return {"type": "auto"}
+                # Anthropic supports {"type": "none"}. Mapping it to "auto"
+                # let the model emit tool_use blocks the caller forbade.
+                return {"type": "none"}
             return {"type": "auto"}
         if isinstance(choice, dict) and choice.get("type") == "function":
             name = (choice.get("function") or {}).get("name")
@@ -214,12 +256,12 @@ class AnthropicProvider(LLMProvider):
                                    provider=self.id, model=model)
             if delta.get("type") == "input_json_delta":
                 return StreamChunk(
-                    tool_call=ToolCall(
+                    tool_calls=[ToolCall(
                         id=tool_ids.get(index, ""),
                         name=tool_names.get(index, ""),
                         arguments=str(delta.get("partial_json") or ""),
                         index=index,
-                    ),
+                    )],
                     provider=self.id,
                     model=model,
                 )

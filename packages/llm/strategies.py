@@ -204,7 +204,10 @@ def token_budget_optimized(candidates: list[Candidate], ctx: RoutingContext) -> 
         health = ctx.health.get(candidate.provider.id)
         pressure = health.rate_limit_frequency(ctx.window_sec)
         tpm = candidate.provider.tokens_per_minute or candidate.model.max_tokens_per_minute
-        headroom = -float(tpm) if tpm else 0.0
+        # 0 means unmetered, which is the *most* headroom there is. Scoring it
+        # as 0.0 put it behind every metered provider (which score negative),
+        # inverting the whole strategy.
+        headroom = -float(tpm) if tpm else float("-inf")
         return (pressure, headroom, candidate.key)
 
     return sorted(candidates, key=score)
@@ -278,12 +281,14 @@ def automatic_failover(candidates: list[Candidate], ctx: RoutingContext) -> list
     tier_rank = {"local": 0, "free": 1, "cheap": 2, "premium": 3}
     prefer_local = ctx.routing.prefer_local
 
-    def score(candidate: Candidate) -> tuple[int, int, int, str]:
-        tier = tier_rank.get(candidate.provider.tier, 2)
+    def score(candidate: Candidate) -> tuple[int, float, int, str]:
+        tier = float(tier_rank.get(candidate.provider.tier, 2))
         if not prefer_local and candidate.provider.tier == "local":
             # Without prefer_local, a cold local model shouldn't outrank a warm
-            # free cloud one — sit it just behind the free tier.
-            tier = 1 if tier_rank.get("free", 1) < tier else tier
+            # free cloud one — sit it just behind the free tier. A float offset
+            # is needed: local is rank 0, so any integer comparison against the
+            # free rank is a no-op and local kept sorting first.
+            tier = tier_rank["free"] + 0.5
         healthy = 0 if ctx.health.is_available(candidate.provider.id) else 1
         return (healthy, tier, candidate.provider.priority, candidate.key)
 

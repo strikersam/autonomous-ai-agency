@@ -22,19 +22,57 @@ LATENCY_BUCKETS: tuple[float, ...] = (
 
 Labels = tuple[tuple[str, str], ...]
 
+# Ceiling on distinct label combinations per metric family. Some label values
+# are caller-controlled — the gateway accepts an `x-agent` header, and error
+# text feeds `reason` — so an unbounded dict here is a memory leak that grows
+# for as long as the process lives. Past the cap, series fold into
+# {overflow="true"} rather than being dropped, so totals stay correct.
+MAX_SERIES_PER_METRIC = 2000
+_OVERFLOW: Labels = (("overflow", "true"),)
+
+
+def sanitize_label(value: str, *, limit: int = 64) -> str:
+    """Clamp a caller-supplied label value to something bounded and printable."""
+    cleaned = "".join(c for c in str(value)[:limit] if c.isprintable())
+    return cleaned.strip()
+
 
 def _labels(**kwargs: str) -> Labels:
-    return tuple(sorted((k, str(v)) for k, v in kwargs.items() if v != ""))
+    """Build a label tuple, keeping empty values.
+
+    Dropping an empty label would give one metric family two different label
+    sets — `llm_requests_total` with and without `agent` — and Prometheus
+    silently splits `sum by (agent)` across them.
+    """
+    return tuple(sorted((k, str(v)) for k, v in kwargs.items()))
 
 
 def _render_labels(labels: Labels) -> str:
     if not labels:
         return ""
-    inner = ",".join(
-        f'{key}="{value.replace(chr(92), chr(92) * 2).replace(chr(34), chr(92) + chr(34))}"'
-        for key, value in labels
-    )
+    inner = ",".join(f'{key}="{_escape(value)}"' for key, value in labels)
     return "{" + inner + "}"
+
+
+def _escape(value: str) -> str:
+    """Escape a label value per the exposition format.
+
+    Newlines matter: `status` and `reason` carry provider error text, and an
+    unescaped line feed produces an unparseable exposition line.
+    """
+    return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+
+
+def _render_value(value: float) -> str:
+    """Render a sample without the six-significant-digit loss of ``:g``.
+
+    `llm_tokens_total` passes counts that cross a million quickly; `:g` turns
+    1234567 into 1.23457e+06, so the counter Prometheus records is wrong and
+    every rate() over it is wrong too.
+    """
+    if value == int(value) and abs(value) < 2 ** 53:
+        return str(int(value))
+    return repr(value)
 
 
 @dataclass
@@ -43,6 +81,8 @@ class _Counter:
     values: dict[Labels, float] = field(default_factory=dict)
 
     def inc(self, labels: Labels, amount: float = 1.0) -> None:
+        if labels not in self.values and len(self.values) >= MAX_SERIES_PER_METRIC:
+            labels = _OVERFLOW
         self.values[labels] = self.values.get(labels, 0.0) + amount
 
 
@@ -52,6 +92,8 @@ class _Gauge:
     values: dict[Labels, float] = field(default_factory=dict)
 
     def set(self, labels: Labels, value: float) -> None:
+        if labels not in self.values and len(self.values) >= MAX_SERIES_PER_METRIC:
+            return
         self.values[labels] = value
 
 
@@ -64,6 +106,8 @@ class _Histogram:
     totals: dict[Labels, int] = field(default_factory=dict)
 
     def observe(self, labels: Labels, value: float) -> None:
+        if labels not in self.counts and len(self.counts) >= MAX_SERIES_PER_METRIC:
+            labels = _OVERFLOW
         counts = self.counts.setdefault(labels, [0] * len(self.buckets))
         for index, upper in enumerate(self.buckets):
             if value <= upper:
@@ -113,7 +157,8 @@ class MetricsRegistry:
     ) -> None:
         with self._lock:
             self.requests.inc(_labels(provider=provider, model=model,
-                                      outcome=outcome, agent=agent))
+                                      outcome=outcome,
+                                      agent=sanitize_label(agent)))
             self.latency.observe(_labels(provider=provider), latency_sec)
             if fallbacks:
                 self.fallbacks.inc(_labels(provider=provider), fallbacks)
@@ -187,18 +232,18 @@ class MetricsRegistry:
                 lines.append(f"# HELP {name} {counter.help_text}")
                 lines.append(f"# TYPE {name} counter")
                 for labels, value in sorted(counter.values.items()):
-                    lines.append(f"{name}{_render_labels(labels)} {value:g}")
+                    lines.append(f"{name}{_render_labels(labels)} {_render_value(value)}")
             for name, gauge in self._gauges():
                 if not gauge.values:
                     continue
                 lines.append(f"# HELP {name} {gauge.help_text}")
                 lines.append(f"# TYPE {name} gauge")
                 for labels, value in sorted(gauge.values.items()):
-                    lines.append(f"{name}{_render_labels(labels)} {value:g}")
+                    lines.append(f"{name}{_render_labels(labels)} {_render_value(value)}")
             lines.extend(self._render_histogram("llm_request_duration_seconds", self.latency))
             lines.append("# HELP llm_router_uptime_seconds Seconds since the router started.")
             lines.append("# TYPE llm_router_uptime_seconds gauge")
-            lines.append(f"llm_router_uptime_seconds {time.time() - self._started:g}")
+            lines.append(f"llm_router_uptime_seconds {_render_value(time.time() - self._started)}")
         return "\n".join(lines) + "\n"
 
     def _counters(self) -> Iterable[tuple[str, _Counter]]:
@@ -239,7 +284,7 @@ class MetricsRegistry:
                 lines.append(f"{name}_bucket{_render_labels(bucket_labels)} {count}")
             total = histogram.totals.get(labels, 0)
             lines.append(f"{name}_bucket{_render_labels((*labels, ('le', '+Inf')))} {total}")
-            lines.append(f"{name}_sum{_render_labels(labels)} {histogram.sums.get(labels, 0.0):g}")
+            lines.append(f"{name}_sum{_render_labels(labels)} {_render_value(histogram.sums.get(labels, 0.0))}")
             lines.append(f"{name}_count{_render_labels(labels)} {total}")
         return lines
 

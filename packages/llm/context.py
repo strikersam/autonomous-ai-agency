@@ -162,9 +162,11 @@ def sliding_window(
     used = reserved + anchor_tokens
     for message in reversed(body[1:]):
         cost = message_tokens(message)
-        if len(tail) >= keep_recent and used + cost > budget_tokens:
-            break
-        if used + cost > budget_tokens and tail:
+        # The budget only stops us once `keep_recent` newest turns are held.
+        # Previously a second, unconditional budget break fired first, which
+        # made `keep_recent` — and DEFAULT_KEEP_RECENT — dead parameters.
+        # FitResult.needs_larger_model reports the overflow this can leave.
+        if used + cost > budget_tokens and len(tail) >= keep_recent:
             break
         tail.append(message)
         used += cost
@@ -199,12 +201,22 @@ def chunk_document(text: str, *, chunk_tokens: int = 3000, overlap_tokens: int =
             continue
         if current:
             chunks.append(current)
-            current = (current[-overlap_chars:] + "\n\n" + paragraph) if overlap_chars else paragraph
-        else:
-            # A single paragraph longer than the chunk size — hard split it.
-            for start in range(0, len(paragraph), max_chars):
-                chunks.append(paragraph[start:start + max_chars])
             current = ""
+        # Carry an overlap only when the joined text still fits; otherwise the
+        # "overlap" silently produced a chunk above max_chars, and a caller
+        # sizing its request from chunk_tokens would overflow the window.
+        overlap = chunks[-1][-overlap_chars:] if (chunks and overlap_chars) else ""
+        candidate = f"{overlap}\n\n{paragraph}" if overlap else paragraph
+        if len(candidate) <= max_chars:
+            current = candidate
+            continue
+        if len(paragraph) <= max_chars:
+            current = paragraph
+            continue
+        # A single paragraph longer than the chunk size — hard split it.
+        for start in range(0, len(paragraph), max_chars):
+            chunks.append(paragraph[start:start + max_chars])
+        current = ""
     if current:
         chunks.append(current)
     return chunks

@@ -110,6 +110,73 @@ async def test_queue_accepts_priorities():
     assert await queue.submit(job, priority=Priority.BULK) == "ok"
 
 
+async def test_critical_work_overtakes_queued_bulk_work():
+    """Priority must actually reorder admission, not merely be accepted.
+
+    A plain FIFO semaphore accepts the priority argument and ignores it, so
+    this asserts the observable consequence: a CRITICAL job submitted last is
+    served before BULK jobs that were already waiting.
+    """
+    queue = RequestQueue(max_depth=50, max_concurrency=1)
+    order: list[str] = []
+    release = asyncio.Event()
+
+    async def blocker():
+        await release.wait()
+        return "blocker"
+
+    async def tagged(name: str):
+        order.append(name)
+        return name
+
+    held = asyncio.create_task(queue.submit(blocker, priority=Priority.NORMAL))
+    await asyncio.sleep(0.02)                      # the single slot is taken
+
+    waiting = [
+        asyncio.create_task(queue.submit(lambda n=f"bulk{i}": tagged(n),
+                                         priority=Priority.BULK))
+        for i in range(3)
+    ]
+    await asyncio.sleep(0.02)                      # all three are queued
+    late = asyncio.create_task(queue.submit(lambda: tagged("critical"),
+                                            priority=Priority.CRITICAL))
+    await asyncio.sleep(0.02)
+
+    release.set()
+    await asyncio.gather(held, late, *waiting)
+
+    assert order[0] == "critical", f"priority ignored — ran {order}"
+    assert set(order[1:]) == {"bulk0", "bulk1", "bulk2"}
+
+
+async def test_same_priority_stays_fifo():
+    """Ties inside a band must not starve the earliest arrival."""
+    queue = RequestQueue(max_depth=50, max_concurrency=1)
+    order: list[str] = []
+    release = asyncio.Event()
+
+    async def blocker():
+        await release.wait()
+
+    async def tagged(name: str):
+        order.append(name)
+
+    held = asyncio.create_task(queue.submit(blocker, priority=Priority.NORMAL))
+    await asyncio.sleep(0.02)
+
+    queued = []
+    for i in range(4):
+        queued.append(asyncio.create_task(
+            queue.submit(lambda n=f"job{i}": tagged(n), priority=Priority.NORMAL)
+        ))
+        await asyncio.sleep(0.01)                  # establish a clear arrival order
+
+    release.set()
+    await asyncio.gather(held, *queued)
+
+    assert order == ["job0", "job1", "job2", "job3"], f"not FIFO within a band: {order}"
+
+
 # ── Bulkhead ────────────────────────────────────────────────────────────────
 
 async def test_bulkhead_isolates_one_provider_from_another():
@@ -225,7 +292,9 @@ def test_response_cache_round_trip_and_stats():
     assert cache.get_response(key)["text"] == "hello"
 
     stats = cache.stats()
-    response_layer = next(l for l in stats["layers"] if l["name"] == "response")
+    response_layer = next(
+        layer for layer in stats["layers"] if layer["name"] == "response"
+    )
     assert response_layer["hits"] == 1 and response_layer["misses"] == 1
 
 
@@ -437,3 +506,77 @@ def test_budget_is_advisory_unless_enforcement_is_on():
     enforced.record(usage=Usage(), cost_usd=5.0, provider="p", model="m")
     with pytest.raises(Exception, match="daily budget exceeded"):
         enforced.check_affordable()
+
+
+def test_cache_key_separates_requests_with_different_routing_constraints():
+    """A free-only request must not be served a paid provider's cached answer.
+
+    The key hashed only the prompt shape, so two requests with incompatible
+    provider constraints collided — a silent policy breach, since the stored
+    body names the provider the caller rejected.
+    """
+    base = {"model": "", "messages": [{"role": "user", "content": "hi"}],
+            "temperature": 0.0}
+    free_only = payload_key({**base, "allow_paid": False})
+    paid_ok = payload_key({**base, "allow_paid": True})
+    excluded = payload_key({**base, "allow_paid": False, "exclude_providers": ["nvidia"]})
+
+    assert free_only != paid_ok
+    assert free_only != excluded
+
+
+def test_dedupe_fingerprint_separates_routing_constraints():
+    """Two requests with different provider constraints must not share a call."""
+    base = {"model": "", "messages": [{"role": "user", "content": "hi"}]}
+    assert request_fingerprint({**base, "allow_paid": False}) != \
+        request_fingerprint({**base, "allow_paid": True})
+    assert request_fingerprint({**base, "exclude_providers": ["a"]}) != \
+        request_fingerprint({**base, "exclude_providers": ["b"]})
+
+
+# ── Memory bounds — the platform is meant to run for weeks ───────────────────
+
+def test_metrics_label_cardinality_is_bounded():
+    """Caller-supplied labels must not grow the registry without bound.
+
+    The gateway accepts an `x-agent` header, so an external client could
+    otherwise add one series per request for the life of the process.
+    """
+    from packages.llm.metrics import MAX_SERIES_PER_METRIC, MetricsRegistry
+
+    registry = MetricsRegistry()
+    for i in range(MAX_SERIES_PER_METRIC + 500):
+        registry.record_request(
+            provider="p", model="m", outcome="success",
+            latency_sec=0.1, agent=f"agent-{i}",
+        )
+
+    assert len(registry.requests.values) <= MAX_SERIES_PER_METRIC + 1
+    # Nothing is lost: the overflow series carries the excess.
+    total = sum(registry.requests.values.values())
+    assert total == MAX_SERIES_PER_METRIC + 500
+
+
+def test_metrics_sanitizes_hostile_label_values():
+    from packages.llm.metrics import sanitize_label
+
+    assert len(sanitize_label("x" * 5000)) <= 64
+    assert "\n" not in sanitize_label("line\nbreak")
+
+
+def test_budget_prunes_old_periods_and_caps_dimensions():
+    """Daily buckets and free-form dimensions must not accumulate forever."""
+    from packages.llm import budget as budget_module
+
+    tracker = budget_module.BudgetTracker(BudgetConfig())
+    for day in range(budget_module.MAX_DAILY_BUCKETS + 40):
+        tracker._dims.daily[f"2026-{(day % 12) + 1:02d}-{(day % 28) + 1:02d}-{day}"]
+    tracker._prune()
+    assert len(tracker._dims.daily) <= budget_module.MAX_DAILY_BUCKETS
+
+    for i in range(budget_module.MAX_DIMENSION_KEYS + 200):
+        tracker.record(usage=Usage(prompt_tokens=1), cost_usd=0.0,
+                       provider="p", model="m", agent=f"agent-{i}")
+    assert len(tracker._dims.agent) <= budget_module.MAX_DIMENSION_KEYS + 1
+    # Every call is still counted, folded into "other" past the cap.
+    assert tracker.snapshot()["total"]["requests"] == budget_module.MAX_DIMENSION_KEYS + 200

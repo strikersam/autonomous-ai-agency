@@ -102,8 +102,12 @@ const ALIASES = {
   gemini: 'google', 'google-gemini': 'google', googleai: 'google',
   'lm-studio': 'lmstudio', 'local-ai': 'localai',
   claude: 'anthropic', 'azure-openai': 'azure',
-  'openai-compatible': 'openai', zai: 'nvidia',
 };
+
+// Deliberately NOT aliased: 'openai-compatible' is the default *type* for any
+// custom provider an admin adds on this page, and 'zai' is a distinct vendor.
+// Mapping either would fold a self-hosted endpoint into the premium OpenAI or
+// NVIDIA row and show it someone else's health.
 
 export function canonicalId(raw) {
   const id = String(raw || '').trim().toLowerCase();
@@ -297,14 +301,16 @@ export function mergeProviders({ routed = [], stored = [], catalogue = CATALOGUE
 
   const list = [...rows.values()];
 
-  // Exactly one row carries SERVING: the healthiest routed provider. That is
-  // what "the brain" always meant, stated once instead of implied in three
-  // places with three different answers.
-  const serving = list
-    .filter(r => r.state === 'healthy')
-    .sort((a, b) => (b.successRate ?? 1) - (a.successRate ?? 1)
-      || (a.p95 ?? 1e9) - (b.p95 ?? 1e9)
-      || a.priority - b.priority)[0];
+  // Exactly one row carries SERVING: the provider the router would pick next.
+  // `routed` already arrives ranked healthiest-first from GET /api/llm/providers,
+  // so the first healthy entry in that order IS the answer. Re-ranking here
+  // gave a second implementation that could drift from the router's own — and
+  // its `?? 1` default treated "no data yet" as a perfect 1.0 score, so an
+  // untried provider outranked a measured one at 0.98.
+  const servingId = routed
+    .map(entry => canonicalId(entry.id))
+    .find(id => rows.get(id)?.state === 'healthy');
+  const serving = servingId ? rows.get(servingId) : undefined;
   if (serving) serving.state = 'serving';
 
   list.sort((a, b) => {

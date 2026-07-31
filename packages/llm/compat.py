@@ -17,9 +17,12 @@ from typing import Any
 from packages.llm.config import router_enabled
 from packages.llm.router import get_router
 from packages.llm.types import (
+    BudgetExceeded,
     LLMRequest,
     LLMResponse,
+    PermanentError,
     Priority,
+    QueueFull,
     RouterExhausted,
 )
 
@@ -34,9 +37,13 @@ def request_from_openai_payload(
     Unknown keys are preserved in ``extra`` and forwarded to the provider, so a
     caller passing a vendor-specific parameter today keeps passing it.
     """
+    # `n`, `stop`, and `top_p` are deliberately NOT listed: LLMRequest has no
+    # fields for them, so listing them here would strip them from `extra` and
+    # they would never reach the provider — silently changing sampling
+    # behaviour for a routed call.
     known = {
         "model", "messages", "temperature", "max_tokens", "stream", "tools",
-        "tool_choice", "response_format", "n", "stop", "top_p",
+        "tool_choice", "response_format",
     }
     extra = {k: v for k, v in payload.items() if k not in known}
 
@@ -118,6 +125,12 @@ async def failover_chat_completion_via_router(
             if attempt.error
         ]
         raise BrainFailoverExhausted(exc.reason, attempted, failures) from exc
+    except (QueueFull, BudgetExceeded, PermanentError) as exc:
+        # Callers such as agent/loop.py catch BrainFailoverExhausted and
+        # nothing else. Letting a router-specific exception escape would break
+        # them the moment the flag is enabled — exactly what the compatibility
+        # contract exists to prevent.
+        raise BrainFailoverExhausted(str(exc), set(), [str(exc)]) from exc
 
     return FailoverResult(
         text=response.text,

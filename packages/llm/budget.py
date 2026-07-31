@@ -29,6 +29,15 @@ from packages.llm.types import BudgetExceeded, Usage
 
 log = logging.getLogger("llm.budget")
 
+# The platform is meant to run for weeks, so every unbounded dict here is a
+# slow leak. Daily buckets are pruned to a rolling window and the free-form
+# dimensions are capped; anything past the cap folds into "other" so the
+# totals stay correct.
+MAX_DAILY_BUCKETS = 62
+MAX_MONTHLY_BUCKETS = 24
+MAX_DIMENSION_KEYS = 500
+_OTHER = "other"
+
 AlertHandler = Callable[[dict[str, Any]], None]
 
 
@@ -102,6 +111,20 @@ class BudgetTracker:
 
     # ── Recording ───────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _bounded_key(bucket: dict[str, Counter], key: str) -> str:
+        """Fold a new key into "other" once the dimension is at its cap."""
+        if key in bucket or len(bucket) < MAX_DIMENSION_KEYS:
+            return key
+        return _OTHER
+
+    def _prune(self) -> None:
+        """Drop period buckets older than the retention window."""
+        for bucket, limit in ((self._dims.daily, MAX_DAILY_BUCKETS),
+                              (self._dims.monthly, MAX_MONTHLY_BUCKETS)):
+            while len(bucket) > limit:
+                del bucket[min(bucket)]
+
     def record(
         self,
         *,
@@ -123,7 +146,8 @@ class BudgetTracker:
                 (self._dims.daily, _today()),
                 (self._dims.monthly, _month()),
             ):
-                bucket[key].add(usage, cost_usd)
+                bucket[self._bounded_key(bucket, key)].add(usage, cost_usd)
+            self._prune()
 
         self._check_thresholds()
         self._mirror_to_cost_tracker(usage, provider, model)
@@ -208,7 +232,7 @@ class BudgetTracker:
     def _emit(self, alert: dict[str, Any]) -> None:
         self._alerts.append(alert)
         log.warning(
-            "llm.budget: %s spend at %.0f%% of $%.2f (${%s} used)",
+            "llm.budget: %s spend at %.0f%% of $%.2f ($%.4f used)",
             alert["period"], alert["ratio"] * 100, alert["budget_usd"],
             alert["spend_usd"],
         )

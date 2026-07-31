@@ -8242,6 +8242,11 @@ async def github_webhook(request: Request) -> dict[str, object]:
     return {"ok": True, "intake": "created", "task_id": task.task_id}
 
 
+# Health-check ping ceiling. Render fails its check at 5s; staying well
+# under that keeps a slow database from being reported as a dead app.
+_HEALTH_PING_TIMEOUT_SEC = 2.0
+
+
 async def _check_storage_health() -> bool:
     """Check if the storage backend is reachable.
 
@@ -8270,10 +8275,22 @@ async def _check_storage_health() -> bool:
         except Exception:
             return False
     else:
-        # MongoDB: ping the DB
+        # MongoDB: ping the DB, bounded well under the platform health-check
+        # budget. Render times its check out at 5s; motor's own server-selection
+        # and socket timeouts are 20s, so a slow or cold Atlas made /api/health
+        # hang past the deadline and the deploy was marked unhealthy even though
+        # the app was serving. A ping that has not answered in two seconds is
+        # not "healthy pending" — it is degraded, and saying so quickly is more
+        # useful than saying nothing slowly.
         try:
-            await get_db().command("ping")
+            await asyncio.wait_for(get_db().command("ping"), timeout=_HEALTH_PING_TIMEOUT_SEC)
             return True
+        except (asyncio.TimeoutError, TimeoutError):
+            log.warning(
+                "health: storage ping exceeded %.1fs — reporting degraded",
+                _HEALTH_PING_TIMEOUT_SEC,
+            )
+            return False
         except Exception:
             return False
 

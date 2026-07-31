@@ -133,7 +133,10 @@ def test_prometheus_metrics_render(client):
     assert "text/plain" in response.headers["content-type"]
     body = response.text
     assert "# TYPE llm_requests_total counter" in body
-    assert 'llm_requests_total{model="alpha-model"' in body
+    # Empty labels are kept so the family keeps one stable label set — an
+    # unattributed request still carries agent="".
+    assert 'agent=""' in body
+    assert 'model="alpha-model"' in body
     assert "llm_router_uptime_seconds" in body
 
 
@@ -254,3 +257,49 @@ def test_read_endpoints_still_answer_when_the_router_is_off(client, monkeypatch)
                  "/api/llm/usage", "/api/llm/cache", "/api/llm/config",
                  "/api/llm/metrics", "/api/llm/metrics.json"):
         assert client.get(path).status_code == 200, f"{path} failed while disabled"
+
+
+# ── Regressions from the PR #1168 review ─────────────────────────────────────
+
+def test_every_route_requires_authentication(tmp_path, monkeypatch):
+    """No route may be reachable unauthenticated.
+
+    `/v1/chat/completions` spends provider quota and paid budget; `/config`
+    names providers and their key *variables*; `/usage` reports spend. All of
+    them were public.
+    """
+    from fastapi import Depends, HTTPException
+
+    (tmp_path / "providers.yaml").write_text(PROVIDERS_YAML, encoding="utf-8")
+    (tmp_path / "models.yaml").write_text(MODELS_YAML, encoding="utf-8")
+    monkeypatch.setenv("LLM_CONFIG_DIR", str(tmp_path))
+    monkeypatch.setenv("ALPHA_KEY", "k")
+    monkeypatch.setenv("LLM_ROUTER_ENABLED", "true")
+    monkeypatch.setenv("LLM_GATEWAY_ENABLED", "true")
+    for module in (llm_config, llm_registry, llm_health, llm_keys,
+                   llm_cache, llm_budget, llm_metrics, llm_router):
+        module.reset()
+
+    def deny() -> None:
+        raise HTTPException(401, "unauthenticated")
+
+    app = FastAPI()
+    app.include_router(build_llm_router(deny))
+    with TestClient(app) as anon:
+        for method, path in (
+            ("get", "/api/llm/status"), ("get", "/api/llm/providers"),
+            ("get", "/api/llm/health"), ("get", "/api/llm/models"),
+            ("get", "/api/llm/metrics"), ("get", "/api/llm/metrics.json"),
+            ("get", "/api/llm/usage"), ("get", "/api/llm/cache"),
+            ("get", "/api/llm/config"), ("get", "/api/llm/v1/models"),
+        ):
+            assert getattr(anon, method)(path).status_code == 401, f"{path} is public"
+        assert anon.post("/api/llm/v1/chat/completions", json={
+            "model": "alpha-model", "messages": [{"role": "user", "content": "hi"}],
+        }).status_code == 401, "the completion route is public"
+        assert anon.post("/api/llm/health/probe").status_code == 401
+        assert anon.delete("/api/llm/cache").status_code == 401
+
+    for module in (llm_config, llm_registry, llm_health, llm_keys,
+                   llm_cache, llm_budget, llm_metrics, llm_router):
+        module.reset()

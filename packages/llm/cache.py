@@ -131,7 +131,15 @@ class LRUCache(Generic[T]):
 
 
 def payload_key(payload: dict[str, Any]) -> str:
-    """Exact-match cache key over the fields that change the answer."""
+    """Exact-match cache key over the fields that change the answer.
+
+    Routing constraints are part of the key, not just the prompt. Without
+    them a request with ``allow_paid=False`` could be served a cached
+    response a paid provider produced earlier, and one with
+    ``exclude_providers`` could be served the excluded provider's answer —
+    a silent policy breach rather than an optimisation, because the stored
+    body reports the provider that the caller rejected.
+    """
     material = {
         "model": payload.get("model"),
         "messages": payload.get("messages"),
@@ -139,6 +147,9 @@ def payload_key(payload: dict[str, Any]) -> str:
         "max_tokens": payload.get("max_tokens"),
         "response_format": payload.get("response_format"),
         "tools": payload.get("tools"),
+        "allow_paid": payload.get("allow_paid"),
+        "providers": payload.get("providers"),
+        "exclude_providers": payload.get("exclude_providers"),
     }
     return hashlib.sha256(
         json.dumps(material, sort_keys=True, default=str).encode("utf-8")

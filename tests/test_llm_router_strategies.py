@@ -242,3 +242,33 @@ def test_random_eventually_leads_with_each_candidate():
     ctx = _context(candidates)
     seen = {get_strategy("random")(list(candidates), ctx)[0].provider.id for _ in range(80)}
     assert seen == {"a", "b", "c"}
+
+
+# ── Regressions from the PR #1168 review ─────────────────────────────────────
+
+def test_local_sits_behind_free_when_prefer_local_is_off():
+    """The demotion was an integer no-op: local is rank 0, so nothing moved.
+
+    A cold local model outranking a warm free cloud one contradicts both the
+    docstring and the tier order in config/llm/providers.yaml.
+    """
+    routing = RoutingConfig(prefer_local=False)
+    candidates = [
+        _candidate("local", tier="local"),
+        _candidate("free", tier="free"),
+        _candidate("cheap", tier="cheap"),
+    ]
+    ordered = get_strategy("automatic_failover")(candidates, _context(candidates, routing=routing))
+    assert [c.provider.id for c in ordered] == ["free", "local", "cheap"]
+
+
+def test_unmetered_provider_has_the_most_headroom():
+    """tokens_per_minute == 0 means unmetered, which must sort first."""
+    candidates = [
+        _candidate("metered"),
+        _candidate("unmetered"),
+    ]
+    candidates[0].provider.tokens_per_minute = 10_000
+    candidates[1].provider.tokens_per_minute = 0
+    ordered = get_strategy("token_budget_optimized")(candidates, _context(candidates))
+    assert ordered[0].provider.id == "unmetered"

@@ -12,6 +12,7 @@ import pytest
 
 from packages.ai.failover_client import BrainFailoverExhausted, FailoverResult
 from packages.llm import budget as llm_budget
+from packages.llm import config as llm_config
 from packages.llm import cache as llm_cache
 from packages.llm import config as llm_config
 from packages.llm import health as llm_health
@@ -231,12 +232,19 @@ async def test_shim_preserves_tool_calls_through_the_router(routed):
     assert captured["tools"] == tools
 
 
-def test_legacy_registry_models_are_visible_to_the_new_registry():
+def test_legacy_registry_models_are_visible_to_the_new_registry(monkeypatch):
     """Migration must not make a model disappear from routing."""
     from packages.ai import registry as legacy
 
+    monkeypatch.delenv("LLM_CONFIG_DIR", raising=False)
+    llm_config.reset()
     llm_registry.reset()
-    new_ids = {m.id for m in llm_registry.get_registry().all()}
-    legacy_ids = {m.model_id for m in legacy.all_models()}
-    missing = legacy_ids - new_ids
-    assert not missing, f"models lost in migration: {sorted(missing)}"
+    try:
+        new_ids = {m.id for m in llm_registry.get_registry().all()}
+        legacy_ids = {m.model_id for m in legacy.all_models()}
+        missing = legacy_ids - new_ids
+        assert not missing, f"models lost in migration: {sorted(missing)}"
+    finally:
+        # Leave no loaded singleton behind for the next test module.
+        llm_registry.reset()
+        llm_config.reset()

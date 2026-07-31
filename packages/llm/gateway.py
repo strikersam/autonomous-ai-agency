@@ -11,15 +11,20 @@ own agents get. Off by default; set ``LLM_GATEWAY_ENABLED=true``.
 are always mounted, because a routing layer nobody can see is a routing layer
 nobody can debug.
 
-Authentication is the caller's concern: ``build_llm_router`` takes the
-platform's ``get_current_user`` dependency and applies it to every mutating
-route, matching the pattern in ``backend/admin_local_brain_router.py``.
+Every route requires authentication. The read routes are not merely
+informational: ``/config`` names providers and their key *variables*,
+``/usage`` reports spend, and ``/v1/chat/completions`` spends provider quota
+on the caller's behalf. ``build_llm_router`` takes the platform's
+``get_current_user`` dependency and applies it to all of them, matching the
+pattern in ``backend/admin_local_brain_router.py``.
+
+Prometheus scrapes ``/api/llm/metrics`` with a bearer token
+(``bearer_token_file`` in the scrape config).
 """
 from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any, Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -29,9 +34,14 @@ from pydantic import BaseModel, Field
 from packages.llm.budget import get_budget
 from packages.llm.cache import get_cache
 from packages.llm.compat import openai_body_from_response, request_from_openai_payload
-from packages.llm.config import get_config, reload_config, router_enabled
+from packages.llm.config import (
+    gateway_enabled,
+    get_config,
+    reload_config,
+    router_enabled,
+)
 from packages.llm.health import get_tracker
-from packages.llm.metrics import get_metrics
+from packages.llm.metrics import get_metrics, sanitize_label
 from packages.llm.registry import get_registry
 from packages.llm.router import get_router
 from packages.llm.strategies import strategy_names
@@ -44,13 +54,6 @@ from packages.llm.types import (
 )
 
 log = logging.getLogger("llm.gateway")
-
-_TRUTHY = {"1", "true", "yes", "on"}
-
-
-def gateway_enabled() -> bool:
-    """Whether the OpenAI-compatible passthrough routes accept traffic."""
-    return os.environ.get("LLM_GATEWAY_ENABLED", "").strip().lower() in _TRUTHY
 
 
 class ChatRequest(BaseModel):
@@ -95,14 +98,14 @@ def build_llm_router(
 
     # ── Observability ───────────────────────────────────────────────────────
 
-    @router.get("/status")
+    @router.get("/status", dependencies=guard)
     async def status() -> dict[str, Any]:
         """Full routing state — providers, health, queue, cache, budget."""
         if not _available():
             return _disabled_status()
         return get_router().status()
 
-    @router.get("/providers")
+    @router.get("/providers", dependencies=guard)
     async def providers() -> dict[str, Any]:
         """Providers ordered healthiest-first, for the dashboard."""
         if not _available():
@@ -124,7 +127,7 @@ def build_llm_router(
             "strategies": state["strategies"],
         }
 
-    @router.get("/health")
+    @router.get("/health", dependencies=guard)
     async def health() -> dict[str, Any]:
         """Circuit-breaker and rolling-health state per provider."""
         return {"providers": get_tracker().snapshot()}
@@ -136,7 +139,7 @@ def build_llm_router(
             raise HTTPException(503, "LLM router is not enabled")
         return {"results": await get_router().health_check(provider_id)}
 
-    @router.get("/models")
+    @router.get("/models", dependencies=guard)
     async def models() -> dict[str, Any]:
         """The model registry with full capability metadata."""
         return {"models": get_registry().snapshot()}
@@ -148,24 +151,24 @@ def build_llm_router(
             raise HTTPException(503, "LLM router is not enabled")
         return {"discovered": await get_router().discover_models()}
 
-    @router.get("/metrics", response_class=PlainTextResponse)
+    @router.get("/metrics", response_class=PlainTextResponse, dependencies=guard)
     async def metrics() -> str:
         """Prometheus exposition for scraping."""
         if _available():
-            get_router()._refresh_gauges()  # noqa: SLF001 - gauges are router-owned
+            get_router()._refresh_gauges(force=True)  # noqa: SLF001 - router-owned
         return get_metrics().render()
 
-    @router.get("/metrics.json")
+    @router.get("/metrics.json", dependencies=guard)
     async def metrics_json() -> dict[str, Any]:
         """The same metrics as JSON, so the dashboard need not parse text."""
         return get_metrics().snapshot()
 
-    @router.get("/usage")
+    @router.get("/usage", dependencies=guard)
     async def usage() -> dict[str, Any]:
         """Token and cost totals by agent, workflow, provider, model, and period."""
         return get_budget().snapshot()
 
-    @router.get("/cache")
+    @router.get("/cache", dependencies=guard)
     async def cache_stats() -> dict[str, Any]:
         return get_cache().stats()
 
@@ -173,7 +176,7 @@ def build_llm_router(
     async def cache_clear() -> dict[str, Any]:
         return {"cleared": get_cache().clear()}
 
-    @router.get("/config")
+    @router.get("/config", dependencies=guard)
     async def config() -> dict[str, Any]:
         """The effective configuration. Never includes key material."""
         cfg = get_config()
@@ -256,7 +259,7 @@ def build_llm_router(
 
     # ── Gateway mode ────────────────────────────────────────────────────────
 
-    @router.post("/v1/chat/completions")
+    @router.post("/v1/chat/completions", dependencies=guard)
     async def chat_completions(body: ChatRequest, request: Request) -> Any:
         """OpenAI-compatible completions, routed through ``LLMRouter``."""
         if not gateway_enabled():
@@ -268,10 +271,13 @@ def build_llm_router(
         if not body.messages:
             raise HTTPException(400, "messages must not be empty")
 
+        # Both of these end up as metric labels, and both are caller-supplied
+        # on this route — clamp them so an external client cannot grow the
+        # metrics registry without bound.
         llm_request = request_from_openai_payload(
             body.model_dump(exclude_none=True),
-            agent=body.agent or request.headers.get("x-agent", ""),
-            workflow=body.workflow or request.headers.get("x-workflow", ""),
+            agent=sanitize_label(body.agent or request.headers.get("x-agent", "")),
+            workflow=sanitize_label(body.workflow or request.headers.get("x-workflow", "")),
         )
         llm_request.strategy = body.strategy or request.headers.get("x-routing-strategy") or None
         llm_request.providers = body.providers
@@ -296,7 +302,7 @@ def build_llm_router(
             raise HTTPException(503, str(exc)) from exc
         return openai_body_from_response(response)
 
-    @router.get("/v1/models")
+    @router.get("/v1/models", dependencies=guard)
     async def list_models() -> dict[str, Any]:
         """OpenAI-compatible model list."""
         if not gateway_enabled():
@@ -334,16 +340,16 @@ async def _stream_sse(request: LLMRequest) -> Any:
                     "finish_reason": chunk.finish_reason,
                 }],
             }
-            if chunk.tool_call is not None:
-                payload["choices"][0]["delta"]["tool_calls"] = [{
-                    "index": chunk.tool_call.index,
-                    "id": chunk.tool_call.id,
-                    "type": "function",
-                    "function": {
-                        "name": chunk.tool_call.name,
-                        "arguments": chunk.tool_call.arguments,
-                    },
-                }]
+            if chunk.tool_calls:
+                payload["choices"][0]["delta"]["tool_calls"] = [
+                    {
+                        "index": call.index,
+                        "id": call.id,
+                        "type": "function",
+                        "function": {"name": call.name, "arguments": call.arguments},
+                    }
+                    for call in chunk.tool_calls
+                ]
             index += 1
             yield f"data: {json.dumps(payload)}\n\n"
     except RouterExhausted as exc:

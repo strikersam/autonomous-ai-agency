@@ -85,7 +85,14 @@ async def _try_router(
     """
     if not _router_enabled():
         return None
-    from packages.llm.compat import failover_chat_completion_via_router
+    try:
+        from packages.llm.compat import failover_chat_completion_via_router
+    except Exception as exc:  # pragma: no cover - defensive
+        # A broken routing layer must degrade to the legacy chain, never take
+        # the brain down with it. _router_enabled() already guards the config
+        # import; this guards the rest of the package.
+        log.warning("llm router unavailable (%s) — using the legacy chain", exc)
+        return None
 
     return await failover_chat_completion_via_router(payload, timeout_sec=timeout_sec)
 

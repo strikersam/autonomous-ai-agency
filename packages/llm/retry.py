@@ -20,6 +20,8 @@ import random
 import time
 from dataclasses import dataclass
 
+import httpx
+
 from packages.llm.config import RetryConfig
 from packages.llm.types import LLMError, PermanentError, TransientError
 
@@ -35,7 +37,14 @@ def is_retryable(error: BaseException, config: RetryConfig) -> bool:
     if isinstance(error, LLMError):
         return False
     # Transport-level failures: timeouts, connection resets, DNS blips.
+    #
+    # httpx.TransportError is listed explicitly because httpx's hierarchy is
+    # TransportError -> RequestError -> HTTPError -> Exception. It is NOT an
+    # OSError and TimeoutException is NOT a TimeoutError, so the stdlib tuple
+    # alone matches none of them — every connect timeout and connection reset
+    # would be classified permanent and stop failover dead.
     return isinstance(error, (
+        httpx.TransportError,
         asyncio.TimeoutError,
         ConnectionError,
         ConnectionResetError,

@@ -208,7 +208,9 @@ class StreamChunk:
     """
 
     text: str = ""
-    tool_call: ToolCall | None = None
+    # A list, not a single call: models emit parallel tool calls in one delta,
+    # and a scalar field forced every adapter to truncate all but the first.
+    tool_calls: list[ToolCall] = field(default_factory=list)
     finish_reason: str | None = None
     usage: Usage | None = None
     provider: str = ""
@@ -217,6 +219,11 @@ class StreamChunk:
     @property
     def done(self) -> bool:
         return self.finish_reason is not None
+
+    @property
+    def tool_call(self) -> ToolCall | None:
+        """The first tool call, for callers that only ever expect one."""
+        return self.tool_calls[0] if self.tool_calls else None
 
 
 # ── Errors ───────────────────────────────────────────────────────────────────

@@ -294,7 +294,11 @@ class OpenAICompatible(LLMProvider):
     ) -> AsyncIterator[StreamChunk]:
         payload = self.build_payload(request, model)
         payload["stream"] = True
-        payload.setdefault("stream_options", {"include_usage": True})
+        if self.config.stream_options:
+            # OpenAI-only extension. A stricter OpenAI-compatible server
+            # rejects the unknown field with 400, which this adapter classifies
+            # as permanent — so streaming would fail with no retry or failover.
+            payload.setdefault("stream_options", {"include_usage": True})
         async with client.stream(
             "POST",
             self._chat_url(),
@@ -328,16 +332,15 @@ class OpenAICompatible(LLMProvider):
         delta = (choices[0].get("delta") if choices else None) or {}
         finish = choices[0].get("finish_reason") if choices else None
 
-        tool_call = None
-        for call in delta.get("tool_calls") or []:
+        tool_calls: list[ToolCall] = []
+        for position, call in enumerate(delta.get("tool_calls") or []):
             function = call.get("function") or {}
-            tool_call = ToolCall(
+            tool_calls.append(ToolCall(
                 id=str(call.get("id") or ""),
                 name=str(function.get("name") or ""),
                 arguments=str(function.get("arguments") or ""),
-                index=int(call.get("index") or 0),
-            )
-            break
+                index=int(call.get("index") if call.get("index") is not None else position),
+            ))
 
         raw_usage = event.get("usage") or {}
         usage = None
@@ -348,11 +351,11 @@ class OpenAICompatible(LLMProvider):
             )
 
         content = delta.get("content") or ""
-        if not content and tool_call is None and finish is None and usage is None:
+        if not content and not tool_calls and finish is None and usage is None:
             return None
         return StreamChunk(
             text=str(content),
-            tool_call=tool_call,
+            tool_calls=tool_calls,
             finish_reason=finish,
             usage=usage,
             provider=self.id,
