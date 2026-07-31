@@ -5,6 +5,7 @@ import * as api from '../../api';
 import BrainCard from '../components/BrainCard';
 import LocalBrainToggleCard from '../components/LocalBrainToggleCard';
 import ProviderHealthToggleCard from '../components/ProviderHealthToggleCard';
+import ProviderConsole from '../components/ProviderConsole';
 
 
 // providers.jsx — V5.0: All providers + Ollama model management + MCP servers tab
@@ -597,6 +598,20 @@ function ProvidersScreen() {
     return () => { cancelled = true; };
   }, []);
 
+  // The console's segmented control names the state it wants rather than
+  // flipping whatever is current, so a double-click cannot race itself into
+  // the opposite of what the operator clicked.
+  const setPaidAccess = async (next) => {
+    if (policyBusy || !policy || next === policy.allow_paid) return;
+    setPolicyBusy(true); setPolicyErr(null);
+    try {
+      const { data } = await api.updateProviderPolicy({ allow_paid: next });
+      setPolicy(data);
+    } catch (e) {
+      setPolicyErr(api.fmtErr(e?.response?.data?.detail) || 'Failed to update policy.');
+    } finally { setPolicyBusy(false); }
+  };
+
   const togglePolicy = async () => {
     if (policyBusy || !policy) return;
     const next = !policy.allow_paid;
@@ -661,15 +676,12 @@ function ProvidersScreen() {
       <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', flexWrap:'wrap', gap:10, marginBottom:14 }}>
         <div>
           <h1 style={{ fontSize:26, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1, marginBottom:4 }}>Providers & Models</h1>
-          <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.5, maxWidth:480 }}>Configured inference providers · Ollama local model management · MCP server integrations.</p>
+          <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.5, maxWidth:520 }}>Every model call routes through one gateway. This page is where you see which provider is serving, why, and what to do when one degrades.</p>
         </div>
-        {defaultProvider && (
-          <div style={{ padding:'8px 14px', borderRadius:12, background:'rgba(70,217,164,0.06)', border:'1px solid rgba(70,217,164,0.22)' }}>
-            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.10em', marginBottom:2 }}>Default provider</div>
-            <div style={{ fontSize:13, fontWeight:700, color:'#fff' }}>{defaultProvider.name || defaultProvider.provider_id}</div>
-            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'#46d9a4' }}>{defaultProvider.default_model || '—'}</div>
-          </div>
-        )}
+        {/* The "default provider" badge used to live here and routinely
+            disagreed with the brain card below it — one read the database,
+            the other read live routing. The console's SERVING row is now the
+            single answer to that question. */}
       </div>
 
       {/* Tabs */}
@@ -683,173 +695,102 @@ function ProvidersScreen() {
 
       {tab === 'providers' && (
         <>
-          {/* DB-persisted brain config (PR #824) — change provider + per-role
-              models in one click, persisted in DB, no redeploy. */}
-          <BrainCard />
+          {/* The unified Provider Console (ADR-008).
+              Replaces what used to be five stacked surfaces here — a brain
+              card, a local-brain switch, a provider-health switch, a paid
+              kill switch, and two separate provider grids. A provider now
+              appears exactly once, ranked by live health, with every control
+              for it inside its own row. */}
+          <ProviderConsole
+            storedProviders={providers}
+            policy={policy}
+            policyBusy={policyBusy}
+            onTogglePaid={setPaidAccess}
+            onEditProvider={(prov) => { setEditingId(prov.provider_id); setShowAdd(false); }}
+            onDeleteProvider={handleDelete}
+            onTestProvider={api.testProvider}
+            refreshStored={refetch}
+          />
 
-          {/* Cross-machine toggle for the LOCAL GLM-5.2 brain. Sits right
-              under the Brain card so the operator sees "Brain = colibri
-              [local]" above and the actual toggler below. Backend:
-              backend/local_brain_router.py (gated on SERVICE_TOKEN).
-              Local daemon: scripts/local_controller.py. */}
-          <LocalBrainToggleCard />
-          <ProviderHealthToggleCard />
-
-          {/* Paid-Provider Kill Switch */}
-          <div style={{
-            borderRadius: 16,
-            border: `1px solid ${policy?.allow_paid ? 'rgba(255,189,102,0.25)' : 'rgba(70,217,164,0.18)'}`,
-            background: policy?.allow_paid ? 'rgba(255,189,102,0.05)' : 'rgba(70,217,164,0.04)',
-            padding: '14px 16px',
-            marginBottom: 14,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            flexWrap: 'wrap',
-            transition: 'all 0.2s',
-          }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 13, fontWeight: 800, color: '#fff', letterSpacing: '-0.02em' }}>Paid-provider kill switch</span>
-                {policy && (
-                  <span style={{
-                    fontSize: 9, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.10em',
-                    padding: '2px 7px', borderRadius: 999,
-                    background: policy.allow_paid ? 'rgba(255,189,102,0.12)' : 'rgba(70,217,164,0.10)',
-                    border: `1px solid ${policy.allow_paid ? 'rgba(255,189,102,0.30)' : 'rgba(70,217,164,0.22)'}`,
-                    color: policy.allow_paid ? '#ffbd66' : '#46d9a4',
-                    animation: policy.allow_paid ? 'pulse 2s infinite' : 'none',
-                  }}>
-                    {policy.allow_paid ? '⚠ Paid allowed' : 'Free only'}
-                  </span>
-                )}
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-                When <strong style={{ color: policy?.allow_paid ? '#ffbd66' : '#46d9a4' }}>off</strong>, Anthropic and other paid providers are <strong style={{ color: '#46d9a4' }}>never auto-selected</strong> — the platform uses free providers only.
-                When <strong style={{ color: '#ffbd66' }}>on</strong>, Anthropic can be used as a fallback when no free provider is reachable.
-              </div>
-              {policyErr && (
-                <div style={{ marginTop: 6, fontSize: 11, color: '#ff6b7d', fontFamily: 'var(--font-mono)' }}>{policyErr}</div>
-              )}
-            </div>
-            {policy === null ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-                <div style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.08)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.8s linear infinite', flexShrink: 0 }} />
-                Loading...
-              </div>
-            ) : (
-              <button
-                onClick={togglePolicy}
-                disabled={policyBusy}
-                style={{
-                  flexShrink: 0,
-                  padding: '9px 18px',
-                  borderRadius: 12,
-                  fontSize: 13,
-                  fontWeight: 800,
-                  cursor: policyBusy ? 'not-allowed' : 'pointer',
-                  background: policy.allow_paid
-                    ? 'linear-gradient(135deg, #46d9a4, #2ecc71)'
-                    : 'linear-gradient(135deg, #ff6b7d, #e74c3c)',
-                  color: '#06111f',
-                  border: 'none',
-                  opacity: policyBusy ? 0.6 : 1,
-                  transition: 'all 0.15s',
-                  letterSpacing: '-0.02em',
-                }}
-              >
-                {policyBusy ? 'Updating…' : policy.allow_paid ? 'Turn off' : 'Turn on'}
-              </button>
-            )}
-          </div>
-
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:10, marginBottom:12, flexWrap:'wrap' }}>
-            <div style={{ fontSize:12, color:'var(--text-muted)' }}>{providers.length} configured provider{providers.length===1?'':'s'}
-              {/* Per-surface provider assignment matrix */}
-              {surfaces && Object.keys(surfaces).length > 0 && (
-                <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                  <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 8 }}>
-                    Per-surface provider assignment
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 6 }}>
-                    {Object.entries(surfaces).map(([surface, providerId]) => (
-                      <div key={surface} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 8px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'capitalize', minWidth: 48, letterSpacing: '-0.01em' }}>{surface}</span>
-                        <select
-                          value={providerId || 'auto'}
-                          onChange={(e) => saveSurface(surface, e.target.value)}
-                          disabled={surfaceBusy === surface}
-                          style={{
-                            flex: 1, padding: '3px 6px', borderRadius: 6, background: 'rgba(255,255,255,0.05)',
-                            border: '1px solid rgba(255,255,255,0.10)', color: '#fff', fontSize: 11,
-                            fontFamily: 'var(--font-mono)', outline: 'none', cursor: 'pointer',
-                            opacity: surfaceBusy === surface ? 0.5 : 1,
-                          }}
-                        >
-                          <option value="auto">Auto (priority)</option>
-                          {providers.map(p => (
-                            <option key={p.provider_id} value={p.provider_id}>
-                              {p.name || p.provider_id}
-                            </option>
-                          ))}
-                        </select>
-                        {surfaceBusy === surface && (
-                          <div style={{ width: 10, height: 10, border: '1.5px solid rgba(255,255,255,0.1)', borderTopColor: 'var(--accent)', borderRadius: '50%', animation: 'spin 0.6s linear infinite', flexShrink: 0 }} />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ fontSize: 9, color: 'var(--text-tertiary)', marginTop: 6, lineHeight: 1.4 }}>
-                    Assign specific providers to surfaces or leave "Auto" to use priority order.
-                  </div>
-                </div>
-              )}
-</div>
-            <button onClick={()=>setShowAdd(o=>!o)} style={{ padding:'8px 16px', borderRadius:10, fontSize:12, fontWeight:700, cursor:'pointer', background:'rgba(93,162,255,0.12)', border:'1px solid rgba(93,162,255,0.30)', color:'var(--accent)' }}>+ Add provider</button>
-          </div>
-
-          {showAdd && <AddProviderForm onCreate={handleCreate} onClose={()=>setShowAdd(false)}/>}
-          {actionErr && <div style={{ marginBottom:12, padding:'8px 12px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:12 }}>{actionErr}</div>}
-
-          {states.providers?.loading ? (
-            <div style={{ fontSize:13, color:'var(--text-muted)', padding:'24px 0' }}>Loading providers…</div>
-          ) : states.providers?.error ? (
-            <div style={{ fontSize:13, color:'#ff6b7d', padding:'16px 0' }}>Couldn't load providers: {states.providers.error}</div>
-          ) : providers.length === 0 ? (
-            <div style={{ padding:'24px', textAlign:'center', borderRadius:16, border:'1px dashed rgba(255,255,255,0.12)', color:'var(--text-muted)', fontSize:13 }}>
-              No providers configured yet. Add one above, or configure built-in providers via environment variables on the server.
-            </div>
-          ) : (
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(290px,1fr))', gap:10 }}>
-              {providers.map(p => (
-                editingId === p.provider_id ? (
-                  <div key={p.provider_id} style={{ gridColumn:'1 / -1' }}>
-                    <EditProviderForm provider={p} onUpdate={handleUpdate} onClose={()=>setEditingId(null)}/>
-                  </div>
-                ) : (
-                  <BackendProviderCard key={p.provider_id} provider={p} busy={busy}
-                    onTest={api.testProvider} onSetDefault={handleSetDefault} onDelete={handleDelete}
-                    onEdit={(prov)=>{ setEditingId(prov.provider_id); setShowAdd(false); }}/>
-                )
-              ))}
+          {policyErr && (
+            <div style={{ marginTop: 10, fontSize: 11.5, color: '#ff6b7d', fontFamily: 'var(--font-mono)' }}>{policyErr}</div>
+          )}
+          {actionErr && (
+            <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 10, background: 'rgba(255,107,125,0.10)', border: '1px solid rgba(255,107,125,0.25)', color: '#ff6b7d', fontSize: 12 }}>{actionErr}</div>
+          )}
+          {states.providers?.error && (
+            <div style={{ marginTop: 10, fontSize: 12, color: '#ffbd66' }}>
+              Couldn't load saved providers: {states.providers.error}
             </div>
           )}
 
-          {/* Reference catalogue (env-configured popular integrations) */}
-          <div style={{ marginTop:22 }}>
-            <button onClick={()=>setShowCatalog(o=>!o)} style={{ display:'flex', alignItems:'center', gap:8, background:'none', border:'none', cursor:'pointer', color:'var(--text-secondary)', fontSize:13, fontWeight:700, marginBottom:10 }}>
-              <span style={{ transform:showCatalog?'rotate(90deg)':'none', transition:'transform 0.15s' }}>▸</span>
-              Popular integrations ({ALL_PROVIDERS.length})
+          {/* Add / edit a database-persisted provider. */}
+          <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
+            <button onClick={() => { setShowAdd(o => !o); setEditingId(null); }} style={{ padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer', background: 'rgba(93,162,255,0.12)', border: '1px solid rgba(93,162,255,0.30)', color: 'var(--accent)' }}>
+              {showAdd ? 'Cancel' : '+ Add custom provider'}
             </button>
-            {showCatalog && (
-              <>
-                <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12, lineHeight:1.5 }}>These are commonly configured via environment variables on the server (e.g. <code style={{ fontFamily:'var(--font-mono)' }}>GROQ_API_KEY</code>). To use one as an editable provider here, add it above as an OpenAI-compatible provider.</div>
-                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))', gap:10 }}>
-                  {ALL_PROVIDERS.map(p => <CatalogCard key={p.id} provider={p}/>)}
-                </div>
-              </>
-            )}
           </div>
+          {showAdd && <div style={{ marginTop: 10 }}><AddProviderForm onCreate={handleCreate} onClose={() => setShowAdd(false)} /></div>}
+          {editingId && (() => {
+            const editing = providers.find(p => p.provider_id === editingId);
+            return editing ? (
+              <div style={{ marginTop: 10 }}>
+                <EditProviderForm provider={editing} onUpdate={handleUpdate} onClose={() => setEditingId(null)} />
+              </div>
+            ) : null;
+          })()}
+
+          {/* Routing rules. Previously rendered *inside* the "N configured
+              providers" label, which nested a grid inside a text node and
+              made the whole block read as an accident. It is its own section
+              now, next to the console it modifies. */}
+          {surfaces && Object.keys(surfaces).length > 0 && (
+            <div style={{ marginTop: 18, borderRadius: 16, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.025)', padding: '14px 17px' }}>
+              <div style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 4 }}>
+                Per-surface overrides
+              </div>
+              <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)', lineHeight: 1.5, marginBottom: 11 }}>
+                Pin a surface to one provider, or leave it on Auto to use the routing strategy above.
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 7 }}>
+                {Object.entries(surfaces).map(([surface, providerId]) => (
+                  <div key={surface} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 9px', borderRadius: 9, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                    <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'capitalize', minWidth: 50 }}>{surface}</span>
+                    <select
+                      value={providerId || 'auto'}
+                      onChange={(e) => saveSurface(surface, e.target.value)}
+                      disabled={surfaceBusy === surface}
+                      style={{ flex: 1, padding: '4px 6px', borderRadius: 6, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)', color: '#fff', fontSize: 11, fontFamily: 'var(--font-mono)', outline: 'none', cursor: 'pointer', opacity: surfaceBusy === surface ? 0.5 : 1 }}
+                    >
+                      <option value="auto">Auto (strategy)</option>
+                      {providers.map(p => (
+                        <option key={p.provider_id} value={p.provider_id}>{p.name || p.provider_id}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Legacy brain controls. Kept, because they still do things the
+              console does not — per-role model assignment and the
+              cross-machine local-brain switch — but folded away so they stop
+              competing with the console for the answer to "what is running". */}
+          <details style={{ marginTop: 18 }}>
+            <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)', padding: '8px 0', listStyle: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>▸</span>
+              Brain &amp; local-runtime controls
+              <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-tertiary)' }}>
+                per-role models, local GLM toggle, legacy provider breakers
+              </span>
+            </summary>
+            <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <BrainCard />
+              <LocalBrainToggleCard />
+              <ProviderHealthToggleCard />
+            </div>
+          </details>
         </>
       )}
       {tab === 'ollama' && <OllamaTab/>}

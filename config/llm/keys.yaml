@@ -1,0 +1,86 @@
+# config/llm/keys.yaml — which environment variables hold each provider's keys.
+#
+# THIS FILE CONTAINS NO SECRETS AND MUST NEVER CONTAIN ANY.
+# It lists variable NAMES. The router reads the values from the environment at
+# call time, so a rotated key takes effect without a reload and no key material
+# is ever written to disk (Repository Constitution: secrets are env-only).
+#
+# Multiple names per provider means multiple keys. When one is rate-limited or
+# out of quota, the ring hands out the next healthy key instead of failing —
+# the narrowest failure scope in ADR-008 §4. Per-key health is visible on the
+# dashboard by digest, never by value.
+#
+# The loader also auto-detects NAME, NAME_2 … NAME_10, NAME_S, and NAME_POOL
+# without them being listed here, matching the convention already used by
+# packages/ai/key_pool.py. A value may itself hold several comma- or
+# whitespace-separated keys.
+
+keys:
+
+  cerebras:
+    env:
+      - CEREBRAS_API_KEY
+      - CEREBRAS_API_KEY_2
+      - CEREBRAS_API_KEY_3
+
+  groq:
+    env:
+      - GROQ_API_KEY
+      - GROQ_API_KEY_2
+      - GROQ_API_KEY_3
+
+  nvidia:
+    env:
+      - NVIDIA_API_KEY
+      - NVIDIA_API_KEY_2
+      - NVIDIA_API_KEY_3
+
+  google:
+    env:
+      - GEMINI_API_KEY
+      - GOOGLE_API_KEY
+      - GEMINI_API_KEY_2
+
+  openrouter:
+    env:
+      - OPENROUTER_API_KEY
+      - OPENROUTER_API_KEY_2
+
+  together:
+    env: [TOGETHER_API_KEY]
+
+  fireworks:
+    env: [FIREWORKS_API_KEY]
+
+  deepinfra:
+    env: [DEEPINFRA_API_KEY]
+
+  mistral:
+    env: [MISTRAL_API_KEY]
+
+  openai:
+    env:
+      - OPENAI_API_KEY
+      - OPENAI_API_KEY_2
+
+  azure:
+    env: [AZURE_OPENAI_API_KEY]
+
+  anthropic:
+    env:
+      - ANTHROPIC_API_KEY
+      - ANTHROPIC_API_KEY_2
+
+  # Local servers usually need no key. Listed so a tunnelled deployment behind
+  # an auth proxy can add one without editing providers.yaml.
+  vllm:
+    env: [VLLM_API_KEY]
+
+  litellm:
+    env: [LITELLM_API_KEY]
+
+  lmstudio:
+    env: [LMSTUDIO_API_KEY]
+
+  localai:
+    env: [LOCALAI_API_KEY]

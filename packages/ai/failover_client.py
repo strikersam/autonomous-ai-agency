@@ -57,6 +57,39 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _router_enabled() -> bool:
+    """Whether to delegate to ``packages.llm.router.LLMRouter`` (ADR-008 §8).
+
+    Read on every call so the operator can flip the flag at runtime. An import
+    failure keeps the legacy path — the new layer must never be able to break
+    the old one.
+    """
+    try:
+        from packages.llm.config import router_enabled
+
+        return router_enabled()
+    except Exception:  # pragma: no cover - defensive
+        return False
+
+
+async def _try_router(
+    payload: dict[str, Any], timeout_sec: float
+) -> "FailoverResult | None":
+    """Serve the call through ``LLMRouter``, or return None for the legacy path.
+
+    When ``LLM_ROUTER_ENABLED=true`` the request is routed by
+    :class:`packages.llm.router.LLMRouter` (ADR-008 §8). The signature, return
+    type, and raised exception are identical either way, so no caller can tell
+    which path ran; the flag is the rollback switch. Kept as its own function
+    so the dispatcher stays inside the repo's 50-line cap.
+    """
+    if not _router_enabled():
+        return None
+    from packages.llm.compat import failover_chat_completion_via_router
+
+    return await failover_chat_completion_via_router(payload, timeout_sec=timeout_sec)
+
+
 # ── Fan-out budget ───────────────────────────────────────────────────────────
 #
 # Without a cap the attempt count MULTIPLIES and self-inflicts the very 429s it
@@ -831,10 +864,11 @@ async def failover_chat_completion(
     Tries each healthy provider in ``services.brain_failover`` order (free, then
     local, then paid), and up to three models per provider. Raises
     :class:`BrainFailoverExhausted` when nothing succeeds — never returns a
-    partial or placeholder result.
+    partial or placeholder result. See :func:`_try_router` (ADR-008 §8).
     """
+    if (routed := await _try_router(payload, timeout_sec)) is not None:
+        return routed
     from services.brain_failover import get_failover_manager
-
     requested_model = str(payload.get("model") or "")
     fm = get_failover_manager()
     budget = _Budget(_MAX_TOTAL_ATTEMPTS, _WALL_CLOCK_BUDGET_SEC)

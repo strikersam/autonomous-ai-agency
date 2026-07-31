@@ -556,6 +556,27 @@ export const getBrainProviders    = ()                  => API.get('/api/brain/p
 export const setBrainProviderEnabled = (providerId, enabled) =>
   API.put(`/api/brain/providers/${providerId}/enabled`, { enabled });
 
+// ── LLM routing layer (ADR-008) ───────────────────────────────────────────
+// The single gateway every agent routes through. These endpoints back the
+// unified Provider Console: live breaker state, key health, routing strategy,
+// queue depth, cache hit rate, and spend — one source instead of five.
+export const getLlmStatus       = ()            => API.get('/api/llm/status');
+export const getLlmProviders    = ()            => API.get('/api/llm/providers');
+export const getLlmHealth       = ()            => API.get('/api/llm/health');
+export const probeLlmProviders  = (providerId)  =>
+  API.post('/api/llm/health/probe', null, { params: providerId ? { provider_id: providerId } : {} });
+export const getLlmModels       = ()            => API.get('/api/llm/models');
+export const discoverLlmModels  = ()            => API.post('/api/llm/models/discover');
+export const getLlmUsage        = ()            => API.get('/api/llm/usage');
+export const getLlmCacheStats   = ()            => API.get('/api/llm/cache');
+export const clearLlmCache      = ()            => API.delete('/api/llm/cache');
+export const getLlmConfig       = ()            => API.get('/api/llm/config');
+export const reloadLlmConfig    = ()            => API.post('/api/llm/config/reload');
+export const setLlmStrategy     = (strategy)    => API.put('/api/llm/config/strategy', { strategy });
+export const setLlmProviderEnabled = (providerId, enabled, durationSec = 300) =>
+  API.put(`/api/llm/providers/${encodeURIComponent(providerId)}/enabled`,
+          { enabled, duration_sec: durationSec });
+
 // ── SAM Voice Agent (issue #666) ──────────────────────────────────────────
 export const samStatus = () => API.get('/agent/sam/status');
 export const samChat   = (text, sessionId) => API.post('/agent/sam/chat', { text, session_id: sessionId || 'default' });

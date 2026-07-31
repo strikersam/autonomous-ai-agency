@@ -1,0 +1,207 @@
+# config/llm/providers.yaml — every endpoint the router may reach.
+#
+# Adding a provider is an entry here. No Python changes (ADR-008 §2).
+#
+# kind      selects the adapter. Use `openai` for anything speaking the
+#           OpenAI REST shape — that covers most vendors and every local
+#           server. `anthropic`, `gemini`, and `ollama` have their own.
+# tier      local | free | cheap | premium. Drives graceful degradation:
+#           the automatic_failover strategy walks the tiers in that order.
+# priority  lower wins ties. Not a hard order — the adaptive strategy
+#           overrides it with live health.
+# key_env   NAMES of environment variables holding keys, never the keys.
+#           List several for rotation (see keys.yaml).
+#
+# A provider whose key_env resolves to nothing is skipped at startup, so
+# every entry below is safe to leave in place on a deploy that has not
+# configured it.
+
+providers:
+
+  # ── Local (tier: local) ────────────────────────────────────────────────
+  # Tried first when routing.prefer_local is true. No key, no cost, no quota.
+
+  ollama:
+    kind: ollama
+    base_url: ${OLLAMA_BASE:-http://localhost:11434}
+    requires_key: false
+    tier: local
+    priority: 10
+    max_concurrency: 2          # local GPUs serialise; a big pool just queues
+    timeout_sec: 300            # cold model load can be slow
+    default_model: ${OLLAMA_DEFAULT_MODEL:-qwen3-coder:30b}
+    notes: Local Ollama daemon.
+
+  lmstudio:
+    kind: lmstudio              # alias for the OpenAI-compatible adapter
+    base_url: ${LMSTUDIO_BASE_URL:-http://localhost:1234/v1}
+    requires_key: false
+    enabled: ${LMSTUDIO_ENABLED:-false}
+    tier: local
+    priority: 12
+    max_concurrency: 2
+    timeout_sec: 300
+    notes: LM Studio local server.
+
+  vllm:
+    kind: vllm
+    base_url: ${VLLM_BASE_URL:-http://localhost:8000/v1}
+    key_env: [VLLM_API_KEY]
+    requires_key: false
+    enabled: ${VLLM_ENABLED:-false}
+    tier: local
+    priority: 14
+    max_concurrency: 16         # vLLM batches well — a real pool helps here
+    notes: Self-hosted vLLM (continuous batching).
+
+  localai:
+    kind: localai
+    base_url: ${LOCALAI_BASE_URL:-http://localhost:8080/v1}
+    requires_key: false
+    enabled: ${LOCALAI_ENABLED:-false}
+    tier: local
+    priority: 16
+    max_concurrency: 4
+    notes: LocalAI OpenAI-compatible server.
+
+  litellm:
+    kind: litellm
+    base_url: ${LITELLM_BASE_URL}
+    key_env: [LITELLM_API_KEY]
+    requires_key: false
+    enabled: ${LITELLM_ENABLED:-false}
+    tier: local
+    priority: 18
+    max_concurrency: 8
+    notes: >-
+      LiteLLM compatibility mode. Point this at an existing LiteLLM proxy and
+      the router treats it as one more provider — its own fanout still works,
+      this layer just adds failover across it and everything else.
+
+  # ── Free cloud (tier: free) ────────────────────────────────────────────
+  # The workhorses. Free quotas, so 429 handling matters most here.
+
+  cerebras:
+    kind: openai
+    base_url: ${CEREBRAS_BASE_URL:-https://api.cerebras.ai/v1}
+    key_env: [CEREBRAS_API_KEY]
+    tier: free
+    priority: 20
+    weight: 1.5                 # fastest free option — bias traffic toward it
+    max_concurrency: 4
+    requests_per_minute: 30
+    default_model: ${CEREBRAS_DEFAULT_MODEL:-qwen-3-coder-480b}
+
+  groq:
+    kind: openai
+    base_url: ${GROQ_BASE_URL:-https://api.groq.com/openai/v1}
+    key_env: [GROQ_API_KEY]
+    tier: free
+    priority: 22
+    weight: 1.2
+    max_concurrency: 4
+    requests_per_minute: 30
+    default_model: ${GROQ_DEFAULT_MODEL:-llama-3.3-70b-versatile}
+
+  nvidia:
+    kind: openai
+    base_url: ${NVIDIA_BASE_URL:-https://integrate.api.nvidia.com/v1}
+    key_env: [NVIDIA_API_KEY]
+    tier: free
+    priority: 24
+    weight: 1.0
+    max_concurrency: 6
+    requests_per_minute: 40
+    default_model: ${NVIDIA_DEFAULT_MODEL:-z-ai/glm-5.2}
+    notes: The always-on free floor. Kept last among free tiers on purpose.
+
+  google:
+    kind: gemini
+    base_url: ${GEMINI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta}
+    key_env: [GEMINI_API_KEY, GOOGLE_API_KEY]
+    tier: free
+    priority: 26
+    max_concurrency: 4
+    requests_per_minute: 15
+    default_model: ${GEMINI_DEFAULT_MODEL:-gemini-2.5-flash}
+    notes: 1M context — the escalation target when a conversation overflows.
+
+  # ── Cheap cloud (tier: cheap) ──────────────────────────────────────────
+  # Only reached when routing.allow_paid is true.
+
+  openrouter:
+    kind: openai
+    base_url: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+    key_env: [OPENROUTER_API_KEY]
+    tier: cheap
+    priority: 40
+    max_concurrency: 8
+    extra_headers:
+      HTTP-Referer: https://autonomous-ai-agency.strikersam.workers.dev
+      X-Title: Autonomous AI Agency
+
+  together:
+    kind: openai
+    base_url: ${TOGETHER_BASE_URL:-https://api.together.xyz/v1}
+    key_env: [TOGETHER_API_KEY]
+    tier: cheap
+    priority: 42
+    max_concurrency: 8
+
+  fireworks:
+    kind: openai
+    base_url: ${FIREWORKS_BASE_URL:-https://api.fireworks.ai/inference/v1}
+    key_env: [FIREWORKS_API_KEY]
+    tier: cheap
+    priority: 44
+    max_concurrency: 8
+
+  deepinfra:
+    kind: openai
+    base_url: ${DEEPINFRA_BASE_URL:-https://api.deepinfra.com/v1/openai}
+    key_env: [DEEPINFRA_API_KEY]
+    tier: cheap
+    priority: 46
+    max_concurrency: 8
+
+  mistral:
+    kind: openai
+    base_url: ${MISTRAL_BASE_URL:-https://api.mistral.ai/v1}
+    key_env: [MISTRAL_API_KEY]
+    tier: cheap
+    priority: 48
+    max_concurrency: 8
+
+  # ── Premium cloud (tier: premium) ──────────────────────────────────────
+  # Last resort. ALLOW_PAID_BRAIN must be explicitly true (packages/ai/brain.py).
+
+  openai:
+    kind: openai
+    base_url: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+    key_env: [OPENAI_API_KEY]
+    tier: premium
+    priority: 60
+    max_concurrency: 8
+    default_model: ${OPENAI_DEFAULT_MODEL:-gpt-4o-mini}
+
+  azure:
+    kind: openai
+    base_url: ${AZURE_OPENAI_BASE_URL}
+    key_env: [AZURE_OPENAI_API_KEY]
+    auth_style: api-key         # Azure uses api-key, not Authorization: Bearer
+    api_version: ${AZURE_OPENAI_API_VERSION:-2024-10-21}
+    deployment: ${AZURE_OPENAI_DEPLOYMENT}
+    enabled: ${AZURE_OPENAI_ENABLED:-false}
+    tier: premium
+    priority: 62
+    max_concurrency: 8
+
+  anthropic:
+    kind: anthropic
+    base_url: ${ANTHROPIC_BASE_URL:-https://api.anthropic.com}
+    key_env: [ANTHROPIC_API_KEY]
+    auth_style: x-api-key
+    tier: premium
+    priority: 64
+    max_concurrency: 4
+    default_model: ${ANTHROPIC_DEFAULT_MODEL:-claude-sonnet-4-5}

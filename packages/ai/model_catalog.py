@@ -97,6 +97,19 @@ from packages.ai.brain_config import (
 log = logging.getLogger("model_catalog")
 
 
+def _include_router_providers() -> bool:
+    """Whether to publish LLM-router providers in the catalog (default OFF).
+
+    The catalog document is read by external services, so widening it changes
+    a published contract. Opt in with ``FREELLM_CATALOG_INCLUDE_ROUTER=true``.
+    """
+    import os
+
+    return os.environ.get("FREELLM_CATALOG_INCLUDE_ROUTER", "").strip().lower() in {
+        "1", "true", "yes", "on",
+    }
+
+
 # ── Pydantic models ────────────────────────────────────────────────────────
 
 
@@ -233,6 +246,21 @@ class ModelCatalogStore:
             )
             providers.append(entry)
 
+        # Providers the LLM router knows about (config/llm/providers.yaml,
+        # ADR-008) that the legacy YAML catalog has never heard of — LM Studio,
+        # vLLM, LocalAI, LiteLLM, and so on. Without these, the catalog that
+        # external services read under-reports what the platform can reach.
+        #
+        # Flag-gated, default OFF, matching this module's own rollout rule:
+        # the catalog document is a published contract, so widening it is an
+        # operator decision rather than a side effect of installing the router.
+        # Set FREELLM_CATALOG_INCLUDE_ROUTER=true to opt in.
+        if _include_router_providers():
+            providers.extend(self._router_provider_entries(
+                known={entry.provider_id for entry in providers},
+                active_primary=active_primary,
+            ))
+
         return CatalogMirror(
             catalog_version=1,
             safe_default={
@@ -244,6 +272,49 @@ class ModelCatalogStore:
             active_brain=active_brain,
             mirrored_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         )
+
+    @staticmethod
+    def _router_provider_entries(
+        *, known: set[str], active_primary: str
+    ) -> list[CatalogProviderEntry]:
+        """Catalog entries for router-configured providers missing from the YAML.
+
+        Never raises: a broken routing config must degrade this endpoint to the
+        legacy catalog, not break it (the module's "never raises" contract).
+        """
+        try:
+            from packages.llm.config import get_config
+            from packages.llm.keys import resolve_keys
+        except Exception:  # pragma: no cover - packages.llm optional at runtime
+            return []
+
+        entries: list[CatalogProviderEntry] = []
+        try:
+            config = get_config()
+            for pid, provider in sorted(config.providers.items()):
+                if pid in known or not provider.enabled:
+                    continue
+                models = [m.id for m in config.models_for(pid)]
+                if not models and provider.default_model:
+                    models = [provider.default_model]
+                entries.append(CatalogProviderEntry(
+                    provider_id=pid,
+                    display_name=f"{pid} ({provider.kind}, {provider.tier})",
+                    # The router's four tiers collapse to the catalog's three.
+                    tier={"cheap": "paid", "premium": "paid"}.get(provider.tier, provider.tier),
+                    key_env=provider.key_env[0] if provider.key_env else None,
+                    base_url_env=None,
+                    default_base_url=provider.base_url,
+                    role_presets={},
+                    candidates=models,
+                    key_present=bool(resolve_keys(provider.key_env)) or not provider.requires_key,
+                    base_url=provider.base_url,
+                    active=(pid == active_primary),
+                ))
+        except Exception as exc:  # pragma: no cover - defensive
+            log.debug("model_catalog: router providers unavailable (%s)", exc)
+            return []
+        return entries
 
     def _read_active_brain_config(self) -> CatalogActiveBrain:
         """Best-effort read of the active BrainConfig cache.
