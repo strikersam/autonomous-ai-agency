@@ -105,6 +105,19 @@ loops:
     gate: telegram
     purpose: Watch app logs, fingerprint errors, file issues, propose fixes.
 
+  - id: render-ops-monitor
+    name: Render Platform Monitor (MCP)
+    pattern: self-heal
+    level: L3
+    trigger: daemon
+    cadence: continuous (RENDER_OPS_INTERVAL_SECONDS, default 10m)
+    runs_per_day: 144
+    cost: low
+    source: services/render_ops.py
+    self_heal: true
+    gate: telegram
+    purpose: Watch Render deploys, platform logs, and memory via MCP; file the failures log-monitor cannot see.
+
   - id: log-watcher
     name: Log Watcher (proxy daemon)
     pattern: self-heal

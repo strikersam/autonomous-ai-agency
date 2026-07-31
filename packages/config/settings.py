@@ -15,6 +15,18 @@ import os
 from functools import lru_cache
 
 
+def _env_int(name: str, default: int) -> int:
+    """Read an int env var, falling back to *default* on a missing/bad value.
+
+    Never raises: a typo in an operator-set interval must not stop the process
+    from booting.
+    """
+    try:
+        return int(os.environ.get(name, "").strip() or default)
+    except (TypeError, ValueError):
+        return default
+
+
 class Settings:
     """Typed configuration loaded from environment variables."""
 
@@ -181,9 +193,79 @@ class Settings:
             "OLLAMA_REASONING_EFFORT", ""
         ).strip().lower()
 
+        # ── Render MCP (platform-level debugging + environment monitoring) ──
+        # The agency runs on Render, but nothing inside the process can see the
+        # *platform* view: build/deploy failures, OOM kills, restarts, CPU and
+        # memory ceilings. agent/log_monitor.py only ever sees logs this Python
+        # process emitted, so a container that died before FastAPI booted is
+        # invisible to it. The Render MCP server (render-oss/render-mcp-server)
+        # exposes exactly that missing view over MCP, and these settings point
+        # the agency at it.
+        self.render_api_key: str = os.environ.get("RENDER_API_KEY", "")
+        # Streamable-HTTP endpoint of a Render MCP server. In production this
+        # is the `agency-render-mcp` sidecar declared in render.yaml, reached
+        # over Render's private network. The default is the loopback form so a
+        # developer running `render-mcp-server -t http` locally (it binds
+        # :10000 and serves /mcp — upstream cmd/server.go) needs no config.
+        self.render_mcp_url: str = os.environ.get(
+            "RENDER_MCP_URL", "http://127.0.0.1:10000/mcp"
+        ).rstrip("/")
+        # Render workspace (owner) ID passed explicitly on every resource tool
+        # call. Upstream deprecated implicit session-scoped workspace
+        # selection, so we always pass it when known.
+        self.render_workspace_id: str = os.environ.get("RENDER_WORKSPACE_ID", "")
+        # Comma-separated Render resource IDs the ops loop watches. Empty means
+        # "discover every service in the workspace via list_services".
+        self.render_service_ids: str = os.environ.get("RENDER_SERVICE_IDS", "")
+        # Master switch for the autonomous Render ops loop. Default ON:
+        # platform monitoring is the standing state of this deployment, not an
+        # opt-in an operator has to remember after an incident. This is safe to
+        # default on only because `is_render_ops_enabled` also requires
+        # RENDER_API_KEY — an install with no Render credentials stays dormant
+        # rather than failing a tick every ten minutes.
+        self.render_ops_enabled: str = os.environ.get("RENDER_OPS_ENABLED", "true").lower()
+        self.render_ops_interval_seconds: int = _env_int("RENDER_OPS_INTERVAL_SECONDS", 600)
+        # Default-deny for mutating Render tools (trigger_deploy,
+        # update_environment_variables, create_*). Reading production state is
+        # safe and is what "100% autonomous debugging" needs; changing a live
+        # service's environment is not something a loop should do because a flag
+        # was left at its default.
+        self.render_mcp_allow_writes: str = os.environ.get(
+            "RENDER_MCP_ALLOW_WRITES", "false"
+        ).lower()
+
     @property
     def is_testing(self) -> bool:
         return self.testing == "true"
+
+    @property
+    def render_service_id_list(self) -> list[str]:
+        """``RENDER_SERVICE_IDS`` split into a clean list (empty when unset)."""
+        return [s.strip() for s in self.render_service_ids.split(",") if s.strip()]
+
+    @property
+    def is_render_mcp_configured(self) -> bool:
+        """True when there is both an API key and an endpoint to reach."""
+        return bool(self.render_api_key and self.render_mcp_url)
+
+    @property
+    def is_render_ops_enabled(self) -> bool:
+        """When True, the Render ops loop runs. On by default.
+
+        Also requires ``is_render_mcp_configured``. That is not a second
+        off-switch: ``RENDER_API_KEY`` cannot be committed, so the credential
+        check is what lets the flag default to on without an install that has
+        no Render credentials failing a tick every ten minutes. Combined here
+        rather than rediscovered at each call site."""
+        return (
+            self.render_ops_enabled in {"1", "true", "yes", "on"}
+            and self.is_render_mcp_configured
+        )
+
+    @property
+    def is_render_mcp_write_allowed(self) -> bool:
+        """When True, mutating Render MCP tools may be called. Default False."""
+        return self.render_mcp_allow_writes in {"1", "true", "yes", "on"}
 
     @property
     def ollama_reasoning_effort_value(self) -> str:

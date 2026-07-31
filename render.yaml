@@ -340,6 +340,53 @@ services:
         sync: false
 
       # ================================================================
+      # RENDER MCP — the agency's view of the platform it runs on.
+      #
+      # agent/log_monitor.py only sees log records THIS process emitted, so
+      # a failed build, an OOM kill, or a restart loop is invisible to the
+      # self-heal chain — the process was never alive to log them. The
+      # Render MCP server (render-oss/render-mcp-server) exposes that
+      # platform view, and services/render_ops.py polls it and files what
+      # it finds into the same ImprovementLoop intake.
+      #
+      # The MCP endpoint is the `agency-render-mcp` service declared at the
+      # bottom of this file, reached over Render's private network. It is
+      # always-on: RENDER_OPS_ENABLED is "true" here and defaults to true in
+      # packages/config/settings.py, so monitoring is the standing state of
+      # this deployment rather than something an operator has to remember.
+      #
+      # The one thing an operator MUST still supply is RENDER_API_KEY
+      # (Account Settings → API Keys). It cannot be committed, and the loop
+      # cannot authenticate without it — so `is_render_ops_enabled` requires
+      # it and the loop stays dormant (one log line, no retries) until it is
+      # set. That is not an off-switch; it is the loop declining to hammer an
+      # endpoint it can only get 401s from.
+      #
+      # RENDER_MCP_ALLOW_WRITES stays false: the loop diagnoses production,
+      # it does not redeploy or reconfigure it.
+      # ================================================================
+      - key: RENDER_API_KEY
+        sync: false
+      # Private-network address of the sidecar. Render routes <name>:<port>
+      # inside the account, so this never leaves Render's network and the
+      # sidecar's public URL is not used by the backend at all.
+      - key: RENDER_MCP_URL
+        value: "http://agency-render-mcp:10000/mcp"
+      - key: RENDER_WORKSPACE_ID
+        sync: false
+      - key: RENDER_SERVICE_IDS
+        sync: false
+      - key: RENDER_OPS_ENABLED
+        value: "true"
+      # 600s, not 900s: a free-plan service sleeps after ~15 minutes idle, so a
+      # 15-minute poll would land on a cold start almost every tick. Ten
+      # minutes keeps the sidecar warm and still costs 144 ticks/day.
+      - key: RENDER_OPS_INTERVAL_SECONDS
+        value: "600"
+      - key: RENDER_MCP_ALLOW_WRITES
+        value: "false"
+
+      # ================================================================
       # WORKFLOW / AGENCY — golden-path execution backbone
       # orchestrator = full 11-phase golden path (default); legacy = old paths
       # ================================================================
@@ -690,3 +737,45 @@ services:
   # NOTE: OpenClaw Gateway runs in-process on the web service (PR #987).
   # The OPENCLAW_* env vars are declared on the local-llm-server service above.
   # No separate openclaw-gateway service — test_no_separate_openclaw_service pins this.
+
+  # ==================================================================
+  # RENDER MCP SIDECAR — the platform's own view, served to the agency.
+  #
+  # Runs render-oss/render-mcp-server in Streamable-HTTP mode so
+  # services/render_ops.py can see what agent/log_monitor.py structurally
+  # cannot: builds that failed before a container existed, OOM kills,
+  # restart loops, stalled deploys, and memory at the plan ceiling. The
+  # backend reaches it privately at http://agency-render-mcp:10000/mcp.
+  #
+  # Why a separate service rather than in-process: the MCP server is a Go
+  # binary, and the alternative — reimplementing Render's API surface in
+  # Python — is the duplicate-logic path CLAUDE.md §2 rules out. Upstream
+  # already maintains this.
+  #
+  # This service holds NO secrets. In HTTP mode the Render API token is
+  # read per-request from the caller's Authorization header (upstream
+  # pkg/authn/authn.go), so the only key involved is the backend's, sent
+  # per call. Its public URL is therefore useless without a token, and
+  # nothing here needs `sync: false`.
+  #
+  # No healthCheckPath: the server's mux serves /mcp and the OAuth
+  # metadata routes only — there is no health endpoint, and pointing a
+  # health check at /mcp would open an SSE stream that never closes.
+  # Render's port check is what confirms liveness.
+  # ==================================================================
+  - type: web
+    name: agency-render-mcp
+    env: docker
+    dockerfilePath: ./Dockerfile.render-mcp
+    plan: free
+    envVars:
+      # The binary hardcodes :10000 (upstream cmd/server.go) and ignores
+      # $PORT, so PORT is declared to tell Render where to route rather
+      # than to change what the server binds.
+      - key: PORT
+        value: "10000"
+      # OAuth resource-server mode stays off: the backend authenticates with
+      # a plain API key bearer token, and pkg/oauth fails the process at boot
+      # on a partial OAuth config.
+      - key: OAUTH_ENABLED
+        value: "false"

@@ -1,0 +1,48 @@
+# Dockerfile.render-mcp — the Render MCP server, deployed beside the backend.
+#
+# Wraps the upstream image (render-oss/render-mcp-server) rather than building
+# Go from source: the upstream Dockerfile already produces a distroless binary,
+# and rebuilding it here would add a Go toolchain to CI for no gain.
+#
+# Why a wrapper at all instead of pointing Render at the image directly:
+# upstream uses ENTRYPOINT (not CMD) specifically so user args append to the
+# binary. Whether a platform's "docker command" override appends to ENTRYPOINT
+# or replaces it is platform-specific, and getting it wrong yields a container
+# that either ignores `-t http` (serving stdio to nobody) or fails to start.
+# Pinning both here removes the ambiguity.
+#
+# `-t http` selects the Streamable-HTTP transport, which binds :10000 and
+# serves /mcp (upstream cmd/server.go). The backend reaches it over Render's
+# private network at http://agency-render-mcp:10000/mcp.
+#
+# This container holds NO credentials. In HTTP mode the Render API token is
+# read per-request from the caller's Authorization header
+# (upstream pkg/authn/authn.go `ContextWithAPITokenFromHeader`), so the only
+# key involved is the one the backend already has. A request without a token
+# can do nothing.
+#
+# Pinned by digest, not `:latest`. This container proxies our Render API key to
+# every service in the workspace, so a silent upstream change is a supply-chain
+# change to the most privileged thing we deploy — it must arrive as a reviewed
+# diff, not as a rebuild. To bump:
+#   TOKEN=$(curl -s "https://ghcr.io/token?scope=repository:render-oss/render-mcp-server:pull&service=ghcr.io" | jq -r .token)
+#   curl -sI -H "Authorization: Bearer $TOKEN" \
+#     -H "Accept: application/vnd.oci.image.index.v1+json" \
+#     https://ghcr.io/v2/render-oss/render-mcp-server/manifests/latest \
+#     | grep -i docker-content-digest
+# Keep the same digest in `.mcp.json` so coding sessions and production run the
+# same build.
+FROM ghcr.io/render-oss/render-mcp-server@sha256:4b0da8fdf301c99d88a497864ce0b369b0ea8e3c8ee396e05d5846cd324adfcb
+
+WORKDIR /server
+
+# Upstream's default points at a config file that does not exist in this image.
+# That is harmless — `config.Load()` returns an empty config for a missing file
+# rather than erroring — but pointing it at a writable path lets the server
+# persist its workspace selection instead of retrying the write every call.
+ENV RENDER_CONFIG_PATH=/tmp/render-mcp-server.yaml
+
+EXPOSE 10000
+
+ENTRYPOINT ["/server/render-mcp-server"]
+CMD ["-t", "http"]
