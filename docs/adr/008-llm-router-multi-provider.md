@@ -140,11 +140,30 @@ A failure is attributed to the narrowest scope that explains it:
 | 429 with `retry-after` | the **key** | key cooldown, other keys keep serving |
 | 429/404 naming one model | the **model** | model lockout, siblings keep serving |
 | 5xx, timeout, connection reset | the **provider** | circuit breaker, half-open probe |
-| 401/403, malformed request, content filter | nothing — permanent | no retry |
+| 413 | the **provider** | next provider — 413 is a context-window fact, not a request fact |
+| 401/403/402, billing-shaped 4xx | the **provider**, durably | switched off until a human restores the key or the credit |
+| 414/422, content filter | nothing — permanent | no retry, on any provider |
 
 **Why:** a single cooldown clock over-penalises. Marking a whole provider dead
 because one model was decommissioned is the specific failure this repo hit
 (NVIDIA 410 → schedule multiplication, § CLAUDE.md 7).
+
+**Amended 2026-07-31, after enabling the flag in production.** Two rows were
+wrong on the first pass, and both only showed up when the full suite was run
+with `LLM_ROUTER_ENABLED=true`:
+
+- 413 was grouped with 414/422 as permanent-everywhere. It is not: "payload too
+  large" describes *this provider's* context window, so a prompt that overflows
+  a 32k model fits a 200k one. Treating it as fatal turned a recovery the
+  legacy path had performed since `tests/test_brain_failover_413.py` was
+  written into a hard failure.
+- 401/403/402 were treated as "no retry" and nothing more, leaving the
+  in-memory breaker to reopen on a timer and retry a revoked key forever. The
+  durable disabled set in `services/brain_failover.py` already existed for
+  exactly this, is what the Providers screen renders, and survives a deploy —
+  so the router reads and writes it via `packages/llm/disabled.py` rather than
+  keeping a second, weaker opinion. This is the one place the router persists
+  state about a provider.
 
 ### 5. Bulkhead isolation
 

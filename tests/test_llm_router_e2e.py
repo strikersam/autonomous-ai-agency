@@ -303,6 +303,31 @@ async def test_fatal_request_errors_stop_immediately(router_factory):
     assert calls["n"] == 1
 
 
+async def test_413_fails_over_to_the_next_provider(router_factory):
+    """A 413 is one provider's context window, not a fact about the request.
+
+    The legacy failover path has moved to the next provider on 413 since
+    tests/test_brain_failover_413.py was written. When the router treated 413
+    as fatal alongside 414/422, enabling LLM_ROUTER_ENABLED silently turned
+    that recovery into a hard failure — a prompt that overflows a 32k model
+    fits a 200k one, so there is a working path and the router must find it.
+    """
+    seen: list[str] = []
+
+    def handler(request):
+        seen.append(request.url.host)
+        if request.url.host == "alpha.test":
+            return httpx.Response(413, json={"error": "payload too large"})
+        return _ok(model="beta-model")
+
+    router = router_factory(handler)
+    response = await router.chat(_request())
+
+    assert response.provider == "beta"
+    assert seen[0] == "alpha.test", "the 413 provider should have been tried first"
+    assert seen.count("alpha.test") == 1, "413 must not be retried on the same provider"
+
+
 async def test_every_provider_down_raises_with_the_full_audit_trail(router_factory):
     router = router_factory(lambda _r: httpx.Response(503, json={"error": "down"}))
 

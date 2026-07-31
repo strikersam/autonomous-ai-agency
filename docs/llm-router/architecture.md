@@ -86,7 +86,16 @@ narrowest scope that explains it:
 | 429 (+ `retry-after`) | **key** | that key cools down | other keys keep serving; the request retries the same provider with the next key |
 | 404/400 naming a model | **model** | that model is skipped | sibling models on the same provider keep serving |
 | 5xx, timeout, reset | **provider** | breaker counts a failure | half-open probe after the open window |
-| 401/403/413/422 | none — permanent | no retry | fix the request or the credential |
+| 413 | **provider** | that provider's context window is too small | the next provider is tried; a 200k model accepts what a 32k model refused |
+| 414/422 | none — permanent | stop entirely | fix the request; every provider rejects it identically |
+| 401/403/402, billing-shaped 4xx | none — permanent | provider is **switched off durably** | a human restores the key or the credit |
+
+A permanent credential or billing failure is the one case where the router
+writes rather than just reads. `packages/llm/disabled.py` records it through
+`services/brain_failover.py`, the same persisted set the Providers screen shows
+and the legacy path already used — a revoked key is not a bad minute, so a
+self-healing breaker would retry it on every request forever. The router also
+reads that set before routing, so a provider an operator switched off stays off.
 
 Getting this wrong is not academic. Marking a whole provider dead because one
 model was decommissioned is precisely the failure that caused the schedule

@@ -22,6 +22,12 @@ from packages.ai.failover_client import failover_chat_completion
 @pytest.fixture(autouse=True)
 def isolated_kv(tmp_path, monkeypatch):
     """Point the kv_store at a temp DB so tests never touch real state."""
+    # This file drives the LEGACY failover path, stubbing its manager and its
+    # httpx client. LLMRouter uses neither, so an ambient LLM_ROUTER_ENABLED
+    # (which production now sets) would route past every stub and leave these
+    # assertions measuring nothing. Router-side coverage of the same
+    # auto-disable rule lives in tests/test_llm_router_disabled.py.
+    monkeypatch.delenv("LLM_ROUTER_ENABLED", raising=False)
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "kv.db"))
     monkeypatch.setattr(bf, "_DISABLED_CACHE", ({}, 0.0))
     yield

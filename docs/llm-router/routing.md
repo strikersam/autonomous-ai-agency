@@ -181,10 +181,16 @@ A request fails over like this:
 4. On **5xx/timeout**: count a breaker failure, move to the next provider,
    sleep the backoff interval (exponential, jittered, capped, and never longer
    than the remaining budget).
-5. On **401/403**: no retry against that provider — the credential is wrong.
-6. On **413/422**: stop entirely. The request itself is malformed, and every
+5. On **401/403/402** (or a 4xx body that says the account is out of credit):
+   no retry against that provider, and the provider is switched off durably —
+   only a new key or more credit fixes it, so leaving it in rotation costs
+   latency on every later request and never succeeds.
+6. On **413**: move to the next provider. "Payload too large" describes one
+   provider's context window, not the request — a prompt that overflows a 32k
+   model fits a 200k one.
+7. On **414/422**: stop entirely. The request itself is malformed, and every
    provider will reject it identically.
-7. Repeat until something succeeds, the attempt budget is spent, or the
+8. Repeat until something succeeds, the attempt budget is spent, or the
    wall-clock budget expires.
 
 ## Watching it work

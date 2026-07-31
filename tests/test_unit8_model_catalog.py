@@ -54,6 +54,26 @@ from packages.ai.model_catalog import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _base_catalog_only(monkeypatch):
+    """Pin the catalog to its UNIT 8 baseline of 15 providers.
+
+    ``FREELLM_CATALOG_INCLUDE_ROUTER`` widens the mirrored document with the
+    router's own providers, and production now sets it. The counts asserted
+    throughout this file describe the baseline contract, so an ambient flag
+    would break them without anything being wrong. The widening itself is
+    covered by test_catalog_widens_when_router_providers_are_included below.
+
+    ``Settings`` reads the environment once, at construction, behind an
+    lru_cache — so the override has to be applied to the live object.
+    """
+    from packages.config import settings as app_settings
+    monkeypatch.setattr(app_settings, "freellm_catalog_include_router", "false")
+    invalidate_catalog_cache()
+    yield
+    invalidate_catalog_cache()
+
+
 # ── 1-2. Flag default + setter ─────────────────────────────────────────────
 
 
@@ -114,6 +134,22 @@ def test_build_in_memory_returns_catalog_with_all_15_providers():
     assert len(mirror.providers) == 15
     actual_ids = {p.provider_id for p in mirror.providers}
     assert actual_ids == set(all_provider_ids())
+
+
+def test_catalog_widens_when_router_providers_are_included(monkeypatch):
+    """The opt-in flag adds the router's providers without losing the baseline.
+
+    Production sets FREELLM_CATALOG_INCLUDE_ROUTER=true, so this is the shape
+    external readers of the mirrored document actually receive there.
+    """
+    from packages.config import settings as app_settings
+    monkeypatch.setattr(app_settings, "freellm_catalog_include_router", "true")
+    invalidate_catalog_cache()
+
+    widened = {p.provider_id for p in ModelCatalogStore()._build_in_memory().providers}
+    assert widened > set(all_provider_ids()), (
+        "the flag must add providers, never replace the baseline"
+    )
 
 
 def test_build_in_memory_has_safe_default():

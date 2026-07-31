@@ -96,6 +96,11 @@ class _FakeAsyncClient:
 @pytest.fixture
 def _free_env(monkeypatch):
     """No paid opt-in; a stale Anthropic key present; NVIDIA configured."""
+    # Legacy-path test: the assertions read a fake httpx.AsyncClient, which
+    # LLMRouter bypasses because it owns its own client. Pin the flag off so
+    # an ambient LLM_ROUTER_ENABLED (set in production) cannot turn these
+    # assertions into no-ops.
+    monkeypatch.delenv("LLM_ROUTER_ENABLED", raising=False)
     monkeypatch.delenv("ALLOW_PAID_BRAIN", raising=False)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-STALE")
     monkeypatch.setenv("NVIDIA_API_KEY", "nvapi-TESTKEY")
@@ -153,6 +158,8 @@ async def test_chat_text_refuses_when_no_free_brain(monkeypatch):
 async def test_chat_text_nvidia_model_uses_configured_endpoint(monkeypatch):
     """A non-Anthropic (NVIDIA) model is unaffected — it uses the configured
     provider endpoint normally."""
+    # Legacy-path test — see the note on the _free_env fixture above.
+    monkeypatch.delenv("LLM_ROUTER_ENABLED", raising=False)
     monkeypatch.delenv("ALLOW_PAID_BRAIN", raising=False)
     import agent.loop as loop_mod
 

@@ -21,6 +21,14 @@ from services.brain_failover import reset_failover_manager
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
+    # These tests drive the LEGACY failover path directly, with a fake
+    # httpx.AsyncClient installed at module scope. LLMRouter builds its own
+    # client, so if the ambient environment has LLM_ROUTER_ENABLED set (as
+    # production now does) the fake never applies and the test measures
+    # nothing. Pin the flag off so this file always tests what it claims to.
+    # Router-side coverage of the same 413 rule lives in
+    # tests/test_llm_router_failover.py.
+    monkeypatch.delenv("LLM_ROUTER_ENABLED", raising=False)
     for k in [
         "NVIDIA_API_KEY", "GROQ_API_KEY", "CEREBRAS_API_KEY", "ZHIPU_API_KEY",
         "DEEPSEEK_API_KEY", "TOGETHER_API_KEY", "DASHSCOPE_API_KEY",
