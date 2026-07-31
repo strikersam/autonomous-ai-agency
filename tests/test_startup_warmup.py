@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Coroutine
+from typing import Any, NoReturn
 
 import pytest
 
@@ -28,6 +30,15 @@ def _isolate_warmup_overflow():
     for task in list(server._warmup_overflow):
         task.cancel()
     server._warmup_overflow.clear()
+
+
+
+class _StopLifespan(RuntimeError):
+    """Sentinel: halt ``lifespan()`` once the startup ordering is observed."""
+
+
+def _unexpected_wire() -> NoReturn:
+    raise AssertionError("wiring ran even though a store was already registered")
 
 
 # ── Shared warm-up deadline ──────────────────────────────────────────────────
@@ -105,6 +116,81 @@ async def test_deferred_step_failure_is_consumed_and_unregistered():
 
     await asyncio.sleep(0.2)
     assert server._warmup_overflow == [], "settled tasks must be unregistered"
+
+
+# ── Deferral must not take the app down with it ──────────────────────────────
+
+
+def test_feature_stores_are_wired_on_demand_not_eagerly(monkeypatch):
+    """Wire only what is missing — never replace a store somebody registered.
+
+    ``TaskStore(db=None)`` raises outside tests by design, so when a cold
+    database pushed bootstrap past its warm-up budget, the deferral skipped
+    the wiring inside ``ensure_bootstrap()`` and the next lifespan line
+    (``start_background_services(task_store=...)``) crashed the process:
+    uvicorn exited with STARTUP_FAILURE and the deploy failed.
+
+    The first attempt at a fix wired the stores eagerly at the top of the
+    lifespan. That traded one bug for another — it overwrote stores callers
+    had already registered, including the ones tests inject before starting a
+    client, so their data silently vanished into a fresh empty store. Repair
+    is therefore conditional: ask for the store, and wire only if asking
+    fails.
+    """
+    sentinel = object()
+    monkeypatch.setattr(server, "get_task_store", lambda: sentinel)
+    monkeypatch.setattr(server, "_wire_feature_stores", _unexpected_wire)
+
+    assert server._task_store_for_background() is sentinel, (
+        "an already-registered store must be handed back untouched"
+    )
+
+
+def test_a_missing_task_store_is_wired_rather_than_left_to_crash(monkeypatch):
+    """The deferred-bootstrap path: nothing registered, so wire it now."""
+    wired: list[str] = []
+    built = object()
+    attempts = {"n": 0}
+
+    def _get_task_store():
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise RuntimeError("TaskStore cannot start without a persistent backend")
+        return built
+
+    monkeypatch.setattr(server, "get_task_store", _get_task_store)
+    monkeypatch.setattr(server, "_wire_feature_stores", lambda: wired.append("wired"))
+
+    assert server._task_store_for_background() is built
+    assert wired == ["wired"], "a missing store must be wired, not re-raised"
+
+
+def test_wire_feature_stores_registers_both_stores(monkeypatch):
+    """Whatever triggers it, wiring must register the pair."""
+    wired: list[str] = []
+    monkeypatch.setattr(server, "set_agent_store", lambda store: wired.append("agent"))
+    monkeypatch.setattr(server, "set_task_store", lambda store: wired.append("task"))
+
+    server._wire_feature_stores()
+
+    assert wired == ["agent", "task"]
+
+
+def test_wiring_the_stores_performs_no_database_io(monkeypatch):
+    """It has to be cheap, or it cannot live outside the warm-up budget."""
+    calls = {"n": 0}
+
+    class _LazyDb:
+        def __getattr__(self, name: str) -> NoReturn:
+            calls["n"] += 1
+            raise AssertionError(f"store wiring touched the database ({name})")
+
+    monkeypatch.setattr(server, "get_db", lambda: _LazyDb())
+    monkeypatch.setattr(server, "set_agent_store", lambda store: None)
+    monkeypatch.setattr(server, "set_task_store", lambda store: None)
+
+    server._wire_feature_stores()
+    assert calls["n"] == 0
 
 
 # ── Bootstrap inside the login handler ───────────────────────────────────────

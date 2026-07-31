@@ -31,6 +31,13 @@ on:
       - 'loops/**'
       - 'voice/**'
       - '.claude/**'
+      # config/ holds the LLM router's runtime YAML (providers, models,
+      # routing, keys, health, cache). Every file is optional by design, so a
+      # stale or absent config degrades silently to env-derived defaults
+      # instead of erroring — which means a routing change that never deploys
+      # looks exactly like one that did. Retuning a provider's
+      # tokens_per_minute must reach production on its own.
+      - 'config/**'
       # Dockerfile.backend now builds the React SPA from frontend/ source (the
       # multi-stage frontend-build stage) and bakes it into the image, so a
       # frontend-only change must redeploy the backend too — otherwise the
