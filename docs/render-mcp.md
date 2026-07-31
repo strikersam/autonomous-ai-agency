@@ -52,16 +52,46 @@ starting the session. With it set, an agent debugging a production issue can
 read deploy history and platform logs directly instead of asking a human to
 paste them.
 
-### 2. The running agency — Streamable HTTP
+### 2. The running agency — Streamable HTTP against a deployed sidecar
 
 The backend is a long-lived async service, not a per-session subprocess host, so
 it does **not** use stdio. `packages/integrations/render_mcp.py` speaks MCP
 JSON-RPC over Streamable HTTP to `RENDER_MCP_URL`, authenticating with
 `Authorization: Bearer $RENDER_API_KEY`.
 
-The default URL assumes you run the upstream server yourself in HTTP mode —
-`render-mcp-server -t http` binds `:10000` and serves `/mcp`. Point
-`RENDER_MCP_URL` elsewhere to use a different endpoint.
+`render.yaml` deploys the server as a fourth service, `agency-render-mcp`, built
+from `Dockerfile.render-mcp` (a thin wrapper over the upstream image that pins
+`ENTRYPOINT` and `CMD ["-t", "http"]`). The backend reaches it over Render's
+private network:
+
+```
+local-llm-server ──► http://agency-render-mcp:10000/mcp ──► api.render.com
+   (backend)              (private network)                  (Render API)
+```
+
+Three things worth knowing about that service:
+
+- **It holds no secrets.** In HTTP mode the Render API token is read
+  per-request from the caller's `Authorization` header (upstream
+  `pkg/authn/authn.go`), not from its own environment. The only key involved is
+  the backend's, sent per call — so the sidecar's public URL is useless to
+  anyone without a valid Render API key of their own, and nothing in its
+  `envVars` is `sync: false`.
+- **It declares `PORT: 10000`.** The Go binary hardcodes `:10000` and ignores
+  `$PORT`, so `PORT` tells Render where to route rather than changing what the
+  server binds.
+- **It has no `healthCheckPath`.** The server's mux serves `/mcp` and the OAuth
+  metadata routes only; there is no health endpoint, and pointing a health check
+  at `/mcp` would open an SSE stream that never closes. Render's port check
+  confirms liveness.
+
+Why a separate service instead of running it in-process: the MCP server is a Go
+binary, and the alternative — reimplementing Render's API surface in Python — is
+the duplicate-logic path CLAUDE.md §2 rules out.
+
+The default `RENDER_MCP_URL` is the loopback form (`http://127.0.0.1:10000/mcp`)
+so a developer running `render-mcp-server -t http` locally needs no config;
+`render.yaml` overrides it with the private-network address in production.
 
 ## Configuration
 
@@ -71,21 +101,32 @@ environment variables) and are declared in `render.yaml`.
 | Variable | Default | Purpose |
 |---|---|---|
 | `RENDER_API_KEY` | *(unset)* | Render API key. Nothing works without it. |
-| `RENDER_MCP_URL` | `http://127.0.0.1:10000/mcp` | Streamable-HTTP endpoint of a Render MCP server |
+| `RENDER_MCP_URL` | `http://127.0.0.1:10000/mcp` | Streamable-HTTP endpoint. `render.yaml` sets the sidecar's private address. |
 | `RENDER_WORKSPACE_ID` | *(unset)* | Workspace (owner) ID, passed explicitly on every resource call |
 | `RENDER_SERVICE_IDS` | *(unset)* | Comma-separated services to watch. Empty = discover all |
-| `RENDER_OPS_ENABLED` | `false` | Master switch for the autonomous monitoring loop |
-| `RENDER_OPS_INTERVAL_SECONDS` | `900` | Poll interval (floored at 60s) |
+| `RENDER_OPS_ENABLED` | `true` | Master switch for the autonomous monitoring loop |
+| `RENDER_OPS_INTERVAL_SECONDS` | `600` | Poll interval (floored at 60s) |
 | `RENDER_MCP_ALLOW_WRITES` | `false` | Permit mutating Render tools |
 
-`RENDER_OPS_ENABLED` is only honoured when `RENDER_API_KEY` is also set — an
-enabled loop with no credentials would fail every tick, so the two conditions are
+**The loop is on by default.** Platform monitoring is the standing state of this
+deployment, not something an operator opts into after an incident.
+
+`RENDER_OPS_ENABLED` is still only honoured when `RENDER_API_KEY` is also set.
+That is not a second off-switch — it is what makes defaulting the flag on safe.
+The API key cannot be committed, so without the credential check an install that
+never configured Render would fail a tick every ten minutes forever. Instead it
+stays dormant: one log line at startup, no retries. The two conditions are
 combined in `settings.is_render_ops_enabled` rather than rediscovered at each
 call site.
 
+The 600-second interval is deliberate rather than round: a free-plan service
+sleeps after roughly 15 minutes idle, so a 15-minute poll would land on a cold
+start almost every tick. Ten minutes keeps the sidecar warm at 144 ticks a day.
+
 Upstream deprecated implicit session-scoped workspace selection, so
 `RENDER_WORKSPACE_ID` is passed as `workspaceId` on every workspace-scoped tool
-call when it is known.
+call when it is known. It is set on the backend only — the sidecar deliberately
+does not carry a second copy.
 
 ## The monitoring loop
 
@@ -178,13 +219,28 @@ Streamable-HTTP servers:
 
 ## Enabling it
 
+Everything except the API key is already wired: the sidecar is declared in
+`render.yaml`, the backend points at it, and the loop is on. There is exactly one
+manual step, because a key cannot be committed.
+
 1. Create a Render API key: dashboard → Account Settings → API Keys.
-2. Set `RENDER_API_KEY` in the Render dashboard (it is `sync: false` in
-   `render.yaml`, so it is never committed).
-3. Make an MCP endpoint reachable — run `render-mcp-server -t http` beside the
-   service, or point `RENDER_MCP_URL` at another endpoint.
-4. Set `RENDER_OPS_ENABLED=true`.
-5. Confirm with `GET /api/render/health`, then `GET /api/render/ops/scan`.
+2. Set `RENDER_API_KEY` on the `local-llm-server` service (it is `sync: false`,
+   so Render prompts for it on the next blueprint sync).
+3. Optionally set `RENDER_WORKSPACE_ID` — without it, workspace-scoped tools
+   return upstream's `no workspace selected` error. `GET /api/render/health`
+   plus the `list_workspaces` tool will tell you the ID.
+4. Confirm with `GET /api/render/health`, then `GET /api/render/ops/scan`.
+
+Until step 2 the loop logs one line at startup and does nothing further. After
+it, the first tick runs within `RENDER_OPS_INTERVAL_SECONDS`.
 
 Leave `RENDER_MCP_ALLOW_WRITES` at `false` unless you specifically intend the
 agency to be able to change your deployment.
+
+### If the private address does not resolve
+
+`GET /api/render/health` reports the exact URL it tried. If the sidecar is
+reachable at its public `.onrender.com` URL but not at
+`http://agency-render-mcp:10000/mcp`, override `RENDER_MCP_URL` on the backend
+with the public one. The failure is contained to this feature — the backend logs
+it in `last_error` and everything else keeps running.

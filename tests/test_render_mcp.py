@@ -500,7 +500,7 @@ class TestRenderRouter:
 
 class TestRenderSettings:
     def test_ops_loop_requires_credentials_not_just_the_flag(self):
-        """An enabled loop with no API key would fail every tick — so it stays off."""
+        """An enabled loop with no API key would fail every tick — so it stays dormant."""
         from packages.config.settings import Settings
         s = Settings()
         s.render_ops_enabled = "true"
@@ -508,6 +508,12 @@ class TestRenderSettings:
         assert s.is_render_ops_enabled is False
         s.render_api_key = "key"
         assert s.is_render_ops_enabled is True
+
+    def test_ops_defaults_to_on(self, monkeypatch):
+        """Monitoring is the standing state, not an opt-in after an incident."""
+        from packages.config.settings import Settings
+        monkeypatch.delenv("RENDER_OPS_ENABLED", raising=False)
+        assert Settings().render_ops_enabled == "true"
 
     def test_writes_default_to_denied(self):
         from packages.config.settings import Settings
@@ -518,3 +524,73 @@ class TestRenderSettings:
         s = Settings()
         s.render_service_ids = " srv-1 , srv-2 ,"
         assert s.render_service_id_list == ["srv-1", "srv-2"]
+
+
+# ── Deployment topology ───────────────────────────────────────────────────────
+
+def _render_yaml() -> dict:
+    import yaml
+    return yaml.safe_load((Path(__file__).parent.parent / "render.yaml").read_text())
+
+
+def _service(name: str) -> dict:
+    for svc in _render_yaml()["services"]:
+        if svc.get("name") == name:
+            return svc
+    raise AssertionError(f"service {name!r} not declared in render.yaml")
+
+
+def _env(service: dict) -> dict[str, Any]:
+    return {e["key"]: e for e in service.get("envVars", [])}
+
+
+class TestRenderMCPSidecarService:
+    def test_sidecar_service_is_declared(self):
+        svc = _service("agency-render-mcp")
+        assert svc["type"] == "web"
+        assert svc["dockerfilePath"] == "./Dockerfile.render-mcp"
+
+    def test_sidecar_declares_the_port_it_actually_binds(self):
+        """The Go binary hardcodes :10000 and ignores $PORT, so Render must be told."""
+        assert _env(_service("agency-render-mcp"))["PORT"]["value"] == "10000"
+
+    def test_sidecar_holds_no_secrets(self):
+        """In HTTP mode the token comes from the caller's header, so nothing here is secret."""
+        for entry in _env(_service("agency-render-mcp")).values():
+            assert "sync" not in entry, f"{entry['key']} declared as a secret"
+
+    def test_sidecar_has_no_health_check_path(self):
+        """The mux serves /mcp only; a health check there opens an SSE stream that never closes."""
+        assert "healthCheckPath" not in _service("agency-render-mcp")
+
+    def test_oauth_is_explicitly_disabled(self):
+        """pkg/oauth fails the process at boot on a partial OAuth config."""
+        assert _env(_service("agency-render-mcp"))["OAUTH_ENABLED"]["value"] == "false"
+
+    def test_dockerfile_pins_transport_and_entrypoint(self):
+        content = (Path(__file__).parent.parent / "Dockerfile.render-mcp").read_text()
+        assert "ghcr.io/render-oss/render-mcp-server" in content
+        assert 'ENTRYPOINT ["/server/render-mcp-server"]' in content
+        assert 'CMD ["-t", "http"]' in content
+
+
+class TestBackendWiring:
+    def test_backend_points_at_the_sidecar_privately(self):
+        """The backend must use the private-network address, not the public URL."""
+        url = _env(_service("local-llm-server"))["RENDER_MCP_URL"]["value"]
+        assert url == "http://agency-render-mcp:10000/mcp"
+        assert ".onrender.com" not in url
+
+    def test_ops_enabled_in_production(self):
+        assert _env(_service("local-llm-server"))["RENDER_OPS_ENABLED"]["value"] == "true"
+
+    def test_poll_interval_keeps_the_free_sidecar_warm(self):
+        """A free service sleeps at ~15m idle; polling must stay under that."""
+        interval = int(_env(_service("local-llm-server"))["RENDER_OPS_INTERVAL_SECONDS"]["value"])
+        assert interval < 900
+
+    def test_writes_stay_disabled_in_production(self):
+        assert _env(_service("local-llm-server"))["RENDER_MCP_ALLOW_WRITES"]["value"] == "false"
+
+    def test_api_key_is_never_committed(self):
+        assert _env(_service("local-llm-server"))["RENDER_API_KEY"]["sync"] is False

@@ -1,0 +1,36 @@
+# Dockerfile.render-mcp — the Render MCP server, deployed beside the backend.
+#
+# Wraps the upstream image (render-oss/render-mcp-server) rather than building
+# Go from source: the upstream Dockerfile already produces a distroless binary,
+# and rebuilding it here would add a Go toolchain to CI for no gain.
+#
+# Why a wrapper at all instead of pointing Render at the image directly:
+# upstream uses ENTRYPOINT (not CMD) specifically so user args append to the
+# binary. Whether a platform's "docker command" override appends to ENTRYPOINT
+# or replaces it is platform-specific, and getting it wrong yields a container
+# that either ignores `-t http` (serving stdio to nobody) or fails to start.
+# Pinning both here removes the ambiguity.
+#
+# `-t http` selects the Streamable-HTTP transport, which binds :10000 and
+# serves /mcp (upstream cmd/server.go). The backend reaches it over Render's
+# private network at http://agency-render-mcp:10000/mcp.
+#
+# This container holds NO credentials. In HTTP mode the Render API token is
+# read per-request from the caller's Authorization header
+# (upstream pkg/authn/authn.go `ContextWithAPITokenFromHeader`), so the only
+# key involved is the one the backend already has. A request without a token
+# can do nothing.
+FROM ghcr.io/render-oss/render-mcp-server:latest
+
+WORKDIR /server
+
+# Upstream's default points at a config file that does not exist in this image.
+# That is harmless — `config.Load()` returns an empty config for a missing file
+# rather than erroring — but pointing it at a writable path lets the server
+# persist its workspace selection instead of retrying the write every call.
+ENV RENDER_CONFIG_PATH=/tmp/render-mcp-server.yaml
+
+EXPOSE 10000
+
+ENTRYPOINT ["/server/render-mcp-server"]
+CMD ["-t", "http"]

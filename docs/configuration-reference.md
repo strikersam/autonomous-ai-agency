@@ -220,15 +220,24 @@ build failures, OOM kills, restart loops, stalled deploys, and memory pressure
 all happen where no Python process was alive to log them. Full guide:
 [`docs/render-mcp.md`](render-mcp.md).
 
+In production the MCP server runs as the `agency-render-mcp` service declared in
+`render.yaml` (built from `Dockerfile.render-mcp`), reached over Render's private
+network. The loop is **on by default**; the only thing an operator must supply is
+`RENDER_API_KEY`, which cannot be committed.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `RENDER_API_KEY` | (empty) | Render API key (dashboard → Account Settings → API Keys). Nothing in this section works without it. |
-| `RENDER_MCP_URL` | `http://127.0.0.1:10000/mcp` | Streamable-HTTP endpoint of a Render MCP server. The default assumes `render-mcp-server -t http` running beside the service. |
+| `RENDER_API_KEY` | (empty) | Render API key (dashboard → Account Settings → API Keys). The one required manual step. |
+| `RENDER_MCP_URL` | `http://127.0.0.1:10000/mcp` | Streamable-HTTP endpoint. The loopback default suits local development; `render.yaml` sets `http://agency-render-mcp:10000/mcp` in production. |
 | `RENDER_WORKSPACE_ID` | (empty) | Render workspace (owner) ID, passed as `workspaceId` on every resource tool call. Upstream deprecated implicit session-scoped selection. |
 | `RENDER_SERVICE_IDS` | (empty) | Comma-separated service IDs the monitoring loop watches. Empty means discover every service in the workspace. |
-| `RENDER_OPS_ENABLED` | `false` | Master switch for the autonomous monitoring loop. Only honoured when `RENDER_API_KEY` is also set. |
-| `RENDER_OPS_INTERVAL_SECONDS` | `900` | Poll interval, floored at 60s. |
+| `RENDER_OPS_ENABLED` | `true` | Master switch for the autonomous monitoring loop. Only honoured when `RENDER_API_KEY` is also set — that credential check is what makes defaulting it on safe, not a second off-switch. |
+| `RENDER_OPS_INTERVAL_SECONDS` | `600` | Poll interval, floored at 60s. Under the ~15-minute free-plan idle timeout so the sidecar stays warm. |
 | `RENDER_MCP_ALLOW_WRITES` | `false` | Permit mutating Render tools (`trigger_deploy`, `update_environment_variables`, `create_*`). The monitoring loop stays read-only regardless. |
+
+The `agency-render-mcp` service itself takes no secrets: in HTTP mode it reads
+the Render token per-request from the caller's `Authorization` header, so the
+only key involved is the backend's.
 
 ---
 

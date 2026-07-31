@@ -202,10 +202,11 @@ class Settings:
         # exposes exactly that missing view over MCP, and these settings point
         # the agency at it.
         self.render_api_key: str = os.environ.get("RENDER_API_KEY", "")
-        # Streamable-HTTP endpoint of a Render MCP server. Default targets a
-        # locally running `render-mcp-server -t http` (it binds :10000 and
-        # serves /mcp — see cmd/server.go upstream). Point it at Render's
-        # hosted MCP endpoint instead by setting this var.
+        # Streamable-HTTP endpoint of a Render MCP server. In production this
+        # is the `agency-render-mcp` sidecar declared in render.yaml, reached
+        # over Render's private network. The default is the loopback form so a
+        # developer running `render-mcp-server -t http` locally (it binds
+        # :10000 and serves /mcp — upstream cmd/server.go) needs no config.
         self.render_mcp_url: str = os.environ.get(
             "RENDER_MCP_URL", "http://127.0.0.1:10000/mcp"
         ).rstrip("/")
@@ -216,11 +217,14 @@ class Settings:
         # Comma-separated Render resource IDs the ops loop watches. Empty means
         # "discover every service in the workspace via list_services".
         self.render_service_ids: str = os.environ.get("RENDER_SERVICE_IDS", "")
-        # Master switch for the autonomous Render ops loop. Default OFF: without
-        # RENDER_API_KEY the loop cannot do anything, and turning it on for an
-        # operator who never configured Render would emit noise every tick.
-        self.render_ops_enabled: str = os.environ.get("RENDER_OPS_ENABLED", "false").lower()
-        self.render_ops_interval_seconds: int = _env_int("RENDER_OPS_INTERVAL_SECONDS", 900)
+        # Master switch for the autonomous Render ops loop. Default ON:
+        # platform monitoring is the standing state of this deployment, not an
+        # opt-in an operator has to remember after an incident. This is safe to
+        # default on only because `is_render_ops_enabled` also requires
+        # RENDER_API_KEY — an install with no Render credentials stays dormant
+        # rather than failing a tick every ten minutes.
+        self.render_ops_enabled: str = os.environ.get("RENDER_OPS_ENABLED", "true").lower()
+        self.render_ops_interval_seconds: int = _env_int("RENDER_OPS_INTERVAL_SECONDS", 600)
         # Default-deny for mutating Render tools (trigger_deploy,
         # update_environment_variables, create_*). Reading production state is
         # safe and is what "100% autonomous debugging" needs; changing a live
@@ -246,11 +250,13 @@ class Settings:
 
     @property
     def is_render_ops_enabled(self) -> bool:
-        """When True (and MCP is configured), the Render ops loop runs.
+        """When True, the Render ops loop runs. On by default.
 
-        Requires ``is_render_mcp_configured`` as well — an enabled loop with no
-        credentials would fail every tick, so the two conditions are combined
-        here rather than rediscovered at each call site."""
+        Also requires ``is_render_mcp_configured``. That is not a second
+        off-switch: ``RENDER_API_KEY`` cannot be committed, so the credential
+        check is what lets the flag default to on without an install that has
+        no Render credentials failing a tick every ten minutes. Combined here
+        rather than rediscovered at each call site."""
         return (
             self.render_ops_enabled in {"1", "true", "yes", "on"}
             and self.is_render_mcp_configured
