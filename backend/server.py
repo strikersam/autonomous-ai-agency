@@ -2538,9 +2538,17 @@ def _wire_feature_stores() -> None:
 
     Idempotent — ``ensure_bootstrap`` still calls it so entrypoints that never
     run the lifespan are unaffected.
+
+    Both stores are built from one database handle before either setter runs.
+    Constructing inside the setter calls made the pair non-atomic: if the second
+    constructor raised, the agent store had already been replaced while the task
+    store still pointed at the old one, leaving the process half-wired.
     """
-    set_agent_store(AgentStore(db=get_db()))
-    set_task_store(TaskStore(db=get_db()))
+    db = get_db()
+    agent_store = AgentStore(db=db)
+    task_store = TaskStore(db=db)
+    set_agent_store(agent_store)
+    set_task_store(task_store)
 
 
 async def _create_bootstrap_indexes() -> None:

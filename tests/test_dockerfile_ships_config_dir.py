@@ -84,8 +84,21 @@ def test_groq_declares_its_per_minute_budget():
     assert len(groq_block) == 2, "no groq provider in config/llm/providers.yaml"
     # Read to the next top-level provider key (two-space indent).
     body = re.split(r"\n  \w[\w-]*:\n", groq_block[1])[0]
-    assert "tokens_per_minute:" in body, (
+
+    declared = re.search(r"tokens_per_minute:\s*(\S+)", body)
+    assert declared, (
         "groq must declare tokens_per_minute — without it the router sizes "
         "requests against the 131k context window and ignores the account's "
         "12k TPM budget"
+    )
+    # Assert the value, not just the field: `tokens_per_minute: 0` parses fine
+    # and means "unmetered", which is the exact bug this guards against. The
+    # documented default is 12000, overridable per account.
+    value = declared.group(1)
+    override = re.fullmatch(r"\$\{GROQ_TOKENS_PER_MINUTE:-(\d+)\}", value)
+    budget = int(override.group(1)) if override else int(value)
+    assert budget == 12000, (
+        f"groq tokens_per_minute is {budget}, expected the documented 12000 "
+        "free-tier ceiling (raise it via GROQ_TOKENS_PER_MINUTE after a tier "
+        "upgrade rather than editing this default away)"
     )

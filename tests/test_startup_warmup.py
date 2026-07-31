@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+from typing import NoReturn
 
 import pytest
 
@@ -132,12 +133,62 @@ def test_feature_stores_are_wired_before_anything_can_be_deferred(monkeypatch):
     )
 
 
+@pytest.mark.asyncio
+async def test_lifespan_wires_the_stores_before_it_can_defer_anything(monkeypatch):
+    """The ordering is the fix — assert it in ``lifespan()``, not in isolation.
+
+    Testing ``_wire_feature_stores()`` on its own passes even if the lifespan
+    stops calling it, or moves the call after background services start, which
+    is precisely the bug this PR fixes. So drive the real deferred path and
+    record the order.
+    """
+    order: list[str] = []
+
+    def _wire() -> None:
+        order.append("wire")
+
+    async def _slow_bootstrap() -> None:
+        await asyncio.sleep(30)
+
+    async def _warmup(coro, label, deadline):
+        order.append(f"warmup:{label}")
+        coro.close()          # we are standing in for the real step
+        return None
+
+    async def _start_background(**_kwargs):
+        order.append("background")
+        raise RuntimeError("stop the lifespan here — ordering is what matters")
+
+    monkeypatch.setattr(server, "_wire_feature_stores", _wire)
+    monkeypatch.setattr(server, "ensure_bootstrap", _slow_bootstrap)
+    monkeypatch.setattr(server, "_warmup_step", _warmup)
+    monkeypatch.setattr(
+        "services.background.start_background_services", _start_background
+    )
+    monkeypatch.setattr("services.background.run_background_in_web", lambda: True)
+
+    cm = server.lifespan(server.app)
+    try:
+        await cm.__aenter__()
+    except Exception:
+        pass  # the lifespan is halted deliberately once ordering is observed
+
+    assert "wire" in order, "the lifespan never wired the feature stores"
+    assert order.index("wire") == 0, (
+        f"stores must be wired first, got {order}"
+    )
+    if "background" in order:
+        assert order.index("wire") < order.index("background"), (
+            "background services read the stores — they cannot start first"
+        )
+
+
 def test_wiring_the_stores_performs_no_database_io(monkeypatch):
     """It has to be cheap, or it cannot live outside the warm-up budget."""
     calls = {"n": 0}
 
     class _LazyDb:
-        def __getattr__(self, name):
+        def __getattr__(self, name: str) -> NoReturn:
             calls["n"] += 1
             raise AssertionError(f"store wiring touched the database ({name})")
 
