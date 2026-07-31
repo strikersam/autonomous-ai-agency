@@ -79,6 +79,33 @@ shape uses `kind: openai`. Readability aliases (`lmstudio`, `vllm`, `groq`,
 - Free cloud tiers: **4–6**. Usually the RPM limit binds first.
 - Paid cloud: **8+**.
 
+### Per-minute token budgets
+
+`tokens_per_minute` (provider) and `max_tokens_per_minute` (model) are an
+**input ceiling**, not just a sort key. Set one whenever the account is metered
+more tightly than the model's context window suggests, because the router sizes
+requests against `min(context_window, tokens_per_minute)`.
+
+This matters more than it sounds. Groq's free tier serves
+`llama-3.3-70b-versatile` with a 131,072-token window behind a 12,000 TPM
+account budget, and enforces the budget with an HTTP 413 reading `Request too
+large ... on tokens per minute (TPM): Limit 12000, Requested 17599`. Without the
+declaration a 17.6k-token prompt looks like it fits, is sent, and is refused —
+and since nothing shrank it, the next free provider refuses it too. With it, the
+router either routes to a provider that has room or compresses the conversation
+to the ceiling before sending.
+
+The value belongs to the **account**, not the model, which is why it lives on
+the provider and is env-overridable:
+
+```yaml
+groq:
+  tokens_per_minute: ${GROQ_TOKENS_PER_MINUTE:-12000}   # 0 = unmetered
+```
+
+Raise it (or set `0`) after upgrading the tier. Leaving it unset means
+"unmetered" — the router will size against the context window alone.
+
 ## models.yaml
 
 ```yaml

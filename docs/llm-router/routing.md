@@ -185,9 +185,12 @@ A request fails over like this:
    no retry against that provider, and the provider is switched off durably —
    only a new key or more credit fixes it, so leaving it in rotation costs
    latency on every later request and never succeeds.
-6. On **413**: move to the next provider. "Payload too large" describes one
-   provider's context window, not the request — a prompt that overflows a 32k
-   model fits a 200k one.
+6. On **413**: it depends on what the body says. When it names a per-minute
+   budget — Groq answers "Request too large ... on tokens per minute (TPM):
+   Limit 12000" — it is a rate limit wearing a payload status code, and it is
+   treated exactly like a 429: cool that key, rotate, move on. Otherwise it
+   describes one provider's context window, not the request, so the next
+   provider is tried — a prompt that overflows a 32k model fits a 200k one.
 7. On **414/422**: stop entirely. The request itself is malformed, and every
    provider will reject it identically.
 8. Repeat until something succeeds, the attempt budget is spent, or the
