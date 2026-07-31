@@ -68,6 +68,16 @@ COPY hardware/ hardware/
 COPY *.py ./
 COPY models/ models/
 COPY services/ services/
+# Runtime configuration read from disk — config/llm/*.yaml is the LLM router's
+# provider, model, routing, health, and cache definitions. Every file is
+# optional by design, so a missing config/ does not crash: the router silently
+# falls back to env-derived defaults. That silence is exactly why this was
+# missed. Without this COPY the deployed router ran with no providers.yaml at
+# all, so Groq's tokens_per_minute resolved to 0 ("unmetered") and requests
+# were still sized against the advertised 131k context window — the very bug
+# fixed in #1172, live in production because only the code half of that change
+# reached the image. Guarded by tests/test_dockerfile_ships_config_dir.py.
+COPY config/ config/
 # Voice package: server-side TTS (voice/tts.py, /agent/sam/speak) + the SAM
 # LiveKit realtime voice pipeline (config/token/worker). Before this line the
 # image never shipped voice/, so /agent/sam/speak silently failed in prod.

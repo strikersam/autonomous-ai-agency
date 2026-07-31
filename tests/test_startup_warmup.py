@@ -107,6 +107,48 @@ async def test_deferred_step_failure_is_consumed_and_unregistered():
     assert server._warmup_overflow == [], "settled tasks must be unregistered"
 
 
+# ── Deferral must not take the app down with it ──────────────────────────────
+
+
+def test_feature_stores_are_wired_before_anything_can_be_deferred(monkeypatch):
+    """The startup crash that failed Render deploys after the warm-up landed.
+
+    ``TaskStore(db=None)`` raises outside tests by design. Wiring the stores
+    inside the timed bootstrap meant that when a cold database pushed
+    bootstrap past its budget, the deferral skipped the wiring — and the next
+    lifespan line, ``start_background_services(task_store=get_task_store())``,
+    constructed a store with no database. The lifespan raised, uvicorn exited
+    with STARTUP_FAILURE, and the deploy failed. Intermittently, because it
+    needed the database to be slow rather than broken.
+    """
+    wired: list[str] = []
+    monkeypatch.setattr(server, "set_agent_store", lambda store: wired.append("agent"))
+    monkeypatch.setattr(server, "set_task_store", lambda store: wired.append("task"))
+
+    server._wire_feature_stores()
+
+    assert wired == ["agent", "task"], (
+        "both feature stores must be wired without touching the bootstrap"
+    )
+
+
+def test_wiring_the_stores_performs_no_database_io(monkeypatch):
+    """It has to be cheap, or it cannot live outside the warm-up budget."""
+    calls = {"n": 0}
+
+    class _LazyDb:
+        def __getattr__(self, name):
+            calls["n"] += 1
+            raise AssertionError(f"store wiring touched the database ({name})")
+
+    monkeypatch.setattr(server, "get_db", lambda: _LazyDb())
+    monkeypatch.setattr(server, "set_agent_store", lambda store: None)
+    monkeypatch.setattr(server, "set_task_store", lambda store: None)
+
+    server._wire_feature_stores()
+    assert calls["n"] == 0
+
+
 # ── Bootstrap inside the login handler ───────────────────────────────────────
 
 

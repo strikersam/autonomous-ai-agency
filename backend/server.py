@@ -1617,6 +1617,12 @@ async def lifespan(app_: "FastAPI"):
     from services.background import BackgroundServices
     bg: Optional[BackgroundServices] = None
     warmup_deadline = asyncio.get_running_loop().time() + _STARTUP_WARMUP_BUDGET_SEC
+    # Before anything that can be deferred: the background services started
+    # below read these stores, and constructing one without a database raises.
+    try:
+        _wire_feature_stores()
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("Feature store wiring failed: %s", exc)
     try:
         await _warmup_step(ensure_bootstrap(), "database bootstrap", warmup_deadline)
         log.info("LLM Relay Platform started — provider=%s", LLM_PROVIDER)
@@ -2513,6 +2519,30 @@ _BOOTSTRAP_INDEXES: tuple[tuple[str, object, dict], ...] = (
 )
 
 
+def _wire_feature_stores() -> None:
+    """Point the feature stores at the shared database connection.
+
+    Deliberately synchronous and outside the bootstrap's slow section: both
+    constructors only wrap the lazy database handle, so this costs nothing and
+    performs no I/O, while index creation and seeding cost network round-trips.
+
+    Keeping it inside the timed bootstrap was a startup-crash waiting to
+    happen. When the bootstrap overran its warm-up budget and was deferred to
+    the background, these two calls had not run, so the very next line of the
+    lifespan — ``start_background_services(task_store=get_task_store(), ...)``
+    — constructed a ``TaskStore`` with no database. That constructor raises
+    outside tests by design ("cannot start without a persistent backend"), so
+    the lifespan raised, uvicorn exited with STARTUP_FAILURE, and the deploy
+    failed. Intermittently: only when the database was slow enough to blow the
+    budget, which is exactly when a cold Atlas is waking up.
+
+    Idempotent — ``ensure_bootstrap`` still calls it so entrypoints that never
+    run the lifespan are unaffected.
+    """
+    set_agent_store(AgentStore(db=get_db()))
+    set_task_store(TaskStore(db=get_db()))
+
+
 async def _create_bootstrap_indexes() -> None:
     """Create every boot index concurrently rather than one round-trip at a time.
 
@@ -2544,9 +2574,7 @@ async def ensure_bootstrap() -> None:
             if _BOOTSTRAP_DONE:
                 return
             await _create_bootstrap_indexes()
-            # Wire feature stores to the shared MongoDB connection
-            set_agent_store(AgentStore(db=get_db()))
-            set_task_store(TaskStore(db=get_db()))
+            _wire_feature_stores()
             await seed_admin()
             await seed_default_agents()
             await seed_default_providers()
