@@ -95,6 +95,13 @@ _COLLECTIONS = [
     "workflows",
     "app_settings",
     "agent_specs",
+    # Where agent/schedule_store.py persists schedules. Absent from this list,
+    # the boot sweep that drains the schedule backlog raised
+    # "refusing to bind to non-whitelisted table" on every SQLite run and was
+    # a permanent no-op there — the same silent failure the Mongo path had for
+    # a different reason. Adding a fixed literal here keeps the injection
+    # barrier intact: the allowlist is still closed, just complete.
+    "agent_schedules",
 ]
 
 # Fields that are extracted into real columns for indexed lookup.
