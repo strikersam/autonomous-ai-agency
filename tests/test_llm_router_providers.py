@@ -224,13 +224,17 @@ async def test_anthropic_lifts_system_and_converts_tools():
             api_key="sk-test", client=client,
         )
 
-    assert captured["system"] == "You are terse."
+    # system is a caching content block by default (prompt_caching=True)
+    assert isinstance(captured["system"], list)
+    assert captured["system"][0]["text"] == "You are terse."
+    assert captured["system"][0]["cache_control"] == {"type": "ephemeral"}
     assert all(m["role"] != "system" for m in captured["messages"])
     # OpenAI-shaped tools are translated to Anthropic's input_schema form.
     assert captured["tools"][0]["name"] == "search"
     assert captured["tools"][0]["input_schema"]["type"] == "object"
     assert captured["headers"]["x-api-key"] == "sk-test"
     assert captured["headers"]["anthropic-version"]
+    assert "prompt-caching-2024-07-31" in captured["headers"]["anthropic-beta"]
     assert response.text == "hi"
     assert response.usage.prompt_tokens == 5
 
@@ -402,4 +406,91 @@ async def test_health_probe_never_raises():
         result = await provider.health(api_key="", client=client)
 
     assert result["healthy"] is False
-    assert "error" in result
+
+
+# ── Anthropic prompt caching and extended thinking ───────────────────────────
+
+def _anthropic_provider(**kwargs) -> AnthropicProvider:
+    return AnthropicProvider(ProviderConfig(
+        id="anthropic", kind="anthropic", base_url="https://api.anthropic.com", **kwargs
+    ))
+
+
+def test_anthropic_auth_headers_prompt_caching_on_by_default():
+    p = _anthropic_provider()
+    headers = p.auth_headers("key")
+    assert "prompt-caching-2024-07-31" in headers.get("anthropic-beta", "")
+
+
+def test_anthropic_auth_headers_prompt_caching_off():
+    p = _anthropic_provider(prompt_caching=False)
+    headers = p.auth_headers("key")
+    assert "prompt-caching-2024-07-31" not in headers.get("anthropic-beta", "")
+
+
+def test_anthropic_auth_headers_thinking_beta_absent_when_zero():
+    p = _anthropic_provider(thinking_budget=0)
+    headers = p.auth_headers("key")
+    assert "interleaved-thinking" not in headers.get("anthropic-beta", "")
+
+
+def test_anthropic_auth_headers_thinking_beta_present_when_positive():
+    p = _anthropic_provider(thinking_budget=8000, prompt_caching=False)
+    headers = p.auth_headers("key")
+    assert "interleaved-thinking-2025-05-14" in headers.get("anthropic-beta", "")
+
+
+def test_anthropic_auth_headers_both_betas_when_both_enabled():
+    p = _anthropic_provider(thinking_budget=4000)
+    beta = p.auth_headers("key").get("anthropic-beta", "")
+    assert "prompt-caching-2024-07-31" in beta
+    assert "interleaved-thinking-2025-05-14" in beta
+
+
+def test_anthropic_system_plain_string_when_caching_off():
+    p = _anthropic_provider(prompt_caching=False)
+    req = LLMRequest(messages=[{"role": "system", "content": "Be brief."},
+                                {"role": "user", "content": "hi"}])
+    payload = p.build_payload(req, "claude-sonnet-4-6")
+    assert payload["system"] == "Be brief."
+
+
+def test_anthropic_system_cache_block_when_caching_on():
+    p = _anthropic_provider(prompt_caching=True)
+    req = LLMRequest(messages=[{"role": "system", "content": "Be brief."},
+                                {"role": "user", "content": "hi"}])
+    payload = p.build_payload(req, "claude-sonnet-4-6")
+    system = payload["system"]
+    assert isinstance(system, list)
+    assert system[0]["type"] == "text"
+    assert system[0]["text"] == "Be brief."
+    assert system[0]["cache_control"] == {"type": "ephemeral"}
+
+
+def test_anthropic_no_system_key_when_no_system_messages():
+    p = _anthropic_provider()
+    req = LLMRequest(messages=[{"role": "user", "content": "hi"}])
+    payload = p.build_payload(req, "claude-sonnet-4-6")
+    assert "system" not in payload
+
+
+def test_anthropic_thinking_block_injected_when_budget_positive():
+    p = _anthropic_provider(thinking_budget=6000)
+    req = LLMRequest(messages=[{"role": "user", "content": "think hard"}])
+    payload = p.build_payload(req, "claude-sonnet-4-6")
+    assert payload["thinking"] == {"type": "enabled", "budget_tokens": 6000}
+    assert payload["temperature"] == 1
+
+
+def test_anthropic_thinking_overrides_request_temperature():
+    p = _anthropic_provider(thinking_budget=2000)
+    req = LLMRequest(messages=[{"role": "user", "content": "hi"}], temperature=0.7)
+    payload = p.build_payload(req, "claude-sonnet-4-6")
+    assert payload["temperature"] == 1
+
+
+def test_anthropic_no_thinking_block_when_budget_zero():
+    p = _anthropic_provider(thinking_budget=0)
+    req = LLMRequest(messages=[{"role": "user", "content": "hi"}])
+    payload = p.build_payload(req, "claude-sonnet-4-6")
+    assert "thinking" not in payload

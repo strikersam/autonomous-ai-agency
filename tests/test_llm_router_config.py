@@ -177,3 +177,54 @@ def test_shipped_config_parses(monkeypatch):
     assert cfg.routing.fallback_chain
     # Embedding-only models must be flagged so chat routing skips them.
     assert cfg.models["nomic-embed-text"].supports_chat is False
+
+
+def test_anthropic_models_declared_in_shipped_config(monkeypatch):
+    """claude-sonnet-4-6 (the active default) must be in models.yaml."""
+    monkeypatch.delenv("LLM_CONFIG_DIR", raising=False)
+    cfg = llm_config.load_config()
+    assert "claude-sonnet-4-6" in cfg.models, "claude-sonnet-4-6 missing from models.yaml"
+    m = cfg.models["claude-sonnet-4-6"]
+    assert m.context_window == 200000
+    assert m.supports_tools is True
+    assert m.supports_reasoning is True
+
+
+def test_anthropic_provider_prompt_caching_on_by_default(monkeypatch):
+    """Prompt caching must default to enabled in providers.yaml."""
+    monkeypatch.delenv("LLM_CONFIG_DIR", raising=False)
+    monkeypatch.delenv("ANTHROPIC_PROMPT_CACHING", raising=False)
+    cfg = llm_config.load_config()
+    assert cfg.providers["anthropic"].prompt_caching is True
+
+
+def test_anthropic_provider_prompt_caching_disabled_via_env(tmp_path, monkeypatch):
+    """Setting ANTHROPIC_PROMPT_CACHING=false must propagate to the config."""
+    monkeypatch.setenv("ANTHROPIC_PROMPT_CACHING", "false")
+    (tmp_path / "providers.yaml").write_text(
+        "providers:\n"
+        "  anthropic:\n"
+        "    kind: anthropic\n"
+        "    base_url: https://api.anthropic.com\n"
+        "    key_env: [ANTHROPIC_API_KEY]\n"
+        "    prompt_caching: ${ANTHROPIC_PROMPT_CACHING:-true}\n",
+        encoding="utf-8",
+    )
+    cfg = llm_config.load_config(tmp_path)
+    assert cfg.providers["anthropic"].prompt_caching is False
+
+
+def test_anthropic_provider_thinking_budget_env(tmp_path, monkeypatch):
+    """ANTHROPIC_THINKING_BUDGET must propagate as an integer."""
+    monkeypatch.setenv("ANTHROPIC_THINKING_BUDGET", "8000")
+    (tmp_path / "providers.yaml").write_text(
+        "providers:\n"
+        "  anthropic:\n"
+        "    kind: anthropic\n"
+        "    base_url: https://api.anthropic.com\n"
+        "    key_env: [ANTHROPIC_API_KEY]\n"
+        "    thinking_budget: ${ANTHROPIC_THINKING_BUDGET:-0}\n",
+        encoding="utf-8",
+    )
+    cfg = llm_config.load_config(tmp_path)
+    assert cfg.providers["anthropic"].thinking_budget == 8000

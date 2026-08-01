@@ -74,6 +74,9 @@ class ProviderConfig:
     # only genuine OpenAI-compatible servers accept the field.
     stream_options: bool = False
     notes: str = ""
+    # Anthropic-specific feature flags (silently ignored by all other providers).
+    prompt_caching: bool = True    # adds anthropic-beta: prompt-caching-2024-07-31
+    thinking_budget: int = 0       # >0 enables extended thinking with that token budget
 
     @property
     def is_local(self) -> bool:

@@ -43,6 +43,13 @@ class AnthropicProvider(LLMProvider):
         headers["anthropic-version"] = self.config.api_version or DEFAULT_API_VERSION
         if api_key:
             headers["x-api-key"] = api_key
+        betas: list[str] = []
+        if self.config.prompt_caching:
+            betas.append("prompt-caching-2024-07-31")
+        if self.config.thinking_budget > 0:
+            betas.append("interleaved-thinking-2025-05-14")
+        if betas:
+            headers["anthropic-beta"] = ",".join(betas)
         return headers
 
     def build_payload(self, request: LLMRequest, model: str) -> dict[str, Any]:
@@ -108,7 +115,16 @@ class AnthropicProvider(LLMProvider):
             "temperature": request.temperature,
         }
         if system_parts:
-            payload["system"] = "\n\n".join(system_parts)
+            system_text = "\n\n".join(system_parts)
+            if self.config.prompt_caching:
+                payload["system"] = [
+                    {"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}
+                ]
+            else:
+                payload["system"] = system_text
+        if self.config.thinking_budget > 0:
+            payload["thinking"] = {"type": "enabled", "budget_tokens": self.config.thinking_budget}
+            payload["temperature"] = 1  # Anthropic requires temperature=1 for extended thinking
         if request.tools:
             payload["tools"] = [self._convert_tool(t) for t in request.tools]
             if request.tool_choice is not None:

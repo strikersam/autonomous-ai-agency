@@ -4,6 +4,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Anthropic prompt caching and extended thinking in the new LLM routing layer** (2026-08-01). The legacy `packages/ai/router.py` has supported both features since mid-2025, but the new unified LLM router (`packages/llm/`, shipped in #1168) lacked parity — a `claude-sonnet-4-6` request through the new path never sent the `anthropic-beta` header, so Anthropic-side caching never activated and every system prompt was billed as uncached input. Both are now wired into `packages/llm/providers/anthropic.py` using the same `ProviderConfig` data model the rest of the routing layer uses.
+  - **Prompt caching** adds `anthropic-beta: prompt-caching-2024-07-31` to every request and wraps the system prompt as a typed content block with `cache_control: {type: ephemeral}` rather than sending it as a plain string. This is what triggers Anthropic's server-side cache — the beta header gates the feature, and the block format is what the server looks for. Caching is on by default and can be disabled per-deploy via `ANTHROPIC_PROMPT_CACHING=false`.
+  - **Extended thinking** adds `anthropic-beta: interleaved-thinking-2025-05-14` and injects `thinking: {type: enabled, budget_tokens: N}` when `ANTHROPIC_THINKING_BUDGET` is a positive integer. It also overrides `temperature` to `1`, which the Anthropic API requires for extended thinking — any lower value is rejected. Off by default (`thinking_budget: 0`).
+  - Both feature flags are declared in `config/llm/providers.yaml` as `${VAR:-default}` entries on the `anthropic:` block, making them env-overridable without touching Python. `ProviderConfig` gains two new fields (`prompt_caching: bool = True`, `thinking_budget: int = 0`) with safe defaults that leave non-Anthropic providers unaffected.
+  - **`claude-sonnet-4-6`** is now declared in `config/llm/models.yaml` with full capabilities (200k context, 64k max output, tools, images, reasoning). The model was already the active default in the deployed Anthropic client but had no declared entry in the config, so the router fell back to cautious auto-discovered defaults. `claude-sonnet-4-5` retains its entry at lower priority; `claude-haiku-4-5` is added as a fast, lower-cost option. Files: `packages/llm/config.py`, `packages/llm/providers/anthropic.py`, `config/llm/providers.yaml`, `config/llm/models.yaml`, `tests/test_llm_router_providers.py`, `tests/test_llm_router_config.py`.
+
 ### Fixed
 
 - **Render deploys failing intermittently, and the router config never reaching production at all** (2026-07-31). Two independent silent failures, both found while chasing a failing deploy.
