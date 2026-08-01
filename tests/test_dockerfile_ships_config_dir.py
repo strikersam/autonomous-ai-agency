@@ -72,6 +72,46 @@ def test_config_is_not_excluded_from_the_build_context():
     assert not offenders, f".dockerignore excludes the router config: {offenders}"
 
 
+def test_every_local_provider_is_opt_in():
+    """A keyless local provider must not join the chain just by existing.
+
+    ``ollama`` was the one local provider in this file with no ``enabled``
+    gate. Because it also needs no API key, nothing else could exclude it — so
+    the first deploy that shipped this config put it in the ready set of a
+    Render host with no Ollama, at the lowest priority number in the file.
+    Production confirmed it: "8 provider(s) ready: ... nvidia, ollama, ...".
+    """
+    providers = (CONFIG_DIR / "llm" / "providers.yaml").read_text()
+    blocks = re.split(r"\n  (?=\w)", providers)
+    ungated = []
+    for block in blocks:
+        name = block.split(":", 1)[0].strip()
+        if "requires_key: false" not in block:
+            continue
+        if "enabled:" not in block:
+            ungated.append(name)
+    assert not ungated, (
+        f"keyless provider(s) {ungated} have no `enabled:` gate — they will be "
+        "built on any host, reachable or not, and consume routing attempts"
+    )
+
+
+def test_ollama_is_off_and_bounded_by_default():
+    """The two properties that made the ungated entry expensive in production."""
+    providers = (CONFIG_DIR / "llm" / "providers.yaml").read_text()
+    block = re.split(r"\n  (?=\w)", providers.split("  ollama:", 1)[1])[0]
+
+    enabled = re.search(r"enabled:\s*\$\{OLLAMA_ENABLED:-(\w+)\}", block)
+    assert enabled and enabled.group(1) == "false", (
+        "ollama must default off — it is the local daemon, not a cloud fallback"
+    )
+    timeout = re.search(r"timeout_sec:\s*\$\{OLLAMA_TIMEOUT_SEC:-(\d+)\}", block)
+    assert timeout and int(timeout.group(1)) <= 120, (
+        "a 300s timeout against an unreachable host is a five-minute hang per "
+        "attempt; OLLAMA_BASE is sync:false and points at a rotating tunnel"
+    )
+
+
 def test_groq_declares_its_per_minute_budget():
     """The ceiling that #1172 added must survive in the file that ships.
 
