@@ -191,3 +191,53 @@ def test_run_background_in_web_true_variants():
     for val in ("true", "1", "yes", "TRUE", "YES"):
         with patch.dict(os.environ, {"RUN_BACKGROUND_IN_WEB": val}):
             assert run_background_in_web() is True, f"Expected True for {val!r}"
+
+
+# ─── Hermes startup: bounded well under Render's health-check timeout ───────
+#
+# render.yaml's healthCheckPath times out at 5s, and uvicorn does not open its
+# listening socket until the FastAPI lifespan returns. _start_hermes_in_process()
+# used to block on _await_hermes_ready() for up to 20s — an in-process,
+# no-network-dependency uvicorn server that normally binds in milliseconds, but
+# on a slow boot (free-tier CPU contention, a cold import) held the port closed
+# for up to 4x Render's own timeout on every restart attempt. Confirmed live via
+# Render's Events tab: a repeating "Instance failed: HTTP health check failed
+# (timed out after 5 seconds)" / "Service recovered" cycle every few minutes.
+
+def test_hermes_startup_timeout_is_well_under_renders_health_check_window():
+    """The constant itself must leave real margin under Render's 5s timeout."""
+    import services.background as bg_mod
+
+    assert bg_mod._HERMES_STARTUP_TIMEOUT_SEC <= 3.0, (
+        f"_HERMES_STARTUP_TIMEOUT_SEC={bg_mod._HERMES_STARTUP_TIMEOUT_SEC}s leaves no "
+        "margin under Render's 5s health-check timeout (render.yaml healthCheckPath)"
+    )
+
+
+@pytest.mark.anyio
+async def test_hermes_readiness_wait_gives_up_within_its_budget():
+    """A Hermes that never reports ready must not be waited on past the budget.
+
+    Against the previous 20.0s constant, this test would itself take ~20s and
+    still pass — the regression that matters is the constant above. This pins
+    the *behavior*: _await_hermes_ready actually raises at the budget, it
+    doesn't drift past it.
+    """
+    import services.background as bg_mod
+
+    class _NeverStartedServer:
+        started = False
+
+    class _NeverDoneTask:
+        def done(self) -> bool:
+            return False
+
+    start = asyncio.get_running_loop().time()
+    with pytest.raises(RuntimeError, match="did not start within timeout"):
+        await bg_mod._await_hermes_ready(_NeverStartedServer(), _NeverDoneTask())
+    elapsed = asyncio.get_running_loop().time() - start
+
+    assert elapsed < bg_mod._HERMES_STARTUP_TIMEOUT_SEC + 1.0, (
+        f"readiness wait took {elapsed:.1f}s, past its "
+        f"{bg_mod._HERMES_STARTUP_TIMEOUT_SEC}s budget"
+    )

@@ -24,6 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from agents.store import AgentStore, AgentDefinition
+from packages.security.redact import redact_connection_url
 
 log = logging.getLogger("register-runtimes")
 logging.basicConfig(
@@ -130,7 +131,7 @@ async def main():
         await client.server_info()
         db = client[args.db_name]
         store = AgentStore(db=db)
-        log.info(f"✓ Connected to MongoDB at {args.mongo_url}/{args.db_name}")
+        log.info(f"✓ Connected to MongoDB at {redact_connection_url(args.mongo_url)}/{args.db_name}")
     except Exception as e:
         log.warning(f"MongoDB unavailable ({e}), using in-memory store")
         log.info("  To persist agents, ensure MongoDB is running and accessible")

@@ -61,7 +61,17 @@ _hermes_task: "asyncio.Task | None" = None
 # nothing else.
 _HERMES_HOST = "127.0.0.1"
 _HERMES_PORT = 8100
-_HERMES_STARTUP_TIMEOUT_SEC = 20.0
+# Render's own HTTP health check times out at 5s (render.yaml healthCheckPath),
+# and uvicorn does not open its listening socket until the FastAPI lifespan
+# returns — so this wait sits directly in front of port-open. Hermes is an
+# in-process uvicorn server with no network dependency, so it normally binds
+# in milliseconds; 20s here meant a single slow boot (free-tier CPU
+# contention, a cold import) held the port closed well past Render's timeout
+# on every retry, producing a repeating "HTTP health check failed (timed out
+# after 5 seconds)" / restart cycle. Hermes is an optimisation (falls back to
+# internal_agent on any failure here) and was never worth costing the whole
+# app its liveness for.
+_HERMES_STARTUP_TIMEOUT_SEC = 2.0
 
 
 def _start_skill_registry_refresh() -> "asyncio.Task | None":

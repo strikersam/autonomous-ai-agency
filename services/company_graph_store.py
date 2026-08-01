@@ -23,6 +23,8 @@ import secrets
 
 from bson import ObjectId
 
+from packages.security.redact import redact_connection_url
+
 # Import Company Graph models
 from models.company_graph import (
     Company,
@@ -48,6 +50,10 @@ DB_NAME = os.environ.get("DB_NAME", "agency_core")
 MONGO_SELECTION_TIMEOUT_MS = int(os.environ.get("MONGO_SELECTION_TIMEOUT_MS", "2000"))
 SQLITE_PATH = os.environ.get("SQLITE_PATH", "agency_core.db")
 
+# Redact before logging: never put a raw connection string (embedded
+# credentials) in a log line. See packages/security/redact.py.
+_redact_mongo_url = redact_connection_url
+
 
 class CompanyGraphStore:
     """
@@ -70,7 +76,7 @@ class CompanyGraphStore:
 
         if self.backend == "mongodb":
             self._mongodb_store = MongoDBStore()
-            log.info(f"Company Graph Store initialized with MongoDB backend: {MONGO_URL}")
+            log.info(f"Company Graph Store initialized with MongoDB backend: {_redact_mongo_url(MONGO_URL)}")
         elif self.backend == "sqlite":
             self._sqlite_store = SQLiteStore()
             log.info(f"Company Graph Store initialized with SQLite backend: {SQLITE_PATH}")
@@ -400,7 +406,7 @@ class MongoDBStore:
                 MONGO_URL, serverSelectionTimeoutMS=MONGO_SELECTION_TIMEOUT_MS
             )
             self._db = self._client[DB_NAME]
-            log.info(f"MongoDB connection established to {MONGO_URL}/{DB_NAME}")
+            log.info(f"MongoDB connection established to {_redact_mongo_url(MONGO_URL)}/{DB_NAME}")
         return self._db
 
     def _to_object_id(self, id_str: str) -> ObjectId:
