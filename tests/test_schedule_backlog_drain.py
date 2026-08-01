@@ -235,6 +235,26 @@ async def test_nuclear_cleanup_targets_the_schedule_collection():
     assert summary["total"] == 0
 
 
+def test_agent_schedules_stays_out_of_the_generic_sqlite_allowlist():
+    """Adding it looks like a fix and is a worse bug.
+
+    ``packages/storage/sqlite.py`` and ``agent/schedule_store.py`` both default
+    to ``.data/agency.db``. ``_init_schema()`` creates every allowlisted name
+    as ``(id, data)``; the scheduler's table is ``(job_id, doc, updated_at)``.
+    Whichever initialises first wins the CREATE TABLE IF NOT EXISTS, so
+    allowlisting it can leave schedule persistence writing into a table
+    without its columns — breaking the scheduler outright, rather than merely
+    leaving the boot sweep inert on SQLite.
+    """
+    from packages.storage.sqlite import _COLLECTIONS
+    from agent.schedule_store import _COLLECTION
+
+    assert _COLLECTION not in _COLLECTIONS, (
+        f"{_COLLECTION!r} must not be in the generic collection allowlist — "
+        "the two stores share a database file and disagree on the schema"
+    )
+
+
 def test_the_collection_name_comes_from_the_store_not_a_literal():
     """Guard the drift that caused this: two files naming the same collection."""
     from pathlib import Path
