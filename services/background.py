@@ -30,6 +30,13 @@ log = logging.getLogger("llm-wiki")
 
 _DEFAULT_POLL_INTERVAL = 10.0
 
+# Independent of backend/server.py's lifespan warm-up budget: scheduler
+# hydration gets its own fixed budget rather than sharing the lifespan's
+# deadline, so it is bounded even when called from worker_main.py (no
+# lifespan) and always gets a full slice regardless of how much the caller's
+# other steps already spent.
+_SCHEDULER_HYDRATE_BUDGET_SEC = 3.0
+
 # Module-level handle to the single trend-watch poller task, so repeated
 # _start_autonomy_loops() calls never schedule a duplicate (idempotency).
 _trend_watch_task: "asyncio.Task | None" = None
@@ -273,6 +280,52 @@ class BackgroundServices:
         log.info("Hermes in-process server stopped")
 
 
+async def _hydrate_scheduler_bounded(scheduler: "AgentScheduler") -> None:
+    """Attach durable persistence and rehydrate (#505), bounded by a budget.
+
+    Without this, the in-memory scheduler loses every company cadence on
+    redeploy — so hydration always runs. But hydration reads every persisted
+    schedule and re-registers each with APScheduler, so its cost scales with
+    the row count. A backlog of one-shot agency/fix jobs that never got the
+    chance to fire (e.g. a crash-restart loop killing the process before
+    their next-minute cron trigger) made this the one startup step that grew
+    unbounded and was NOT covered by backend/server.py's lifespan() warm-up
+    budget — so a large backlog delayed port-opening past Render's
+    health-check timeout, causing exactly the restart that grows the backlog
+    further. See tests/test_schedule_backlog_drain.py for that incident and
+    tests/test_scheduler_hydration_bounded.py for this fix.
+
+    This runs inside the async lifespan, so hydration is awaited directly —
+    the sync ``attach_persistence()`` would call ``asyncio.run()`` on the
+    live loop, raising (and silently skipping rehydration) instead.
+
+    ``ScheduleStore()`` itself must be constructed inside the bounded step,
+    not passed as a bare argument to it: its constructor is synchronous and,
+    on the Mongo backend, opens a connection and blocks on ``client.admin
+    .command("ping")`` up to ``_SELECTION_TIMEOUT_MS`` (raised to 4.5s for
+    cold Atlas wake-ups) — evaluated as a function argument, that runs before
+    ``warmup_step``'s own timeout clock starts, reintroducing exactly the
+    unbounded-startup-step bug this function exists to close.
+    """
+    try:
+        from agent.schedule_store import ScheduleStore
+        from services.warmup import warmup_step
+
+        async def _construct_and_attach() -> int:
+            store = await asyncio.to_thread(ScheduleStore)
+            return await scheduler.attach_persistence_async(store)
+
+        deadline = asyncio.get_running_loop().time() + _SCHEDULER_HYDRATE_BUDGET_SEC
+        n = await warmup_step(
+            _construct_and_attach(),
+            "scheduler hydration", deadline, _SCHEDULER_HYDRATE_BUDGET_SEC,
+        )
+        if n is not None:
+            log.info("Scheduler durable persistence attached (%d job(s) rehydrated)", n)
+    except Exception as exc:
+        log.warning("Scheduler durable persistence not attached: %s", exc)
+
+
 async def start_background_services(
     workspace_root: str | Path,
     task_store: "TaskStore",
@@ -311,18 +364,7 @@ async def start_background_services(
         log.warning("Scheduler main-loop attach skipped (no running loop)")
     log.info("Scheduler automation wired to task workflow")
 
-    # Durable schedule persistence + boot rehydration (#505): without this, the
-    # in-memory scheduler loses every company cadence on redeploy.
-    try:
-        from agent.schedule_store import ScheduleStore
-
-        # This runs inside the async lifespan, so await hydration directly —
-        # the sync attach_persistence() would call asyncio.run() on the live
-        # loop, raising (and silently skipping rehydration) instead.
-        n = await scheduler.attach_persistence_async(ScheduleStore())
-        log.info("Scheduler durable persistence attached (%d job(s) rehydrated)", n)
-    except Exception as exc:
-        log.warning("Scheduler durable persistence not attached: %s", exc)
+    await _hydrate_scheduler_bounded(scheduler)
 
     # Must precede runtime_manager.start(): that call runs the first health
     # probe, and a Hermes that is not yet listening is marked down for a whole

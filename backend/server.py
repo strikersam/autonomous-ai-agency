@@ -1564,28 +1564,15 @@ async def _startup_reliability_hooks() -> None:
 # background while the app starts serving and answering health checks.
 _STARTUP_WARMUP_BUDGET_SEC = 6.0
 
-# Overflowed warm-up steps are kept referenced here: the event loop only holds
-# a weak reference to a running task, so a dropped one can be garbage-collected
-# mid-flight and silently never finish.
-_warmup_overflow: list[asyncio.Task] = []
-
-
-def _defer_to_background(task: asyncio.Task, label: str) -> None:
-    """Let an overrunning step finish out of band without leaking or warning.
-
-    Keeps the task referenced until it settles, and consumes its exception so
-    asyncio does not report it as never retrieved.
-    """
-    _warmup_overflow.append(task)
-
-    def _settled(done: asyncio.Task) -> None:
-        if done in _warmup_overflow:
-            _warmup_overflow.remove(done)
-        if not done.cancelled() and done.exception() is not None:
-            log.warning("startup: deferred %s failed (non-fatal): %s",
-                        label, done.exception())
-
-    task.add_done_callback(_settled)
+# Shared with services/background.py: start_background_services() needs the
+# same bounded-await pattern for scheduler hydration, which is not one of the
+# steps below and was the one unbounded step that survived this fix's first
+# pass (see tests/test_schedule_backlog_drain.py).
+from services.warmup import (  # noqa: E402
+    _warmup_overflow,
+    defer_to_background as _defer_to_background,
+    warmup_step as _warmup_step_impl,
+)
 
 
 async def _warmup_step(coro, label: str, deadline: float):
@@ -1596,18 +1583,7 @@ async def _warmup_step(coro, label: str, deadline: float):
     raised inside the budget propagate unchanged — the caller's existing
     error handling still decides what a failed step means.
     """
-    task = asyncio.ensure_future(coro)
-    remaining = max(0.0, deadline - asyncio.get_running_loop().time())
-    try:
-        return await asyncio.wait_for(asyncio.shield(task), timeout=remaining)
-    except (asyncio.TimeoutError, TimeoutError):
-        _defer_to_background(task, label)
-        log.warning(
-            "startup: %s exceeded the %.1fs warm-up budget — continuing in the "
-            "background so the port opens and health checks can be answered",
-            label, _STARTUP_WARMUP_BUDGET_SEC,
-        )
-        return None
+    return await _warmup_step_impl(coro, label, deadline, _STARTUP_WARMUP_BUDGET_SEC)
 
 
 def _task_store_for_background() -> "TaskStore":
