@@ -298,14 +298,26 @@ async def _hydrate_scheduler_bounded(scheduler: "AgentScheduler") -> None:
     This runs inside the async lifespan, so hydration is awaited directly —
     the sync ``attach_persistence()`` would call ``asyncio.run()`` on the
     live loop, raising (and silently skipping rehydration) instead.
+
+    ``ScheduleStore()`` itself must be constructed inside the bounded step,
+    not passed as a bare argument to it: its constructor is synchronous and,
+    on the Mongo backend, opens a connection and blocks on ``client.admin
+    .command("ping")`` up to ``_SELECTION_TIMEOUT_MS`` (raised to 4.5s for
+    cold Atlas wake-ups) — evaluated as a function argument, that runs before
+    ``warmup_step``'s own timeout clock starts, reintroducing exactly the
+    unbounded-startup-step bug this function exists to close.
     """
     try:
         from agent.schedule_store import ScheduleStore
         from services.warmup import warmup_step
 
+        async def _construct_and_attach() -> int:
+            store = await asyncio.to_thread(ScheduleStore)
+            return await scheduler.attach_persistence_async(store)
+
         deadline = asyncio.get_running_loop().time() + _SCHEDULER_HYDRATE_BUDGET_SEC
         n = await warmup_step(
-            scheduler.attach_persistence_async(ScheduleStore()),
+            _construct_and_attach(),
             "scheduler hydration", deadline, _SCHEDULER_HYDRATE_BUDGET_SEC,
         )
         if n is not None:
