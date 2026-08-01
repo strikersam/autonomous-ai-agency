@@ -95,6 +95,16 @@ _COLLECTIONS = [
     "workflows",
     "app_settings",
     "agent_specs",
+    # Deliberately NOT "agent_schedules", however tempting: without it the
+    # boot sweep raises "refusing to bind to non-whitelisted table" on SQLite.
+    # This store and agent/schedule_store.py both default to .data/agency.db,
+    # and _init_schema() creates every name in this list as (id, data). The
+    # scheduler's table is (job_id, doc, updated_at). Whichever initialises
+    # first wins the CREATE TABLE IF NOT EXISTS, so listing it here risks
+    # schedule persistence writing into a table that lacks its columns —
+    # breaking the scheduler outright rather than leaving one sweep inert.
+    # SQLite drains the backlog through force_cleanup instead, which goes via
+    # the scheduler's own store and needs nothing from this allowlist.
 ]
 
 # Fields that are extracted into real columns for indexed lookup.

@@ -16,7 +16,28 @@ import time
 import asyncio
 import inspect
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Callable
+
+# The loop registry defines tens of schedules. Hundreds means something is
+# creating them without bound, and the operator needs to hear about it.
+_BACKLOG_ALERT_THRESHOLD = 200
+
+
+def _run_once_max_age_sec() -> float:
+    """The one retention policy for unfired one-shots, read from its owner.
+
+    ``packages/scheduler/cleanup.py`` already defines this window and honours
+    SCHEDULE_RUN_ONCE_TTL_DAYS. Re-declaring it here would give the per-tick
+    sweep and the boot sweep two different opinions about when a schedule is
+    dead — so borrow it rather than restate it. Imported lazily because
+    cleanup.py imports from this module.
+    """
+    try:
+        from packages.scheduler.cleanup import _SCHEDULE_RUN_ONCE_TTL_DAYS
+        return _SCHEDULE_RUN_ONCE_TTL_DAYS * 24 * 3600
+    except Exception:  # pragma: no cover - defensive
+        return 7 * 24 * 3600
 
 log = logging.getLogger("qwen-scheduler")
 
@@ -486,7 +507,7 @@ class AgentScheduler:
         Returns a summary dict with ``deleted``, ``deduped``, and ``total`` counts.
         """
         await self._ensure_store()
-        summary = {"deleted": 0, "deduped": 0, "total": 0}
+        summary = {"deleted": 0, "deduped": 0, "expired": 0, "total": 0}
         if self._store is None:
             return summary
         try:
@@ -501,6 +522,36 @@ class AgentScheduler:
                 name = doc.get("name", "restored-job")
                 tags = doc.get("tags") or []
                 run_count = doc.get("run_count", 0)
+                # Remove run-once jobs that were never going to fire.
+                #
+                # A one-shot is scheduled for a specific minute. If the process
+                # is down at that minute, or the row is restored from the store
+                # after it has passed, APScheduler's cron trigger has no future
+                # match and the job never fires — so ``run_count`` stays 0 and
+                # the "already fired" rule below can never reach it. Nothing
+                # else could either: the name is unique, so the dedup pass
+                # skips it, and it carries no "agency" tag for the stuck-task
+                # rule. The row became immortal, and every new one-shot added
+                # another. That is how production reached
+                # ``total=1178 deleted=0 deduped=0`` — a backlog the per-tick
+                # cleanup was running against and structurally unable to touch.
+                #
+                # A run-once job that has not fired within a day is dead by
+                # definition, so age it out.
+                if (
+                    "run-once" in tags
+                    and run_count == 0
+                    and _age_seconds(doc.get("created_at")) > _run_once_max_age_sec()
+                ):
+                    try:
+                        remove_result = self._store.remove(job_id)
+                        if inspect.isawaitable(remove_result):
+                            await remove_result
+                    except Exception:
+                        pass
+                    self._jobs.pop(job_id, None)
+                    summary["expired"] += 1
+                    continue
                 # Remove stale run-once jobs that already fired — from
                 # both the durable store and in-memory state.
                 if "run-once" in tags and run_count > 0:
@@ -542,8 +593,24 @@ class AgentScheduler:
                     log.info("Force-cleanup: deduplicated schedule name=%r (job_id=%s)", name, job_id)
                     continue
                 seen_names.add(name)
-            log.info("Force-cleanup: total=%d deleted=%d deduped=%d",
-                     summary["total"], summary["deleted"], summary["deduped"])
+            log.info("Force-cleanup: total=%d deleted=%d deduped=%d expired=%d",
+                     summary["total"], summary["deleted"], summary["deduped"],
+                     summary["expired"])
+            remaining = summary["total"] - (
+                summary["deleted"] + summary["deduped"] + summary["expired"]
+            )
+            if remaining > _BACKLOG_ALERT_THRESHOLD:
+                # The count climbed past anything this deployment should hold
+                # (the loop registry defines tens of schedules, not hundreds)
+                # and the cleanup could not bring it down. Say so at WARNING
+                # with the worst offenders, because the previous failure was
+                # invisible precisely because a four-digit total was reported
+                # at INFO next to two zeroes and nothing ever escalated.
+                log.warning(
+                    "Force-cleanup: %d schedule(s) remain after cleanup — "
+                    "backlog is not draining. Top name prefixes: %s",
+                    remaining, _top_prefixes(docs),
+                )
         except Exception as exc:
             log.warning("Force-cleanup failed: %s", exc)
         return summary
@@ -679,6 +746,34 @@ class AgentScheduler:
 
 def _now() -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _age_seconds(created_at: Any) -> float:
+    """Seconds since ``created_at``. Unparseable or missing reads as brand new.
+
+    Erring towards 0 matters: this value decides whether a schedule is deleted,
+    so a timestamp we cannot read must never be mistaken for an ancient one.
+    """
+    if not isinstance(created_at, str) or not created_at:
+        return 0.0
+    try:
+        stamp = datetime.strptime(created_at, "%Y-%m-%dT%H:%M:%SZ").replace(
+            tzinfo=timezone.utc
+        )
+    except ValueError:
+        return 0.0
+    return max(0.0, (datetime.now(timezone.utc) - stamp).total_seconds())
+
+
+def _top_prefixes(docs: list[dict[str, Any]], limit: int = 5) -> str:
+    """The most common ``name`` prefixes, to name the source of a backlog."""
+    counts: dict[str, int] = {}
+    for doc in docs:
+        name = str(doc.get("name") or "unnamed")
+        prefix = name.split(":", 1)[0][:40]
+        counts[prefix] = counts.get(prefix, 0) + 1
+    ranked = sorted(counts.items(), key=lambda kv: kv[1], reverse=True)[:limit]
+    return ", ".join(f"{prefix}={count}" for prefix, count in ranked) or "none"
 
 
 # ── Singleton accessor ────────────────────────────────────────────────────────

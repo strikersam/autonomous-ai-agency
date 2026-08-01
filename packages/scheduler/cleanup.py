@@ -160,19 +160,39 @@ async def nuclear_cleanup(db: Any) -> dict[str, int]:
     summary = {"deleted": 0, "deduped": 0, "deleted_run_once": 0, "deleted_stuck": 0, "total": 0}
 
     try:
-        # Access the collection — handle attribute-style (db.schedules),
-        # dict-style (db["scheduled_jobs"]), and fallback (db.scheduled_jobs)
-        collection = getattr(db, "schedules", None)
-        if collection is None:
+        # Resolve the collection the scheduler actually writes to.
+        #
+        # This used to try `db.schedules`, then `db["scheduled_jobs"]`, then
+        # `db.scheduled_jobs` — and none of those is where schedules live.
+        # ``agent/schedule_store.py`` persists to ``agent_schedules``. On
+        # MongoDB the mistake was invisible: ``getattr(db, "schedules")``
+        # returns a lazily-created collection object rather than None, so the
+        # first branch always won, every delete_many below ran against an
+        # empty collection, and the summary reported a clean sweep. Production
+        # sat at 1178 rows while this reported success on every boot.
+        #
+        # Take the name from the store's own constant so the two cannot drift
+        # apart again, and fall back only for stores that predate it.
+        try:
+            from agent.schedule_store import _COLLECTION as _SCHEDULE_COLLECTION
+        except Exception:  # pragma: no cover - defensive
+            _SCHEDULE_COLLECTION = "agent_schedules"
+
+        collection = None
+        for name in (_SCHEDULE_COLLECTION, "scheduled_jobs", "schedules"):
             if hasattr(db, "__getitem__"):
                 try:
-                    collection = db["scheduled_jobs"]
+                    collection = db[name]
                 except (KeyError, TypeError):
-                    pass
+                    collection = None
+            if collection is None:
+                collection = getattr(db, name, None)
+            if collection is not None:
+                break
         if collection is None:
-            collection = getattr(db, "scheduled_jobs", None)
-        if collection is None:
-            raise AttributeError("DB has no schedules/scheduled_jobs collection")
+            raise AttributeError(
+                f"DB has no {_SCHEDULE_COLLECTION} collection to clean"
+            )
         summary["total"] = await collection.count_documents({})
 
         # 1. Delete fired run-once jobs (run_count > 0)

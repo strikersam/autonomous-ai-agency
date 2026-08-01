@@ -28,9 +28,21 @@ providers:
     tier: local
     priority: 10
     max_concurrency: 2          # local GPUs serialise; a big pool just queues
-    timeout_sec: 300            # cold model load can be slow
+    # Opt-in, like every other local provider in this file. It is the only one
+    # that was ungated, and because it needs no key nothing else could exclude
+    # it: the first deploy that shipped this file put `ollama` in the ready set
+    # of a Render host with no Ollama, at the lowest priority number here — so
+    # it sorted ahead of NVIDIA, Groq and Cerebras on every request. Confirmed
+    # in production logs: "8 provider(s) ready: ... nvidia, ollama, ...".
+    enabled: ${OLLAMA_ENABLED:-false}
+    # 300s was written for a local daemon loading a cold 30B model over a unix
+    # socket. Pointed at an unreachable host it becomes a five-minute hang per
+    # attempt, and OLLAMA_BASE is `sync: false` in render.yaml pointing at an
+    # ngrok tunnel that rotates. Cap the wait; a local daemon that has not
+    # answered in 60s is not about to.
+    timeout_sec: ${OLLAMA_TIMEOUT_SEC:-60}
     default_model: ${OLLAMA_DEFAULT_MODEL:-qwen3-coder:30b}
-    notes: Local Ollama daemon.
+    notes: Local Ollama daemon. Set OLLAMA_ENABLED=true where one is reachable.
 
   lmstudio:
     kind: lmstudio              # alias for the OpenAI-compatible adapter
