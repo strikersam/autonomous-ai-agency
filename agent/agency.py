@@ -613,7 +613,20 @@ class Agency:
         try:
             from backend.server import call_llm
 
-            prompt = _build_ceo_prompt(state, self._cycle_count)
+            # _build_ceo_prompt() shells out to git twice (log + diff --stat),
+            # each with a 5s subprocess timeout — plain, synchronous
+            # subprocess.run() calls with no thread offload. This coroutine
+            # runs on the FastAPI main event loop (dispatched from the CEO's
+            # background thread via run_coroutine_threadsafe), so calling it
+            # directly froze the entire event loop — including /api/health —
+            # for up to 10s on every cycle. At the default 5-minute tick this
+            # produced a health-check timeout recurring roughly every 5
+            # minutes: Render's Events tab showed exactly that cadence of
+            # "Instance failed" / "Service recovered" pairs, independent of
+            # and outside the startup-time crash loop fixed separately.
+            # asyncio.to_thread moves the git calls (and the rest of this
+            # pure string-building, non-async function) off the loop.
+            prompt = await asyncio.to_thread(_build_ceo_prompt, state, self._cycle_count)
             requested_model = (os.environ.get("AGENCY_CEO_MODEL") or "").strip() or None
             text = await call_llm(
                 [

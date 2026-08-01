@@ -192,6 +192,52 @@ def test_build_ceo_prompt_includes_context():
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(10)
+async def test_ceo_assess_llm_offloads_prompt_building_to_a_thread(agency: Agency) -> None:
+    """_build_ceo_prompt() shells out to git twice (log + diff --stat), each a
+    plain synchronous subprocess.run() with no thread offload. _ceo_assess_llm
+    runs as a coroutine on the FastAPI main event loop (dispatched from the
+    CEO's background thread via run_coroutine_threadsafe), so calling the
+    prompt builder directly froze the whole loop -- including /api/health --
+    for however long git took, up to 10s (two 5s subprocess timeouts).
+
+    At the default 5-minute tick this produced a periodic health-check
+    timeout roughly every 5 minutes, confirmed live via Render's Events tab:
+    "Instance failed" / "Service recovered" pairs at that exact cadence, and
+    persisting after the startup-time crash-loop fix (a different bug) had
+    already deployed.
+
+    Directly racing a concurrent task against the blocking call turned out
+    unreliable (awaiting it afterward always lets it finish, so it looks the
+    same whether or not the loop was blocked in between). Checking the
+    thread identity the builder actually ran on is deterministic: the fix is
+    asyncio.to_thread, so this fails against a version that calls
+    _build_ceo_prompt() directly on the event-loop thread.
+    """
+    import threading
+
+    import agent.agency as agency_mod
+
+    main_thread_id = threading.get_ident()
+    observed_thread_ids: list[int] = []
+
+    def _tracking_prompt_builder(state, cycle):
+        observed_thread_ids.append(threading.get_ident())
+        return "prompt"
+
+    with patch.object(agency_mod, "_build_ceo_prompt", _tracking_prompt_builder), \
+         patch("backend.server.call_llm", new_callable=AsyncMock, return_value="[]"):
+        await agency._ceo_assess_llm({})
+
+    assert observed_thread_ids, "prompt builder was never called"
+    assert observed_thread_ids[0] != main_thread_id, (
+        "_build_ceo_prompt ran on the main event-loop thread — its blocking "
+        "git subprocess calls must be offloaded via asyncio.to_thread so "
+        "they cannot freeze the loop (and /api/health) for their duration"
+    )
+
+
+@pytest.mark.asyncio
 @pytest.mark.timeout(30)
 async def test_run_cycle_with_trend_issues(tmp_path: Path, agency: Agency) -> None:
     """Trend issues should trigger a Scout directive on eligible cycles."""
