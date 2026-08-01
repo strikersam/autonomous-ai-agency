@@ -320,3 +320,30 @@ def test_login_still_succeeds_for_the_seeded_admin(client):
     )
     assert resp.status_code == 200
     assert resp.json()["access_token"]
+
+
+# ── start_background_services() must not be a bare, unbounded await ─────────
+#
+# It was: Hermes startup, RuntimeManager.start()'s health probes, and several
+# other sequential awaits inside it had no bound of their own, so any one
+# running long held uvicorn's port closed past Render's 5s health-check
+# timeout on every boot — confirmed live via Render's Events tab as a
+# repeating "Instance failed: HTTP health check failed (timed out after 5
+# seconds)" / "Service recovered" restart cycle. This guards the wrap by
+# reading lifespan()'s own source: a regex match is a weaker guarantee than a
+# behavioral test, but driving the full lifespan() context manager requires
+# stubbing enough module-level state (ensure_bootstrap, get_task_store,
+# SCHEDULER) that the assertion that matters — this call site is bounded,
+# not bare — is clearer read directly off the source it's defined in.
+
+def test_start_background_services_is_wrapped_in_the_warmup_budget():
+    import inspect
+
+    source = inspect.getsource(server.lifespan)
+    call_site = source[source.index("if run_background_in_web():"):]
+    call_site = call_site[:call_site.index("else:")]
+    assert "_warmup_step(" in call_site, (
+        "start_background_services() must be awaited through _warmup_step(), "
+        "not as a bare await — see services/background.py's "
+        "_HERMES_STARTUP_TIMEOUT_SEC for the incident this guards."
+    )

@@ -19,10 +19,11 @@ from datetime import datetime
 import logging
 import os
 import json
-import re
 import secrets
 
 from bson import ObjectId
+
+from packages.security.redact import redact_connection_url
 
 # Import Company Graph models
 from models.company_graph import (
@@ -49,16 +50,9 @@ DB_NAME = os.environ.get("DB_NAME", "agency_core")
 MONGO_SELECTION_TIMEOUT_MS = int(os.environ.get("MONGO_SELECTION_TIMEOUT_MS", "2000"))
 SQLITE_PATH = os.environ.get("SQLITE_PATH", "agency_core.db")
 
-
-def _redact_mongo_url(url: str) -> str:
-    """Strip embedded credentials from a mongodb(+srv):// URI before logging.
-
-    A production URI is ``mongodb+srv://user:password@host/...`` — logging it
-    raw puts the database password in plaintext in every log aggregator and
-    anywhere those logs get copied. Never log secrets (CLAUDE.md §2); this is
-    the one place in the module that names the connection target at all.
-    """
-    return re.sub(r"://[^/@]+@", "://***:***@", url)
+# Redact before logging: never put a raw connection string (embedded
+# credentials) in a log line. See packages/security/redact.py.
+_redact_mongo_url = redact_connection_url
 
 
 class CompanyGraphStore:

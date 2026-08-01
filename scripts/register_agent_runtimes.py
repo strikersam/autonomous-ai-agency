@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 import sys
 from pathlib import Path
 
@@ -25,6 +24,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from agents.store import AgentStore, AgentDefinition
+from packages.security.redact import redact_connection_url
 
 log = logging.getLogger("register-runtimes")
 logging.basicConfig(
@@ -131,10 +131,7 @@ async def main():
         await client.server_info()
         db = client[args.db_name]
         store = AgentStore(db=db)
-        # Never log a raw connection string: mongodb(+srv):// embeds the
-        # password inline as user:pass@host.
-        redacted_url = re.sub(r"://[^/@]+@", "://***:***@", args.mongo_url)
-        log.info(f"✓ Connected to MongoDB at {redacted_url}/{args.db_name}")
+        log.info(f"✓ Connected to MongoDB at {redact_connection_url(args.mongo_url)}/{args.db_name}")
     except Exception as e:
         log.warning(f"MongoDB unavailable ({e}), using in-memory store")
         log.info("  To persist agents, ensure MongoDB is running and accessible")

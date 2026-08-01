@@ -1626,10 +1626,25 @@ async def lifespan(app_: "FastAPI"):
         )
 
     if run_background_in_web():
-        bg = await start_background_services(
-            workspace_root=ROOT_DIR,
-            task_store=_task_store_for_background(),
-            scheduler=SCHEDULER,
+        # Shares warmup_deadline with bootstrap/reliability-hooks/cache-warm
+        # rather than getting its own fresh budget: this step runs Hermes
+        # startup, RuntimeManager.start()'s health probes, and several other
+        # sequential awaits with no bound of their own, and it runs *after*
+        # bootstrap — an independent budget here would let the two add up
+        # past Render's timeout even though each one individually fit.
+        # Left as a bare await, any one of its steps running long held the
+        # port closed past Render's 5s health-check timeout on every boot —
+        # the exact mechanism behind the repeating "HTTP health check
+        # failed" / restart cycle this closes. A fast boot behaves exactly
+        # as before; a slow one still finishes, just in the background,
+        # while the port opens on time.
+        bg = await _warmup_step(
+            start_background_services(
+                workspace_root=ROOT_DIR,
+                task_store=_task_store_for_background(),
+                scheduler=SCHEDULER,
+            ),
+            "background services", warmup_deadline,
         )
     else:
         log.info(
