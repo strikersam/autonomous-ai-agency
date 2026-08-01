@@ -240,9 +240,9 @@ models:
     supports_json: true
     supports_images: true
     supports_streaming: true
-    supports_reasoning: false
-    input_cost_per_1m: 0.80
-    output_cost_per_1m: 4.0
+    supports_reasoning: true
+    input_cost_per_1m: 1.0
+    output_cost_per_1m: 5.0
     priority: 66
     speed_tier: fast
     aliases: [claude-haiku, haiku]

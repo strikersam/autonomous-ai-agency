@@ -9,6 +9,7 @@ than uniform deltas. Everything else is shared with the base adapter.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from collections.abc import AsyncIterator
 from typing import Any
@@ -30,7 +31,13 @@ from packages.llm.types import (
     Usage,
 )
 
+log = logging.getLogger("llm.providers.anthropic")
+
 DEFAULT_API_VERSION = "2023-06-01"
+
+# Anthropic's extended-thinking floor: a request with a budget below this is
+# rejected outright, so an invalid one must never be sent.
+_MIN_THINKING_BUDGET_TOKENS = 1024
 
 
 class AnthropicProvider(LLMProvider):
@@ -43,19 +50,57 @@ class AnthropicProvider(LLMProvider):
         headers["anthropic-version"] = self.config.api_version or DEFAULT_API_VERSION
         if api_key:
             headers["x-api-key"] = api_key
+        # Merge with whatever anthropic-beta value extra_headers already
+        # configured rather than overwriting it — an operator-configured beta
+        # (e.g. a different experimental capability) must survive alongside
+        # the ones this adapter turns on for prompt_caching/thinking_budget.
         betas: list[str] = []
-        if self.config.prompt_caching:
+        for value in (headers.get("anthropic-beta") or "").split(","):
+            value = value.strip()
+            if value and value not in betas:
+                betas.append(value)
+        if self.config.prompt_caching and "prompt-caching-2024-07-31" not in betas:
             betas.append("prompt-caching-2024-07-31")
-        if self.config.thinking_budget > 0:
+        if self.config.thinking_budget > 0 and "interleaved-thinking-2025-05-14" not in betas:
             betas.append("interleaved-thinking-2025-05-14")
         if betas:
             headers["anthropic-beta"] = ",".join(betas)
         return headers
 
     def build_payload(self, request: LLMRequest, model: str) -> dict[str, Any]:
+        system_parts, messages = self._convert_messages(request.messages)
+
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": messages or [{"role": "user", "content": ""}],
+            "max_tokens": request.max_tokens,
+            "temperature": request.temperature,
+        }
+        if system_parts:
+            payload["system"] = self._build_system(system_parts)
+        if request.tools:
+            payload["tools"] = [self._convert_tool(t) for t in request.tools]
+            if request.tool_choice is not None:
+                payload["tool_choice"] = self._convert_tool_choice(request.tool_choice)
+        # request.extra is merged before the provider-enforced fields below,
+        # not after: extended thinking requires temperature=1, and applying
+        # extra afterwards let a caller-supplied temperature (or a stray
+        # "thinking" key) silently defeat that requirement.
+        payload.update(request.extra)
+        thinking = self._thinking_config(request)
+        if thinking is not None:
+            payload["thinking"] = thinking
+            payload["temperature"] = 1  # Anthropic requires temperature=1 for extended thinking
+        return payload
+
+    @classmethod
+    def _convert_messages(
+        cls, messages: list[dict[str, Any]],
+    ) -> tuple[list[str], list[dict[str, Any]]]:
+        """Translate OpenAI-shaped messages into Anthropic's system/turn split."""
         system_parts: list[str] = []
-        messages: list[dict[str, Any]] = []
-        for message in request.messages:
+        converted: list[dict[str, Any]] = []
+        for message in messages:
             role = message.get("role")
             content = message.get("content")
 
@@ -65,72 +110,95 @@ class AnthropicProvider(LLMProvider):
                 )
                 continue
 
-            # A tool result. OpenAI carries these as role="tool" with a
-            # tool_call_id; Anthropic needs a tool_result block on a user turn.
-            # Without this the second turn of any tool conversation arrives
-            # missing the block Anthropic requires and the request fails.
             if role == "tool":
-                messages.append({
-                    "role": "user",
-                    "content": [{
-                        "type": "tool_result",
-                        "tool_use_id": str(message.get("tool_call_id") or ""),
-                        "content": content if isinstance(content, str) else json.dumps(content),
-                    }],
-                })
+                converted.append(cls._convert_tool_result(message))
                 continue
 
-            # An assistant turn that called tools. OpenAI puts them alongside
-            # the text; Anthropic needs tool_use blocks in the content array.
             tool_calls = message.get("tool_calls") or []
             if role == "assistant" and tool_calls:
-                blocks: list[dict[str, Any]] = []
-                if isinstance(content, str) and content:
-                    blocks.append({"type": "text", "text": content})
-                for call in tool_calls:
-                    function = call.get("function") or {}
-                    raw_args = function.get("arguments")
-                    try:
-                        arguments = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
-                    except json.JSONDecodeError:
-                        arguments = {}
-                    blocks.append({
-                        "type": "tool_use",
-                        "id": str(call.get("id") or ""),
-                        "name": str(function.get("name") or ""),
-                        "input": arguments,
-                    })
-                messages.append({"role": "assistant", "content": blocks})
+                converted.append(cls._convert_assistant_tool_calls(content, tool_calls))
                 continue
 
-            messages.append({
+            converted.append({
                 "role": "assistant" if role == "assistant" else "user",
                 "content": content,
             })
+        return system_parts, converted
 
-        payload: dict[str, Any] = {
-            "model": model,
-            "messages": messages or [{"role": "user", "content": ""}],
-            "max_tokens": request.max_tokens,
-            "temperature": request.temperature,
+    @staticmethod
+    def _convert_tool_result(message: dict[str, Any]) -> dict[str, Any]:
+        """OpenAI carries a tool result as role="tool" with a tool_call_id;
+        Anthropic needs a tool_result block on a user turn. Without this the
+        second turn of any tool conversation arrives missing the block
+        Anthropic requires and the request fails.
+        """
+        content = message.get("content")
+        return {
+            "role": "user",
+            "content": [{
+                "type": "tool_result",
+                "tool_use_id": str(message.get("tool_call_id") or ""),
+                "content": content if isinstance(content, str) else json.dumps(content),
+            }],
         }
-        if system_parts:
-            system_text = "\n\n".join(system_parts)
-            if self.config.prompt_caching:
-                payload["system"] = [
-                    {"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}
-                ]
-            else:
-                payload["system"] = system_text
-        if self.config.thinking_budget > 0:
-            payload["thinking"] = {"type": "enabled", "budget_tokens": self.config.thinking_budget}
-            payload["temperature"] = 1  # Anthropic requires temperature=1 for extended thinking
-        if request.tools:
-            payload["tools"] = [self._convert_tool(t) for t in request.tools]
-            if request.tool_choice is not None:
-                payload["tool_choice"] = self._convert_tool_choice(request.tool_choice)
-        payload.update(request.extra)
-        return payload
+
+    @staticmethod
+    def _convert_assistant_tool_calls(
+        content: Any, tool_calls: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """OpenAI puts a tool call alongside the assistant's text; Anthropic
+        needs tool_use blocks in the content array instead.
+        """
+        blocks: list[dict[str, Any]] = []
+        if isinstance(content, str) and content:
+            blocks.append({"type": "text", "text": content})
+        for call in tool_calls:
+            function = call.get("function") or {}
+            raw_args = function.get("arguments")
+            try:
+                arguments = json.loads(raw_args) if isinstance(raw_args, str) else (raw_args or {})
+            except json.JSONDecodeError:
+                arguments = {}
+            blocks.append({
+                "type": "tool_use",
+                "id": str(call.get("id") or ""),
+                "name": str(function.get("name") or ""),
+                "input": arguments,
+            })
+        return {"role": "assistant", "content": blocks}
+
+    def _build_system(self, system_parts: list[str]) -> str | list[dict[str, Any]]:
+        system_text = "\n\n".join(system_parts)
+        if not self.config.prompt_caching:
+            return system_text
+        return [{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}]
+
+    def _thinking_config(self, request: LLMRequest) -> dict[str, Any] | None:
+        """Anthropic's extended-thinking constraints on ``budget_tokens``:
+        at least 1024, and less than ``max_tokens`` unless the request uses
+        tools (interleaved thinking lets the budget span every thinking
+        block in the turn, so it may exceed max_tokens there). A budget that
+        violates either is dropped instead of sent, since sending it 400s
+        every request rather than just the misconfigured ones.
+        """
+        budget = self.config.thinking_budget
+        if budget <= 0:
+            return None
+        if budget < _MIN_THINKING_BUDGET_TOKENS:
+            log.warning(
+                "Anthropic thinking_budget=%d is below the %d-token minimum — "
+                "disabling extended thinking for this request",
+                budget, _MIN_THINKING_BUDGET_TOKENS,
+            )
+            return None
+        if not request.tools and budget >= request.max_tokens:
+            log.warning(
+                "Anthropic thinking_budget=%d >= max_tokens=%d with no tools — "
+                "disabling extended thinking for this request (would 400)",
+                budget, request.max_tokens,
+            )
+            return None
+        return {"type": "enabled", "budget_tokens": budget}
 
     @staticmethod
     def _convert_tool(tool: dict[str, Any]) -> dict[str, Any]:
