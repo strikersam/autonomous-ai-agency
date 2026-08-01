@@ -19,6 +19,7 @@ from datetime import datetime
 import logging
 import os
 import json
+import re
 import secrets
 
 from bson import ObjectId
@@ -49,6 +50,17 @@ MONGO_SELECTION_TIMEOUT_MS = int(os.environ.get("MONGO_SELECTION_TIMEOUT_MS", "2
 SQLITE_PATH = os.environ.get("SQLITE_PATH", "agency_core.db")
 
 
+def _redact_mongo_url(url: str) -> str:
+    """Strip embedded credentials from a mongodb(+srv):// URI before logging.
+
+    A production URI is ``mongodb+srv://user:password@host/...`` — logging it
+    raw puts the database password in plaintext in every log aggregator and
+    anywhere those logs get copied. Never log secrets (CLAUDE.md §2); this is
+    the one place in the module that names the connection target at all.
+    """
+    return re.sub(r"://[^/@]+@", "://***:***@", url)
+
+
 class CompanyGraphStore:
     """
     Unified storage interface for Company Graph data.
@@ -70,7 +82,7 @@ class CompanyGraphStore:
 
         if self.backend == "mongodb":
             self._mongodb_store = MongoDBStore()
-            log.info(f"Company Graph Store initialized with MongoDB backend: {MONGO_URL}")
+            log.info(f"Company Graph Store initialized with MongoDB backend: {_redact_mongo_url(MONGO_URL)}")
         elif self.backend == "sqlite":
             self._sqlite_store = SQLiteStore()
             log.info(f"Company Graph Store initialized with SQLite backend: {SQLITE_PATH}")
@@ -400,7 +412,7 @@ class MongoDBStore:
                 MONGO_URL, serverSelectionTimeoutMS=MONGO_SELECTION_TIMEOUT_MS
             )
             self._db = self._client[DB_NAME]
-            log.info(f"MongoDB connection established to {MONGO_URL}/{DB_NAME}")
+            log.info(f"MongoDB connection established to {_redact_mongo_url(MONGO_URL)}/{DB_NAME}")
         return self._db
 
     def _to_object_id(self, id_str: str) -> ObjectId:

@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Security
+
+- **A live MongoDB connection string, including its plaintext password, was logged on every boot** (2026-08-01). `services/company_graph_store.py` logged the raw `MONGO_URL` in two places — `CompanyGraphStore.__init__` and `MongoDBStore._get_db()` — and a production `mongodb+srv://` URI carries its password inline as `user:password@host`. Anyone with log access (or anyone who copied a log excerpt, as happened while investigating an unrelated 503) got the database credential in plaintext. Both call sites now go through `_redact_mongo_url()`, which strips the `user:pass@` segment before the line is ever built, leaving the host/db visible for debugging. The same pattern in `scripts/register_agent_runtimes.py` (a manually-run script, not part of the boot path, but the same class of bug) is fixed the same way. Rotate the exposed MongoDB Atlas password — this fix stops the leak going forward, it does not un-expose a credential already printed. Files: `services/company_graph_store.py`, `scripts/register_agent_runtimes.py`, `tests/test_company_graph_store_credential_redaction.py`.
+
 ### Added
 
 - **Anthropic prompt caching and extended thinking in the new LLM routing layer** (2026-08-01). The legacy `packages/ai/router.py` has supported both features since mid-2025, but the new unified LLM router (`packages/llm/`, shipped in #1168) lacked parity — a `claude-sonnet-4-6` request through the new path never sent the `anthropic-beta` header, so Anthropic-side caching never activated and every system prompt was billed as uncached input. Both are now wired into `packages/llm/providers/anthropic.py` using the same `ProviderConfig` data model the rest of the routing layer uses.

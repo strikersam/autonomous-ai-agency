@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import sys
 from pathlib import Path
 
@@ -130,7 +131,10 @@ async def main():
         await client.server_info()
         db = client[args.db_name]
         store = AgentStore(db=db)
-        log.info(f"✓ Connected to MongoDB at {args.mongo_url}/{args.db_name}")
+        # Never log a raw connection string: mongodb(+srv):// embeds the
+        # password inline as user:pass@host.
+        redacted_url = re.sub(r"://[^/@]+@", "://***:***@", args.mongo_url)
+        log.info(f"✓ Connected to MongoDB at {redacted_url}/{args.db_name}")
     except Exception as e:
         log.warning(f"MongoDB unavailable ({e}), using in-memory store")
         log.info("  To persist agents, ensure MongoDB is running and accessible")
