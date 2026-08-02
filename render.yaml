@@ -442,8 +442,22 @@ services:
       # per nonce value: the app stores the executed nonce durably and skips
       # every boot after that, so leaving this set is harmless. To purge
       # again later, change the value (e.g. bump the date suffix).
+      #
+      # Bumped 2026-08-02: force_cleanup() was reporting total=1007,
+      # expired=0 on every tick (agency=924, fix=71, company=12 by name
+      # prefix). expired=0 with the run-once TTL fix (7d) in place since
+      # 2026-07-20 means none of those rows were older than a week — an
+      # active leak, not 2026-07-03 leftovers. Render's Events tab showed
+      # "Instance failed: ks2tt — Exited with status 137" (OOM) on a ~1-2
+      # minute cycle, tighter than the CEO's 5-minute tick: the crash loop
+      # was fast enough that agency-directive run-once jobs (cron "* * * * *")
+      # were being created but killed before they could fire and self-delete,
+      # so every restart added more never-fired rows without removing any —
+      # a compounding spiral, not a steady-state backlog. purge_all() breaks
+      # the spiral; if the count climbs back past a few hundred within a day
+      # of this deploy, the leak is still active and needs its own fix.
       - key: PURGE_BACKLOG_ON_BOOT
-        value: "purge-2026-07-03"
+        value: "purge-2026-08-02"
 
       # ================================================================
       # LANGFUSE — observability/tracing for chat + agent runs.
