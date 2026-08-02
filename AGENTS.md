@@ -443,10 +443,12 @@ developments (models, papers, tooling) and turns high-relevance findings into
 improvement-loop issues; Web Reach is the complementary on-demand path — the
 research a specific step needs *right now*, not on the next scan cycle.
 
-**Non-negotiable guardrail:** every URL these tools touch may originate from
-content the agent itself read (a fetched page, an issue body) — a
-confused-deputy / SSRF vector, not a hypothetical one, since Web Reach runs
-inside the production backend process alongside the database and admin API.
+**Non-negotiable guardrail:** every URL these tools touch is externally
+influenced and must be treated as untrusted — direct user input, a URL an
+LLM constructed, or one pulled from content the agent read (a fetched page,
+an issue body) are all the same confused-deputy/SSRF vector, not a
+hypothetical one, since Web Reach runs inside the production backend process
+alongside the database and admin API.
 `unsafe_target_reason()` rejects private/loopback/link-local/reserved
 resolved targets before any request and every redirect hop is re-validated.
 Any code built on top of Web Reach must go through it — never call `httpx`

@@ -283,10 +283,11 @@ complementary, continuous side of this — scheduled scanning of 13 public
 sources for relevant developments — while Web Reach covers the ad-hoc side:
 whatever a specific step needs to look up right now.
 
-**Guardrails, non-negotiable:** every URL these tools touch is LLM-constructed
-— potentially from content the agent itself read (an issue body, a fetched
-page), which is a confused-deputy vector. `unsafe_target_reason()` in
-`web_reach.py` must reject private/loopback/link-local/reserved resolved
+**Guardrails, non-negotiable:** every URL these tools touch is externally
+influenced and must be treated as untrusted — direct user input, a URL an
+LLM constructed, or one pulled from content the agent read (an issue body, a
+fetched page) are all the same confused-deputy/SSRF vector. `unsafe_target_reason()`
+in `web_reach.py` must reject private/loopback/link-local/reserved resolved
 targets before any request, and every redirect hop must be re-validated
 before being followed. Any new capability built on top of Web Reach inherits
 this obligation — do not bypass `unsafe_target_reason()` or call `httpx`
