@@ -56,12 +56,35 @@ The `AgentRunner.run()` method in `loop.py` drives the whole cycle.
 
 ## Adding New Tools
 
-Tools available to the executor are defined in `_run_tool()` in `loop.py`.
-To add a new tool:
+Two supported paths, pick one:
+
+**A. Hardcoded dispatch** (filesystem/container ops that need `self._mcp` routing
+or other `AgentRunner` state — see `read_file`, `write_file`, `run_command`):
 1. Implement the operation in `tools.py`.
-2. Add a dispatch case in `_run_tool()`.
+2. Add a dispatch case in `_dispatch_tool()` (checked after the tool registry).
 3. Document the tool in `agent/models.py` (ToolCall schema).
 4. Add tests in `tests/test_agent_tools.py` (or `tests/test_repowise_intelligence.py` for intelligence tools).
+
+**B. Capability registry** (self-contained capabilities with no `AgentRunner`
+state dependency — see `agent/web_reach.py`'s `fetch_url`/`web_search`/etc.):
+1. Implement the capability as its own module (own file, own tests, fail-soft
+   — never raise, return a result dict the model can read).
+2. Register it with `registry.agent_tool(...)` in a `_register_*_tools()`
+   function called from `_register_builtin_tools()` in `capability_registry.py`.
+   `_dispatch_tool()` already checks the registry first — no dispatch-chain
+   edit needed.
+3. **Add the tool to `build_tool_prompt()` in `prompts.py`.** The registry
+   makes a tool *callable*; the executor LLM only calls tools it's told about
+   in that prompt's "Available tools" list — registering alone is silent.
+4. Add tests for the module directly, plus one asserting the registry exposes
+   it (see `tests/test_web_reach.py`).
+
+Any tool that accepts a URL, path, or other externally-influenced target
+(especially one an LLM could construct from content it read, not just from
+the direct task instruction) needs an SSRF/traversal guard before the first
+network or filesystem call — see `unsafe_target_reason()` in `web_reach.py`
+for the pattern (block private/loopback/link-local resolved IPs, and
+re-validate every redirect hop rather than trusting `follow_redirects=True`).
 
 ---
 
