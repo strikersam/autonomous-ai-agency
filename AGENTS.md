@@ -409,13 +409,49 @@ When operating in autonomous maintenance mode, agents MUST:
 
 1. **Read before modifying.** Always read the current file before editing. Never assume content.
 2. **Query graphify first.** Use `graphify query "..."` before opening source files — 70x token savings.
-3. **Run baseline tests.** `pytest -x` before any change. If baseline is broken, report before fixing.
-4. **Scope changes tightly.** Fix only what is requested. Do not refactor or clean up adjacent code unless explicitly asked.
-5. **Update state after milestones.** Write to `.claude/state/` after completing significant steps.
-6. **Commit incrementally.** Prefer small commits over large multi-change commits.
-7. **Never force-push.** Use rebase-merge or regular merge. Never force-push to `master`.
-8. **Never bypass CI.** Do not use `--no-verify` or skip hooks. If CI is broken, fix the root cause.
-9. **Escalate uncertainty.** If a change may affect auth, billing, or agent filesystem writes, stop and ask before proceeding.
+3. **Verify time-sensitive facts before acting on them.** A library API, a dependency's current behavior, an error message's actual meaning — if it could have changed since training and the answer is one lookup away, look it up (`web_search`/`fetch_url` via `agent/web_reach.py`, or `WebSearch`/`WebFetch` if you're a coding-agent session rather than this repo's runtime agent) rather than asserting it from memory. See §14.8 in this file and "Internet access (Web Reach)" in `CLAUDE.md` §6.
+4. **Run baseline tests.** `pytest -x` before any change. If baseline is broken, report before fixing.
+5. **Scope changes tightly.** Fix only what is requested. Do not refactor or clean up adjacent code unless explicitly asked.
+6. **Update state after milestones.** Write to `.claude/state/` after completing significant steps.
+7. **Commit incrementally.** Prefer small commits over large multi-change commits.
+8. **Never force-push.** Use rebase-merge or regular merge. Never force-push to `master`.
+9. **Never bypass CI.** Do not use `--no-verify` or skip hooks. If CI is broken, fix the root cause.
+10. **Escalate uncertainty.** If a change may affect auth, billing, or agent filesystem writes, stop and ask before proceeding.
+
+---
+
+## Internet Access & Self-Improvement
+
+The agency's runtime agents (Executor loop, self-healing, improvement loop —
+see `agent/loop.py`, `agent/self_healing.py`, `agent/improvement_loop.py`) are
+not limited to this repo's contents. `agent/web_reach.py` gives them four
+zero-key, read-only tools, available mid-step with no setup:
+
+| Tool | Use it for |
+|------|-----------|
+| `fetch_url(url)` | Reading a page's actual content — docs, a GitHub issue, a changelog |
+| `youtube_transcript(url)` | Pulling spoken content out of a linked video, not just its title |
+| `web_search(query)` | Finding the current answer to something training data can't be trusted for |
+| `fetch_rss(url)` | Reading a feed's recent entries |
+
+**Why this matters for self-healing and learning:** a scheduled fix
+(`self_healing.py` → `improvement_loop.py` → this same Executor loop) that
+hits an unfamiliar error can now search for it before guessing a patch — the
+same behavior a human engineer would default to. `trend_watcher.py` already
+runs a continuous, scheduled scan of 13 public sources for relevant
+developments (models, papers, tooling) and turns high-relevance findings into
+improvement-loop issues; Web Reach is the complementary on-demand path — the
+research a specific step needs *right now*, not on the next scan cycle.
+
+**Non-negotiable guardrail:** every URL these tools touch may originate from
+content the agent itself read (a fetched page, an issue body) — a
+confused-deputy / SSRF vector, not a hypothetical one, since Web Reach runs
+inside the production backend process alongside the database and admin API.
+`unsafe_target_reason()` rejects private/loopback/link-local/reserved
+resolved targets before any request and every redirect hop is re-validated.
+Any code built on top of Web Reach must go through it — never call `httpx`
+directly with `follow_redirects=True` on a URL that could be
+externally-influenced.
 
 ---
 

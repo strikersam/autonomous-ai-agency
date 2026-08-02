@@ -258,6 +258,40 @@ Directive → Planner → Executor → Verifier → Result
               Memory ←─────────────────┘
 ```
 
+### Internet access (Web Reach) — use it to verify, not guess
+
+`agent/web_reach.py` gives every agent zero-key, read-only internet access:
+`fetch_url(url)`, `youtube_transcript(url)`, `web_search(query)`, `fetch_rss(url)`.
+They're registered via `agent/capability_registry.py` and advertised in the
+Executor's tool list (`agent/prompts.py::build_tool_prompt`) — the Executor can
+call them like any other tool, mid-step, without special setup.
+
+**Use them whenever a step depends on something outside this repo that may have
+changed since training** — a library's current API, a framework's latest
+release notes, the actual text of an error message, a fact that needs
+checking before it's asserted as true. Do not guess when the answer is one
+`web_search` or `fetch_url` call away; per §14.8, an unverified time-sensitive
+claim executed as fact costs more than the lookup would have.
+
+**This is the primary mechanism for closed-loop self-healing and learning**
+(§13, Autonomous Development Policy): `agent/self_healing.py` and
+`agent/improvement_loop.py` both schedule their fixes through this same
+Executor loop, so a self-heal or an improvement-loop fix can research an error
+message or a changed dependency before writing the patch, instead of pattern-
+matching from stale training data. `agent/trend_watcher.py` covers the
+complementary, continuous side of this — scheduled scanning of 13 public
+sources for relevant developments — while Web Reach covers the ad-hoc side:
+whatever a specific step needs to look up right now.
+
+**Guardrails, non-negotiable:** every URL these tools touch is LLM-constructed
+— potentially from content the agent itself read (an issue body, a fetched
+page), which is a confused-deputy vector. `unsafe_target_reason()` in
+`web_reach.py` must reject private/loopback/link-local/reserved resolved
+targets before any request, and every redirect hop must be re-validated
+before being followed. Any new capability built on top of Web Reach inherits
+this obligation — do not bypass `unsafe_target_reason()` or call `httpx`
+directly with `follow_redirects=True` on an externally-influenced URL.
+
 ---
 
 ## 7. Scheduler Architecture
