@@ -391,6 +391,8 @@ def _register_builtin_tools(registry: ToolRegistry, workspace_root: str | None =
 
     ws = WorkspaceTools(workspace_root or os.environ.get("AGENT_WORKSPACE_ROOT", "."))
 
+    _register_web_reach_tools(registry)
+
     @registry.agent_tool(
         name="read_file",
         description="Read the contents of a file in the workspace",
@@ -484,3 +486,77 @@ def _register_builtin_tools(registry: ToolRegistry, workspace_root: str | None =
     )
     def _finish_tool(reason: str) -> str:
         return reason
+
+
+def _register_web_reach_tools(registry: ToolRegistry) -> None:
+    """Register the Web Reach capability (agent/web_reach.py): zero-key
+    internet access — pages, YouTube transcripts, web search, RSS feeds."""
+    from agent.web_reach import get_web_reach
+
+    reach = get_web_reach()
+
+    @registry.agent_tool(
+        name="fetch_url",
+        description=(
+            "Read a web page as plain text. Follows a fallback chain "
+            "(direct fetch, canonical URL, Jina AI Reader, Wayback Machine) and "
+            "extracts a spoken transcript automatically for YouTube links."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "The URL to read"},
+            },
+            "required": ["url"],
+        },
+        capabilities=["web", "read", "research"],
+    )
+    def _fetch_url_tool(url: str) -> dict:
+        return reach.fetch_page(url)
+
+    @registry.agent_tool(
+        name="youtube_transcript",
+        description="Fetch the spoken transcript/captions of a YouTube video by URL.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "YouTube video URL"},
+            },
+            "required": ["url"],
+        },
+        capabilities=["web", "read", "research"],
+    )
+    def _youtube_transcript_tool(url: str) -> dict:
+        return reach.youtube_transcript(url)
+
+    @registry.agent_tool(
+        name="web_search",
+        description="Search the public web for a query and return ranked result titles + URLs.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query"},
+                "limit": {"type": "integer", "description": "Max results", "default": 8},
+            },
+            "required": ["query"],
+        },
+        capabilities=["web", "search", "research"],
+    )
+    def _web_search_tool(query: str, limit: int = 8) -> dict:
+        return reach.search_web(query, limit=limit)
+
+    @registry.agent_tool(
+        name="fetch_rss",
+        description="Fetch and parse an RSS or Atom feed, returning recent entry titles + links.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "RSS/Atom feed URL"},
+                "limit": {"type": "integer", "description": "Max entries", "default": 10},
+            },
+            "required": ["url"],
+        },
+        capabilities=["web", "read", "research"],
+    )
+    def _fetch_rss_tool(url: str, limit: int = 10) -> dict:
+        return reach.fetch_rss(url, limit=limit)
