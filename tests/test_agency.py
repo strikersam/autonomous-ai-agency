@@ -221,7 +221,7 @@ async def test_ceo_assess_llm_offloads_prompt_building_to_a_thread(agency: Agenc
     main_thread_id = threading.get_ident()
     observed_thread_ids: list[int] = []
 
-    def _tracking_prompt_builder(state, cycle):
+    def _tracking_prompt_builder(state: object, cycle: int) -> str:
         observed_thread_ids.append(threading.get_ident())
         return "prompt"
 
