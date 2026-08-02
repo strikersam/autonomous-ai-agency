@@ -203,6 +203,38 @@ def _register_defaults() -> None:
         fallback_model="meta/llama-3.3-70b-instruct",
     ))
 
+    # Llama 4 Scout on Groq — MoE 17B active/16E, fastest free option (Meta, 2025)
+    register(ModelInfo(
+        model_id="llama-4-scout-17b-16e-instruct",
+        provider_id="groq",
+        display_name="Llama 4 Scout 17B (Groq)",
+        supports_tools=True,
+        supports_streaming=True,
+        context_window=131072,
+        max_output_tokens=8192,
+        speed_tier="fast",
+        input_cost_per_1m=0.0,
+        output_cost_per_1m=0.0,
+        priority=6,
+        fallback_model="llama-4-maverick-17b-128e-instruct",
+    ))
+
+    # Llama 4 Scout on NVIDIA NIM — same model, NIM endpoint
+    register(ModelInfo(
+        model_id="meta/llama-4-scout-17b-16e-instruct",
+        provider_id="nvidia",
+        display_name="Llama 4 Scout 17B (NVIDIA NIM)",
+        supports_tools=True,
+        supports_streaming=True,
+        context_window=131072,
+        max_output_tokens=8192,
+        speed_tier="fast",
+        input_cost_per_1m=0.0,
+        output_cost_per_1m=0.0,
+        priority=14,
+        fallback_model="meta/llama-4-maverick-17b-128e-instruct",
+    ))
+
     # Gemini 2.5 Flash — fast, 1M context, tool-use, free via Google AI Studio key
     register(ModelInfo(
         model_id="gemini-2.5-flash",
@@ -218,6 +250,23 @@ def _register_defaults() -> None:
         output_cost_per_1m=0.0,
         priority=12,
         fallback_model="gemini-2.0-flash",
+    ))
+
+    # Gemini 2.5 Pro — deepest reasoning on Google tier, 2M context
+    register(ModelInfo(
+        model_id="gemini-2.5-pro",
+        provider_id="google",
+        display_name="Gemini 2.5 Pro",
+        supports_tools=True,
+        supports_vision=True,
+        supports_streaming=True,
+        context_window=2097152,
+        max_output_tokens=8192,
+        speed_tier="slow",
+        input_cost_per_1m=0.0,
+        output_cost_per_1m=0.0,
+        priority=38,
+        fallback_model="gemini-2.5-flash",
     ))
 
     # Ollama (local, no cost)

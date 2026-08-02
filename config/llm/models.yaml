@@ -55,6 +55,19 @@ models:
     priority: 15
     speed_tier: fast
 
+  meta/llama-4-scout-17b-16e-instruct:
+    provider: nvidia
+    display_name: Llama 4 Scout 17B (NIM)
+    context_window: 131072
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    priority: 14
+    speed_tier: fast
+    aliases: [llama-4-scout-nim]
+
   # ── Cerebras (free, fastest) ───────────────────────────────────────────
 
   qwen-3-coder-480b:
@@ -107,6 +120,19 @@ models:
     priority: 8
     speed_tier: fast
 
+  llama-4-scout-17b-16e-instruct:
+    provider: groq
+    display_name: Llama 4 Scout 17B (Groq)
+    context_window: 131072
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    priority: 6
+    speed_tier: fast
+    aliases: [llama-4-scout]
+
   # ── Google Gemini (free tier) ──────────────────────────────────────────
 
   gemini-2.5-flash:
@@ -122,6 +148,21 @@ models:
     priority: 12
     speed_tier: fast
     max_requests_per_minute: 15
+
+  gemini-2.5-pro:
+    provider: google
+    display_name: Gemini 2.5 Pro
+    context_window: 2097152         # 2M context — deepest reasoning on Google tier
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    priority: 38                    # slower and heavier than Flash; use for complex tasks
+    speed_tier: slow
+    max_requests_per_minute: 5
 
   gemini-2.0-flash:
     provider: google
@@ -197,6 +238,57 @@ models:
     input_cost_per_1m: 0.02
     priority: 60
 
+  claude-sonnet-5:
+    provider: anthropic
+    display_name: Claude Sonnet 5
+    context_window: 200000
+    max_output_tokens: 64000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 3.0
+    output_cost_per_1m: 15.0
+    priority: 62
+    speed_tier: medium
+    aliases: [claude-sonnet, sonnet, claude-sonnet-5-20260501]
+
+  claude-opus-4-8:
+    provider: anthropic
+    display_name: Claude Opus 4.8
+    context_window: 200000
+    max_output_tokens: 32000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 15.0
+    output_cost_per_1m: 75.0
+    priority: 60
+    speed_tier: slow
+    aliases: [claude-opus]
+
+  claude-fable-5:
+    provider: anthropic
+    display_name: Claude Fable 5
+    context_window: 200000
+    max_output_tokens: 64000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 3.0
+    output_cost_per_1m: 15.0
+    priority: 63
+    speed_tier: medium
+    aliases: [claude-fable]
+
   claude-sonnet-4-6:
     provider: anthropic
     display_name: Claude Sonnet 4.6
@@ -212,7 +304,6 @@ models:
     output_cost_per_1m: 15.0
     priority: 64
     speed_tier: medium
-    aliases: [claude-sonnet, sonnet]
 
   claude-sonnet-4-5:
     provider: anthropic
@@ -245,4 +336,4 @@ models:
     output_cost_per_1m: 5.0
     priority: 66
     speed_tier: fast
-    aliases: [claude-haiku, haiku]
+    aliases: [claude-haiku, haiku, claude-haiku-4-5-20251001]
