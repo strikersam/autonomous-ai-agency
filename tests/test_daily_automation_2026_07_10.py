@@ -36,13 +36,21 @@ class TestBrainFailoverModelUpdates:
         nvidia = self._by_id("nvidia")
         assert "meta/llama-4-scout-17b-16e-instruct" in nvidia["models"]
 
-    def test_groq_has_llama4_maverick(self):
+    def test_groq_no_longer_has_deprecated_llama4_maverick(self):
+        # 2026-08-03: superseded by a later catalog update. Groq deprecated
+        # its Llama 4 models in March 2026; packages/ai/brain_config.py's
+        # PROVIDER_CANDIDATES["groq"] (the single source of truth these
+        # entries are derived from at import time — see brain_failover.py's
+        # "UNIT 6" catalog-sync block) no longer offers it. This test
+        # asserted the pre-deprecation expectation from 2026-07-10 and
+        # started failing every CI run once that catalog fix shipped.
         groq = self._by_id("groq")
-        assert "llama-4-maverick-17b-128e-instruct" in groq["models"]
+        assert "llama-4-maverick-17b-128e-instruct" not in groq["models"]
 
-    def test_groq_has_llama4_scout(self):
+    def test_groq_no_longer_has_deprecated_llama4_scout(self):
+        # See test_groq_no_longer_has_deprecated_llama4_maverick above.
         groq = self._by_id("groq")
-        assert "llama-4-scout-17b-16e-instruct" in groq["models"]
+        assert "llama-4-scout-17b-16e-instruct" not in groq["models"]
 
     def test_groq_no_longer_has_deprecated_mixtral(self):
         groq = self._by_id("groq")
@@ -64,9 +72,12 @@ class TestBrainFailoverModelUpdates:
         google = self._by_id("google")
         assert "gemini-2.0-flash" in google["models"]
 
-    def test_anthropic_default_is_claude_sonnet5(self):
+    def test_anthropic_default_is_claude_opus5(self):
+        # 2026-08-03: superseded by the claude-opus-5 catalog update, which
+        # made it the new first candidate (== default_model) for anthropic,
+        # replacing claude-sonnet-5 asserted here on 2026-07-10.
         anthropic = self._by_id("anthropic")
-        assert anthropic["default_model"] == "claude-sonnet-5"
+        assert anthropic["default_model"] == "claude-opus-5"
 
     def test_anthropic_has_claude_fable5(self):
         anthropic = self._by_id("anthropic")
@@ -148,8 +159,12 @@ class TestBrainConfigUpdates:
         assert bc.PROVIDER_PRESETS["google"]["executor"] == "gemini-2.5-flash"
 
     def test_anthropic_preset_uses_claude_opus_for_planner(self):
+        # 2026-08-03: value superseded by the claude-opus-5 catalog update
+        # (claude-opus-4-8 -> claude-opus-5 as planner/judge default). The
+        # test's own premise — the planner uses a Claude Opus model — is
+        # still correct, only the specific version changed.
         bc = self._bc()
-        assert bc.PROVIDER_PRESETS["anthropic"]["planner"] == "claude-opus-4-8"
+        assert bc.PROVIDER_PRESETS["anthropic"]["planner"] == "claude-opus-5"
 
     def test_anthropic_preset_uses_claude_sonnet5_for_executor(self):
         bc = self._bc()
@@ -159,9 +174,13 @@ class TestBrainConfigUpdates:
         bc = self._bc()
         assert bc.PROVIDER_PRESETS["aerolink"]["executor"] == "claude-sonnet-5"
 
-    def test_groq_preset_updated_to_llama4_maverick(self):
+    def test_groq_preset_reverted_to_llama33_after_llama4_deprecation(self):
+        # 2026-08-03: Groq deprecated its Llama 4 models in March 2026 (see
+        # test_groq_no_longer_has_deprecated_llama4_maverick above); the
+        # preset moved back to llama-3.3-70b-versatile, superseding the
+        # llama-4-maverick expectation asserted here on 2026-07-10.
         bc = self._bc()
-        assert bc.PROVIDER_PRESETS["groq"]["planner"] == "llama-4-maverick-17b-128e-instruct"
+        assert bc.PROVIDER_PRESETS["groq"]["planner"] == "llama-3.3-70b-versatile"
 
     def test_google_key_env_registered(self):
         bc = self._bc()
