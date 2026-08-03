@@ -456,8 +456,20 @@ services:
       # a compounding spiral, not a steady-state backlog. purge_all() breaks
       # the spiral; if the count climbs back past a few hundred within a day
       # of this deploy, the leak is still active and needs its own fix.
+      #
+      # 2026-08-02 (same day, re-triggered): a dashboard login started
+      # returning 503 — consistent with the "watch whether it climbs back
+      # within a day" warning above, though not confirmed against Render's
+      # Events tab (no dashboard/log access from the session that made this
+      # change). _maybe_boot_purge() only fires once per distinct nonce
+      # value, so re-applying the same value here would be a no-op — bumped
+      # to force another purge. This re-breaks the spiral if it recurred; it
+      # is NOT a fix for the underlying leak. If 503s continue after this
+      # deploys (allow ~1-2 min for the new instance to boot and purge), the
+      # leak is still active and needs its own root-cause fix, not another
+      # nonce bump.
       - key: PURGE_BACKLOG_ON_BOOT
-        value: "purge-2026-08-02"
+        value: "purge-2026-08-02b"
 
       # ================================================================
       # LANGFUSE — observability/tracing for chat + agent runs.
