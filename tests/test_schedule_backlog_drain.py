@@ -246,6 +246,41 @@ async def test_a_failed_durable_delete_is_not_counted_as_expired():
 
 
 @pytest.mark.asyncio
+async def test_expiry_deregisters_a_hydrated_job_from_apscheduler():
+    """A row this process hydrated (and therefore registered with
+    APScheduler) must not linger as a scheduled no-op after force_cleanup()
+    expires it — _expire_run_once_orphan() must deregister it the same way
+    delete() already does for an explicit removal.
+
+    apscheduler isn't a declared dependency of this repo (not in
+    requirements.txt) — AgentScheduler runs with self._aps == None in this
+    environment, same as CI, by design (see the module docstring: "When
+    apscheduler is not available the scheduler still works"). Skips cleanly
+    where it's absent rather than asserting a precondition this environment
+    can't meet; still exercises the real behaviour anywhere it is installed.
+    """
+    pytest.importorskip("apscheduler")
+    store = _FakePersistence([_every_minute_one_shot("job_stuck", age_seconds=900)])
+    sched = AgentScheduler(persistence=store)
+    try:
+        await sched.hydrate()
+        assert sched._aps is not None and sched._aps.get_job("job_stuck") is not None, (
+            "test setup: hydrate() must have registered the job with APScheduler"
+        )
+
+        summary = await sched.force_cleanup()
+
+        assert summary["expired"] == 1
+        assert sched.get("job_stuck") is None
+        assert sched._aps.get_job("job_stuck") is None, (
+            "expired job must be deregistered from APScheduler, not left as a "
+            "no-op scheduled entry"
+        )
+    finally:
+        sched.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_a_fired_one_shot_is_still_removed_by_the_original_rule():
     """The pre-existing behaviour has to survive the new branch above it."""
     store = _FakePersistence([_one_shot("job_fired", age_days=0, run_count=1)])

@@ -522,6 +522,11 @@ class AgentScheduler:
         actually persisted. Logged at ERROR (not swallowed) so a persistent
         removal failure is visible instead of silently inflating the
         ``expired`` count while the backlog stays exactly as large.
+
+        Also deregisters the job from APScheduler if it was registered in
+        this process (e.g. via ``hydrate()``) — mirrors ``delete()``, so a
+        row this same process knows about doesn't linger as a scheduled
+        no-op until it fires or the process restarts.
         """
         try:
             remove_result = self._store.remove(job_id)
@@ -534,6 +539,11 @@ class AgentScheduler:
             )
             return False
         self._jobs.pop(job_id, None)
+        if self._aps:
+            try:
+                self._aps.remove_job(job_id)
+            except Exception:
+                pass
         return True
 
     async def force_cleanup(self) -> dict[str, int]:
