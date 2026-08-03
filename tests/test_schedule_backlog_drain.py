@@ -185,6 +185,67 @@ async def test_a_daily_low_priority_fix_job_is_not_caught_by_the_fast_path():
 
 
 @pytest.mark.asyncio
+async def test_a_disabled_every_minute_one_shot_is_preserved():
+    """toggle(job_id, enabled=False) pauses a job without deleting it — the
+    fast path must not silently destroy a paused job an operator intends to
+    resume, even if it's well past the orphan-age cutoff."""
+    paused = _every_minute_one_shot("job_paused", age_seconds=900)
+    paused["enabled"] = False
+    store = _FakePersistence([paused])
+    sched = AgentScheduler(persistence=store)
+    try:
+        summary = await sched.force_cleanup()
+    finally:
+        sched.shutdown()
+
+    assert summary["expired"] == 0
+    assert {d["job_id"] for d in store.load_all()} == {"job_paused"}
+
+
+@pytest.mark.asyncio
+async def test_every_minute_orphan_expiry_tolerates_cron_whitespace():
+    """_register_aps parses cron via ``.strip().split()``, so a cron string
+    with incidental padding still registers as every-minute — the cleanup
+    comparison must recognise the same rows, not silently fall through to
+    the 7-day fallback for a cosmetic formatting difference."""
+    padded = _every_minute_one_shot("job_padded", age_seconds=900)
+    padded["cron"] = "  *  *  *  *  * "
+    store = _FakePersistence([padded])
+    sched = AgentScheduler(persistence=store)
+    try:
+        summary = await sched.force_cleanup()
+    finally:
+        sched.shutdown()
+
+    assert summary["expired"] == 1
+    assert store.load_all() == []
+
+
+@pytest.mark.asyncio
+async def test_a_failed_durable_delete_is_not_counted_as_expired():
+    """A store.remove() failure must not be reported as a successful expiry
+    — the row is still live in the store and would reappear on the next
+    hydration, so miscounting it would hide the very backlog this cleanup
+    exists to report."""
+
+    class _FlakyPersistence(_FakePersistence):
+        def remove(self, job_id: str) -> None:
+            raise RuntimeError("simulated durable-store failure")
+
+    store = _FlakyPersistence([_every_minute_one_shot("job_stuck", age_seconds=900)])
+    sched = AgentScheduler(persistence=store)
+    try:
+        summary = await sched.force_cleanup()
+    finally:
+        sched.shutdown()
+
+    assert summary["expired"] == 0, f"failed delete miscounted as expired: {summary}"
+    assert {d["job_id"] for d in store.load_all()} == {"job_stuck"}, (
+        "the row must still be reported as present when its delete failed"
+    )
+
+
+@pytest.mark.asyncio
 async def test_a_fired_one_shot_is_still_removed_by_the_original_rule():
     """The pre-existing behaviour has to survive the new branch above it."""
     store = _FakePersistence([_one_shot("job_fired", age_days=0, run_count=1)])
