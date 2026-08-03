@@ -121,6 +121,165 @@ async def test_an_unreadable_created_at_is_never_treated_as_ancient():
     assert len(store.load_all()) == 2, "an unparseable date must fail closed"
 
 
+def _every_minute_one_shot(job_id: str, *, age_seconds: float, run_count: int = 0) -> dict:
+    """An agency-directive-shaped row: cron="* * * * *", uniquely named."""
+    return {
+        "job_id": job_id,
+        "name": f"agency: directive {job_id}",
+        "cron": "* * * * *",
+        "tags": ["run-once", "agency"],
+        "run_count": run_count,
+        "created_at": _stamp(age_seconds),
+    }
+
+
+@pytest.mark.asyncio
+async def test_force_cleanup_expires_every_minute_orphans_fast():
+    """2026-08-03: the 7-day fallback let a live crash loop regrow the backlog
+    from a fresh purge to 1137 rows (1075 agency-prefixed) in ~5.5 hours,
+    re-triggering the OOM restart cycle it was meant to prevent. Every one of
+    those rows was cron="* * * * *" — a pattern that gets a fresh fire chance
+    every 60s, so missing many in a row is provable death, not a guess."""
+    store = _FakePersistence([_every_minute_one_shot("job_stuck", age_seconds=900)])
+    sched = AgentScheduler(persistence=store)
+    try:
+        summary = await sched.force_cleanup()
+    finally:
+        sched.shutdown()
+
+    assert summary["expired"] == 1, f"every-minute orphan survived: {summary}"
+    assert store.load_all() == []
+
+
+@pytest.mark.asyncio
+async def test_a_fresh_every_minute_one_shot_gets_its_chance_first():
+    """Must not delete a same-pattern row that hasn't had time to fire yet."""
+    store = _FakePersistence([_every_minute_one_shot("job_new", age_seconds=5)])
+    sched = AgentScheduler(persistence=store)
+    try:
+        summary = await sched.force_cleanup()
+    finally:
+        sched.shutdown()
+
+    assert summary["expired"] == 0
+    assert {d["job_id"] for d in store.load_all()} == {"job_new"}
+
+
+@pytest.mark.asyncio
+async def test_a_daily_low_priority_fix_job_is_not_caught_by_the_fast_path():
+    """A "0 9 * * *" run-once row legitimately waits up to ~24h for its one
+    scheduled window (agent/improvement_loop.py's _LOW_CRON) — the fast path
+    must be scoped to "* * * * *" only, or this gets deleted before it can
+    ever fire."""
+    daily = _every_minute_one_shot("job_daily", age_seconds=900)
+    daily["cron"] = "0 9 * * *"
+    store = _FakePersistence([daily])
+    sched = AgentScheduler(persistence=store)
+    try:
+        summary = await sched.force_cleanup()
+    finally:
+        sched.shutdown()
+
+    assert summary["expired"] == 0
+    assert {d["job_id"] for d in store.load_all()} == {"job_daily"}
+
+
+@pytest.mark.asyncio
+async def test_a_disabled_every_minute_one_shot_is_preserved():
+    """toggle(job_id, enabled=False) pauses a job without deleting it — the
+    fast path must not silently destroy a paused job an operator intends to
+    resume, even if it's well past the orphan-age cutoff."""
+    paused = _every_minute_one_shot("job_paused", age_seconds=900)
+    paused["enabled"] = False
+    store = _FakePersistence([paused])
+    sched = AgentScheduler(persistence=store)
+    try:
+        summary = await sched.force_cleanup()
+    finally:
+        sched.shutdown()
+
+    assert summary["expired"] == 0
+    assert {d["job_id"] for d in store.load_all()} == {"job_paused"}
+
+
+@pytest.mark.asyncio
+async def test_every_minute_orphan_expiry_tolerates_cron_whitespace():
+    """_register_aps parses cron via ``.strip().split()``, so a cron string
+    with incidental padding still registers as every-minute — the cleanup
+    comparison must recognise the same rows, not silently fall through to
+    the 7-day fallback for a cosmetic formatting difference."""
+    padded = _every_minute_one_shot("job_padded", age_seconds=900)
+    padded["cron"] = "  *  *  *  *  * "
+    store = _FakePersistence([padded])
+    sched = AgentScheduler(persistence=store)
+    try:
+        summary = await sched.force_cleanup()
+    finally:
+        sched.shutdown()
+
+    assert summary["expired"] == 1
+    assert store.load_all() == []
+
+
+@pytest.mark.asyncio
+async def test_a_failed_durable_delete_is_not_counted_as_expired():
+    """A store.remove() failure must not be reported as a successful expiry
+    — the row is still live in the store and would reappear on the next
+    hydration, so miscounting it would hide the very backlog this cleanup
+    exists to report."""
+
+    class _FlakyPersistence(_FakePersistence):
+        def remove(self, job_id: str) -> None:
+            raise RuntimeError("simulated durable-store failure")
+
+    store = _FlakyPersistence([_every_minute_one_shot("job_stuck", age_seconds=900)])
+    sched = AgentScheduler(persistence=store)
+    try:
+        summary = await sched.force_cleanup()
+    finally:
+        sched.shutdown()
+
+    assert summary["expired"] == 0, f"failed delete miscounted as expired: {summary}"
+    assert {d["job_id"] for d in store.load_all()} == {"job_stuck"}, (
+        "the row must still be reported as present when its delete failed"
+    )
+
+
+@pytest.mark.asyncio
+async def test_expiry_deregisters_a_hydrated_job_from_apscheduler():
+    """A row this process hydrated (and therefore registered with
+    APScheduler) must not linger as a scheduled no-op after force_cleanup()
+    expires it — _expire_run_once_orphan() must deregister it the same way
+    delete() already does for an explicit removal.
+
+    apscheduler isn't a declared dependency of this repo (not in
+    requirements.txt) — AgentScheduler runs with self._aps == None in this
+    environment, same as CI, by design (see the module docstring: "When
+    apscheduler is not available the scheduler still works"). Skips cleanly
+    where it's absent rather than asserting a precondition this environment
+    can't meet; still exercises the real behaviour anywhere it is installed.
+    """
+    pytest.importorskip("apscheduler")
+    store = _FakePersistence([_every_minute_one_shot("job_stuck", age_seconds=900)])
+    sched = AgentScheduler(persistence=store)
+    try:
+        await sched.hydrate()
+        assert sched._aps is not None and sched._aps.get_job("job_stuck") is not None, (
+            "test setup: hydrate() must have registered the job with APScheduler"
+        )
+
+        summary = await sched.force_cleanup()
+
+        assert summary["expired"] == 1
+        assert sched.get("job_stuck") is None
+        assert sched._aps.get_job("job_stuck") is None, (
+            "expired job must be deregistered from APScheduler, not left as a "
+            "no-op scheduled entry"
+        )
+    finally:
+        sched.shutdown()
+
+
 @pytest.mark.asyncio
 async def test_a_fired_one_shot_is_still_removed_by_the_original_rule():
     """The pre-existing behaviour has to survive the new branch above it."""

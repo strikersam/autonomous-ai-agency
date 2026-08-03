@@ -23,6 +23,26 @@ from typing import Any, Callable
 # creating them without bound, and the operator needs to hear about it.
 _BACKLOG_ALERT_THRESHOLD = 200
 
+# A run-once job on an every-minute cron ("* * * * *") gets a fresh fire
+# opportunity every 60s by construction. If it hasn't fired within this
+# window, it provably never will — APScheduler doesn't retroactively fire a
+# past-due cron match, so there is no future minute where this row's luck
+# changes. This is NOT a heuristic the way the 7-day SCHEDULE_RUN_ONCE_TTL_DAYS
+# fallback below is: it is a mathematical fact about the "* * * * *" pattern.
+# Deliberately does not generalize to other cron patterns (e.g. the
+# improvement loop's daily "0 9 * * *" low-priority fix jobs legitimately
+# wait up to ~24h for their one scheduled window — collapsing this to a
+# blanket short TTL would delete those before they ever get to fire).
+#
+# 2026-08-03: the 7-day fallback proved far too slow to contain a live crash
+# loop — every-minute agency-directive jobs (see agent/agency.py
+# _dispatch_directive, always cron="* * * * *") regrew the backlog from a
+# fresh purge to 1137 rows (1075 of them agency-prefixed) within ~5.5 hours,
+# re-triggering the same OOM (status 137) restart cycle the 7-day rule was
+# supposed to prevent. This adds a second, much tighter net for exactly the
+# pattern that's actually compounding, without touching the general case.
+_EVERY_MINUTE_ORPHAN_AGE_SEC = 600  # 10 minutes — ~10x the trigger's own interval
+
 
 def _run_once_max_age_sec() -> float:
     """The one retention policy for unfired one-shots, read from its owner.
@@ -490,6 +510,42 @@ class AgentScheduler:
         except Exception as exc:
             log.warning("Scheduler persist failed for %s: %s", job.job_id, exc)
 
+    async def _expire_run_once_orphan(
+        self, job_id: str, name: str, *, cron: str
+    ) -> bool:
+        """Durably remove one unfired run-once row and its in-memory mirror.
+
+        Returns True only once the durable delete actually succeeds. A failed
+        delete must not be reported as an expiry: the row is still live in
+        the store and would reappear on the next hydration, and popping it
+        out of ``self._jobs`` anyway would desync in-memory state from what's
+        actually persisted. Logged at ERROR (not swallowed) so a persistent
+        removal failure is visible instead of silently inflating the
+        ``expired`` count while the backlog stays exactly as large.
+
+        Also deregisters the job from APScheduler if it was registered in
+        this process (e.g. via ``hydrate()``) — mirrors ``delete()``, so a
+        row this same process knows about doesn't linger as a scheduled
+        no-op until it fires or the process restarts.
+        """
+        try:
+            remove_result = self._store.remove(job_id)
+            if inspect.isawaitable(remove_result):
+                await remove_result
+        except Exception:
+            log.exception(
+                "force_cleanup: could not remove orphaned run-once job "
+                "name=%r job_id=%s cron=%r", name, job_id, cron,
+            )
+            return False
+        self._jobs.pop(job_id, None)
+        if self._aps:
+            try:
+                self._aps.remove_job(job_id)
+            except Exception:
+                pass
+        return True
+
     async def force_cleanup(self) -> dict[str, int]:
         """Force-dedup and clean stale schedules from both the durable store
         and in-memory state.
@@ -522,6 +578,7 @@ class AgentScheduler:
                 name = doc.get("name", "restored-job")
                 tags = doc.get("tags") or []
                 run_count = doc.get("run_count", 0)
+                cron = doc.get("cron", "")
                 # Remove run-once jobs that were never going to fire.
                 #
                 # A one-shot is scheduled for a specific minute. If the process
@@ -536,6 +593,34 @@ class AgentScheduler:
                 # ``total=1178 deleted=0 deduped=0`` — a backlog the per-tick
                 # cleanup was running against and structurally unable to touch.
                 #
+                # 2026-08-03: the general 7-day fallback below is far too slow
+                # against a live crash loop specifically because agency
+                # directives (agent/agency.py _dispatch_directive) always use
+                # cron="* * * * *" — an every-minute trigger gets a fresh fire
+                # opportunity every 60s, so a row that's missed
+                # _EVERY_MINUTE_ORPHAN_AGE_SEC/60 (~10) consecutive minutes in
+                # a row without firing is dead by any reasonable operational
+                # definition (this is a crash-loop containment policy, not a
+                # claim that a single missed minute is permanent — see
+                # _EVERY_MINUTE_ORPHAN_AGE_SEC's own docstring). Checked ahead
+                # of the general rule so it only narrows (never widens) what
+                # counts as dead; every other cron pattern — e.g. the
+                # improvement loop's daily "0 9 * * *" low-priority fix jobs —
+                # still gets the full 7-day grace period below. Excludes
+                # disabled (toggle(enabled=False)) jobs, which are paused, not
+                # dead, and normalizes whitespace the same way _register_aps
+                # parses cron strings so "* * * * *" with incidental padding
+                # still matches.
+                if (
+                    "run-once" in tags
+                    and run_count == 0
+                    and doc.get("enabled", True)
+                    and cron.strip().split() == ["*", "*", "*", "*", "*"]
+                    and _age_seconds(doc.get("created_at")) > _EVERY_MINUTE_ORPHAN_AGE_SEC
+                ):
+                    if await self._expire_run_once_orphan(job_id, name, cron=cron):
+                        summary["expired"] += 1
+                    continue
                 # A run-once job that has not fired within a day is dead by
                 # definition, so age it out.
                 if (
