@@ -155,6 +155,34 @@ def test_azure_url_includes_deployment_and_api_version():
     assert "api-version=2024-10-21" in url
 
 
+def test_bare_host_base_url_gets_v1_inserted():
+    """An operator-overridden base-url env var replaces the whole default,
+    it does not extend it — so ``NVIDIA_BASE_URL=https://integrate.api.nvidia.com``
+    (render.yaml, no ``/v1``) must still resolve to the real endpoint.
+    Without this every model 404s identically, which classify_error()
+    correctly reports as a permanent, provider-scoped error (a wrong URL,
+    not a missing model) — see test_404_without_a_model_hint_is_permanent.
+    """
+    provider = OpenAICompatible(ProviderConfig(
+        id="nvidia", base_url="https://integrate.api.nvidia.com",
+    ))
+    assert provider._chat_url() == "https://integrate.api.nvidia.com/v1/chat/completions"
+
+
+def test_base_url_already_ending_in_v1_is_untouched():
+    provider = OpenAICompatible(ProviderConfig(id="demo", base_url="http://demo/v1"))
+    assert provider._chat_url() == "http://demo/v1/chat/completions"
+
+
+def test_base_url_with_its_own_path_is_not_given_a_second_v1():
+    """A base url that already carries a path (e.g. Azure-style, or a gateway
+    mounted under a prefix) is trusted as-is — inserting /v1 would corrupt it."""
+    provider = OpenAICompatible(ProviderConfig(
+        id="deepinfra", base_url="https://api.deepinfra.com/v1/openai",
+    ))
+    assert provider._chat_url() == "https://api.deepinfra.com/v1/openai/chat/completions"
+
+
 async def test_openai_error_carries_retry_after():
     def handler(_request):
         return httpx.Response(429, json={"error": "slow down"}, headers={"retry-after": "7"})

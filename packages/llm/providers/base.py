@@ -19,6 +19,7 @@ import time
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
@@ -200,7 +201,25 @@ class LLMProvider(ABC):
         return headers
 
     def _url(self, path: str) -> str:
+        """Join *path* onto the configured base, inserting ``/v1`` when the
+        base is a bare host with no path of its own.
+
+        Mirrors ``packages.ai.router._openai_url`` (the legacy router already
+        does this). Several providers' ``config/llm/providers.yaml`` defaults
+        bake ``/v1`` into the URL, but an operator overriding the base-url env
+        var (e.g. ``NVIDIA_BASE_URL=https://integrate.api.nvidia.com``, set in
+        ``render.yaml``) gets exactly the override value with no ``/v1``
+        appended — env-var substitution replaces the whole default, it does
+        not extend it. Without this, every model on that provider 404s
+        identically (wrong path, not a missing model), which
+        ``classify_error()`` correctly reports as permanent, and the account
+        looks dead when only the URL was short one path segment.
+        """
         base = (self.config.base_url or "").rstrip("/")
+        if not base.endswith("/v1"):
+            parsed = urlparse(base)
+            if not parsed.path or parsed.path == "/":
+                base = f"{base}/v1"
         return f"{base}/{path.lstrip('/')}"
 
 
