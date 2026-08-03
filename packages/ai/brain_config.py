@@ -193,10 +193,10 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
         "judge":     "llama-3.3-70b",
     },
     "groq": {
-        "planner":   "llama-4-maverick-17b-128e-instruct",
-        "executor":  "llama-4-maverick-17b-128e-instruct",
-        "verifier":  "llama-4-scout-17b-16e-instruct",
-        "judge":     "llama-4-maverick-17b-128e-instruct",
+        "planner":   "llama-3.3-70b-versatile",
+        "executor":  "llama-3.3-70b-versatile",
+        "verifier":  "llama-3.3-70b-versatile",
+        "judge":     "llama-3.3-70b-versatile",
     },
     "nvidia": {
         "planner":   "z-ai/glm-5.2",
@@ -337,8 +337,6 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
     ],
     "cerebras": ["qwen-3-coder-480b", "llama-3.3-70b", "llama-3.1-8b"],
     "groq": [
-        "llama-4-maverick-17b-128e-instruct",
-        "llama-4-scout-17b-16e-instruct",
         "llama-3.3-70b-versatile",
         "deepseek-r1-distill-llama-70b",
         "llama-3.1-8b-instant",

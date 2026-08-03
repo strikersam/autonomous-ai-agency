@@ -135,18 +135,6 @@ def test_brain_config_groq_candidates_no_deprecated_mixtral():
         )
 
 
-def test_brain_config_groq_has_llama4_maverick():
-    from packages.ai.brain_config import PROVIDER_CANDIDATES
-    cands = PROVIDER_CANDIDATES["groq"]
-    assert "llama-4-maverick-17b-128e-instruct" in cands, f"Llama 4 Maverick missing from groq: {cands}"
-
-
-def test_brain_config_groq_has_llama4_scout():
-    from packages.ai.brain_config import PROVIDER_CANDIDATES
-    cands = PROVIDER_CANDIDATES["groq"]
-    assert "llama-4-scout-17b-16e-instruct" in cands, f"Llama 4 Scout missing from groq: {cands}"
-
-
 def test_brain_config_nvidia_has_llama4_maverick():
     from packages.ai.brain_config import PROVIDER_CANDIDATES
     cands = PROVIDER_CANDIDATES["nvidia"]
@@ -167,24 +155,24 @@ def test_brain_config_nvidia_has_llama4_scout():
 
 
 def test_anthropic_candidates_match_yaml():
-    """brain_config.py anthropic candidates must include every model in models.yaml."""
+    """brain_config.py anthropic candidates must exactly match models.yaml (order and content)."""
     cfg = _load_yaml()
-    yaml_cands = set(cfg["providers"]["anthropic"]["candidates"])
+    yaml_cands = cfg["providers"]["anthropic"]["candidates"]
     from packages.ai.brain_config import PROVIDER_CANDIDATES
-    py_cands = set(PROVIDER_CANDIDATES["anthropic"])
-    missing = yaml_cands - py_cands
-    assert not missing, (
-        f"Models in models.yaml anthropic but not in brain_config.py: {missing}"
+    assert PROVIDER_CANDIDATES["anthropic"] == yaml_cands, (
+        f"Ordered mismatch between brain_config.py and models.yaml:\n"
+        f"  py:   {PROVIDER_CANDIDATES['anthropic']}\n"
+        f"  yaml: {yaml_cands}"
     )
 
 
 def test_aerolink_candidates_match_yaml():
-    """brain_config.py aerolink candidates must include every model in models.yaml."""
+    """brain_config.py aerolink candidates must exactly match models.yaml (order and content)."""
     cfg = _load_yaml()
-    yaml_cands = set(cfg["providers"]["aerolink"]["candidates"])
+    yaml_cands = cfg["providers"]["aerolink"]["candidates"]
     from packages.ai.brain_config import PROVIDER_CANDIDATES
-    py_cands = set(PROVIDER_CANDIDATES["aerolink"])
-    missing = yaml_cands - py_cands
-    assert not missing, (
-        f"Models in models.yaml aerolink but not in brain_config.py: {missing}"
+    assert PROVIDER_CANDIDATES["aerolink"] == yaml_cands, (
+        f"Ordered mismatch between brain_config.py and models.yaml:\n"
+        f"  py:   {PROVIDER_CANDIDATES['aerolink']}\n"
+        f"  yaml: {yaml_cands}"
     )
