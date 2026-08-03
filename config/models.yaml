@@ -102,13 +102,11 @@ providers:
     base_url_env: GROQ_BASE_URL
     default_base_url: https://api.groq.com/openai/v1
     role_presets:
-      planner:   llama-4-maverick-17b-128e-instruct
-      executor:  llama-4-maverick-17b-128e-instruct
-      verifier:  llama-4-scout-17b-16e-instruct
-      judge:     llama-4-maverick-17b-128e-instruct
+      planner:   llama-3.3-70b-versatile
+      executor:  llama-3.3-70b-versatile
+      verifier:  llama-3.3-70b-versatile
+      judge:     llama-3.3-70b-versatile
     candidates:
-      - llama-4-maverick-17b-128e-instruct
-      - llama-4-scout-17b-16e-instruct
       - llama-3.3-70b-versatile
       - deepseek-r1-distill-llama-70b
       - llama-3.1-8b-instant
@@ -257,14 +255,15 @@ providers:
     base_url_env: ANTHROPIC_BASE_URL
     default_base_url: https://api.anthropic.com
     role_presets:
-      planner:   claude-opus-4-8
+      planner:   claude-opus-5
       executor:  claude-sonnet-5
       verifier:  claude-sonnet-5
-      judge:     claude-opus-4-8
+      judge:     claude-opus-5
     candidates:
+      - claude-opus-5
       - claude-sonnet-5
-      - claude-opus-4-8
       - claude-fable-5
+      - claude-opus-4-8
       - claude-haiku-4-5-20251001
       - claude-sonnet-4-6
 
@@ -275,11 +274,12 @@ providers:
     base_url_env: AEROLINK_BASE_URL
     default_base_url: https://capi.aerolink.lat/v1
     role_presets:
-      planner:   claude-opus-4-8
+      planner:   claude-opus-5
       executor:  claude-sonnet-5
       verifier:  claude-sonnet-5
-      judge:     claude-opus-4-8
+      judge:     claude-opus-5
     candidates:
+      - claude-opus-5
       - claude-sonnet-5
       - claude-opus-4-8
       - claude-opus-4-7
