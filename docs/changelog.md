@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Dashboard login started returning 503, same day as the OOM-crash-loop fix below that explicitly warned this could recur** (2026-08-02). `render.yaml`'s `PURGE_BACKLOG_ON_BOOT` nonce was still `"purge-2026-08-02"` — the value already consumed by that fix — and `_maybe_boot_purge()` only fires once per distinct nonce value, so even if the same agency-directive backlog built back up, the existing value would not trigger another purge. Bumped to `"purge-2026-08-02b"` to force one. This re-applies the same escape hatch as before, not a root-cause fix — the actual leak (something creating run-once jobs faster than a healthy instance drains them) still needs its own investigation if 503s continue after this deploys. Files: `render.yaml`.
+
 ### Added
 
 - **Agents can now read the open web — pages, YouTube transcripts, search results, and RSS/Atom feeds — with no new API key, secret, or external CLI dependency** (2026-08-02). Requested capability: give the agency the internet-access ability described in github.com/Panniantong/Agent-Reach. That project orchestrates third-party CLI tools (twitter-cli, bili-cli, gh, mcporter, Node.js) this repo's containers don't ship and that need per-platform credentials with no existing secret slot — so the capability is implemented natively instead: `agent/web_reach.py` (`WebReach`) provides `fetch_page()` (direct fetch → canonical URL → Jina AI Reader → Nitter → Wayback Machine fallback chain), `youtube_transcript()`, `search_web()` (DuckDuckGo HTML, no key), `fetch_rss()` (stdlib XML, no new dependency), and `doctor()` for per-backend health reporting. The page-fetch and YouTube-caption logic is not reimplemented — it's loaded dynamically from the already-tested `.github/scripts/fetch_url.py` / `video_transcript.py` (single source of truth, per the constitution's "never duplicate logic" rule). Login-gated platforms (Twitter/X, Reddit, Facebook, Instagram, LinkedIn, Xiaohongshu) are out of scope, matching the "no half-finished implementations, no new secrets outside config" rules; GitHub is already covered by the existing `github_*` tools.
