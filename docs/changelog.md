@@ -3,6 +3,7 @@
      move the gate to root. -->
 
 ## [Unreleased]
+### Fixed - `test_auth_me_regression.py` — Fixed MongoDB connection timeout during tests by configuring pytest to use SQLite for CI environment.
 
 ### Fixed
 
