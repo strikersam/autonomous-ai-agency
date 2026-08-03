@@ -1,0 +1,190 @@
+"""tests/test_daily_automation_2026_08_03.py — Daily automation (2026-08-03).
+
+Covers the model-catalog improvements applied today:
+
+  1. claude-opus-5 added to Anthropic and Aerolink providers
+     (model catalog + hardcoded brain_config.py fallbacks).
+
+  2. brain_config.py PROVIDER_CANDIDATES synced with config/models.yaml:
+     - Anthropic: removed stale 2024 model IDs; added Claude 5 family.
+     - Aerolink: added claude-opus-5 as top model.
+     - Groq: added Llama 4 models; removed deprecated mixtral-8x7b-32768.
+     - NVIDIA: added meta/llama-4-maverick-17b-128e-instruct and
+               meta/llama-4-scout-17b-16e-instruct.
+"""
+
+from __future__ import annotations
+
+import os
+import yaml
+
+REPO_ROOT = os.path.join(os.path.dirname(__file__), "..")
+MODELS_YAML = os.path.join(REPO_ROOT, "config", "models.yaml")
+
+STALE_ANTHROPIC_MODELS = (
+    "claude-3-5-sonnet-20241022",
+    "claude-3-5-haiku-20241022",
+    "claude-opus-4-5",
+)
+
+DEPRECATED_GROQ_MODELS = ("mixtral-8x7b-32768",)
+
+
+def _load_yaml() -> dict:
+    with open(MODELS_YAML, encoding="utf-8") as fh:
+        return yaml.safe_load(fh)
+
+
+# ── config/models.yaml ───────────────────────────────────────────────────────
+
+
+def test_yaml_anthropic_planner_is_opus_5():
+    cfg = _load_yaml()
+    assert cfg["providers"]["anthropic"]["role_presets"]["planner"] == "claude-opus-5"
+
+
+def test_yaml_anthropic_judge_is_opus_5():
+    cfg = _load_yaml()
+    assert cfg["providers"]["anthropic"]["role_presets"]["judge"] == "claude-opus-5"
+
+
+def test_yaml_anthropic_candidates_contains_opus_5():
+    cfg = _load_yaml()
+    candidates = cfg["providers"]["anthropic"]["candidates"]
+    assert "claude-opus-5" in candidates, f"claude-opus-5 missing from anthropic candidates: {candidates}"
+
+
+def test_yaml_anthropic_opus_5_is_first_candidate():
+    cfg = _load_yaml()
+    candidates = cfg["providers"]["anthropic"]["candidates"]
+    assert candidates[0] == "claude-opus-5", f"Expected claude-opus-5 first, got {candidates[0]}"
+
+
+def test_yaml_aerolink_planner_is_opus_5():
+    cfg = _load_yaml()
+    assert cfg["providers"]["aerolink"]["role_presets"]["planner"] == "claude-opus-5"
+
+
+def test_yaml_aerolink_judge_is_opus_5():
+    cfg = _load_yaml()
+    assert cfg["providers"]["aerolink"]["role_presets"]["judge"] == "claude-opus-5"
+
+
+def test_yaml_aerolink_candidates_contains_opus_5():
+    cfg = _load_yaml()
+    candidates = cfg["providers"]["aerolink"]["candidates"]
+    assert "claude-opus-5" in candidates, f"claude-opus-5 missing from aerolink candidates: {candidates}"
+
+
+def test_yaml_aerolink_opus_5_is_first_candidate():
+    cfg = _load_yaml()
+    candidates = cfg["providers"]["aerolink"]["candidates"]
+    assert candidates[0] == "claude-opus-5", f"Expected claude-opus-5 first, got {candidates[0]}"
+
+
+# ── packages/ai/brain_config.py ──────────────────────────────────────────────
+
+
+def test_brain_config_anthropic_planner_is_opus_5():
+    from packages.ai.brain_config import PROVIDER_PRESETS
+    assert PROVIDER_PRESETS["anthropic"]["planner"] == "claude-opus-5"
+
+
+def test_brain_config_anthropic_judge_is_opus_5():
+    from packages.ai.brain_config import PROVIDER_PRESETS
+    assert PROVIDER_PRESETS["anthropic"]["judge"] == "claude-opus-5"
+
+
+def test_brain_config_aerolink_planner_is_opus_5():
+    from packages.ai.brain_config import PROVIDER_PRESETS
+    assert PROVIDER_PRESETS["aerolink"]["planner"] == "claude-opus-5"
+
+
+def test_brain_config_aerolink_judge_is_opus_5():
+    from packages.ai.brain_config import PROVIDER_PRESETS
+    assert PROVIDER_PRESETS["aerolink"]["judge"] == "claude-opus-5"
+
+
+def test_brain_config_anthropic_candidates_contains_opus_5():
+    from packages.ai.brain_config import PROVIDER_CANDIDATES
+    cands = PROVIDER_CANDIDATES["anthropic"]
+    assert "claude-opus-5" in cands, f"claude-opus-5 missing: {cands}"
+
+
+def test_brain_config_anthropic_no_stale_2024_models():
+    from packages.ai.brain_config import PROVIDER_CANDIDATES
+    cands = PROVIDER_CANDIDATES["anthropic"]
+    for stale in STALE_ANTHROPIC_MODELS:
+        assert stale not in cands, (
+            f"Stale 2024 model {stale!r} still in anthropic candidates — should have been replaced"
+        )
+
+
+def test_brain_config_aerolink_candidates_contains_opus_5():
+    from packages.ai.brain_config import PROVIDER_CANDIDATES
+    cands = PROVIDER_CANDIDATES["aerolink"]
+    assert "claude-opus-5" in cands, f"claude-opus-5 missing from aerolink: {cands}"
+
+
+def test_brain_config_groq_candidates_no_deprecated_mixtral():
+    from packages.ai.brain_config import PROVIDER_CANDIDATES
+    cands = PROVIDER_CANDIDATES["groq"]
+    for deprecated in DEPRECATED_GROQ_MODELS:
+        assert deprecated not in cands, (
+            f"Deprecated Groq model {deprecated!r} still in candidates — should be removed"
+        )
+
+
+def test_brain_config_groq_has_llama4_maverick():
+    from packages.ai.brain_config import PROVIDER_CANDIDATES
+    cands = PROVIDER_CANDIDATES["groq"]
+    assert "llama-4-maverick-17b-128e-instruct" in cands, f"Llama 4 Maverick missing from groq: {cands}"
+
+
+def test_brain_config_groq_has_llama4_scout():
+    from packages.ai.brain_config import PROVIDER_CANDIDATES
+    cands = PROVIDER_CANDIDATES["groq"]
+    assert "llama-4-scout-17b-16e-instruct" in cands, f"Llama 4 Scout missing from groq: {cands}"
+
+
+def test_brain_config_nvidia_has_llama4_maverick():
+    from packages.ai.brain_config import PROVIDER_CANDIDATES
+    cands = PROVIDER_CANDIDATES["nvidia"]
+    assert "meta/llama-4-maverick-17b-128e-instruct" in cands, (
+        f"Llama 4 Maverick missing from nvidia candidates: {cands}"
+    )
+
+
+def test_brain_config_nvidia_has_llama4_scout():
+    from packages.ai.brain_config import PROVIDER_CANDIDATES
+    cands = PROVIDER_CANDIDATES["nvidia"]
+    assert "meta/llama-4-scout-17b-16e-instruct" in cands, (
+        f"Llama 4 Scout missing from nvidia candidates: {cands}"
+    )
+
+
+# ── Cross-check: brain_config.py and models.yaml are in sync ─────────────────
+
+
+def test_anthropic_candidates_match_yaml():
+    """brain_config.py anthropic candidates must include every model in models.yaml."""
+    cfg = _load_yaml()
+    yaml_cands = set(cfg["providers"]["anthropic"]["candidates"])
+    from packages.ai.brain_config import PROVIDER_CANDIDATES
+    py_cands = set(PROVIDER_CANDIDATES["anthropic"])
+    missing = yaml_cands - py_cands
+    assert not missing, (
+        f"Models in models.yaml anthropic but not in brain_config.py: {missing}"
+    )
+
+
+def test_aerolink_candidates_match_yaml():
+    """brain_config.py aerolink candidates must include every model in models.yaml."""
+    cfg = _load_yaml()
+    yaml_cands = set(cfg["providers"]["aerolink"]["candidates"])
+    from packages.ai.brain_config import PROVIDER_CANDIDATES
+    py_cands = set(PROVIDER_CANDIDATES["aerolink"])
+    missing = yaml_cands - py_cands
+    assert not missing, (
+        f"Models in models.yaml aerolink but not in brain_config.py: {missing}"
+    )
