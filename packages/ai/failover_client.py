@@ -331,9 +331,21 @@ def _build_request(
 
 
 def _looks_unknown_model(last_error: str | None) -> bool:
-    """True when the provider rejected the model id itself, not the request."""
+    """True when the provider rejected the model id itself, not the request.
+
+    Some providers explain themselves ("model_not_found", "does not exist");
+    others (observed on NVIDIA NIM) return a bare 404 with an empty body on a
+    chat-completions endpoint that unambiguously means the model id does not
+    exist there — no other 4xx in this chain reaches here with that code (429/
+    419/413/401/403/402 all return before this point), so " 404:" only ever
+    comes from ``_try_provider``'s generic fallthrough formatting. Without this,
+    a provider whose whole static candidate list drifted 404s silently forever:
+    ``_looks_unknown_model`` never fires, ``_disable_unless_key_serves_other_models``
+    (which checks the account's real model list before touching anything) never
+    runs, and every call retries the same three dead model ids.
+    """
     text = last_error or ""
-    return "model_not_found" in text or "does not exist" in text
+    return "model_not_found" in text or "does not exist" in text or " 404:" in text
 
 
 def _models_to_try(provider: Any, provider_model: str) -> list[str]:

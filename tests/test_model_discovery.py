@@ -193,9 +193,16 @@ class TestModelOrdering:
 class TestUnknownModelDetection:
     @pytest.mark.parametrize(
         "err",
-        ["cerebras 404: model_not_found", "the model `x` does not exist"],
+        [
+            "cerebras 404: model_not_found",
+            "the model `x` does not exist",
+            "nvidia 404: ",
+        ],
     )
     def test_it_recognises_a_rejected_model_id(self, err) -> None:
+        """Includes a bare 404 with an empty body (observed on NVIDIA NIM) —
+        no explanatory text, just the status code, and still unambiguously
+        means the model id does not exist on that provider."""
         assert _looks_unknown_model(err) is True
 
     @pytest.mark.parametrize("err", ["", None, "cerebras 429 rate-limited"])
