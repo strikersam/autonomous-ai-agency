@@ -468,8 +468,22 @@ services:
       # deploys (allow ~1-2 min for the new instance to boot and purge), the
       # leak is still active and needs its own root-cause fix, not another
       # nonce bump.
+      #
+      # 2026-08-03: confirmed via Render's Events tab (status 137, HTTP
+      # health check timeouts, recurring every 1-2 min) and a fresh
+      # Force-cleanup log line: total=1137 deleted=0 deduped=0 expired=0,
+      # regrown from near-zero within ~5.5h of the prior purge. Root cause
+      # found this time: force_cleanup()'s only defence against unfired
+      # run-once rows was a 7-day age-out (SCHEDULE_RUN_ONCE_TTL_DAYS),
+      # far too slow to contain a crash loop compounding every 1-2 minutes.
+      # packages/scheduler/scheduler.py now also expires cron="* * * * *"
+      # run-once orphans after 10 minutes — a provable-dead case, not a
+      # heuristic, since that trigger gets a fresh fire chance every 60s and
+      # APScheduler never retro-fires a missed one. This bump clears the
+      # current 1137-row backlog immediately; the code fix (shipped in the
+      # same deploy) is what stops it from regrowing this time.
       - key: PURGE_BACKLOG_ON_BOOT
-        value: "purge-2026-08-02b"
+        value: "purge-2026-08-03"
 
       # ================================================================
       # LANGFUSE — observability/tracing for chat + agent runs.

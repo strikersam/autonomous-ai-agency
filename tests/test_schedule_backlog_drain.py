@@ -121,6 +121,69 @@ async def test_an_unreadable_created_at_is_never_treated_as_ancient():
     assert len(store.load_all()) == 2, "an unparseable date must fail closed"
 
 
+def _every_minute_one_shot(job_id: str, *, age_seconds: float, run_count: int = 0) -> dict:
+    """An agency-directive-shaped row: cron="* * * * *", uniquely named."""
+    return {
+        "job_id": job_id,
+        "name": f"agency: directive {job_id}",
+        "cron": "* * * * *",
+        "tags": ["run-once", "agency"],
+        "run_count": run_count,
+        "created_at": _stamp(age_seconds),
+    }
+
+
+@pytest.mark.asyncio
+async def test_force_cleanup_expires_every_minute_orphans_fast():
+    """2026-08-03: the 7-day fallback let a live crash loop regrow the backlog
+    from a fresh purge to 1137 rows (1075 agency-prefixed) in ~5.5 hours,
+    re-triggering the OOM restart cycle it was meant to prevent. Every one of
+    those rows was cron="* * * * *" — a pattern that gets a fresh fire chance
+    every 60s, so missing many in a row is provable death, not a guess."""
+    store = _FakePersistence([_every_minute_one_shot("job_stuck", age_seconds=900)])
+    sched = AgentScheduler(persistence=store)
+    try:
+        summary = await sched.force_cleanup()
+    finally:
+        sched.shutdown()
+
+    assert summary["expired"] == 1, f"every-minute orphan survived: {summary}"
+    assert store.load_all() == []
+
+
+@pytest.mark.asyncio
+async def test_a_fresh_every_minute_one_shot_gets_its_chance_first():
+    """Must not delete a same-pattern row that hasn't had time to fire yet."""
+    store = _FakePersistence([_every_minute_one_shot("job_new", age_seconds=5)])
+    sched = AgentScheduler(persistence=store)
+    try:
+        summary = await sched.force_cleanup()
+    finally:
+        sched.shutdown()
+
+    assert summary["expired"] == 0
+    assert {d["job_id"] for d in store.load_all()} == {"job_new"}
+
+
+@pytest.mark.asyncio
+async def test_a_daily_low_priority_fix_job_is_not_caught_by_the_fast_path():
+    """A "0 9 * * *" run-once row legitimately waits up to ~24h for its one
+    scheduled window (agent/improvement_loop.py's _LOW_CRON) — the fast path
+    must be scoped to "* * * * *" only, or this gets deleted before it can
+    ever fire."""
+    daily = _every_minute_one_shot("job_daily", age_seconds=900)
+    daily["cron"] = "0 9 * * *"
+    store = _FakePersistence([daily])
+    sched = AgentScheduler(persistence=store)
+    try:
+        summary = await sched.force_cleanup()
+    finally:
+        sched.shutdown()
+
+    assert summary["expired"] == 0
+    assert {d["job_id"] for d in store.load_all()} == {"job_daily"}
+
+
 @pytest.mark.asyncio
 async def test_a_fired_one_shot_is_still_removed_by_the_original_rule():
     """The pre-existing behaviour has to survive the new branch above it."""

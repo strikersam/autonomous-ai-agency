@@ -23,6 +23,26 @@ from typing import Any, Callable
 # creating them without bound, and the operator needs to hear about it.
 _BACKLOG_ALERT_THRESHOLD = 200
 
+# A run-once job on an every-minute cron ("* * * * *") gets a fresh fire
+# opportunity every 60s by construction. If it hasn't fired within this
+# window, it provably never will — APScheduler doesn't retroactively fire a
+# past-due cron match, so there is no future minute where this row's luck
+# changes. This is NOT a heuristic the way the 7-day SCHEDULE_RUN_ONCE_TTL_DAYS
+# fallback below is: it is a mathematical fact about the "* * * * *" pattern.
+# Deliberately does not generalize to other cron patterns (e.g. the
+# improvement loop's daily "0 9 * * *" low-priority fix jobs legitimately
+# wait up to ~24h for their one scheduled window — collapsing this to a
+# blanket short TTL would delete those before they ever get to fire).
+#
+# 2026-08-03: the 7-day fallback proved far too slow to contain a live crash
+# loop — every-minute agency-directive jobs (see agent/agency.py
+# _dispatch_directive, always cron="* * * * *") regrew the backlog from a
+# fresh purge to 1137 rows (1075 of them agency-prefixed) within ~5.5 hours,
+# re-triggering the same OOM (status 137) restart cycle the 7-day rule was
+# supposed to prevent. This adds a second, much tighter net for exactly the
+# pattern that's actually compounding, without touching the general case.
+_EVERY_MINUTE_ORPHAN_AGE_SEC = 600  # 10 minutes — ~10x the trigger's own interval
+
 
 def _run_once_max_age_sec() -> float:
     """The one retention policy for unfired one-shots, read from its owner.
@@ -522,6 +542,7 @@ class AgentScheduler:
                 name = doc.get("name", "restored-job")
                 tags = doc.get("tags") or []
                 run_count = doc.get("run_count", 0)
+                cron = doc.get("cron", "")
                 # Remove run-once jobs that were never going to fire.
                 #
                 # A one-shot is scheduled for a specific minute. If the process
@@ -536,6 +557,31 @@ class AgentScheduler:
                 # ``total=1178 deleted=0 deduped=0`` — a backlog the per-tick
                 # cleanup was running against and structurally unable to touch.
                 #
+                # 2026-08-03: the general 7-day fallback below is far too slow
+                # against a live crash loop specifically because agency
+                # directives (agent/agency.py _dispatch_directive) always use
+                # cron="* * * * *" — an every-minute trigger gets a fresh fire
+                # opportunity every 60s, so missing _EVERY_MINUTE_ORPHAN_AGE_SEC
+                # of them in a row is a mathematical certainty of death, not a
+                # guess. Checked ahead of the general rule so it only narrows
+                # (never widens) what counts as dead; every other cron pattern
+                # — e.g. the improvement loop's daily "0 9 * * *" low-priority
+                # fix jobs — still gets the full 7-day grace period below.
+                if (
+                    "run-once" in tags
+                    and run_count == 0
+                    and cron == "* * * * *"
+                    and _age_seconds(doc.get("created_at")) > _EVERY_MINUTE_ORPHAN_AGE_SEC
+                ):
+                    try:
+                        remove_result = self._store.remove(job_id)
+                        if inspect.isawaitable(remove_result):
+                            await remove_result
+                    except Exception:
+                        pass
+                    self._jobs.pop(job_id, None)
+                    summary["expired"] += 1
+                    continue
                 # A run-once job that has not fired within a day is dead by
                 # definition, so age it out.
                 if (
