@@ -93,6 +93,9 @@ class LLMRequest:
     max_attempts: int | None = None          # None = routing.yaml default
     conversation_id: str | None = None       # enables context management
     extra: dict[str, Any] = field(default_factory=dict)
+    # Effort level for Anthropic adaptive-thinking models (output_config.effort).
+    # "low" | "medium" | "high" | "xhigh" | "max" | None (API default = "high").
+    effort: str | None = None
 
     def requires_tools(self) -> bool:
         return bool(self.tools)

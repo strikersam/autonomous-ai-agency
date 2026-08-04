@@ -574,3 +574,106 @@ def test_anthropic_configured_beta_header_is_preserved_alongside_features():
     beta = p.auth_headers("key").get("anthropic-beta", "")
     assert "some-other-beta-2026-01-01" in beta
     assert "prompt-caching-2024-07-31" in beta
+
+
+# ── Adaptive-thinking model guard-rails (2026-08) ─────────────────────────────
+
+def test_anthropic_sonnet5_no_temperature_in_payload():
+    """claude-sonnet-5 rejects non-default temperature with HTTP 400."""
+    p = _anthropic_provider()
+    req = LLMRequest(messages=[{"role": "user", "content": "hi"}], temperature=0.3)
+    payload = p.build_payload(req, "claude-sonnet-5")
+    assert "temperature" not in payload
+
+
+def test_anthropic_fable5_no_temperature_in_payload():
+    """claude-fable-5 (adaptive thinking always-on) must not receive temperature."""
+    p = _anthropic_provider()
+    req = LLMRequest(messages=[{"role": "user", "content": "hi"}])
+    payload = p.build_payload(req, "claude-fable-5")
+    assert "temperature" not in payload
+
+
+def test_anthropic_sonnet5_strips_temperature_from_extra():
+    """temperature in request.extra must also be removed for no-temperature models."""
+    p = _anthropic_provider()
+    req = LLMRequest(messages=[{"role": "user", "content": "hi"}],
+                     extra={"temperature": 0.9, "top_p": 0.95, "top_k": 40})
+    payload = p.build_payload(req, "claude-sonnet-5")
+    assert "temperature" not in payload
+    assert "top_p" not in payload
+    assert "top_k" not in payload
+
+
+def test_anthropic_legacy_model_still_gets_temperature():
+    """claude-sonnet-4-6 and older models must still receive the temperature field."""
+    p = _anthropic_provider()
+    req = LLMRequest(messages=[{"role": "user", "content": "hi"}], temperature=0.7)
+    for model in ("claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"):
+        payload = p.build_payload(req, model)
+        assert payload.get("temperature") == 0.7, f"{model} should carry temperature"
+
+
+def test_anthropic_sonnet5_no_extended_thinking():
+    """claude-sonnet-5 must not receive thinking.type='enabled'."""
+    p = _anthropic_provider(thinking_budget=6000)
+    req = LLMRequest(messages=[{"role": "user", "content": "think hard"}], max_tokens=8192)
+    payload = p.build_payload(req, "claude-sonnet-5")
+    assert "thinking" not in payload
+
+
+def test_anthropic_opus5_no_extended_thinking():
+    """claude-opus-5 uses adaptive thinking and must not receive budget thinking."""
+    p = _anthropic_provider(thinking_budget=6000)
+    req = LLMRequest(messages=[{"role": "user", "content": "think hard"}], max_tokens=8192)
+    payload = p.build_payload(req, "claude-opus-5")
+    assert "thinking" not in payload
+
+
+def test_anthropic_opus46_still_gets_extended_thinking():
+    """claude-opus-4-6 still supports legacy extended thinking."""
+    p = _anthropic_provider(thinking_budget=6000)
+    req = LLMRequest(messages=[{"role": "user", "content": "think hard"}], max_tokens=8192)
+    payload = p.build_payload(req, "claude-opus-4-6")
+    assert payload.get("thinking") == {"type": "enabled", "budget_tokens": 6000}
+    assert payload.get("temperature") == 1
+
+
+def test_anthropic_effort_via_request_field():
+    """output_config.effort is set from request.effort."""
+    p = _anthropic_provider()
+    req = LLMRequest(messages=[{"role": "user", "content": "hi"}], effort="medium")
+    payload = p.build_payload(req, "claude-opus-5")
+    assert payload.get("output_config") == {"effort": "medium"}
+
+
+def test_anthropic_effort_via_provider_default():
+    """output_config.effort falls back to ProviderConfig.default_effort."""
+    p = _anthropic_provider(default_effort="low")
+    req = LLMRequest(messages=[{"role": "user", "content": "hi"}])
+    payload = p.build_payload(req, "claude-sonnet-5")
+    assert payload.get("output_config") == {"effort": "low"}
+
+
+def test_anthropic_request_effort_overrides_provider_default():
+    """Per-request effort takes priority over provider default."""
+    p = _anthropic_provider(default_effort="low")
+    req = LLMRequest(messages=[{"role": "user", "content": "hi"}], effort="xhigh")
+    payload = p.build_payload(req, "claude-opus-5")
+    assert payload.get("output_config") == {"effort": "xhigh"}
+
+
+def test_anthropic_invalid_effort_not_sent():
+    """An unknown effort level must not be forwarded to the API."""
+    p = _anthropic_provider(default_effort="ultra")
+    req = LLMRequest(messages=[{"role": "user", "content": "hi"}], effort="turbo")
+    payload = p.build_payload(req, "claude-opus-5")
+    assert "output_config" not in payload
+
+
+def test_anthropic_no_output_config_when_no_effort():
+    """output_config is absent when neither request nor provider sets effort."""
+    p = _anthropic_provider()
+    req = LLMRequest(messages=[{"role": "user", "content": "hi"}])
+    payload = p.build_payload(req, "claude-opus-5")
+    assert "output_config" not in payload

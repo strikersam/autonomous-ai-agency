@@ -77,6 +77,7 @@ class ProviderConfig:
     # Anthropic-specific feature flags (silently ignored by all other providers).
     prompt_caching: bool = True    # adds anthropic-beta: prompt-caching-2024-07-31
     thinking_budget: int = 0       # >0 enables extended thinking with that token budget
+    default_effort: str = ""       # provider-level effort default for adaptive-thinking models
 
     @property
     def is_local(self) -> bool:

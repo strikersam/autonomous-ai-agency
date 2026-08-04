@@ -39,6 +39,33 @@ DEFAULT_API_VERSION = "2023-06-01"
 # rejected outright, so an invalid one must never be sent.
 _MIN_THINKING_BUDGET_TOKENS = 1024
 
+# Claude Sonnet 5 and Fable 5 enforce adaptive thinking; sending temperature /
+# top_p / top_k at a non-default value returns HTTP 400.  Strip those fields
+# from the payload for every model in this set.
+_NO_TEMPERATURE_MODELS: frozenset[str] = frozenset({
+    "claude-sonnet-5",
+    "claude-fable-5",
+    "claude-mythos-5",
+    "claude-mythos-preview",
+})
+
+# These models use adaptive thinking and do NOT support the legacy
+# thinking.type="enabled" budget parameter — sending it returns HTTP 400.
+_NO_EXTENDED_THINKING_MODELS: frozenset[str] = frozenset({
+    "claude-fable-5",
+    "claude-mythos-5",
+    "claude-mythos-preview",
+    "claude-opus-5",
+    "claude-sonnet-5",
+    "claude-opus-4-8",
+    "claude-opus-4-7",
+})
+
+# Valid effort levels accepted by output_config.effort.
+_VALID_EFFORT_LEVELS: frozenset[str] = frozenset({
+    "low", "medium", "high", "xhigh", "max",
+})
+
 
 class AnthropicProvider(LLMProvider):
     """Adapter for ``POST /v1/messages``."""
@@ -69,28 +96,54 @@ class AnthropicProvider(LLMProvider):
 
     def build_payload(self, request: LLMRequest, model: str) -> dict[str, Any]:
         system_parts, messages = self._convert_messages(request.messages)
+        no_temperature = model in _NO_TEMPERATURE_MODELS
 
         payload: dict[str, Any] = {
             "model": model,
             "messages": messages or [{"role": "user", "content": ""}],
             "max_tokens": request.max_tokens,
-            "temperature": request.temperature,
         }
+        # Claude Sonnet 5, Fable 5, and Mythos 5 reject non-default temperature/
+        # top_p/top_k with HTTP 400 — their adaptive thinking layer handles
+        # sampling internally.  Skip the field for those models entirely.
+        if not no_temperature:
+            payload["temperature"] = request.temperature
+
         if system_parts:
             payload["system"] = self._build_system(system_parts)
         if request.tools:
             payload["tools"] = [self._convert_tool(t) for t in request.tools]
             if request.tool_choice is not None:
                 payload["tool_choice"] = self._convert_tool_choice(request.tool_choice)
+
         # request.extra is merged before the provider-enforced fields below,
         # not after: extended thinking requires temperature=1, and applying
         # extra afterwards let a caller-supplied temperature (or a stray
         # "thinking" key) silently defeat that requirement.
-        payload.update(request.extra)
-        thinking = self._thinking_config(request)
-        if thinking is not None:
-            payload["thinking"] = thinking
-            payload["temperature"] = 1  # Anthropic requires temperature=1 for extended thinking
+        # Also strip temperature/top_p/top_k from extra for no-temperature models.
+        extra = dict(request.extra)
+        if no_temperature:
+            extra.pop("temperature", None)
+            extra.pop("top_p", None)
+            extra.pop("top_k", None)
+        payload.update(extra)
+
+        # Legacy extended thinking: only for models that still support it.
+        # Newer adaptive-thinking models (Opus 5, Sonnet 5, Fable 5, Opus 4.7/4.8)
+        # return HTTP 400 when thinking.type="enabled" is sent.
+        if model not in _NO_EXTENDED_THINKING_MODELS:
+            thinking = self._thinking_config(request)
+            if thinking is not None:
+                payload["thinking"] = thinking
+                payload["temperature"] = 1  # required for extended thinking
+
+        # output_config.effort: the new per-request thinking-depth control for
+        # adaptive-thinking models (Fable 5, Opus 5, Sonnet 5, Opus 4.7/4.8…).
+        # Request-level effort takes priority over the provider default.
+        effort = request.effort or self.config.default_effort
+        if effort and effort in _VALID_EFFORT_LEVELS:
+            payload["output_config"] = {"effort": effort}
+
         return payload
 
     @classmethod
