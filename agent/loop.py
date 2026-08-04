@@ -10,6 +10,8 @@ import re
 import subprocess
 import sys
 import uuid
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +47,26 @@ except ImportError:
     log.debug("agent/checkpoint.py not available — checkpointing disabled")
 
 log = logging.getLogger("qwen-agent")
+
+
+@asynccontextmanager
+async def _timed_phase(phase: str, **context: Any) -> AsyncIterator[None]:
+    """Log start/elapsed for one phase of the plan/execute/verify loop.
+
+    A task that hits the outer 600s execution timeout (tasks/service.py)
+    previously left only "Execution timed out after 600s" in the logs — no
+    visibility into which LLM call or tool dispatch was actually in flight.
+    Bracketing each phase here means the next hang shows a phase_start with
+    no matching phase_end, naming exactly what never returned.
+    """
+    start = time.perf_counter()
+    label = " ".join(f"{k}={v!r}" for k, v in context.items())
+    log.info("phase_start %s %s", phase, label)
+    try:
+        yield
+    finally:
+        log.info("phase_end %s %s elapsed_s=%.1f", phase, label, time.perf_counter() - start)
+
 
 # ── Contract: locked method signatures (J) ────────────────────────────────────
 # These are the ONLY public methods and their exact parameter names.  Any caller
@@ -452,9 +474,10 @@ class AgentRunner:
                 except Exception:  # nosec B110 -- KPI tracking is best-effort
                     pass
 
-            plan = await self._generate_plan(
-                instruction, effective_history, requested_model, max_steps, user_id, memory_store
-            )
+            async with _timed_phase("planning", session_id=session_id):
+                plan = await self._generate_plan(
+                    instruction, effective_history, requested_model, max_steps, user_id, memory_store
+                )
             self._log_event(session_id, "step_start", {"goal": plan.goal, "steps": len(plan.steps)})
 
             # ── Durable checkpoint: snapshot agent state after planning ──
@@ -565,7 +588,8 @@ class AgentRunner:
 
                 step_data = step.model_dump()
                 self._log_event(session_id, "step_start", {"step_id": step_data["id"], "description": step_data["description"]})
-                result = await self._execute_step(plan.goal, step_data, requested_model, user_id, memory_store)
+                async with _timed_phase("execute_step", step_id=step_data["id"]):
+                    result = await self._execute_step(plan.goal, step_data, requested_model, user_id, memory_store)
                 # Sub-agent condensed summary: trim step results before storing so
                 # the orchestrator's context stays lean.  (1-2k token budget.)
                 condensed = ContextManager.condense_step_result(result)
@@ -944,7 +968,8 @@ class AgentRunner:
                 if scratchpad_ctx and tool_messages:
                     sys_content = str(tool_messages[0].get("content", ""))
                     tool_messages[0]["content"] = f"{sys_content}\n\n{scratchpad_ctx}"
-                tool_call = await self._chat_json(executor_model, tool_messages)
+                async with _timed_phase("tool_selection", step_id=step.get("id"), remaining=remaining):
+                    tool_call = await self._chat_json(executor_model, tool_messages)
                 call = self._coerce_tool_call(tool_call)
             except Exception as exc:
                 tool_retry_count += 1
@@ -997,7 +1022,8 @@ class AgentRunner:
                 continue
             scratchpad.record_action(call.tool, call.args)
             self._log_event(session_id, "tool_call", {"tool": call.tool, "args": call.args})
-            result = await self._run_tool(call.tool, call.args, user_id=user_id, memory_store=memory_store)
+            async with _timed_phase("tool_dispatch", step_id=step.get("id"), tool=call.tool):
+                result = await self._run_tool(call.tool, call.args, user_id=user_id, memory_store=memory_store)
             scratchpad.record_observation(result)
             self._log_event(session_id, "tool_result", {"tool": call.tool, "result": str(result)[:500]})
             observations.append({"tool": call.tool, "args": call.args, "result": result})
@@ -1053,16 +1079,17 @@ class AgentRunner:
             feedback_issues: list[str] = []
             file_applied = False
             while retries <= 4:
-                response = await self._chat_text(
-                    executor_model,
-                    build_execution_prompt(
-                        goal=goal,
-                        step=step,
-                        target_file=target_file,
-                        context_items=context_items,
-                        feedback_issues=feedback_issues,
-                    ),
-                )
+                async with _timed_phase("execute_generate", step_id=step.get("id"), file=target_file):
+                    response = await self._chat_text(
+                        executor_model,
+                        build_execution_prompt(
+                            goal=goal,
+                            step=step,
+                            target_file=target_file,
+                            context_items=context_items,
+                            feedback_issues=feedback_issues,
+                        ),
+                    )
                 parsed = self._parse_execution_response(response, target_file)
                 if not parsed:
                     repaired = await self._chat_text(
@@ -1150,17 +1177,18 @@ class AgentRunner:
                     verdict = VerificationResult(status="pass", issues=[], confidence=reward_score)
                 else:
                     try:
-                        verification = await self._chat_json(
-                            verifier_model,
-                            build_verification_prompt(
-                                goal=goal,
-                                step=step,
-                                target_file=out_path,
-                                original_content=original_content,
-                                new_content=new_content,
-                                syntax_issues=syntax_issues,
-                            ),
-                        )
+                        async with _timed_phase("verify", step_id=step.get("id"), file=out_path):
+                            verification = await self._chat_json(
+                                verifier_model,
+                                build_verification_prompt(
+                                    goal=goal,
+                                    step=step,
+                                    target_file=out_path,
+                                    original_content=original_content,
+                                    new_content=new_content,
+                                    syntax_issues=syntax_issues,
+                                ),
+                            )
                         verdict = VerificationResult.model_validate(verification)
                     except Exception as verif_exc:
                         retries += 1

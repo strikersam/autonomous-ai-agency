@@ -842,3 +842,46 @@ def test_agent_runner_proceeds_normally_when_approval_not_required_and_persist_b
         )
     )
     assert result["goal"] == "Do work"
+
+
+# ── _timed_phase: phase-level timing so a 600s-timeout hang names its own
+# stuck phase in the logs, instead of leaving only the final timeout message ──
+
+def test_timed_phase_logs_start_and_end_with_elapsed_time(caplog):
+    import logging as _logging
+
+    from agent.loop import _timed_phase
+
+    async def _run():
+        async with _timed_phase("demo_phase", step_id=3, tool="fetch_url"):
+            await asyncio.sleep(0.01)
+
+    with caplog.at_level(_logging.INFO, logger="qwen-agent"):
+        asyncio.run(_run())
+
+    messages = [r.getMessage() for r in caplog.records]
+    starts = [m for m in messages if m.startswith("phase_start demo_phase")]
+    ends = [m for m in messages if m.startswith("phase_end demo_phase")]
+    assert starts and "step_id=3" in starts[0] and "tool='fetch_url'" in starts[0]
+    assert ends and "elapsed_s=" in ends[0]
+
+
+def test_timed_phase_still_logs_phase_end_when_the_body_raises(caplog):
+    """A phase that hangs and is eventually cancelled, or errors outright,
+    must still leave a phase_end in the logs — that is what proves the phase
+    finished (however it finished) versus the next one never starting."""
+    import logging as _logging
+
+    from agent.loop import _timed_phase
+
+    async def _run():
+        async with _timed_phase("demo_phase"):
+            raise RuntimeError("boom")
+
+    with caplog.at_level(_logging.INFO, logger="qwen-agent"):
+        with pytest.raises(RuntimeError, match="boom"):
+            asyncio.run(_run())
+
+    messages = [r.getMessage() for r in caplog.records]
+    assert any(m.startswith("phase_start demo_phase") for m in messages)
+    assert any(m.startswith("phase_end demo_phase") for m in messages)
