@@ -10,6 +10,7 @@ import re
 import subprocess
 import sys
 import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -49,7 +50,7 @@ log = logging.getLogger("qwen-agent")
 
 
 @asynccontextmanager
-async def _timed_phase(phase: str, **context: Any):
+async def _timed_phase(phase: str, **context: Any) -> AsyncIterator[None]:
     """Log start/elapsed for one phase of the plan/execute/verify loop.
 
     A task that hits the outer 600s execution timeout (tasks/service.py)
