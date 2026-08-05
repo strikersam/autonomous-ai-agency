@@ -206,8 +206,11 @@ def _record_operational(logger_name: str, message: str) -> None:
         from agent.operational_incidents import record_operational_error
 
         record_operational_error(logger_name, message)
-    except Exception:  # nosec B110 - incident tracking is best-effort
-        pass
+    except Exception as exc:  # noqa: BLE001 - incident tracking is best-effort
+        # An ImportError here disables incident tracking for the whole process
+        # life, which is exactly the kind of silent degradation that let this
+        # class of failure go unnoticed in the first place.
+        log.debug("LogMonitor: operational incident tracking unavailable: %s", exc)
 
 
 def _note_recurrence(sig: str) -> None:

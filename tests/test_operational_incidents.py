@@ -125,7 +125,10 @@ def test_occurrences_outside_the_window_do_not_count(tracker, filed, monkeypatch
     """Two timeouts an hour apart are not a pattern."""
     monkeypatch.setattr(ops, "WINDOW_SECONDS", 60)
     clock = {"now": 1000.0}
-    monkeypatch.setattr(ops.time, "monotonic", lambda: clock["now"])
+    # Patch the module's own `_now` indirection rather than `time.monotonic`:
+    # the latter is the shared standard-library module object, and freezing it
+    # would leak the frozen clock into every other thread in the process.
+    monkeypatch.setattr(ops, "_now", lambda: clock["now"])
 
     tracker.record("qwen-agent", TIMEOUT_A)
     tracker.record("qwen-agent", TIMEOUT_B)
@@ -333,3 +336,173 @@ def test_tracker_stats_expose_the_bounds(tracker):
     assert stats["threshold"] == 3
     assert stats["incidents_filed"] == 0
     assert "window_seconds" in stats
+
+
+# ── a failed filing must not suppress the signature for hours ────────────────
+
+
+def test_a_failed_filing_releases_the_cooldown_so_the_next_recurrence_retries(
+    tracker, monkeypatch
+):
+    """Admission is granted synchronously; the filing happens later and can fail.
+
+    The practical case is process startup, where the ImprovementLoop is not yet
+    running. Without the rollback, one failed attempt would silence the
+    signature for the whole 6h cooldown — precisely the "no signal at all"
+    behaviour this module exists to remove.
+    """
+    monkeypatch.setattr(ops, "_file_incident", lambda incident: False)
+    monkeypatch.setattr(ops, "_schedule", lambda coro: asyncio.run(coro))
+    monkeypatch.setattr(
+        ops, "get_operational_incident_tracker", lambda: tracker
+    )
+
+    async def _no_evidence() -> dict:
+        return {"available": False, "reason": "test"}
+
+    monkeypatch.setattr(ops, "gather_render_evidence", _no_evidence)
+
+    for msg in (TIMEOUT_A, TIMEOUT_B, TIMEOUT_C):
+        tracker.record("qwen-agent", msg)
+
+    stats = tracker.get_stats()
+    assert stats["incidents_attempted"] == 1
+    assert stats["incidents_filed"] == 0, "a failed filing must not be counted as filed"
+    assert stats["active_cooldowns"] == 0, "the cooldown must have been released"
+
+
+def test_a_successful_filing_is_counted_and_holds_its_cooldown(tracker, monkeypatch):
+    monkeypatch.setattr(ops, "_file_incident", lambda incident: True)
+    monkeypatch.setattr(ops, "_schedule", lambda coro: asyncio.run(coro))
+    monkeypatch.setattr(ops, "get_operational_incident_tracker", lambda: tracker)
+
+    async def _no_evidence() -> dict:
+        return {"available": False, "reason": "test"}
+
+    monkeypatch.setattr(ops, "gather_render_evidence", _no_evidence)
+
+    for msg in (TIMEOUT_A, TIMEOUT_B, TIMEOUT_C):
+        tracker.record("qwen-agent", msg)
+
+    stats = tracker.get_stats()
+    assert stats["incidents_attempted"] == 1
+    assert stats["incidents_filed"] == 1
+    assert stats["active_cooldowns"] == 1
+
+
+# ── unbounded growth ─────────────────────────────────────────────────────────
+
+
+def test_signatures_that_go_quiet_are_evicted(tracker, filed, monkeypatch):
+    """The process is long-lived and every matching ERROR adds a signature.
+
+    Without eviction the maps only grow, and `tracked_signatures` reports a
+    cumulative total rather than what is actually active.
+    """
+    monkeypatch.setattr(ops, "WINDOW_SECONDS", 60)
+    monkeypatch.setattr(ops, "COOLDOWN_SECONDS", 60)
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(ops, "_now", lambda: clock["now"])
+
+    for n in ("alpha", "beta", "gamma"):
+        tracker.record("qwen-agent", f"Upstream failure: {n} connection refused")
+    assert tracker.get_stats()["tracked_signatures"] == 3
+
+    clock["now"] += 3600.0  # everything ages out of both window and cooldown
+    tracker.record("qwen-agent", "Upstream failure: delta connection refused")
+
+    assert tracker.get_stats()["tracked_signatures"] == 1, (
+        "stale signatures must be evicted, leaving only the active one"
+    )
+
+
+def test_eviction_never_drops_a_signature_still_inside_its_cooldown(
+    tracker, filed, monkeypatch
+):
+    """Dropping a cooling signature would release its cooldown early and let the
+    same failure re-file immediately."""
+    monkeypatch.setattr(ops, "WINDOW_SECONDS", 60)
+    monkeypatch.setattr(ops, "COOLDOWN_SECONDS", 86400)
+    clock = {"now": 1000.0}
+    monkeypatch.setattr(ops, "_now", lambda: clock["now"])
+
+    for msg in (TIMEOUT_A, TIMEOUT_B, TIMEOUT_C):
+        tracker.record("qwen-agent", msg)
+    assert len(filed) == 1
+
+    clock["now"] += 600.0  # past the window, still deep inside the cooldown
+    tracker.record("qwen-agent", "Upstream failure: unrelated connection refused")
+
+    assert tracker.get_stats()["active_cooldowns"] == 1, (
+        "a cooling signature must survive eviction"
+    )
+
+
+# ── redaction ────────────────────────────────────────────────────────────────
+
+
+def test_a_credential_in_the_failure_message_never_reaches_the_issue_body():
+    """This repo already leaked a live MongoDB password into a log line once
+    (2026-08-01). Incident bodies copy failure text verbatim into an issue, so
+    everything failure-derived is scrubbed first."""
+    leaky = (
+        "Connection failed: mongodb+srv://dbuser:" + "sup3rs3cret"
+        + "@cluster0.example.mongodb.net/app timed out"
+    )
+    assert "sup3rs3cret" not in ops.scrub(leaky)
+
+
+def test_scrub_keeps_the_non_secret_context_readable():
+    """Redaction that destroyed the whole message would defeat the diagnosis."""
+    scrubbed = ops.scrub(
+        "Connection failed: mongodb+srv://u:p@cluster0.example.mongodb.net/app"
+    )
+    assert "cluster0.example.mongodb.net" in scrubbed
+
+
+def test_the_incident_title_is_scrubbed_not_only_the_body(tracker, filed):
+    """`normalised` feeds the issue *title*, which is always displayed."""
+    leaky = "Auth failed for mongodb+srv://dbuser:hunter2@db.example.net timed out"
+    for _ in range(3):
+        tracker.record("qwen-agent", leaky)
+
+    assert len(filed) == 1
+    assert "hunter2" not in filed[0].title
+    assert "hunter2" not in filed[0].normalised
+    assert "hunter2" not in filed[0].sample
+
+
+def test_scrub_fails_closed_when_a_redaction_helper_is_missing(monkeypatch):
+    """Better to withhold the value than to pass it through unmasked."""
+    import builtins
+
+    real_import = builtins.__import__
+
+    def _no_redact(name, *args, **kwargs):
+        if "redact" in name or "rbac" in name:
+            raise ImportError("unavailable")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", _no_redact)
+    assert ops.scrub("mongodb://u:p@host") == "<redaction unavailable — value withheld>"
+
+
+# ── scheduled diagnosis must not be garbage-collected mid-flight ─────────────
+
+
+def test_a_scheduled_diagnosis_is_held_until_it_completes():
+    """`loop.create_task` is only weakly referenced by the loop, so without a
+    strong reference the GC can reclaim the diagnosis before it runs."""
+    started = asyncio.Event()
+
+    async def _work() -> None:
+        started.set()
+
+    async def _drive() -> None:
+        ops._schedule(_work())
+        assert ops._pending, "the in-flight task must be strongly referenced"
+        await asyncio.sleep(0)
+        await started.wait()
+
+    asyncio.run(_drive())
+    assert ops._pending == set(), "the reference must be released on completion"

@@ -41,7 +41,6 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-import os
 import re
 import threading
 import time
@@ -49,25 +48,33 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from packages.config import settings
+
 log = logging.getLogger("qwen-agent")
 
+# The tuning bounds live on the settings surface (CLAUDE.md §3 forbids reading
+# environment variables outside a config module). They are mirrored here as
+# module globals so the hot path does no attribute lookups through settings on
+# every log line, and so tests can override one bound without rebuilding the
+# whole settings object.
+#
 # Occurrences of one normalised signature inside WINDOW_SECONDS before the
 # pattern is treated as an incident. Below this it is indistinguishable from a
 # transient blip, and filing would recreate the storm the log-monitor filter
 # exists to prevent.
-INCIDENT_THRESHOLD: int = int(os.environ.get("OPS_INCIDENT_THRESHOLD", "4"))
+INCIDENT_THRESHOLD: int = settings.ops_incident_threshold
 
 # Rolling window the threshold is counted over.
-WINDOW_SECONDS: int = int(os.environ.get("OPS_INCIDENT_WINDOW_SECONDS", "1800"))  # 30m
+WINDOW_SECONDS: int = settings.ops_incident_window_seconds
 
 # Don't re-file the same signature within this window, however often it recurs.
-COOLDOWN_SECONDS: int = int(os.environ.get("OPS_INCIDENT_COOLDOWN_SECONDS", "21600"))  # 6h
+COOLDOWN_SECONDS: int = settings.ops_incident_cooldown_seconds
 
 # Hard ceiling on incidents filed per rolling hour, across all signatures.
-MAX_INCIDENTS_PER_HOUR: int = int(os.environ.get("OPS_INCIDENT_MAX_PER_HOUR", "3"))
+MAX_INCIDENTS_PER_HOUR: int = settings.ops_incident_max_per_hour
 
 # How far back to pull Render logs when building the evidence bundle.
-EVIDENCE_LOOKBACK_MINUTES: int = int(os.environ.get("OPS_INCIDENT_LOOKBACK_MINUTES", "20"))
+EVIDENCE_LOOKBACK_MINUTES: int = settings.ops_incident_lookback_minutes
 
 # Max Render log lines fetched per incident. Bounds both API cost and the size
 # of the issue body.
@@ -93,6 +100,43 @@ _NORMALISERS: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\b[0-9a-f]{12,}\b", re.I), "<hex>"),
     (re.compile(r"\d+"), "<n>"),
 )
+
+
+def _now() -> float:
+    """Monotonic clock, behind an indirection so tests can freeze it.
+
+    Patching ``time.monotonic`` itself would mutate the standard-library module
+    for every thread in the process for the duration of a test.
+    """
+    return time.monotonic()
+
+
+def scrub(text: str) -> str:
+    """Strip credentials from text before it is written into an issue body.
+
+    Failure samples and Render log excerpts are copied verbatim into the filed
+    issue, and this repository has already had a live MongoDB password reach a
+    log line that way (2026-08-01). Everything derived from a failure passes
+    through here first.
+
+    Both shared helpers are applied because they cover different shapes:
+    ``redact_connection_url`` strips a URI's ``user:pass@host`` segment and
+    secret query parameters, while ``mask_secret`` catches loose API keys and
+    bearer tokens that are not part of a URI. A log excerpt can contain either.
+
+    Fails closed: if a helper is unavailable the value is withheld entirely
+    rather than passed through unmasked.
+    """
+    if not text:
+        return ""
+    try:
+        from packages.auth.rbac import mask_secret
+        from packages.security.redact import redact_connection_url
+
+        return mask_secret(redact_connection_url(text))
+    except Exception:  # noqa: BLE001 - never let redaction failure leak the raw text
+        log.debug("OperationalIncidents: redaction helpers unavailable — withholding value")
+        return "<redaction unavailable — value withheld>"
 
 
 def normalise(message: str) -> str:
@@ -131,6 +175,7 @@ class OperationalIncident:
 
     @property
     def title(self) -> str:
+        """Issue title: the failure mode plus how hard it is recurring."""
         return (
             f"Recurring operational failure ({self.count}x in "
             f"{self.window_seconds // 60}m): {self.normalised[:90]}"
@@ -146,12 +191,18 @@ class OperationalIncidentTracker:
     """
 
     def __init__(self) -> None:
+        """Start with no tracked signatures and no filing history."""
         self._lock = threading.Lock()
         self._occurrences: dict[str, list[float]] = {}
         self._samples: dict[str, tuple[str, str]] = {}  # sig → (logger, sample)
         self._first_seen: dict[str, float] = {}
         self._filed: dict[str, float] = {}  # sig → last filed (monotonic)
         self._filed_times: list[float] = []  # rolling hour of filings
+        # Attempted and filed are tracked separately: admission is granted
+        # synchronously but the filing itself happens later and can fail, so
+        # conflating them would let the metrics report incidents that never
+        # reached the intake.
+        self._incidents_attempted = 0
         self._incidents_filed = 0
         self._cap_warned = False
 
@@ -170,11 +221,31 @@ class OperationalIncidentTracker:
             log.debug("OperationalIncidents: record failed: %s", exc)
             return False
 
+    def note_filing_result(self, sig: str, filed: bool) -> None:
+        """Reconcile the admission granted in ``_may_file`` with what happened.
+
+        Admission is granted synchronously — cooldown set, hourly-cap slot
+        taken — but the filing itself runs later and can fail: the
+        ``ImprovementLoop`` may be idle during startup, the import may fail, or
+        the intake may dedup. Without this, one failed attempt would suppress
+        the signature for the whole cooldown and the metrics would report an
+        incident that never reached the intake. On failure the reservation is
+        released so the next recurrence can try again.
+        """
+        with self._lock:
+            if filed:
+                self._incidents_filed += 1
+                return
+            self._filed.pop(sig, None)
+            if self._filed_times:
+                self._filed_times.pop()
+
     def get_stats(self) -> dict[str, Any]:
         """Live counters, for the diagnostics endpoint and tests."""
         with self._lock:
             return {
                 "tracked_signatures": len(self._occurrences),
+                "incidents_attempted": self._incidents_attempted,
                 "incidents_filed": self._incidents_filed,
                 "threshold": INCIDENT_THRESHOLD,
                 "window_seconds": WINDOW_SECONDS,
@@ -189,14 +260,16 @@ class OperationalIncidentTracker:
             self._first_seen.clear()
             self._filed.clear()
             self._filed_times.clear()
+            self._incidents_attempted = 0
             self._incidents_filed = 0
             self._cap_warned = False
 
     # ── internals ─────────────────────────────────────────────────────────────
 
     def _record(self, logger_name: str, message: str) -> bool:
+        """Count one failure; return True when this crossed into an incident."""
         sig = signature_for(logger_name, message)
-        now = time.monotonic()
+        now = _now()
 
         with self._lock:
             hits = [t for t in self._occurrences.get(sig, []) if t > now - WINDOW_SECONDS]
@@ -204,17 +277,23 @@ class OperationalIncidentTracker:
             self._occurrences[sig] = hits
             self._samples[sig] = (logger_name, (message or "")[:1000])
             self._first_seen.setdefault(sig, now)
+            # The process is long-lived and every matching ERROR line adds a
+            # signature, so without this the maps only ever grow.
+            self._evict_stale(now, keep=sig)
 
             if len(hits) < INCIDENT_THRESHOLD:
                 return False
             if not self._may_file(sig, now):
                 return False
 
+            # Scrubbed at construction, not at render time: `normalised` also
+            # feeds the issue *title*, so redacting only in the body would leak
+            # a credential into the one field that is always displayed.
             incident = OperationalIncident(
                 signature=sig,
                 logger_name=logger_name,
-                normalised=normalise(message),
-                sample=(message or "")[:1000],
+                normalised=scrub(normalise(message)),
+                sample=scrub((message or "")[:1000]),
                 count=len(hits),
                 window_seconds=WINDOW_SECONDS,
                 first_seen=_iso_from_monotonic(self._first_seen[sig], now),
@@ -228,8 +307,32 @@ class OperationalIncidentTracker:
         _schedule(_diagnose_and_file(incident))
         return True
 
+    def _evict_stale(self, now: float, *, keep: str) -> None:
+        """Forget signatures that have gone quiet. Caller must hold the lock.
+
+        A signature is droppable once its occurrence bucket has aged out of the
+        window *and* its filing cooldown has expired — dropping it earlier would
+        release the cooldown and let the same failure re-file.
+        """
+        cutoff = now - WINDOW_SECONDS
+        stale = [
+            sig for sig, hits in self._occurrences.items()
+            if sig != keep
+            and (not hits or hits[-1] <= cutoff)
+            and now - self._filed.get(sig, float("-inf")) >= COOLDOWN_SECONDS
+        ]
+        for sig in stale:
+            self._occurrences.pop(sig, None)
+            self._samples.pop(sig, None)
+            self._first_seen.pop(sig, None)
+            self._filed.pop(sig, None)
+
     def _may_file(self, sig: str, now: float) -> bool:
-        """Cooldown + hourly cap. Caller must hold the lock."""
+        """Cooldown + hourly cap. Caller must hold the lock.
+
+        Reserves the slot on success. ``note_filing_result`` releases it again
+        if the filing that follows does not reach the intake.
+        """
         last = self._filed.get(sig)
         if last is not None and now - last < COOLDOWN_SECONDS:
             return False
@@ -248,7 +351,7 @@ class OperationalIncidentTracker:
 
         self._filed_times.append(now)
         self._filed[sig] = now
-        self._incidents_filed += 1
+        self._incidents_attempted += 1
         self._cap_warned = False
         return True
 
@@ -348,12 +451,26 @@ def summarise_phases(messages: list[str]) -> dict[str, Any]:
 
 
 async def _diagnose_and_file(incident: OperationalIncident) -> None:
-    """Attach evidence to *incident*, then hand it to the existing intake."""
+    """Attach evidence to *incident*, then hand it to the existing intake.
+
+    The filing outcome is reported back to the tracker so a failed attempt
+    releases its cooldown and hourly-cap slot instead of suppressing the
+    signature for hours over an intake that was merely not running yet.
+    """
     try:
         incident.evidence = await gather_render_evidence()
     except Exception as exc:  # noqa: BLE001 - file it even without evidence
         incident.evidence = {"available": False, "reason": str(exc)}
-    _file_incident(incident)
+
+    filed = _file_incident(incident)
+    if filed:
+        log.info("OperationalIncidents: filed %s", incident.title)
+    else:
+        log.warning(
+            "OperationalIncidents: could not file %r — releasing its cooldown so "
+            "the next recurrence can retry", incident.normalised[:80],
+        )
+    get_operational_incident_tracker().note_filing_result(incident.signature, filed)
 
 
 def _file_incident(incident: OperationalIncident) -> bool:
@@ -404,7 +521,7 @@ def _format_incident(incident: OperationalIncident) -> str:
         f"**Last seen:** {incident.last_seen}",
         "",
         "**Sample message:**",
-        f"```\n{incident.sample[:800]}\n```",
+        f"```\n{scrub(incident.sample[:800])}\n```",
     ]
 
     phases = evidence.get("phases") or {}
@@ -431,7 +548,7 @@ def _format_incident(incident: OperationalIncident) -> str:
             "",
             f"**Render logs** (last {evidence.get('window_minutes')}m, "
             f"{evidence.get('line_count')} lines):",
-            f"```\n{evidence.get('excerpt', '')[:2500]}\n```",
+            f"```\n{scrub(evidence.get('excerpt', ''))[:2500]}\n```",
         ]
     else:
         parts += [
@@ -453,6 +570,7 @@ def _format_incident(incident: OperationalIncident) -> str:
 
 
 def _utcnow_iso() -> str:
+    """Current UTC wall-clock as an ISO-8601 string."""
     return datetime.now(timezone.utc).isoformat()
 
 
@@ -460,6 +578,12 @@ def _iso_from_monotonic(then: float, now: float) -> str:
     """Best-effort wall-clock for a monotonic timestamp taken earlier."""
     delta = max(0.0, now - then)
     return (datetime.now(timezone.utc) - timedelta(seconds=delta)).isoformat()
+
+
+# Strong references to in-flight diagnosis tasks. The event loop holds only a
+# weak one, so without this the garbage collector can reclaim a task mid-flight
+# and the diagnosis disappears silently.
+_pending: set[asyncio.Task[None]] = set()
 
 
 def _schedule(coro: Any) -> None:
@@ -473,7 +597,9 @@ def _schedule(coro: Any) -> None:
     except RuntimeError:
         threading.Thread(target=asyncio.run, args=(coro,), daemon=True).start()
         return
-    loop.create_task(coro)
+    task = loop.create_task(coro)
+    _pending.add(task)
+    task.add_done_callback(_pending.discard)
 
 
 # ── singleton ─────────────────────────────────────────────────────────────────
