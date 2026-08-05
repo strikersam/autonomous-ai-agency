@@ -234,6 +234,27 @@ class Settings:
             "RENDER_MCP_ALLOW_WRITES", "false"
         ).lower()
 
+        # ── Operational-incident tracker (agent/operational_incidents.py) ────
+        # Operational failures (timeouts, "all runtimes failed", rate limits)
+        # never become code-fix tasks — an LLM editing source cannot fix a
+        # saturated free tier. They are counted instead, and a signature that
+        # recurs past the threshold inside the window is diagnosed and filed
+        # once. These four values are the anti-storm bounds: raising the
+        # threshold or lowering the cap makes the tracker quieter, never
+        # louder.
+        self.ops_incident_threshold: int = _env_int("OPS_INCIDENT_THRESHOLD", 4)
+        self.ops_incident_window_seconds: int = _env_int(
+            "OPS_INCIDENT_WINDOW_SECONDS", 1800
+        )
+        self.ops_incident_cooldown_seconds: int = _env_int(
+            "OPS_INCIDENT_COOLDOWN_SECONDS", 21600
+        )
+        self.ops_incident_max_per_hour: int = _env_int("OPS_INCIDENT_MAX_PER_HOUR", 3)
+        # How far back the incident pulls Render logs when building evidence.
+        self.ops_incident_lookback_minutes: int = _env_int(
+            "OPS_INCIDENT_LOOKBACK_MINUTES", 20
+        )
+
     @property
     def is_testing(self) -> bool:
         return self.testing == "true"

@@ -239,6 +239,31 @@ The `agency-render-mcp` service itself takes no secrets: in HTTP mode it reads
 the Render token per-request from the caller's `Authorization` header, so the
 only key involved is the backend's.
 
+### Operational-incident tracker
+
+`agent/operational_incidents.py`. Operational failures — timeouts, "all
+runtimes failed", rate limits — never become code-fix tasks, because an LLM
+editing source cannot fix a saturated free tier and one task per timeout is a
+self-amplifying storm. They are counted instead, and a signature that recurs
+past the threshold inside the window is diagnosed (Render logs plus the
+`phase_start`/`phase_end` markers that name the stalled agent phase) and filed
+**once** through the existing improvement-loop intake.
+
+These four values are the anti-storm bounds. Raising the threshold or lowering
+the cap makes the tracker quieter; it can never make it louder.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OPS_INCIDENT_THRESHOLD` | `4` | Occurrences of one normalised signature inside the window before it counts as an incident. Below this a failure is indistinguishable from a transient blip. |
+| `OPS_INCIDENT_WINDOW_SECONDS` | `1800` | Rolling window (30m) the threshold is counted over. |
+| `OPS_INCIDENT_COOLDOWN_SECONDS` | `21600` | Per-signature quiet period (6h) after a successful filing. A *failed* filing releases its cooldown so the next recurrence retries. |
+| `OPS_INCIDENT_MAX_PER_HOUR` | `3` | Hard ceiling on incidents filed per rolling hour across all signatures. `0` disables the cap. |
+| `OPS_INCIDENT_LOOKBACK_MINUTES` | `20` | How far back Render logs are pulled when building the evidence bundle. |
+
+Counters are exposed on `GET /api/metrics/self-heal` under
+`operational_incidents`, including `incidents_attempted` vs `incidents_filed` —
+they differ when the intake was unreachable.
+
 ---
 
 

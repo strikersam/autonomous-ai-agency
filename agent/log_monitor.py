@@ -130,10 +130,19 @@ class LogMonitor:
         if "LogMonitor" in (message or ""):
             return
         # Operational / transient infra errors are not auto-fixable code bugs and
-        # are the main self-heal storm vector — skip them entirely (no task, no
-        # recurrence note) so a slow brain / provider outage can't amplify.
+        # are the main self-heal storm vector, so they still create no fix task
+        # here. But dropping them outright left them with no path at all: a
+        # failure recurring every few minutes for hours produced zero signal
+        # inside the platform, and the only way anyone learned of it was a human
+        # reading the dashboard. They are now counted instead — and once one
+        # recurs past the tracker's threshold it is diagnosed (Render logs, plus
+        # the phase markers that name the stalled call) and filed **once**
+        # through the existing ImprovementLoop intake. See
+        # agent/operational_incidents.py for the threshold/cooldown/cap bounds
+        # that keep this from becoming the storm this branch guards against.
         msg_l = (message or "").lower()
         if any(p in msg_l for p in _OPERATIONAL_PATTERNS):
+            _record_operational(logger_name, message)
             return
         sig = _sig(logger_name, message)
         now = time.monotonic()
@@ -184,6 +193,24 @@ class LogMonitor:
 def _sig(logger_name: str, message: str) -> str:
     raw = f"{logger_name}:{message[:120]}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def _record_operational(logger_name: str, message: str) -> None:
+    """Best-effort: hand an operational failure to the incident tracker.
+
+    Import is local and the whole call is guarded because this runs inside a
+    ``logging.Handler`` — a failure here must never propagate into the emit
+    path that every other log line in the process shares.
+    """
+    try:
+        from agent.operational_incidents import record_operational_error
+
+        record_operational_error(logger_name, message)
+    except Exception as exc:  # noqa: BLE001 - incident tracking is best-effort
+        # An ImportError here disables incident tracking for the whole process
+        # life, which is exactly the kind of silent degradation that let this
+        # class of failure go unnoticed in the first place.
+        log.debug("LogMonitor: operational incident tracking unavailable: %s", exc)
 
 
 def _note_recurrence(sig: str) -> None:
