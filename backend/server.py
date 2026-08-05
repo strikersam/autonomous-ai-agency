@@ -8127,6 +8127,7 @@ async def self_heal_stats(user: dict = Depends(get_current_user)) -> dict[str, o
     Requires authentication.
     """
     from agent.log_monitor import get_log_monitor
+    from agent.operational_incidents import get_operational_incident_tracker
     from agent.self_healing import get_self_healing_agent
 
     monitor = get_log_monitor()
@@ -8141,6 +8142,10 @@ async def self_heal_stats(user: dict = Depends(get_current_user)) -> dict[str, o
 
     return {
         "log_monitor": monitor_stats,
+        # Operational failures never reach the log-monitor counters above (they
+        # are filtered before task creation), so without this they were the one
+        # class of failure with no API surface at all.
+        "operational_incidents": get_operational_incident_tracker().get_stats(),
         "events": events[:20],
         "active_count": sum(1 for e in events if e.get("state") in active_states),
         "resolved_count": sum(1 for e in events if e.get("state") == "resolved"),
