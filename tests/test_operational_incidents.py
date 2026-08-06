@@ -293,8 +293,8 @@ def test_an_open_phase_is_reported_as_the_stall_with_its_real_duration():
 
 
 def test_a_phase_that_completed_is_no_longer_reported():
-    ops.note_phase_start("planning", "s1")
-    ops.note_phase_end("planning", "s1")
+    token = ops.note_phase_start("planning", "s1")
+    ops.note_phase_end(token)
 
     report = ops.open_phase_report()
     assert report["likely_stuck_phase"] is None
@@ -322,8 +322,25 @@ def test_open_phase_tracking_is_bounded(monkeypatch):
 def test_phase_helpers_never_raise_into_the_agent_loop(monkeypatch):
     """They are called from inside the run loop; a failure must not break it."""
     monkeypatch.setattr(ops, "_now", lambda: (_ for _ in ()).throw(RuntimeError("x")))
-    ops.note_phase_start("planning", "s1")  # must not raise
-    ops.note_phase_end("planning", "s1")
+    token = ops.note_phase_start("planning", "s1")  # must not raise
+    ops.note_phase_end(token)
+
+
+def test_concurrent_phases_with_identical_labels_are_tracked_separately():
+    """Parallel steps (`_maybe_run_parallel`) and spawned sub-agents can run the
+    same phase with the same label at once. Keying on the label would collapse
+    them, and the first end marker would erase the still-running invocation —
+    hiding exactly the stall being looked for."""
+    first = ops.note_phase_start("tool_dispatch", "tool='fetch_url'")
+    ops.note_phase_start("tool_dispatch", "tool='fetch_url'")
+
+    ops.note_phase_end(first)
+
+    report = ops.open_phase_report()
+    assert report["likely_stuck_phase"] == "tool_dispatch", (
+        "the second invocation must still be tracked after the first ends"
+    )
+    assert len(report["open"]) == 1
 
 
 def test_the_agent_loops_timed_phase_feeds_the_tracker():
@@ -332,7 +349,7 @@ def test_the_agent_loops_timed_phase_feeds_the_tracker():
 
     seen: dict = {}
 
-    async def _run():
+    async def _run() -> None:
         async with _timed_phase("tool_dispatch", tool="fetch_url"):
             seen.update(ops.open_phase_report())
 

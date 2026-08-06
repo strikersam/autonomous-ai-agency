@@ -67,22 +67,35 @@ async def _timed_phase(phase: str, **context: Any) -> AsyncIterator[None]:
     # a single-service deployment (no agency-render-mcp sidecar) is unreachable.
     # Tracked here, a phase still open when an incident fires *is* the stall,
     # with its real duration rather than one inferred from marker counts.
-    _note_phase("start", phase, label)
+    token = _note_phase_start(phase, label)
     try:
         yield
     finally:
-        _note_phase("end", phase, label)
+        _note_phase_end(token)
         log.info("phase_end %s %s elapsed_s=%.1f", phase, label, time.perf_counter() - start)
 
 
-def _note_phase(edge: str, phase: str, label: str) -> None:
-    """Forward a phase boundary to the incident tracker. Never raises."""
+def _note_phase_start(phase: str, label: str) -> int | None:
+    """Open a tracked phase, returning the token that closes it. Never raises."""
     try:
         from agent import operational_incidents as _ops
 
-        (_ops.note_phase_start if edge == "start" else _ops.note_phase_end)(phase, label)
+        return _ops.note_phase_start(phase, label)
     except Exception:  # noqa: BLE001 - instrumentation must never break a run
-        log.debug("phase tracking unavailable for %s/%s", phase, edge)
+        log.debug("phase tracking unavailable for %s", phase)
+        return None
+
+
+def _note_phase_end(token: int | None) -> None:
+    """Close the tracked phase *token* opened above. Never raises."""
+    if token is None:
+        return
+    try:
+        from agent import operational_incidents as _ops
+
+        _ops.note_phase_end(token)
+    except Exception:  # noqa: BLE001 - instrumentation must never break a run
+        log.debug("phase tracking unavailable when closing token %s", token)
 
 
 # ── Contract: locked method signatures (J) ────────────────────────────────────
