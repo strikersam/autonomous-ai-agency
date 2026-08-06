@@ -95,18 +95,6 @@ models:
     priority: 22
     speed_tier: fast
 
-  llama-4-maverick-17b-128e-instruct:
-    provider: groq
-    display_name: Llama 4 Maverick 17B (Groq)
-    context_window: 131072
-    max_output_tokens: 8192
-    supports_tools: true
-    supports_function_calling: true
-    supports_json: true
-    supports_streaming: true
-    priority: 8
-    speed_tier: fast
-
   # ── Google Gemini (free tier) ──────────────────────────────────────────
 
   gemini-2.5-flash:
@@ -246,3 +234,75 @@ models:
     priority: 66
     speed_tier: fast
     aliases: [claude-haiku, haiku]
+
+  # Claude 5 family — adaptive thinking via output_config.effort, no legacy
+  # extended-thinking budget, no temperature/top_p/top_k on Sonnet 5 / Fable 5.
+  # Added 2026-08-06 to match config/models.yaml and brain_config.py (updated 2026-08-03).
+
+  claude-opus-5:
+    provider: anthropic
+    display_name: Claude Opus 5
+    context_window: 200000
+    max_output_tokens: 32000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 15.0
+    output_cost_per_1m: 75.0
+    priority: 57
+    speed_tier: medium
+    aliases: [opus-5]
+
+  claude-sonnet-5:
+    provider: anthropic
+    display_name: Claude Sonnet 5
+    context_window: 200000
+    max_output_tokens: 64000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 3.0
+    output_cost_per_1m: 15.0
+    priority: 59
+    speed_tier: medium
+    aliases: [sonnet-5]
+
+  claude-fable-5:
+    provider: anthropic
+    display_name: Claude Fable 5
+    context_window: 200000
+    max_output_tokens: 32000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 3.0
+    output_cost_per_1m: 15.0
+    priority: 58
+    speed_tier: medium
+    aliases: [fable-5, claude-mythos-5]
+
+  claude-opus-4-8:
+    provider: anthropic
+    display_name: Claude Opus 4.8
+    context_window: 200000
+    max_output_tokens: 32000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 15.0
+    output_cost_per_1m: 75.0
+    priority: 61
+    speed_tier: medium
+    aliases: [opus-4-8]
