@@ -30,6 +30,34 @@ _CACHE_TTL = int(os.environ.get("HARNESS_ENRICHMENT_CACHE_TTL", "300"))
 _MAX_TOOL_ENRICHMENT_CHARS = int(os.environ.get("HARNESS_ENRICHMENT_TOOL_CHARS", "800"))
 _MAX_SKILL_ENRICHMENT_CHARS = int(os.environ.get("HARNESS_ENRICHMENT_SKILL_CHARS", "500"))
 
+# Tools always offered to the executor, independent of the capability registry.
+# Module-scope so a test can assert the invariant that binds this list to
+# ``agent.models.ToolCall``: anything advertised here must also parse. It drifted
+# once (execute_skill, recommend_skills), and the executor treats an unparseable
+# selection as a step failure rather than as an unknown tool.
+ALWAYS_TOOLS: list[tuple[str, str]] = [
+    ("read_file", "Read a file's contents"),
+    ("head_file", "Read first N lines of a file"),
+    ("file_index", "Index directory structure"),
+    ("list_files", "List files in a directory"),
+    ("search_code", "Search codebase for patterns"),
+    ("write_file", "Write content to a file"),
+    ("recall_memory", "Recall saved user preferences"),
+    ("save_memory", "Save user preferences"),
+    ("spawn_subagent", "Delegate to a specialized sub-agent"),
+    ("finish", "Signal step completion"),
+    ("execute_skill", "Run a named skill by ID (see available skills below)"),
+    ("recommend_skills", "Get recommended skills for the current task"),
+    ("run_command", "Run a shell command in workspace"),
+    # GitHub tools
+    ("github_read_repo_file", "Read a file from a GitHub repo"),
+    ("github_create_branch", "Create a branch on GitHub"),
+    ("github_commit_changes", "Commit changes to GitHub"),
+    ("github_open_pull_request", "Open a PR on GitHub"),
+    ("github_list_repos", "List accessible GitHub repos"),
+    ("github_list_branches", "List branches in a GitHub repo"),
+]
+
 
 class HarnessEnrichment:
     """Auto-discovers skills and tools for agent prompt injection.
@@ -80,29 +108,7 @@ class HarnessEnrichment:
                 log.debug("Tool registry enumeration failed: %s", exc)
 
         # 2. Always-available tools (hardcoded dispatch in _dispatch_tool)
-        _ALWAYS_TOOLS = [
-            ("read_file", "Read a file's contents"),
-            ("head_file", "Read first N lines of a file"),
-            ("file_index", "Index directory structure"),
-            ("list_files", "List files in a directory"),
-            ("search_code", "Search codebase for patterns"),
-            ("write_file", "Write content to a file"),
-            ("recall_memory", "Recall saved user preferences"),
-            ("save_memory", "Save user preferences"),
-            ("spawn_subagent", "Delegate to a specialized sub-agent"),
-            ("finish", "Signal step completion"),
-            ("execute_skill", "Run a named skill by ID (see available skills below)"),
-            ("recommend_skills", "Get recommended skills for the current task"),
-            ("run_command", "Run a shell command in workspace"),
-            # GitHub tools
-            ("github_read_repo_file", "Read a file from a GitHub repo"),
-            ("github_create_branch", "Create a branch on GitHub"),
-            ("github_commit_changes", "Commit changes to GitHub"),
-            ("github_open_pull_request", "Open a PR on GitHub"),
-            ("github_list_repos", "List accessible GitHub repos"),
-            ("github_list_branches", "List branches in a GitHub repo"),
-        ]
-        for name, desc in _ALWAYS_TOOLS:
+        for name, desc in ALWAYS_TOOLS:
             if name not in seen:
                 lines.append(f"- {name}: {desc}")
 

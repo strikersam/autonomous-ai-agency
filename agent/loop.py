@@ -685,7 +685,10 @@ class AgentRunner:
                             action_summary=f"edited {changed}",
                         )
                     except Exception:
-                        pass
+                        # Best-effort: a memory write must never fail the step
+                        # that already succeeded. Logged so a persistently
+                        # broken store is visible instead of silently empty.
+                        log.debug("Procedural memory record_success failed (non-fatal)", exc_info=True)
 
                 # Adaptive Loop Halting: early-exit when verifier confidence >= threshold
                 # on all files touched this step. Simple single-file edits often finish
@@ -909,7 +912,10 @@ class AgentRunner:
             from agent.procedural_memory import get_procedural_memory
             proc_memories = get_procedural_memory().retrieve_relevant(instruction, limit=3)
         except Exception:
-            pass
+            # Best-effort: planning proceeds without prior-success hints rather
+            # than failing. Logged so a broken store is visible instead of
+            # looking like "no relevant memories".
+            log.debug("Procedural memory retrieve_relevant failed (non-fatal)", exc_info=True)
         messages = build_planning_prompt(
             instruction, history,
             user_memories=user_memories,
@@ -1079,26 +1085,36 @@ class AgentRunner:
                 observations.append({"tool": "finish", "result": call.args.get("reason", "done inspecting")})
                 scratchpad.record_thought(call.args.get("reason", "step complete"))
                 break
-            if call.tool == "execute_skill":
-                skill_result = self._execute_skill_tool(call.args)
-                observations.append({"tool": "execute_skill", "result": skill_result})
-                context_items.append({"tool": "execute_skill", "result": skill_result})
-                scratchpad.record_action("execute_skill", call.args)
-                scratchpad.record_observation(skill_result)
-                continue
-            if call.tool == "recommend_skills":
-                rec_result = self._recommend_skills_tool(call.args)
-                observations.append({"tool": "recommend_skills", "result": rec_result})
-                context_items.append({"tool": "recommend_skills", "result": rec_result})
-                scratchpad.record_action("recommend_skills", call.args)
-                scratchpad.record_observation(rec_result)
+            # These three used to call their implementations directly, which
+            # routed around _run_tool -> _dispatch_tool and therefore around
+            # the governance gate: skill execution and subagent spawning could
+            # be neither denied nor audited. They now go through the same seam
+            # as every other tool.
+            if call.tool in ("execute_skill", "recommend_skills"):
+                tool_result = await self._run_tool(
+                    call.tool, call.args, user_id=user_id, memory_store=memory_store,
+                )
+                observations.append({"tool": call.tool, "result": tool_result})
+                context_items.append({"tool": call.tool, "result": tool_result})
+                scratchpad.record_action(call.tool, call.args)
+                scratchpad.record_observation(tool_result)
                 continue
             if call.tool == "spawn_subagent":
-                sub_result = await self._spawn_subagent(**call.args)
-                observations.append({"tool": "spawn_subagent", "result": sub_result.get("summary", str(sub_result))})
+                sub_result = await self._run_tool(
+                    "spawn_subagent", call.args, user_id=user_id, memory_store=memory_store,
+                )
+                # A governance denial or a tool error arrives as a string, not
+                # the run() dict this branch used to be guaranteed. Summarise
+                # without assuming the shape.
+                if isinstance(sub_result, dict):
+                    observed = sub_result.get("summary", str(sub_result))
+                    noted = sub_result.get("summary", "subagent completed")
+                else:
+                    observed = noted = str(sub_result)
+                observations.append({"tool": "spawn_subagent", "result": observed})
                 context_items.append({"tool": "spawn_subagent", "result": sub_result})
                 scratchpad.record_action("spawn_subagent", call.args)
-                scratchpad.record_observation(sub_result.get("summary", "subagent completed"))
+                scratchpad.record_observation(noted)
                 continue
             scratchpad.record_action(call.tool, call.args)
             self._log_event(session_id, "tool_call", {"tool": call.tool, "args": call.args})
@@ -1563,6 +1579,10 @@ class AgentRunner:
             return self._execute_skill_tool(args)
         if tool == "recommend_skills":
             return self._recommend_skills_tool(args)
+        # ├─ Sub-agent delegation. Dispatchable so the executor loop can reach
+        #    it through the governance seam instead of calling it directly.
+        if tool == "spawn_subagent":
+            return await self._spawn_subagent(**args)
 
         # ═══════════════════════════════════════════════════════════════════
         # GitHub Tools
