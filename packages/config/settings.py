@@ -255,6 +255,62 @@ class Settings:
             "OPS_INCIDENT_LOOKBACK_MINUTES", 20
         )
 
+        # ── Agent governance (packages/governance) ───────────────────────
+        # Master switch. Default ON, but note that the *policy* ships in
+        # `observe` mode, so enabling governance changes no behaviour — it
+        # only starts producing identity-attributed audit events and
+        # would-block counts. Enforcement is a separate, deliberate step
+        # (`mode: enforce` in the policy file). Set false to remove the layer
+        # entirely without a deploy if it ever misbehaves.
+        self.governance_enabled_raw: str = os.environ.get(
+            "GOVERNANCE_ENABLED", "true"
+        ).strip().lower()
+        self.governance_policy_path: str = os.environ.get(
+            "GOVERNANCE_POLICY_PATH", "config/agent_policy.yaml"
+        )
+        self.governance_sandbox_profiles_path: str = os.environ.get(
+            "GOVERNANCE_SANDBOX_PROFILES_PATH", "config/sandbox_profiles.yaml"
+        )
+        # "auto" probes docker, then e2b, then falls back to local. Pin to a
+        # named backend only when the probe order is wrong for your install.
+        self.governance_sandbox_backend: str = os.environ.get(
+            "GOVERNANCE_SANDBOX_BACKEND", "auto"
+        ).strip().lower()
+        # Ring-buffer size for the in-memory audit trail. The durable record
+        # is the structured log line; this only bounds what the dashboard and
+        # API can page back through.
+        self.governance_audit_capacity: int = _env_int("GOVERNANCE_AUDIT_CAPACITY", 2000)
+        # How long an agent waits on a human approval before the request
+        # expires and the action is denied.
+        self.governance_approval_ttl_s: int = _env_int("GOVERNANCE_APPROVAL_TTL_S", 300)
+        # Local-development escape hatch: approve high-risk actions without a
+        # human. Off by default and audited as `resolved_by=auto-approve`
+        # whenever it fires, so its use is always visible in the trail.
+        self.governance_auto_approve_raw: str = os.environ.get(
+            "GOVERNANCE_AUTO_APPROVE", "false"
+        ).strip().lower()
+        # Backpressure rather than resource exhaustion once many agents run
+        # at once — see the multi-agent scaling notes in docs/governance.
+        self.governance_max_sandboxes: int = _env_int("GOVERNANCE_MAX_SANDBOXES", 8)
+        self.governance_artifacts_dir: str = os.environ.get(
+            "GOVERNANCE_ARTIFACTS_DIR", ".artifacts"
+        )
+
+    @property
+    def governance_enabled(self) -> bool:
+        """When True, the governance layer evaluates and audits agent actions.
+
+        This is *not* the enforcement switch — the policy file's ``mode``
+        controls whether verdicts are acted on. Enabling governance alone is
+        behaviour-neutral by design.
+        """
+        return self.governance_enabled_raw in {"1", "true", "yes", "on"}
+
+    @property
+    def governance_auto_approve(self) -> bool:
+        """When True, approval-gated actions self-approve. Local dev only."""
+        return self.governance_auto_approve_raw in {"1", "true", "yes", "on"}
+
     @property
     def is_testing(self) -> bool:
         return self.testing == "true"

@@ -91,6 +91,38 @@ def unsafe_target_reason(url: str) -> str | None:
             or ip.is_unspecified
         ):
             return f"host resolves to a non-public address ({addr})"
+    return _egress_policy_reason(host)
+
+
+def _egress_policy_reason(host: str) -> str | None:
+    """Return why governance policy blocks *host*, or None.
+
+    Runs strictly *after* the SSRF checks above and never replaces them. The
+    two answer different questions: the SSRF check asks "could this reach
+    something private?" and is unconditional; this asks "is this destination
+    approved for agents?" and is policy-driven. Collapsing them would let a
+    permissive policy switch off the SSRF guard, which must never be
+    possible — so this function is only ever consulted once the address checks
+    have already passed.
+
+    Returns None unless governance is enabled *and* the policy is in
+    ``enforce`` mode, so the shipped observe-mode default leaves Web Reach's
+    behaviour exactly as it was. The would-block signal is still recorded in
+    the audit trail by the policy engine, which is how an operator sees what
+    an egress allow-list would have caught before turning it on.
+    """
+    try:
+        from packages.governance.enforcement import governance_enabled
+
+        if not governance_enabled():
+            return None
+        from packages.governance.policy import Decision, Surface, get_policy_engine
+
+        decision = get_policy_engine().evaluate(Surface.NETWORK, host)
+        if decision.effective is Decision.DENY:
+            return f"blocked by egress policy: {decision.reason}"
+    except Exception as exc:  # noqa: BLE001 - policy must never break web reach
+        log.debug("Egress policy check skipped for %s: %s", host, exc)
     return None
 
 

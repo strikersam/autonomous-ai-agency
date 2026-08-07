@@ -1,0 +1,206 @@
+# config/agent_policy.yaml — the agency's runtime governance policy.
+#
+# Evaluated by packages/governance/policy.py on every governed agent action.
+# Full reference and worked examples: docs/governance/README.md
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# READ THIS BEFORE CHANGING `mode`
+# ─────────────────────────────────────────────────────────────────────────────
+# mode: observe  → every rule is evaluated and every verdict is audited, but
+#                  NOTHING is blocked. This is the shipped default and it is
+#                  deliberate: this platform runs 34 autonomous loops, and you
+#                  cannot know a rule is correct until you have seen what it
+#                  would have caught.
+# mode: enforce  → verdicts are acted on. Denied actions fail; approval-gated
+#                  actions block until a human decides or the request expires.
+#
+# The safe path to enforcement:
+#   1. Deploy with `observe` (this file, unchanged).
+#   2. Watch `GET /api/governance/audit?decision=deny` and the `would_block`
+#      count on `GET /api/governance/metrics` for a full workload cycle.
+#   3. Every would-block is either a real finding or a rule that is too broad.
+#      Fix the rules until would-block is only the actions you *want* stopped.
+#   4. Then set `mode: enforce`.
+#
+# Flipping straight to `enforce` without step 2 will break agent runs. There
+# is no way around this: the whole point of a policy is that it says no.
+# ─────────────────────────────────────────────────────────────────────────────
+
+version: 1
+mode: observe
+
+# ── Organization baseline ────────────────────────────────────────────────────
+# Evaluated BEFORE any group and cannot be loosened by one. A group can add
+# restrictions on top; it can never re-allow something denied here. This is
+# the structural equivalent of Docker AI Governance's "organization-wide
+# guardrails that can't be overridden".
+baseline:
+
+  tool:
+    # Actions that are legitimate but consequential enough to want a human on
+    # the other end. `agent/autonomy_gate.py` already blocks agent-initiated
+    # merges and direct writes to master independently of this file — these
+    # entries make the same intent visible to the policy engine and the audit
+    # trail rather than living in one module.
+    require_approval:
+      - github_merge_pr
+      - github_delete_*
+      - docker_*
+      - deploy_*
+      - sandbox.create:docker
+
+  filesystem:
+    # Credential material. Reading any of these is how a prompt-injected agent
+    # converts file access into credential theft — the single highest-value
+    # move available to an attacker who gets a foothold in an agent loop.
+    deny:
+      - .env
+      - .env.*
+      - "**/.env"
+      - "**/.git/config"
+      - "**/id_rsa*"
+      - "**/id_ed25519*"
+      - "**/.ssh/**"
+      - "**/*.pem"
+      - "**/*.p12"
+      - "**/credentials.json"
+      - "**/service-account*.json"
+
+  network:
+    # Cloud metadata and private ranges — the SSRF-to-credentials pivot.
+    # agent/web_reach.py already rejects these by *resolved IP* (including on
+    # every redirect hop), which is the stronger check. These name-level rules
+    # are defence in depth for any caller that does not go through it.
+    deny:
+      - 169.254.169.254
+      - metadata.google.internal
+      - metadata.goog
+      - "*.internal"
+      - "*.cluster.local"
+      - localhost
+      - 127.0.0.0/8
+      - 169.254.0.0/16
+      - 10.0.0.0/8
+      - 172.16.0.0/12
+      - 192.168.0.0/16
+
+  shell:
+    # Shapes with no legitimate agent use. Deliberately narrow: a broad shell
+    # deny-list is trivially bypassed by an LLM rephrasing the command, so
+    # these are a backstop for accidents, NOT the primary control. The primary
+    # control is running shell commands inside a sandbox at all.
+    deny:
+      - "rm -rf /*"
+      - "*mkfs*"
+      - "*:(){ :|:& };:*"
+      - "*/etc/shadow*"
+      - "*curl*|*sh*"
+      - "*wget*|*sh*"
+      - "*chmod 777 /*"
+
+  credential:
+    # Secret NAMES an agent session may resolve — never values. Anything not
+    # listed is invisible to agents regardless of group.
+    allow:
+      - GITHUB_TOKEN
+      - GH_TOKEN
+
+# ── Policy groups ────────────────────────────────────────────────────────────
+# A group declaring no allow-list for a surface is unrestricted on that surface
+# beyond the baseline. A group that DOES declare one is default-deny within it.
+groups:
+
+  # The least-privileged fallback. Unnamed and unassigned agents land here.
+  # It declares no allow-lists on purpose: that is what makes enabling
+  # governance behaviour-neutral on first deploy.
+  default:
+    limits:
+      max_tool_calls: 200      # runaway-loop ceiling
+      max_cost_usd: 5.0        # token-explosion ceiling
+      max_duration_s: 1800     # wall-clock ceiling
+      max_depth: 5             # recursive-agent ceiling
+      max_retries: 10          # infinite-retry ceiling
+    sandbox_profile: development
+
+  # Read-only research. No writes, no shell, no GitHub mutation.
+  research:
+    extends: default
+    tool:
+      allow:
+        - read_file
+        - head_file
+        - list_files
+        - file_index
+        - search_code
+        - fetch_url
+        - web_search
+        - fetch_rss
+        - youtube_transcript
+        - recall_memory
+        - save_memory
+    filesystem:
+      read: ["**"]
+      write: []               # declared-and-empty = no writes at all
+    limits:
+      max_tool_calls: 100
+      max_cost_usd: 2.0
+    sandbox_profile: python
+
+  # The coding agent. Broad, because writing code is its job — the containment
+  # comes from the sandbox and the baseline, not from a narrow tool list.
+  coding:
+    extends: default
+    filesystem:
+      read: ["**"]
+      write:
+        - "**"
+      deny:
+        - "render.yaml"        # deploy topology: human-owned
+        - ".github/workflows/**"  # an agent editing its own CI is a bypass
+    limits:
+      max_tool_calls: 400
+      max_cost_usd: 10.0
+      max_duration_s: 3600
+    sandbox_profile: development
+
+  # Browser automation / UI QA.
+  browser:
+    extends: default
+    tool:
+      allow:
+        - playwright_*
+        - browser_*
+        - screenshot
+        - fetch_url
+        - read_file
+        - write_file
+        - run_command
+    sandbox_profile: browser
+
+  # Security scanning. No network and no writes: a scanner that can reach the
+  # internet and write files is an exfiltration path wearing a badge.
+  security:
+    extends: default
+    filesystem:
+      read: ["**"]
+      write: []
+    network:
+      allow: []               # declared-and-empty = no egress at all
+    sandbox_profile: security
+
+# ── Assignments ──────────────────────────────────────────────────────────────
+# Glob-matched against the agent id (`agent:<slug>`), first match wins. An
+# identity that names an existing group directly takes precedence over these.
+assignments:
+  - match: "agent:*research*"
+    group: research
+  - match: "agent:*security*"
+    group: security
+  - match: "agent:*browser*"
+    group: browser
+  - match: "agent:*qa*"
+    group: browser
+  - match: "agent:*cod*"
+    group: coding
+  - match: "agent:*engineer*"
+    group: coding

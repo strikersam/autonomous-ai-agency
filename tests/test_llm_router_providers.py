@@ -677,3 +677,137 @@ def test_anthropic_no_output_config_when_no_effort():
     req = LLMRequest(messages=[{"role": "user", "content": "hi"}])
     payload = p.build_payload(req, "claude-opus-5")
     assert "output_config" not in payload
+
+
+# ── C1: Structured Output / JSON Mode (Anthropic) ────────────────────────────
+
+def test_anthropic_json_object_injects_system_instruction():
+    """json_object mode must append a JSON instruction to the system prompt."""
+    p = _anthropic_provider(prompt_caching=False)
+    req = LLMRequest(
+        messages=[
+            {"role": "system", "content": "Be helpful."},
+            {"role": "user", "content": "reply"},
+        ],
+        response_format={"type": "json_object"},
+    )
+    payload = p.build_payload(req, "claude-sonnet-4-6")
+    system = payload["system"]
+    assert isinstance(system, str)
+    assert "Be helpful." in system
+    assert "JSON" in system
+
+
+def test_anthropic_json_object_without_existing_system_creates_system():
+    """json_object mode works even when no system message is provided."""
+    p = _anthropic_provider(prompt_caching=False)
+    req = LLMRequest(
+        messages=[{"role": "user", "content": "hi"}],
+        response_format={"type": "json_object"},
+    )
+    payload = p.build_payload(req, "claude-sonnet-4-6")
+    assert "system" in payload
+    assert "JSON" in payload["system"]
+
+
+def test_anthropic_json_schema_injects_schema_instruction():
+    """json_schema mode must embed the schema in the system prompt."""
+    p = _anthropic_provider(prompt_caching=False)
+    schema = {
+        "type": "object",
+        "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
+    }
+    req = LLMRequest(
+        messages=[{"role": "user", "content": "hi"}],
+        response_format={"type": "json_schema", "json_schema": {"name": "person", "schema": schema}},
+    )
+    payload = p.build_payload(req, "claude-sonnet-4-6")
+    system = payload["system"]
+    assert "person" in system
+    assert '"name"' in system  # schema serialised inline
+    assert "JSON" in system
+
+
+def test_anthropic_response_format_not_in_payload_body():
+    """Anthropic's API rejects response_format — it must never appear in the body."""
+    p = _anthropic_provider(prompt_caching=False)
+    req = LLMRequest(
+        messages=[{"role": "user", "content": "hi"}],
+        response_format={"type": "json_object"},
+    )
+    payload = p.build_payload(req, "claude-sonnet-4-6")
+    assert "response_format" not in payload
+
+
+def test_anthropic_unknown_format_type_no_injection():
+    """An unknown format type (e.g. 'xml') must not add any system instruction."""
+    p = _anthropic_provider(prompt_caching=False)
+    req = LLMRequest(
+        messages=[{"role": "user", "content": "hi"}],
+        response_format={"type": "xml"},
+    )
+    payload = p.build_payload(req, "claude-sonnet-4-6")
+    assert "system" not in payload
+
+
+def test_anthropic_no_response_format_no_system_injection():
+    """Without response_format, system prompt must not change."""
+    p = _anthropic_provider(prompt_caching=False)
+    req = LLMRequest(
+        messages=[
+            {"role": "system", "content": "Be terse."},
+            {"role": "user", "content": "hi"},
+        ],
+    )
+    payload = p.build_payload(req, "claude-sonnet-4-6")
+    assert payload["system"] == "Be terse."
+
+
+def test_anthropic_json_instruction_static_method_json_object():
+    """_json_instruction returns a non-empty string for json_object."""
+    from packages.llm.providers.anthropic import AnthropicProvider
+    result = AnthropicProvider._json_instruction({"type": "json_object"})
+    assert result is not None
+    assert "JSON" in result
+
+
+def test_anthropic_json_instruction_static_method_json_schema_with_name():
+    """_json_instruction embeds the schema name."""
+    from packages.llm.providers.anthropic import AnthropicProvider
+    result = AnthropicProvider._json_instruction({
+        "type": "json_schema",
+        "json_schema": {
+            "name": "order_result",
+            "schema": {"type": "object", "properties": {"id": {"type": "integer"}}},
+        },
+    })
+    assert result is not None
+    assert "order_result" in result
+    assert "JSON" in result
+
+
+def test_anthropic_json_instruction_static_method_unknown_type():
+    """_json_instruction returns None for unknown types."""
+    from packages.llm.providers.anthropic import AnthropicProvider
+    assert AnthropicProvider._json_instruction({"type": "text"}) is None
+    assert AnthropicProvider._json_instruction({}) is None
+
+
+def test_anthropic_json_mode_with_prompt_caching_produces_list_system():
+    """When prompt caching is on, the system field becomes a cache-control list."""
+    p = _anthropic_provider(prompt_caching=True)
+    req = LLMRequest(
+        messages=[
+            {"role": "system", "content": "Be concise."},
+            {"role": "user", "content": "hi"},
+        ],
+        response_format={"type": "json_object"},
+    )
+    payload = p.build_payload(req, "claude-sonnet-4-6")
+    system = payload["system"]
+    assert isinstance(system, list)
+    # The combined text should contain both the original system content and
+    # the JSON instruction.
+    combined = system[0]["text"]
+    assert "Be concise." in combined
+    assert "JSON" in combined

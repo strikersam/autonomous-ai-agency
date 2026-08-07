@@ -263,6 +263,30 @@ MAX_SUBAGENT_DEPTH: int = int(os.environ.get("MAX_SUBAGENT_DEPTH", "5"))
 
 
 
+def _summarise_tool_result(result: Any) -> str:
+    """Condense a tool result down to what belongs in an audit row.
+
+    A tool result can be an entire file, a full ``git diff``, or a build log.
+    The audit trail needs enough to reconstruct what happened, not the payload
+    itself: storing the payload turns a bounded ring buffer into a memory leak
+    and copies file contents into a second place they can leak from.
+
+    Returns a short prefix plus the total size, which is what actually answers
+    the audit question ("did this call return 4 bytes or 4 MB?"). The audit
+    layer redacts and truncates again on the way in — this is a cheap first
+    pass, not the security boundary.
+    """
+    if result is None:
+        return ""
+    if isinstance(result, str):
+        return result[:500] + (f"...[{len(result)} chars]" if len(result) > 500 else "")
+    try:
+        text = str(result)
+    except Exception:  # noqa: BLE001 - a __str__ that raises must not fail the call
+        return f"[unrepresentable {type(result).__name__}]"
+    return text[:500] + (f"...[{len(text)} chars]" if len(text) > 500 else "")
+
+
 class AgentPhaseError(Exception):
     """Raised when a named agent phase (planning, verification, etc.) fails."""
 
@@ -649,6 +673,20 @@ class AgentRunner:
                     if commit:
                         commits.append(commit)
 
+                # ★4 Procedural Memory: record successful steps so future runs
+                # can reuse proven patterns when planning similar tasks.
+                if result.get("status") == "applied" and result.get("changed_files"):
+                    try:
+                        from agent.procedural_memory import get_procedural_memory
+                        changed = ", ".join(result["changed_files"][:3])
+                        get_procedural_memory().record_success(
+                            goal_summary=plan.goal[:120],
+                            step_description=step_data.get("description", "")[:200],
+                            action_summary=f"edited {changed}",
+                        )
+                    except Exception:
+                        pass
+
                 # Adaptive Loop Halting: early-exit when verifier confidence >= threshold
                 # on all files touched this step. Simple single-file edits often finish
                 # in one pass; no need to burn through remaining planned steps.
@@ -864,7 +902,19 @@ class AgentRunner:
         memory_store: UserMemoryStore | None = None,
     ) -> AgentPlan:
         user_memories = memory_store.recall_all(user_id) if memory_store and user_id else {}
-        messages = build_planning_prompt(instruction, history, user_memories=user_memories)
+        # ★4 Procedural Memory: surface relevant past successes so the planner
+        # can reuse proven approaches instead of rediscovering them.
+        proc_memories: list[dict] = []
+        try:
+            from agent.procedural_memory import get_procedural_memory
+            proc_memories = get_procedural_memory().retrieve_relevant(instruction, limit=3)
+        except Exception:
+            pass
+        messages = build_planning_prompt(
+            instruction, history,
+            user_memories=user_memories,
+            procedural_memories=proc_memories or None,
+        )
         # ── Harness enrichment: inject available tools + skills into planner ───
         self._inject_enrichment(messages)
         # ── Learning loop: surface lessons from recent failed runs so the
@@ -1366,6 +1416,71 @@ class AgentRunner:
             return err
 
     async def _dispatch_tool(
+        self,
+        tool: str,
+        args: dict[str, Any],
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
+    ) -> Any:
+        """Governance seam: judge the call, run it, audit the outcome.
+
+        Deliberately a thin wrapper around the unchanged
+        :meth:`_dispatch_tool_unguarded` rather than an edit threaded through
+        that method's ~170 lines of branches. Two reasons:
+
+        1. Every one of those branches is an early ``return``. A guard placed
+           inline would have to be repeated per branch to be complete, and one
+           missed branch is a silent hole in the control.
+        2. The Golden Rule (CLAUDE.md §0) forbids changing user-visible
+           behaviour. With the wrapper, the dispatch body is byte-identical to
+           what shipped before, so the only behavioural question is whether
+           the wrapper is transparent — which is a much smaller thing to
+           verify, and is what ``tests/test_governance_enforcement.py`` pins.
+
+        When governance is disabled, or the policy is in ``observe`` mode
+        (the shipped default), this returns exactly what the unguarded
+        dispatch returns.
+        """
+        from packages.governance.enforcement import governance_enabled
+
+        if not governance_enabled():
+            return await self._dispatch_tool_unguarded(tool, args, user_id, memory_store)
+
+        import time as _time
+
+        from packages.governance.enforcement import (
+            get_gate,
+            resolve_identity_for_runner,
+        )
+
+        gate = get_gate()
+        identity = resolve_identity_for_runner(self, source_ip=None)
+        guard = await gate.guard(identity, tool, args)
+        if not guard.allowed:
+            # Returned as a tool *result*, not raised: the executor loop
+            # already knows how to feed a string result back to the model,
+            # and naming the rule lets the agent choose a different action
+            # instead of retrying the blocked one into a failure loop.
+            return guard.denial_message
+
+        started = _time.monotonic()
+        error: str | None = None
+        result: Any = None
+        try:
+            result = await self._dispatch_tool_unguarded(tool, args, user_id, memory_store)
+            return result
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            gate.record_result(
+                identity, tool, args, guard.decision,
+                result=_summarise_tool_result(result),
+                error=error,
+                duration_ms=(_time.monotonic() - started) * 1000,
+            )
+
+    async def _dispatch_tool_unguarded(
         self,
         tool: str,
         args: dict[str, Any],
