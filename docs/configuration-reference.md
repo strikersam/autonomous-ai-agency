@@ -266,6 +266,50 @@ they differ when the intake was unreachable.
 
 ---
 
+## Agent governance — identity, policy, approvals, audit, sandboxes
+
+`packages/governance/`. Runtime governance for autonomous agent actions.
+Full guide: [`docs/governance/README.md`](governance/README.md).
+
+> **`GOVERNANCE_ENABLED` is not the enforcement switch.** The layer ships
+> enabled, but `config/agent_policy.yaml` ships in `mode: observe`: every rule
+> is evaluated and every verdict audited, and **nothing is blocked**. Enabling
+> governance is behaviour-neutral by design. Enforcement is a separate,
+> deliberate edit to the policy file — see
+> [Turning on enforcement](governance/README.md#turning-on-enforcement).
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `GOVERNANCE_ENABLED` | `true` | Master switch. `false` removes the layer entirely — the instant kill switch if a control ever misbehaves, no deploy needed. |
+| `GOVERNANCE_POLICY_PATH` | `config/agent_policy.yaml` | Policy document. Git-reviewed; there is deliberately **no HTTP endpoint that writes policy**, so "who changed the rules" stays answerable. Reload without a restart via `POST /api/governance/policy/reload`. |
+| `GOVERNANCE_SANDBOX_PROFILES_PATH` | `config/sandbox_profiles.yaml` | Sandbox profile definitions, merged over the built-ins. |
+| `GOVERNANCE_SANDBOX_BACKEND` | `auto` | `auto` \| `docker` \| `e2b` \| `local`. `auto` probes Docker, then E2B, then falls back to `local`. Pin only when the probe order is wrong for your install. |
+| `GOVERNANCE_AUDIT_CAPACITY` | `2000` | Ring-buffer size for the API and dashboard. The durable record is the `governance.audit.events` log stream — past ~100 concurrent agents this buffer covers minutes, not hours, so SIEM shipping stops being optional. |
+| `GOVERNANCE_APPROVAL_TTL_S` | `300` | How long an agent blocks on a human approval. On expiry the request is **denied**, not allowed — an approval gate that opens when ignored is theatre. |
+| `GOVERNANCE_AUTO_APPROVE` | `false` | Self-approve approval-gated actions. Local development only. Audited as `resolved_by=auto-approve` whenever it fires, so its use is always visible in the trail. |
+| `GOVERNANCE_MAX_SANDBOXES` | `8` | Cap on concurrently live sandboxes. Exceeding it raises `SandboxUnavailableError` — backpressure rather than host resource exhaustion. |
+| `GOVERNANCE_ARTIFACTS_DIR` | `.artifacts` | Where sandbox artifacts are captured **before** teardown. |
+
+### Sandbox isolation in production
+
+Render deploys this backend with `env: docker` — the application *is* a
+container on a managed host, with no Docker socket, so it cannot create sibling
+containers. The Docker backend therefore cannot engage in production. Set
+`E2B_ENABLED=true` and `E2B_API_KEY` (see the E2B section) to get real
+isolation there via Firecracker micro-VMs reached over HTTPS.
+
+Without a working backend the manager resolves to `local`, which provides **no
+isolation at all** — only in-process policy. That is reported honestly by
+`GET /api/governance/status` as `backend: local`, `isolation: none`, rather
+than being hidden behind a green dashboard.
+
+Per-group cost ceilings (`max_tool_calls`, `max_cost_usd`, `max_tokens`,
+`max_duration_s`, `max_depth`, `max_retries`) live in the policy file rather
+than in environment variables, because they differ per agent. A **missing**
+limit key means unlimited, never zero.
+
+---
+
 
 ## Tunnel — Permanent Static URL (ngrok)
 

@@ -1,0 +1,167 @@
+# config/sandbox_profiles.yaml — governed execution environments.
+#
+# Loaded by packages/governance/sandbox.py and merged OVER the built-in
+# profiles in that module, so this file only needs to state what differs.
+# Every field defaults to least privilege; a profile must opt *out* explicitly,
+# which is what makes the diff that grants a privilege reviewable.
+#
+# Which backend actually applies these depends on the deployment:
+#   docker → every flag below is passed to `docker run` and enforced by the kernel.
+#   e2b    → isolation is the Firecracker micro-VM boundary; the per-container
+#            Linux flags do not apply. `GET /api/governance/status` reports which
+#            backend is live and what it does and does not enforce.
+#   local  → nothing here is enforced. Only in-process policy applies.
+#
+# Field reference: docs/governance/README.md#sandbox-profiles
+
+profiles:
+
+  development:
+    description: "Coding, refactoring, running unit tests, producing patches."
+    image: python:3.13-slim
+    cpus: 2.0
+    memory: 2g
+    pids_limit: 512
+    network: bridge
+    internet: true
+    # Egress allow-list. Enforced at the policy layer for every governed
+    # network call; a bridge network alone does not restrict destinations.
+    allowed_domains:
+      - github.com
+      - "*.github.com"
+      - pypi.org
+      - "*.pypi.org"
+      - files.pythonhosted.org
+    read_only_rootfs: true
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,size=256m"
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    user: "65532:65532"
+    ttl_s: 1800
+    tools: [git, python, pip, pytest]
+    # Only these env names are ever forwarded, and only if the caller supplies
+    # them. Compare with docker-compose.yml, which hands whole `.env` files to
+    # containers — that is the credential over-exposure this replaces.
+    env_allowlist: [GITHUB_TOKEN, GH_TOKEN]
+    writable_paths: ["/home/user/repo"]
+
+  browser:
+    description: "Playwright, Browser Use, scraping, UI QA."
+    image: mcr.microsoft.com/playwright/python:v1.49.0-jammy
+    cpus: 2.0
+    memory: 4g
+    pids_limit: 1024
+    network: bridge
+    internet: true
+    # Chromium's own sandbox needs these. Adding back exactly two capabilities
+    # after dropping ALL is materially different from `--privileged`, which is
+    # the usual shortcut when Playwright refuses to start.
+    cap_drop: ["ALL"]
+    cap_add: ["SYS_ADMIN", "SYS_CHROOT"]
+    read_only_rootfs: false
+    tmpfs:
+      - "/tmp:rw,nosuid,size=1g"
+      - "/dev/shm:rw,nosuid,size=1g"
+    security_opt: ["no-new-privileges:true"]
+    ttl_s: 900
+    tools: [playwright, chromium, node]
+    writable_paths: ["/home/user/repo"]
+
+  python:
+    description: "Data analysis, ML, scripts. No network."
+    image: python:3.13-slim
+    cpus: 2.0
+    memory: 2g
+    network: none
+    internet: false
+    read_only_rootfs: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    ttl_s: 1800
+    tools: [python, pip]
+    writable_paths: ["/home/user/repo"]
+
+  node:
+    description: "Frontend and Node backend work."
+    image: node:22-slim
+    cpus: 2.0
+    memory: 2g
+    pids_limit: 512
+    network: bridge
+    internet: true
+    allowed_domains:
+      - registry.npmjs.org
+      - "*.npmjs.org"
+      - github.com
+      - "*.github.com"
+    read_only_rootfs: false   # npm writes into node_modules and its cache
+    tmpfs:
+      - "/tmp:rw,noexec,nosuid,size=512m"
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    ttl_s: 1800
+    tools: [node, npm]
+    writable_paths: ["/home/user/repo"]
+
+  security:
+    description: "Dependency scans, SAST, secret detection."
+    image: python:3.13-slim
+    cpus: 1.0
+    memory: 1g
+    # No egress on purpose: a scanner that reads the whole repo AND can reach
+    # the internet is an exfiltration path with a job title.
+    network: none
+    internet: false
+    read_only_rootfs: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    ttl_s: 900
+    tools: [bandit, pip-audit, trivy]
+
+  documentation:
+    description: "MkDocs, diagrams, README generation."
+    image: python:3.13-slim
+    cpus: 1.0
+    memory: 1g
+    network: none
+    internet: false
+    read_only_rootfs: false
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    ttl_s: 900
+    tools: [mkdocs]
+    writable_paths: ["/home/user/repo"]
+
+  review:
+    description: "Linting, formatting, code review. Read-only, no network."
+    image: python:3.13-slim
+    cpus: 1.0
+    memory: 1g
+    network: none
+    internet: false
+    read_only_rootfs: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    ttl_s: 600
+    tools: [ruff, black, mypy]
+
+  docker:
+    description: "Container build and test. Approval-gated by the baseline policy."
+    image: docker:27-cli
+    cpus: 2.0
+    memory: 4g
+    pids_limit: 1024
+    network: bridge
+    internet: true
+    read_only_rootfs: false
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    ttl_s: 1800
+    tools: [docker, docker-compose]
+    # DOCKER_HOST only — never a mounted /var/run/docker.sock. Mounting the
+    # socket into an agent-controlled container hands that container root on
+    # the host and voids every other control in this file. Point this at a
+    # rootless builder or a remote BuildKit endpoint instead.
+    env_allowlist: [DOCKER_HOST]
+    writable_paths: ["/home/user/repo"]

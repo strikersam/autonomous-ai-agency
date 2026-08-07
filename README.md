@@ -110,6 +110,32 @@ Consistent with the "check the proof" ethos above, none of this is described onl
 
 Full gap analysis and every new configuration variable: [docs/AGENT_AUTONOMY_ROADMAP.md](docs/AGENT_AUTONOMY_ROADMAP.md).
 
+## How the agents are governed
+
+Autonomy is only safe if it is bounded, attributable, and reversible. The
+governance layer ([`packages/governance/`](packages/governance/)) gives every
+agent action an identity, a policy verdict, a cost ceiling, and an audit row —
+modelled on [Docker AI Governance](https://www.docker.com/blog/docker-ai-governance-unlock-agent-autonomy-safely/)
+and adapted to this platform's topology.
+
+| Control | What it does | Where |
+|---|---|---|
+| **Agent identity** | Every action carries a stable agent id, an owner, a policy group, and a per-run session — so "who did this?" has an answer. | [`packages/governance/identity.py`](packages/governance/identity.py) |
+| **Policy engine** | Declarative rules over 13 surfaces (tools, filesystem, network, credentials, shell, GitHub, Docker, database, MCP, browser, memory, providers). Organisation baseline rules cannot be loosened by a group. | [`config/agent_policy.yaml`](config/agent_policy.yaml) |
+| **Cost ceilings** | Six enforced per-session limits — tool calls, spend, tokens, duration, recursion depth, retries. A policy file cannot stop a runaway loop; a counter can. | [`packages/governance/enforcement.py`](packages/governance/enforcement.py) |
+| **Approval gates** | High-risk actions (merge, delete, deploy, container build) hold for a human. TTL-bounded, and expiry **denies**. | [`packages/governance/approvals.py`](packages/governance/approvals.py) |
+| **Audit trail** | Who / what / when / why / where / cost — 20 fields, secrets redacted *before* storage, SIEM-shippable as one-line JSON. | [`packages/governance/audit.py`](packages/governance/audit.py) |
+| **Hardened sandboxes** | Eight least-privilege profiles: all capabilities dropped, non-root, no-new-privileges, read-only rootfs and no network by default. Docker locally, Firecracker micro-VMs in production. | [`config/sandbox_profiles.yaml`](config/sandbox_profiles.yaml) |
+| **Supply chain** | Image CVE scanning, dependency CVEs, CycloneDX SBOM, Dockerfile lint, and a posture guard that fails CI on a privileged container or a mounted Docker socket. | [`.github/workflows/supply-chain.yml`](.github/workflows/supply-chain.yml) |
+
+**It ships in observe mode.** Rules are evaluated and audited; nothing is
+blocked until an operator deliberately switches to enforcement, after watching
+what the rules *would* have caught. `GET /api/governance/status` reports what is
+actually in force — including `isolation: none` when no sandbox backend is
+available — because a dashboard that overstates containment is worse than none.
+
+Guide, gap analysis, and threat model: [docs/governance/](docs/governance/README.md).
+
 ## What's New (2026-07-24)
 
 **Structured output strict mode + refusal handling.** The OpenAI `json_schema` + `strict: true` pattern is now the preferred way to request schema-conformant JSON from any model (replacing the legacy `json_object` mode). The proxy translates strict-mode requests into a tighter system-prompt constraint for Anthropic and other providers that don't natively support it, and detects model refusals (`choices[0].message.refusal`) so callers get a clear error instead of empty/garbled JSON.
@@ -279,7 +305,7 @@ Responsive layout — sign in, view the dashboard, and work the task board from 
 
 The stack is a React SPA (Cloudflare Worker / GitHub Pages) over a FastAPI backend (Render / Docker) with swappable MongoDB/SQLite storage, a ModelRouter for task-aware model selection, and a persisted workflow state machine with HITL gates — the full diagram and the honest feature-maturity matrix are in [docs/platform-guide.md](docs/platform-guide.md#architecture).
 
-Security posture: no secrets in source (env-only, validated at startup) · JWT Bearer auth on every endpoint · three-role RBAC · per-task git worktree isolation · Bandit SAST + CodeQL + secret scanning on every push · dependency CVE audit on every PR · audit log for all admin actions.
+Security posture: no secrets in source (env-only, validated at startup) · JWT Bearer auth on every endpoint · three-role RBAC · per-task git worktree isolation · Bandit SAST + CodeQL + secret scanning on every push · dependency CVE audit on every PR · container image CVE scanning + SBOM on every image change · least-privilege agent sandboxes (all capabilities dropped, non-root, no-new-privileges) · identity-attributed audit trail for every agent action · audit log for all admin actions. Threat model and honest limits: [docs/governance/threat-model.md](docs/governance/threat-model.md).
 
 MIT — see [LICENSE](LICENSE)
 
