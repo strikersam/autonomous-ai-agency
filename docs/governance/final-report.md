@@ -195,8 +195,8 @@ Three real defects were found by testing rather than assumed away:
 | # | Capability | Files |
 |---|---|---|
 | 1 | Agent identity | `packages/governance/identity.py` |
-| 2 | Policy engine, 13 surfaces | `packages/governance/policy.py`, `config/agent_policy.yaml` |
-| 3 | Enforcement at one chokepoint | `packages/governance/enforcement.py`, `agent/loop.py` |
+| 2 | Policy engine, 13 surfaces (incl. `runtime`) | `packages/governance/policy.py`, `config/agent_policy.yaml` |
+| 3 | Enforcement at three seams | `packages/governance/enforcement.py`, `agent/loop.py` (agent loop), `mcp_server/governance.py` (HTTP), `runtimes/routing.py` (executor choice + fallbacks) |
 | 4 | Audit trail, 20 fields, redacted | `packages/governance/audit.py` |
 | 5 | Approvals with TTL | `packages/governance/approvals.py` |
 | 6 | Cost / runaway ceilings | `SessionBudget` in `enforcement.py` |
@@ -215,7 +215,7 @@ Three real defects were found by testing rather than assumed away:
 |---|---|---|
 | Agent actions attributable to an identity | 0% | 100% |
 | Audit fields captured | 0 of 20 | 20 of 20 |
-| Control surfaces with a policy model | 0 | 14 |
+| Control surfaces with a policy model | 0 | 13 |
 | Enforced cost/runaway ceilings | 1 (`MAX_SUBAGENT_DEPTH`) | 6 per session |
 | Sandbox profiles dropping all capabilities | 0 of 1 | 8 of 8 |
 | Container images CVE-scanned in CI | 0 of 11 | 1 of 11 (backend; the deployed one) |

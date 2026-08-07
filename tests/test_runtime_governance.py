@@ -15,6 +15,8 @@ Pinned here:
 """
 from __future__ import annotations
 
+from typing import Any, Iterator
+
 import pytest
 
 from packages.governance.audit import AuditLog, reset_audit_log
@@ -24,7 +26,9 @@ from runtimes.base import (
     RuntimeAdapter,
     RuntimeCapability,
     RuntimeHealth,
+    RuntimeExecutionError,
     RuntimeTier,
+    RuntimeUnavailableError,
     TaskResult,
     TaskSpec,
 )
@@ -65,20 +69,20 @@ class StubAdapter(RuntimeAdapter):
 
 
 @pytest.fixture(autouse=True)
-def isolated_governance():
+def isolated_governance() -> Iterator[None]:
     reset_audit_log(AuditLog(capacity=100))
     yield
     reset_audit_log(None)
     reset_policy_engine(None)
 
 
-def _engine(mode: str, **document) -> PolicyEngine:
+def _engine(mode: str, **document: Any) -> PolicyEngine:
     engine = PolicyEngine({"mode": mode, **document})
     reset_policy_engine(engine)
     return engine
 
 
-def _decision(adapter):
+def _decision(adapter: RuntimeAdapter) -> RoutingDecision:
     """A RoutingDecision matching what route_and_execute would have built."""
     return RoutingDecision(
         task_id="t1", task_type="general", selected_runtime_id=adapter.RUNTIME_ID,
@@ -86,7 +90,7 @@ def _decision(adapter):
     )
 
 
-def _spec(**kwargs) -> TaskSpec:
+def _spec(**kwargs: Any) -> TaskSpec:
     return TaskSpec(
         task_id=kwargs.pop("task_id", "task_1"),
         instruction=kwargs.pop("instruction", "do the thing"),
@@ -142,7 +146,7 @@ def test_observe_mode_never_blocks_a_dispatch():
 # ── End-to-end through the routing engine ────────────────────────────────────
 
 
-def _routing_engine(adapter):
+def _routing_engine(adapter: RuntimeAdapter) -> RuntimeRoutingPolicyEngine:
     """A routing engine wired to one healthy stub adapter."""
     from runtimes.health import RuntimeHealthService
     from runtimes.registry import RuntimeCapabilityRegistry
@@ -236,15 +240,24 @@ def test_a_task_with_no_agent_lands_on_the_least_privileged_group():
     assert event["policy_group"] == "default"
 
 
-def test_a_long_instruction_is_truncated_in_the_audit_row():
-    """The audit needs enough to identify the dispatch, not to replay it."""
+def test_the_instruction_body_is_never_stored_in_the_audit_row():
+    """Truncation would not protect a secret in the first 200 characters.
+
+    The instruction is free text authored by an agent or a user. `task_id` is
+    the join key to the full task record, so the audit row only needs the
+    dispatch's shape — not its content.
+    """
     from packages.governance.audit import get_audit_log
     _engine("observe")
     adapter = StubAdapter()
     decision = _decision(adapter)
-    _governance_check(_spec(instruction="x" * 50_000), adapter, decision)
+    secret = "my password is hunter2 " + "x" * 50_000
+    _governance_check(_spec(instruction=secret), adapter, decision)
     event = get_audit_log().recent(1)[0]
-    assert len(event["arguments"]["instruction"]) <= 300
+    assert "instruction" not in event["arguments"], "the body must not be stored"
+    assert event["arguments"]["instruction_chars"] == len(secret)
+    assert event["arguments"]["task_type"] == "general"
+    assert "hunter2" not in str(event)
 
 
 # ── Degradation ──────────────────────────────────────────────────────────────
@@ -255,7 +268,7 @@ def test_a_broken_governance_layer_allows_the_dispatch(monkeypatch):
     the risk it mitigates."""
     _engine("enforce", baseline={"runtime": {"deny": ["stub_runtime"]}})
 
-    def exploding():
+    def exploding() -> Any:
         raise RuntimeError("engine exploded")
 
     monkeypatch.setattr("packages.governance.policy.get_policy_engine", exploding)
@@ -271,3 +284,101 @@ def test_governance_disabled_skips_the_check_entirely(monkeypatch):
     adapter = StubAdapter()
     decision = _decision(adapter)
     assert _governance_check(_spec(), adapter, decision) is None
+
+
+# ── Fallback dispatch (regression) ───────────────────────────────────────────
+
+
+class SecondAdapter(StubAdapter):
+    """A second runtime, used as a fallback target."""
+
+    RUNTIME_ID = "fallback_runtime"
+    DISPLAY_NAME = "Fallback"
+
+
+async def test_a_denied_fallback_runtime_is_never_executed():
+    """Regression: checking only the primary left the policy evaporating on the
+    error path.
+
+    An agent allowed to use the primary runtime could reach a *denied* fallback
+    simply by having the permitted one fail — the control held on the happy
+    path and vanished on the one that matters.
+    """
+    from runtimes.health import RuntimeHealthService
+    from runtimes.registry import RuntimeCapabilityRegistry
+
+    _engine("enforce", baseline={"runtime": {"deny": ["fallback_runtime"]}})
+
+    primary = StubAdapter()
+    fallback = SecondAdapter()
+
+    async def failing_execute(spec: TaskSpec) -> TaskResult:
+        # Must be an exception the primary path actually catches, or it
+        # escapes and the fallback loop — the path under test — never runs.
+        raise RuntimeExecutionError(primary.RUNTIME_ID, "primary blew up", spec.task_id)
+
+    primary.execute = failing_execute  # type: ignore[method-assign]
+
+    registry = RuntimeCapabilityRegistry()
+    registry.register(primary)
+    registry.register(fallback)
+    health = RuntimeHealthService(registry)
+    for adapter in (primary, fallback):
+        health._cache[adapter.RUNTIME_ID] = RuntimeHealth(
+            runtime_id=adapter.RUNTIME_ID, available=True
+        )
+
+    engine = RuntimeRoutingPolicyEngine(registry=registry, health_service=health)
+    # Pin the primary: adapters sort alphabetically within a tier, so without
+    # this `fallback_runtime` is selected as the primary and the fallback path
+    # is never exercised.
+    engine.update_policy(
+        preferred_runtime_id="stub_runtime",
+        fallback_runtime_ids=["fallback_runtime"],
+    )
+
+    # Primary is permitted and fails; the only fallback is denied and skipped,
+    # so the chain is exhausted and the engine raises its normal
+    # "all runtimes failed" error — not a governance error.
+    with pytest.raises(RuntimeUnavailableError):
+        await engine.route_and_execute(_spec(task_type="code_generation"))
+
+    assert fallback.executed == [], "the denied fallback must never have run"
+
+
+async def test_an_allowed_fallback_still_runs():
+    """The fix must not break legitimate fallback."""
+    from runtimes.health import RuntimeHealthService
+    from runtimes.registry import RuntimeCapabilityRegistry
+
+    _engine("enforce")   # nothing denied
+
+    primary = StubAdapter()
+    fallback = SecondAdapter()
+
+    async def failing_execute(spec: TaskSpec) -> TaskResult:
+        # Must be an exception the primary path actually catches, or it
+        # escapes and the fallback loop — the path under test — never runs.
+        raise RuntimeExecutionError(primary.RUNTIME_ID, "primary blew up", spec.task_id)
+
+    primary.execute = failing_execute  # type: ignore[method-assign]
+
+    registry = RuntimeCapabilityRegistry()
+    registry.register(primary)
+    registry.register(fallback)
+    health = RuntimeHealthService(registry)
+    for adapter in (primary, fallback):
+        health._cache[adapter.RUNTIME_ID] = RuntimeHealth(
+            runtime_id=adapter.RUNTIME_ID, available=True
+        )
+
+    engine = RuntimeRoutingPolicyEngine(registry=registry, health_service=health)
+    engine.update_policy(
+        preferred_runtime_id="stub_runtime",
+        fallback_runtime_ids=["fallback_runtime"],
+    )
+
+    result, decision = await engine.route_and_execute(_spec(task_type="code_generation"))
+    assert result.success is True
+    assert fallback.executed == ["task_1"]
+    assert decision.fallback_runtime_id == "fallback_runtime"

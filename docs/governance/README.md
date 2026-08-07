@@ -43,8 +43,10 @@ solving one problem in one place, none inspectable as a policy.
 ## Architecture
 
 ```
-                        AgentRunner._dispatch_tool          ← the one chokepoint
-                                   │
+   AgentRunner._dispatch_tool   mcp_server tools/call   runtimes route_and_execute
+        (agent loop)              (HTTP surface)          (executor choice)
+              └───────────────────────┼───────────────────────┘
+                                      │
                         GovernanceGate.guard()
                                    │
         ┌──────────────┬───────────┼───────────┬──────────────┐
@@ -67,9 +69,13 @@ answer.
 
 ### Modules
 
-The same gate also fronts the **MCP HTTP surface** (`mcp_server/`), which
-exposes clone/write/run_command/git_push over the network. Identity propagates
-across that process boundary via `X-Agent-*` headers.
+Three seams feed one engine. `AgentRunner._dispatch_tool` covers the agent
+loop; `mcp_server/`'s `tools/call` covers the HTTP surface that exposes
+clone/write/run_command/git_push over the network (identity propagates across
+that process boundary via `X-Agent-*` headers); and
+`runtimes/routing.py::route_and_execute` covers which *executor* a task may be
+dispatched to — including every fallback runtime, not just the primary, since a
+fallback runs a different adapter than the one that was checked.
 
 | Module | Responsibility | Can it fail? |
 |---|---|---|
@@ -85,7 +91,7 @@ across that process boundary via `X-Agent-*` headers.
 ## Control surfaces
 
 Docker AI Governance defines four (network, filesystem, credentials, MCP
-tools). All 14 surfaces this platform exposes to agents are modelled:
+tools). All 13 surfaces this platform exposes to agents are modelled:
 
 | Surface | Governs | Rules written against |
 |---|---|---|
