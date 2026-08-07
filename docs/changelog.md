@@ -3,6 +3,8 @@
      move the gate to root. -->
 
 ## [Unreleased]
+### Fixed - `tests/conftest.py` — Mocked MongoDB connection and set test environment variable to resolve test failures
+### Fixed - `tests/conftest.py` — Mocked MongoDB connection and set test environment variable to resolve test failures
 
 ### Added
 
