@@ -72,43 +72,93 @@ class AgentPlan(BaseModel):
     requires_risky_review: bool = False  # True when any step touches admin_auth, key_store, agent/tools
 
 
+# Tools with a hardcoded branch in AgentRunner._dispatch_tool_unguarded.
+# Registry-backed tools are NOT listed here — see _known_tool_names below for
+# why enumerating them statically is the bug this set used to cause.
+CORE_TOOL_NAMES: frozenset[str] = frozenset({
+    "read_file",
+    "get_overview",
+    "get_context",
+    "get_risk",
+    "get_why",
+    "head_file",      # JIT retrieval: first N lines only
+    "file_index",     # JIT retrieval: lightweight file list with sizes
+    "write_file",
+    "apply_diff",
+    "list_files",
+    "search_code",
+    "recall_memory",
+    "save_memory",
+    "spawn_subagent",
+    "github_read_repo_file",
+    "github_list_repos",
+    "github_list_branches",
+    "github_create_branch",
+    "github_commit_changes",
+    "github_open_pull_request",
+    "github_merge_pull_request",
+    "github_get_issue",
+    "github_comment_on_issue",
+    "github_close_issue",
+    "run_command",
+    "clone_repo",
+    "git_status",
+    "git_diff",
+    "git_create_branch",
+    "git_commit",
+    "git_push",
+    "delete_workspace",
+    "finish",
+    # Advertised to the executor by harness_enrichment.ALWAYS_TOOLS and
+    # dispatched by name; they were missing here, so every selection was
+    # rejected as a tool-selection failure.
+    "execute_skill",
+    "recommend_skills",
+})
+
+
+def _known_tool_names() -> frozenset[str]:
+    """Core tools plus whatever the capability registry currently exposes.
+
+    A static list here was a trap: registering a tool and advertising it in the
+    prompt are two steps that live elsewhere, so a tool could be offered to the
+    model and then rejected at parse time. That is not a soft failure — the
+    executor counts it as a tool-selection error and fails the step after four
+    of them. Web Reach (``fetch_url``, ``web_search``, ``youtube_transcript``,
+    ``fetch_rss``) was unreachable this way despite being registered and
+    advertised.
+
+    Resolved per call rather than at import time because the registry is
+    populated lazily, and read through a broad except because an unavailable
+    registry must narrow validation, never break parsing.
+    """
+    try:
+        from agent.capability_registry import get_tool_registry
+
+        registry = get_tool_registry()
+        if registry is not None:
+            return CORE_TOOL_NAMES | {t.name for t in registry.list_all()}
+    except Exception:  # noqa: BLE001 - validation must not depend on the registry
+        pass
+    return CORE_TOOL_NAMES
+
+
 class ToolCall(BaseModel):
-    tool: Literal[
-        "read_file",
-        "get_overview",
-        "get_context",
-        "get_risk",
-        "get_why",
-        "head_file",      # JIT retrieval: first N lines only
-        "file_index",     # JIT retrieval: lightweight file list with sizes
-        "write_file",
-        "apply_diff",
-        "list_files",
-        "search_code",
-        "recall_memory",
-        "save_memory",
-        "spawn_subagent",
-        "github_read_repo_file",
-        "github_list_repos",
-        "github_list_branches",
-        "github_create_branch",
-        "github_commit_changes",
-        "github_open_pull_request",
-        "github_merge_pull_request",
-        "github_get_issue",
-        "github_comment_on_issue",
-        "github_close_issue",
-        "run_command",
-        "clone_repo",
-        "git_status",
-        "git_diff",
-        "git_create_branch",
-        "git_commit",
-        "git_push",
-        "delete_workspace",
-        "finish",
-    ]
+    """One tool selection parsed from the executor model's JSON response."""
+
+    tool: str
     args: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("tool")
+    @classmethod
+    def _tool_must_be_dispatchable(cls, value: str) -> str:
+        """Reject names with no dispatch path, accept everything reachable."""
+        known = _known_tool_names()
+        if value not in known:
+            raise ValueError(
+                f"unknown tool {value!r}; expected one of: {', '.join(sorted(known))}"
+            )
+        return value
 
 
 class VerificationResult(BaseModel):
