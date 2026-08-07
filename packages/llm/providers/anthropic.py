@@ -98,6 +98,16 @@ class AnthropicProvider(LLMProvider):
         system_parts, messages = self._convert_messages(request.messages)
         no_temperature = model in _NO_TEMPERATURE_MODELS
 
+        # Anthropic's API doesn't accept response_format.  When JSON mode is
+        # requested, inject the constraint as a system-prompt instruction so the
+        # model still honours it.  This mirrors what the legacy router does via
+        # packages/ai/structured_output.py — kept inline here to avoid coupling
+        # packages/llm to packages/ai.
+        if request.response_format:
+            instr = self._json_instruction(request.response_format)
+            if instr:
+                system_parts.append(instr)
+
         payload: dict[str, Any] = {
             "model": model,
             "messages": messages or [{"role": "user", "content": ""}],
@@ -252,6 +262,39 @@ class AnthropicProvider(LLMProvider):
             )
             return None
         return {"type": "enabled", "budget_tokens": budget}
+
+    @staticmethod
+    def _json_instruction(response_format: dict[str, Any]) -> str | None:
+        """Return a system-prompt instruction that enforces JSON output.
+
+        Anthropic's Messages API does not support ``response_format`` in the
+        request body; the constraint must travel as part of the system prompt.
+        Returns ``None`` for unknown or non-JSON format types so callers can
+        skip the append safely.
+        """
+        fmt_type = response_format.get("type", "")
+        _base = (
+            "You MUST respond with a single valid JSON object only. "
+            "Do not include any text, explanation, or markdown outside the JSON."
+        )
+        if fmt_type == "json_object":
+            return _base
+        if fmt_type == "json_schema":
+            schema_body = response_format.get("json_schema") or {}
+            name = schema_body.get("name", "")
+            schema = schema_body.get("schema")
+            if schema:
+                try:
+                    schema_str = json.dumps(schema, indent=2)
+                    label = f"'{name}' " if name else ""
+                    return (
+                        f"You MUST respond with a single valid JSON object matching "
+                        f"the {label}schema:\n{schema_str}\n\n{_base}"
+                    )
+                except (TypeError, ValueError):
+                    pass
+            return _base
+        return None
 
     @staticmethod
     def _convert_tool(tool: dict[str, Any]) -> dict[str, Any]:

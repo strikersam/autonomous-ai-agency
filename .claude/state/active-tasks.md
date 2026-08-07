@@ -93,10 +93,10 @@
 | A1 | Hermes ChatML Prompt Format | P0 | `TODO` | — |
 | A2 | Multi-Hop ReAct Loop | P0 | `TODO` | — |
 | B1 | Nemotron Reward Model Scoring | P0 | `TODO` | — |
-| C1 | Structured Output / JSON Mode | P0 | `TODO` | — |
+| C1 | Structured Output / JSON Mode | P0 | `DONE` | `_json_instruction()` in AnthropicProvider; 10 new tests; 2026-08-07 |
 | C2 | Function Calling (OpenAI-compatible) | P0 | `TODO` | — |
 | F1 | Precise Diff Application (Codebuff-style) | P0 | `TODO` | — |
-| ★4 | Skill/Procedural Memory | P1 | `TODO` | — |
+| ★4 | Skill/Procedural Memory | P1 | `DONE` | `agent/procedural_memory.py` + loop/prompts wiring; 28 new tests; 2026-08-07 |
 | ★5 | Sandboxed Agent Execution | P1 | `TODO` | — |
 | ★6 | Cost Analytics + FTS5 Memory + Constitution | P1 | `TODO` | — |
 | ★7 | Adaptive Loop Halting | P1 | `DONE` | `agent/adaptive_halting.py` AdaptiveHalter (velocity + consecutive-fail gates), wired into AgentRunner.run(); 14 tests (2026-07-13) |
