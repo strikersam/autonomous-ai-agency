@@ -144,12 +144,15 @@ def _known_tool_names() -> frozenset[str]:
 
 
 class ToolCall(BaseModel):
+    """One tool selection parsed from the executor model's JSON response."""
+
     tool: str
     args: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("tool")
     @classmethod
     def _tool_must_be_dispatchable(cls, value: str) -> str:
+        """Reject names with no dispatch path, accept everything reachable."""
         known = _known_tool_names()
         if value not in known:
             raise ValueError(

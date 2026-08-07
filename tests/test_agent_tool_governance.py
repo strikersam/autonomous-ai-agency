@@ -40,6 +40,7 @@ def isolated_governance():
 
 
 def _enforce(**document: Any) -> None:
+    """Install an enforcing policy engine built from *document*."""
     reset_policy_engine(PolicyEngine({"mode": "enforce", **document}))
 
 
@@ -52,6 +53,7 @@ def governance_on(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _runner(tmp_path: Path) -> AgentRunner:
+    """An AgentRunner rooted in an empty workspace under *tmp_path*."""
     root = tmp_path / "repo"
     root.mkdir(exist_ok=True)
     return AgentRunner(ollama_base="http://localhost:11434", workspace_root=root)
@@ -65,6 +67,7 @@ def _drive(runner: AgentRunner, tool: str, args: dict[str, Any], monkeypatch: py
     ])
 
     async def fake_chat_json(self_arg: object, model: str, messages: list) -> dict[str, Any]:
+        """Replay the scripted tool selections instead of calling an LLM."""
         return next(calls)
 
     monkeypatch.setattr(AgentRunner, "_chat_json", fake_chat_json)
@@ -78,6 +81,7 @@ def _drive(runner: AgentRunner, tool: str, args: dict[str, Any], monkeypatch: py
 
 
 def _observations(result: dict[str, Any], tool: str) -> list[Any]:
+    """Every observation *result* recorded for *tool*, in order."""
     return [o["result"] for o in result["observations"] if o.get("tool") == tool]
 
 
@@ -102,6 +106,7 @@ def test_a_denied_skill_never_executes(tmp_path, monkeypatch, governance_on):
 
 
 def test_an_allowed_skill_still_runs_and_is_audited(tmp_path, monkeypatch, governance_on):
+    """Governance must not silently swallow the calls it permits."""
     _enforce(baseline={"tool": {"deny": ["some_other_tool"]}})
     monkeypatch.setattr(
         AgentRunner, "_execute_skill_tool", staticmethod(lambda args: "skill output")
@@ -135,6 +140,7 @@ def test_skill_result_is_unchanged_when_governance_is_off(tmp_path, monkeypatch)
 
 
 def test_recommend_skills_is_governed_too(tmp_path, monkeypatch, governance_on):
+    """The sibling of execute_skill had the same bypass."""
     _enforce(baseline={"tool": {"deny": ["recommend_skills"]}})
     called: list[str] = []
     monkeypatch.setattr(
@@ -157,6 +163,7 @@ def test_a_denied_spawn_never_creates_a_child_runner(tmp_path, monkeypatch, gove
     spawned: list[str] = []
 
     async def fake_spawn(self_arg: object, **kwargs: Any) -> dict[str, Any]:
+        """Stand in for the real child-runner spawn."""
         spawned.append("spawned")
         return {"summary": "child ran"}
 
@@ -188,8 +195,13 @@ def test_a_string_denial_does_not_break_the_dict_shaped_call_site(
         _runner(tmp_path), "spawn_subagent", {"instruction": "do it"}, monkeypatch
     )
 
-    assert result["status"] != "failed" or "AttributeError" not in str(result)
-    assert isinstance(_observations(result, "spawn_subagent")[0], str)
+    observed = _observations(result, "spawn_subagent")[0]
+    assert isinstance(observed, str), "a denial must not be a dict"
+    assert "deny" in observed and "baseline.tool.deny" in observed
+    # _run_tool converts any exception to "[tool error: …]", so without this
+    # the test would still pass if the deny rule stopped firing and the
+    # patched implementation raised instead.
+    assert "AssertionError" not in observed, "the implementation must not have run"
 
 
 def test_an_allowed_spawn_still_returns_the_child_result(tmp_path, monkeypatch, governance_on):
@@ -197,6 +209,7 @@ def test_an_allowed_spawn_still_returns_the_child_result(tmp_path, monkeypatch, 
     _enforce(baseline={"tool": {"deny": ["some_other_tool"]}})
 
     async def fake_spawn(self_arg: object, **kwargs: Any) -> dict[str, Any]:
+        """Stand in for the real child-runner spawn."""
         return {"summary": "child ran", "steps": []}
 
     monkeypatch.setattr(AgentRunner, "_spawn_subagent", fake_spawn)
@@ -234,11 +247,18 @@ def test_every_advertised_tool_name_parses_as_a_tool_call():
     assert rejected == [], f"advertised but unparseable: {rejected}"
 
 
-def test_registry_tools_parse_without_being_listed_statically():
-    """Registering + advertising a tool must be enough; no third edit here."""
+def test_registry_tools_parse_without_being_listed_statically(monkeypatch):
+    """Registering + advertising a tool must be enough; no third edit here.
+
+    Deliberately exercises the production singleton — that is the registry
+    ``ToolCall`` actually consults — but resets it first so the result cannot
+    depend on whether an earlier test already initialised it.
+    """
+    from agent import capability_registry
     from agent.capability_registry import get_tool_registry
     from agent.models import ToolCall
 
+    monkeypatch.setattr(capability_registry, "_tool_registry", None)
     registry = get_tool_registry()
     assert registry is not None
     names = [t.name for t in registry.list_all()]
@@ -257,6 +277,80 @@ def test_an_unregistered_tool_name_is_still_rejected():
         ToolCall(tool="rm_rf_everything", args={})
 
 
+def test_a_subagent_error_is_not_reported_to_the_model_as_success(
+    tmp_path, monkeypatch, governance_on
+):
+    """`_spawn_subagent` returns error dicts with no `summary` key.
+
+    Defaulting the scratchpad note to "subagent completed" told the executor
+    the delegation had worked — and that text is injected into the next
+    tool-selection prompt, so the model plans its following step on a false
+    premise. Both reachable error paths (empty instruction, depth limit) hit it.
+    """
+    _enforce(baseline={"tool": {"deny": ["some_other_tool"]}})
+
+    async def fake_spawn(self_arg: object, **kwargs: Any) -> dict[str, Any]:
+        """Stand in for the real child-runner spawn."""
+        return {"error": "spawn_subagent depth limit reached (5)", "depth": 6}
+
+    monkeypatch.setattr(AgentRunner, "_spawn_subagent", fake_spawn)
+
+    result = _drive(
+        _runner(tmp_path), "spawn_subagent", {"instruction": "do it"}, monkeypatch
+    )
+
+    observed = _observations(result, "spawn_subagent")[0]
+    assert "depth limit reached" in observed
+    assert "subagent completed" not in observed
+
+
+def test_model_supplied_keys_are_not_splatted_into_spawn_subagent(tmp_path, monkeypatch):
+    """`args` is model-generated JSON; only named parameters may reach the call.
+
+    `_spawn_subagent` absorbs unknown keys through `**kwargs`, so a splat is
+    harmless today — but any parameter it gains later would silently become
+    model-controllable. This is the highest-privilege tool in the loop.
+    """
+    runner = _runner(tmp_path)
+    seen: list[dict[str, Any]] = []
+
+    async def fake_spawn(self_arg: object, **kwargs: Any) -> dict[str, Any]:
+        """Stand in for the real child-runner spawn."""
+        seen.append(kwargs)
+        return {"summary": "ok"}
+
+    monkeypatch.setattr(AgentRunner, "_spawn_subagent", fake_spawn)
+
+    asyncio.run(
+        runner._dispatch_tool_unguarded(
+            "spawn_subagent",
+            {"instruction": "hi", "max_steps": 2, "workspace_root": "/etc", "token": "x"},
+        )
+    )
+
+    assert seen == [{"instruction": "hi", "max_steps": 2, "role": ""}]
+
+
+def test_spawn_subagent_aliases_still_reach_the_implementation(tmp_path, monkeypatch):
+    """The executor may emit `command`/`task`/`text` instead of `instruction`."""
+    runner = _runner(tmp_path)
+    seen: list[dict[str, Any]] = []
+
+    async def fake_spawn(self_arg: object, **kwargs: Any) -> dict[str, Any]:
+        """Stand in for the real child-runner spawn."""
+        seen.append(kwargs)
+        return {"summary": "ok"}
+
+    monkeypatch.setattr(AgentRunner, "_spawn_subagent", fake_spawn)
+
+    asyncio.run(
+        runner._dispatch_tool_unguarded("spawn_subagent", {"command": "do the thing"})
+    )
+
+    assert seen[0]["command"] == "do the thing"
+    assert seen[0]["instruction"] == "", "empty so the alias fallback engages"
+
+
 def test_spawn_subagent_is_reachable_through_the_dispatch_seam(tmp_path, monkeypatch):
     """Routing is pointless if the seam cannot dispatch the tool.
 
@@ -268,6 +362,7 @@ def test_spawn_subagent_is_reachable_through_the_dispatch_seam(tmp_path, monkeyp
     seen: list[dict[str, Any]] = []
 
     async def fake_spawn(self_arg: object, **kwargs: Any) -> dict[str, Any]:
+        """Stand in for the real child-runner spawn."""
         seen.append(kwargs)
         return {"summary": "ok"}
 
@@ -278,4 +373,4 @@ def test_spawn_subagent_is_reachable_through_the_dispatch_seam(tmp_path, monkeyp
     )
 
     assert out == {"summary": "ok"}
-    assert seen == [{"instruction": "hi", "max_steps": 2}]
+    assert seen == [{"instruction": "hi", "max_steps": 2, "role": ""}]

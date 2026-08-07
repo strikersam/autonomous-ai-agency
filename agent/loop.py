@@ -686,9 +686,11 @@ class AgentRunner:
                         )
                     except Exception:
                         # Best-effort: a memory write must never fail the step
-                        # that already succeeded. Logged so a persistently
-                        # broken store is visible instead of silently empty.
-                        log.debug("Procedural memory record_success failed (non-fatal)", exc_info=True)
+                        # that already succeeded. WARNING, not DEBUG: production
+                        # log thresholds start at INFO, so a debug line would be
+                        # discarded and the broken store would stay invisible —
+                        # the exact failure this logging exists to surface.
+                        log.warning("Procedural memory record_success failed (non-fatal)", exc_info=True)
 
                 # Adaptive Loop Halting: early-exit when verifier confidence >= threshold
                 # on all files touched this step. Simple single-file edits often finish
@@ -913,9 +915,10 @@ class AgentRunner:
             proc_memories = get_procedural_memory().retrieve_relevant(instruction, limit=3)
         except Exception:
             # Best-effort: planning proceeds without prior-success hints rather
-            # than failing. Logged so a broken store is visible instead of
-            # looking like "no relevant memories".
-            log.debug("Procedural memory retrieve_relevant failed (non-fatal)", exc_info=True)
+            # than failing. WARNING for the same reason as the record_success
+            # site above — at DEBUG this is dropped in production, and a broken
+            # store stays indistinguishable from "no relevant memories".
+            log.warning("Procedural memory retrieve_relevant failed (non-fatal)", exc_info=True)
         messages = build_planning_prompt(
             instruction, history,
             user_memories=user_memories,
@@ -1105,10 +1108,13 @@ class AgentRunner:
                 )
                 # A governance denial or a tool error arrives as a string, not
                 # the run() dict this branch used to be guaranteed. Summarise
-                # without assuming the shape.
+                # without assuming the shape, and use ONE fallback: the old
+                # code defaulted the scratchpad note to "subagent completed",
+                # which reported success for the two error dicts _spawn_subagent
+                # returns without a summary key (empty instruction, depth limit).
+                # That text is injected into the next tool-selection prompt.
                 if isinstance(sub_result, dict):
-                    observed = sub_result.get("summary", str(sub_result))
-                    noted = sub_result.get("summary", "subagent completed")
+                    observed = noted = str(sub_result.get("summary") or sub_result)
                 else:
                     observed = noted = str(sub_result)
                 observations.append({"tool": "spawn_subagent", "result": observed})
@@ -1581,8 +1587,21 @@ class AgentRunner:
             return self._recommend_skills_tool(args)
         # ├─ Sub-agent delegation. Dispatchable so the executor loop can reach
         #    it through the governance seam instead of calling it directly.
+        #    Named parameters are read out explicitly rather than splatted:
+        #    `args` is model-generated JSON, and `_spawn_subagent` absorbing
+        #    unknown keys via **kwargs means any parameter it gains later
+        #    (a workspace root, a model override) would become directly
+        #    model-controllable with no edit here. This is the highest-privilege
+        #    tool in the loop. The command/task/text aliases are forwarded
+        #    because _spawn_subagent resolves them itself.
         if tool == "spawn_subagent":
-            return await self._spawn_subagent(**args)
+            aliases = {k: args[k] for k in ("command", "task", "text") if k in args}
+            return await self._spawn_subagent(
+                instruction=str(args.get("instruction") or ""),
+                max_steps=int(args.get("max_steps", 3)),
+                role=str(args.get("role", "")),
+                **aliases,
+            )
 
         # ═══════════════════════════════════════════════════════════════════
         # GitHub Tools
