@@ -94,7 +94,7 @@ jobs:
       # while Trivy runs unauthenticated — a scanner nobody can run is not a
       # control. Scout remains a good local complement (`docker scout cves`).
       - name: Scan image for CVEs
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: agency-backend:scan
           format: sarif
@@ -113,7 +113,7 @@ jobs:
       # narrowest gate that still means something: it says "a patched version
       # exists and we are not on it", which is always actionable.
       - name: Fail on fixable CRITICAL vulnerabilities
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: agency-backend:scan
           format: table
@@ -122,7 +122,7 @@ jobs:
           exit-code: "1"
 
       - name: Generate SBOM (CycloneDX)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: agency-backend:scan
           format: cyclonedx
@@ -142,7 +142,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Scan requirements for known vulnerabilities
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: fs
           scan-ref: .

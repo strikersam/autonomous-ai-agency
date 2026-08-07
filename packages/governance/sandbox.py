@@ -84,7 +84,12 @@ class SandboxProfile:
     internet: bool = False
     allowed_domains: tuple[str, ...] = ()
     read_only_rootfs: bool = True
-    tmpfs: tuple[str, ...] = ("/tmp:rw,noexec,nosuid,size=256m",)
+    # nosec B108 — not a host temp path. This is a `docker run --tmpfs` mount
+    # spec: `/tmp` here is inside the sandbox's own mount namespace, backed by
+    # an in-memory filesystem that is destroyed with the container. It exists
+    # precisely so a read-only root filesystem still has scratch space, and
+    # `noexec,nosuid` is what stops a dropped payload being executed from it.
+    tmpfs: tuple[str, ...] = ("/tmp:rw,noexec,nosuid,size=256m",)  # nosec B108
     cap_drop: tuple[str, ...] = ("ALL",)
     cap_add: tuple[str, ...] = ()
     security_opt: tuple[str, ...] = ("no-new-privileges:true",)
@@ -154,7 +159,11 @@ BUILTIN_PROFILES: dict[str, SandboxProfile] = {
         # privileged, which is the usual shortcut for "Playwright won't start".
         cap_add=("SYS_ADMIN", "SYS_CHROOT"),
         read_only_rootfs=False,
-        tmpfs=("/tmp:rw,nosuid,size=1g", "/dev/shm:rw,nosuid,size=1g"),
+        # nosec B108 — container-internal tmpfs mount specs, not host paths.
+        # Chromium needs a large /dev/shm or it crashes on page load; both are
+        # in-memory and destroyed with the container. `noexec` is deliberately
+        # absent here because Chromium maps executable pages out of /tmp.
+        tmpfs=("/tmp:rw,nosuid,size=1g", "/dev/shm:rw,nosuid,size=1g"),  # nosec B108
         tools=("playwright", "chromium", "node"),
         writable_paths=(SANDBOX_WORKDIR,),
     ),

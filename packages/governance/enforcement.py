@@ -615,6 +615,13 @@ def resolve_identity_for_runner(runner: Any, **context: Any) -> Any:
     )
     try:
         runner._governance_identity = identity  # noqa: SLF001 - cache on the runner
-    except Exception:  # noqa: BLE001 - a slotted/frozen runner is fine, just uncached
-        pass
+    except Exception as exc:  # noqa: BLE001 - a slotted/frozen runner is fine
+        # Not fatal, but not silent either: without the cache every call gets a
+        # fresh session_id, which splits one run's budget and audit rows across
+        # many sessions. Worth a line in the log when it happens.
+        log.debug(
+            "Could not cache identity on %s (%s); per-session budget and audit "
+            "correlation will be per-call for this runner",
+            type(runner).__name__, type(exc).__name__,
+        )
     return identity

@@ -128,8 +128,13 @@ def _scrub_text(text: str) -> str:
         from packages.security.redact import redact_connection_url
 
         redacted = redact_connection_url(redacted)
-    except Exception:  # noqa: BLE001 - shared helper is optional at import time
-        pass
+    except Exception as exc:  # noqa: BLE001 - shared helper is optional at import time
+        # Logged rather than swallowed: this helper is the only thing that
+        # strips `user:pass@host` from a connection URI, so its absence means
+        # the value-pattern pass below is redacting alone. That is a weaker
+        # guarantee than intended and an operator should be able to see it.
+        log.warning("redact_connection_url unavailable (%s); URI credentials "
+                    "rely on the value patterns alone", type(exc).__name__)
     for pattern in _VALUE_PATTERNS:
         redacted = pattern.sub(
             lambda m: m.group(0).replace(m.group(1), "***") if m.groups() else "***",
