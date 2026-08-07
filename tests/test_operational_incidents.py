@@ -265,9 +265,127 @@ def test_incident_body_names_the_stuck_phase_when_evidence_has_one():
     )
     body = ops._format_incident(incident)
 
-    assert "Likely stuck phase: `tool_dispatch`" in body
+    # Render's marker-counting view is a cross-check, reported as such.
+    assert "Render logs additionally show `tool_dispatch`" in body
     assert "recurred **4 times**" in body
     assert "Render logs" in body
+
+
+# ── in-process phase tracking (needs no Render, no sidecar, no API key) ──────
+
+
+@pytest.fixture(autouse=True)
+def _clean_phases():
+    """Phase state is module-global — keep tests from leaking into each other."""
+    ops.reset_phase_tracking()
+    yield
+    ops.reset_phase_tracking()
+
+
+def test_an_open_phase_is_reported_as_the_stall_with_its_real_duration():
+    """Tracked as it happens, so the duration is measured rather than inferred."""
+    ops.note_phase_start("tool_dispatch", "tool='fetch_url'")
+    report = ops.open_phase_report()
+
+    assert report["likely_stuck_phase"] == "tool_dispatch"
+    assert report["stuck_for_s"] is not None
+    assert report["open"][0]["context"] == "tool='fetch_url'"
+
+
+def test_a_phase_that_completed_is_no_longer_reported():
+    token = ops.note_phase_start("planning", "s1")
+    ops.note_phase_end(token)
+
+    report = ops.open_phase_report()
+    assert report["likely_stuck_phase"] is None
+    assert report["open"] == []
+
+
+def test_the_innermost_open_phase_is_named_not_its_wrapper():
+    """`execute_step` wraps `tool_dispatch`; a stuck inner call leaves both open,
+    and the inner one is the cause."""
+    ops.note_phase_start("execute_step", "step_id=1")
+    ops.note_phase_start("tool_dispatch", "tool='fetch_url'")
+
+    assert ops.open_phase_report()["likely_stuck_phase"] == "tool_dispatch"
+
+
+def test_open_phase_tracking_is_bounded(monkeypatch):
+    """A missed end marker must not let the map grow without limit."""
+    monkeypatch.setattr(ops, "_MAX_OPEN_PHASES", 5)
+    for n in range(50):
+        ops.note_phase_start("leaky", f"ctx={n}")
+
+    assert len(ops.open_phase_report()["open"]) <= 5
+
+
+def test_phase_helpers_never_raise_into_the_agent_loop(monkeypatch):
+    """They are called from inside the run loop; a failure must not break it."""
+    monkeypatch.setattr(ops, "_now", lambda: (_ for _ in ()).throw(RuntimeError("x")))
+    token = ops.note_phase_start("planning", "s1")  # must not raise
+    ops.note_phase_end(token)
+
+
+def test_concurrent_phases_with_identical_labels_are_tracked_separately():
+    """Parallel steps (`_maybe_run_parallel`) and spawned sub-agents can run the
+    same phase with the same label at once. Keying on the label would collapse
+    them, and the first end marker would erase the still-running invocation —
+    hiding exactly the stall being looked for."""
+    first = ops.note_phase_start("tool_dispatch", "tool='fetch_url'")
+    ops.note_phase_start("tool_dispatch", "tool='fetch_url'")
+
+    ops.note_phase_end(first)
+
+    report = ops.open_phase_report()
+    assert report["likely_stuck_phase"] == "tool_dispatch", (
+        "the second invocation must still be tracked after the first ends"
+    )
+    assert len(report["open"]) == 1
+
+
+def test_the_agent_loops_timed_phase_feeds_the_tracker():
+    """End-to-end through the real `_timed_phase`, which is what production runs."""
+    from agent.loop import _timed_phase
+
+    seen: dict = {}
+
+    async def _run() -> None:
+        async with _timed_phase("tool_dispatch", tool="fetch_url"):
+            seen.update(ops.open_phase_report())
+
+    asyncio.run(_run())
+
+    assert seen["likely_stuck_phase"] == "tool_dispatch", (
+        "a phase in flight must be visible to the incident tracker"
+    )
+    assert ops.open_phase_report()["likely_stuck_phase"] is None, (
+        "and must be cleared once the phase completes"
+    )
+
+
+def test_the_incident_body_leads_with_the_in_process_phase():
+    """The in-process view is authoritative — it needs no external service."""
+    incident = ops.OperationalIncident(
+        signature="abc", logger_name="qwen-agent", normalised="x", sample="x",
+        count=4, window_seconds=1800, first_seen="t0", last_seen="t1",
+        evidence={
+            "phases_in_process": {
+                "open": [{"phase": "tool_dispatch", "context": "tool='fetch_url'",
+                          "open_for_s": 412.0}],
+                "likely_stuck_phase": "tool_dispatch",
+                "stuck_for_s": 412.0,
+            },
+            "available": False,
+            "reason": "log fetch failed: connection refused",
+        },
+    )
+    body = ops._format_incident(incident)
+
+    assert "Stuck phase: `tool_dispatch`" in body
+    assert "412.0s" in body
+    # And the unreachable-Render case must point at the likely cause.
+    assert "agency-render-mcp" in body
+    assert "render_ops.py" in body
 
 
 def test_incident_body_says_so_when_render_evidence_is_missing():

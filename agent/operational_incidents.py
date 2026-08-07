@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import itertools
 import logging
 import re
 import threading
@@ -109,6 +110,95 @@ def _now() -> float:
     for every thread in the process for the duration of a test.
     """
     return time.monotonic()
+
+
+# ── in-process phase tracking ────────────────────────────────────────────────
+#
+# `agent/loop.py::_timed_phase` logs a phase_start/phase_end pair around every
+# LLM call and tool dispatch, and those markers name the call that never
+# returned. Reading them back out of Render's log API would mean round-tripping
+# our *own* log lines through an external service — and on a single-service
+# deployment (no `agency-render-mcp` sidecar) that service is unreachable, so
+# the answer would never arrive at all.
+#
+# Tracking the phases here instead makes the answer exact rather than inferred:
+# a phase still open when the incident fires *is* the stall, with its real
+# duration, no marker-counting required.
+
+# Bounded so a long-lived process cannot accumulate phases if an end marker is
+# ever missed. Oldest entries are dropped first.
+_MAX_OPEN_PHASES: int = 64
+
+_phase_lock = threading.Lock()
+_phase_seq = itertools.count()
+# Keyed by a unique per-invocation token, NOT by (phase, context): parallel
+# step execution (`_maybe_run_parallel`) and spawned sub-agents can have two
+# runs inside the same phase with identical labels at once. Keying on the label
+# would collapse them, and the first end marker would then erase the entry for
+# the invocation still running — hiding the very stall being looked for.
+# Insertion-ordered, so the most recently opened is last.
+_open_phases: "dict[int, tuple[str, str, float]]" = {}
+
+
+def note_phase_start(phase: str, context: str = "") -> int:
+    """Record that *phase* began; returns the token that ends it.
+
+    Called from ``_timed_phase``; never raises. The token is what makes two
+    concurrent invocations of the same phase distinguishable.
+    """
+    try:
+        token = next(_phase_seq)
+        with _phase_lock:
+            if len(_open_phases) >= _MAX_OPEN_PHASES:
+                _open_phases.pop(next(iter(_open_phases)), None)
+            _open_phases[token] = (phase, context, _now())
+        return token
+    except Exception:  # noqa: BLE001 - instrumentation must never break the loop
+        log.debug("OperationalIncidents: could not record phase start for %s", phase)
+        return -1
+
+
+def note_phase_end(token: int) -> None:
+    """Close the invocation identified by *token*. Never raises."""
+    try:
+        with _phase_lock:
+            _open_phases.pop(token, None)
+    except Exception:  # noqa: BLE001 - instrumentation must never break the loop
+        log.debug("OperationalIncidents: could not record phase end (token=%s)", token)
+
+
+def open_phase_report() -> dict[str, Any]:
+    """Describe the phases currently in flight, innermost (newest) first.
+
+    A phase that has been open far longer than any LLM call should take is the
+    stalled one. Because these are tracked as they happen rather than inferred
+    from log text, the elapsed time is real — the caller does not have to guess
+    from an unbalanced marker count.
+    """
+    now = _now()
+    with _phase_lock:
+        raw = list(_open_phases.values())
+    # Newest first: with nested phases (`execute_step` wrapping `tool_dispatch`)
+    # the inner call is the cause and the wrapper is only the symptom. Sorted on
+    # the raw start time, not the rounded elapsed — two phases opening inside
+    # one clock tick both round to 0.0s, tie, and fall back to insertion order,
+    # which names the outer wrapper.
+    raw.sort(key=lambda item: item[2], reverse=True)
+    entries = [
+        {"phase": phase, "context": context, "open_for_s": round(now - started, 1)}
+        for phase, context, started in raw
+    ]
+    return {
+        "open": entries,
+        "likely_stuck_phase": entries[0]["phase"] if entries else None,
+        "stuck_for_s": entries[0]["open_for_s"] if entries else None,
+    }
+
+
+def reset_phase_tracking() -> None:
+    """Drop all open-phase state. Used by tests."""
+    with _phase_lock:
+        _open_phases.clear()
 
 
 def scrub(text: str) -> str:
@@ -457,10 +547,16 @@ async def _diagnose_and_file(incident: OperationalIncident) -> None:
     releases its cooldown and hourly-cap slot instead of suppressing the
     signature for hours over an intake that was merely not running yet.
     """
+    # The in-process view first: it needs no network, no API key, and no
+    # sidecar, so it is the one source that is always present. Render is
+    # enrichment on top — valuable for what the process could not log because
+    # it was killed (OOM, restart), useless if the MCP sidecar is not deployed.
+    evidence: dict[str, Any] = {"phases_in_process": open_phase_report()}
     try:
-        incident.evidence = await gather_render_evidence()
+        evidence.update(await gather_render_evidence())
     except Exception as exc:  # noqa: BLE001 - file it even without evidence
-        incident.evidence = {"available": False, "reason": str(exc)}
+        evidence.update({"available": False, "reason": str(exc)})
+    incident.evidence = evidence
 
     filed = _file_incident(incident)
     if filed:
@@ -508,6 +604,71 @@ def _file_incident(incident: OperationalIncident) -> bool:
         return False
 
 
+def _phase_section(evidence: dict[str, Any]) -> tuple[list[str], str | None]:
+    """The in-process phase view — authoritative, and the reason this works
+    with no Render sidecar at all.
+
+    Returns the rendered lines plus the stuck phase, so the Render section
+    below can avoid repeating an answer this one already gave.
+    """
+    in_process = evidence.get("phases_in_process") or {}
+    stuck = in_process.get("likely_stuck_phase")
+    if stuck:
+        # `_timed_phase` takes arbitrary **context kwargs (file paths today,
+        # anything a future caller passes), and all of it lands in an external
+        # issue — so it is scrubbed like every other failure-derived fragment.
+        return [
+            "",
+            f"**Stuck phase: `{scrub(str(stuck))}`** — open for "
+            f"{in_process.get('stuck_for_s')}s and still not returned "
+            "(`agent/loop.py::_timed_phase`, tracked in-process).",
+            f"All phases currently open: `{scrub(str(in_process.get('open')))}`",
+        ], stuck
+    if in_process:
+        return [
+            "",
+            "No agent phase was open when this fired — the stall is outside the "
+            "loop's instrumented phases (or the run had already been abandoned).",
+        ], None
+    return [], None
+
+
+def _render_section(evidence: dict[str, Any], stuck_now: str | None) -> list[str]:
+    """The Render-log view: a cross-check, and the only source for windows the
+    process could not log because it was killed."""
+    parts: list[str] = []
+
+    phases = evidence.get("phases") or {}
+    stuck = phases.get("likely_stuck_phase")
+    if stuck and stuck != stuck_now:
+        unfinished = phases.get("unfinished", {})
+        parts += [
+            "",
+            f"Render logs additionally show `{scrub(str(stuck))}` with "
+            f"{unfinished.get(stuck)} more `phase_start` than `phase_end` in the "
+            f"window. Unfinished: `{scrub(str(unfinished))}`",
+        ]
+
+    if evidence.get("available"):
+        parts += [
+            "",
+            f"**Render logs** (last {evidence.get('window_minutes')}m, "
+            f"{evidence.get('line_count')} lines):",
+            f"```\n{scrub(evidence.get('excerpt', ''))[:2500]}\n```",
+        ]
+    else:
+        parts += [
+            "",
+            f"_Render platform logs unavailable: {evidence.get('reason', 'unknown')}._ "
+            "This is enrichment only — the in-process phase view above does not "
+            "depend on it. A connection failure here is most often the "
+            "`agency-render-mcp` sidecar declared in `render.yaml` not being "
+            "deployed; when that is the cause, `services/render_ops.py` "
+            "(deploy/OOM/memory monitoring) is silently inert too.",
+        ]
+    return parts
+
+
 def _format_incident(incident: OperationalIncident) -> str:
     """Build the issue body: what recurred, plus the gathered evidence."""
     evidence = incident.evidence or {}
@@ -524,37 +685,9 @@ def _format_incident(incident: OperationalIncident) -> str:
         f"```\n{scrub(incident.sample[:800])}\n```",
     ]
 
-    phases = evidence.get("phases") or {}
-    stuck = phases.get("likely_stuck_phase")
-    if stuck:
-        unfinished = phases.get("unfinished", {})
-        parts += [
-            "",
-            f"**Likely stuck phase: `{stuck}`** — it logged "
-            f"{unfinished.get(stuck)} more `phase_start` than `phase_end` in the "
-            "window, meaning that call never returned "
-            "(`agent/loop.py::_timed_phase`).",
-            f"Unfinished phases: `{unfinished}`",
-        ]
-    elif phases:
-        parts += [
-            "",
-            "No unbalanced `phase_start`/`phase_end` pair in the window — the "
-            "stall is likely outside the agent loop's instrumented phases.",
-        ]
-
-    if evidence.get("available"):
-        parts += [
-            "",
-            f"**Render logs** (last {evidence.get('window_minutes')}m, "
-            f"{evidence.get('line_count')} lines):",
-            f"```\n{scrub(evidence.get('excerpt', ''))[:2500]}\n```",
-        ]
-    else:
-        parts += [
-            "",
-            f"_Render platform logs unavailable: {evidence.get('reason', 'unknown')}._",
-        ]
+    phase_lines, stuck_now = _phase_section(evidence)
+    parts += phase_lines
+    parts += _render_section(evidence, stuck_now)
 
     parts += [
         "",
