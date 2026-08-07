@@ -1,0 +1,175 @@
+# Container supply chain: image CVEs, SBOM, Dockerfile hardening, compose posture.
+#
+# Complements the existing security workflows rather than duplicating them:
+#   security-scan.yml  → CodeQL + Bandit  (source code)
+#   security-gate.yml  → no new Bandit alerts vs base
+#   supply-chain.yml   → THIS FILE: the container layer, which nothing covered
+#
+# Before this workflow, every image in the repo shipped unscanned: no CVE
+# check, no SBOM, no provenance, no lint. A Python 3.13-slim base with a
+# critical OpenSSL CVE would have deployed to production silently.
+#
+# Deliberately NOT scheduled: `agent/loop_registry.py audit --check` reconciles
+# the loop registry against *scheduled* workflows, and adding a cron here
+# without a registry entry fails that gate. This runs on PR, on push to
+# master, and on demand.
+
+name: Supply Chain
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "Dockerfile*"
+      - "docker-compose*.yml"
+      - "requirements.txt"
+      - "mcp_server/Dockerfile"
+      - "config/sandbox_profiles.yaml"
+      - ".github/workflows/supply-chain.yml"
+  pull_request:
+    branches: [master]
+    paths:
+      - "Dockerfile*"
+      - "docker-compose*.yml"
+      - "requirements.txt"
+      - "mcp_server/Dockerfile"
+      - "config/sandbox_profiles.yaml"
+      - ".github/workflows/supply-chain.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: supply-chain-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  # ── Dockerfile hardening lint ──────────────────────────────────────────
+  hadolint:
+    name: Dockerfile lint
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dockerfile:
+          - Dockerfile
+          - Dockerfile.backend
+          - Dockerfile.hermes
+          - Dockerfile.runtime
+          - mcp_server/Dockerfile
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint ${{ matrix.dockerfile }}
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: ${{ matrix.dockerfile }}
+          # Advisory for now. These images predate this workflow and fixing
+          # every finding in the same change that introduces the scanner
+          # would mix "add a control" with "change five build files" — two
+          # different risk profiles in one diff. Flip to `error` once the
+          # findings are triaged; the tracking issue is in the governance
+          # migration notes.
+          failure-threshold: warning
+          no-fail: true
+          output-file: hadolint-${{ strategy.job-index }}.txt
+
+      - name: Show findings
+        if: always()
+        run: cat hadolint-${{ strategy.job-index }}.txt || echo "no findings"
+
+  # ── Image CVE scan + SBOM ──────────────────────────────────────────────
+  image-scan:
+    name: Image CVE scan + SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the backend image
+        run: docker build -f Dockerfile.backend -t agency-backend:scan .
+
+      # Trivy over the built image. Chosen over Docker Scout because Scout's
+      # useful output requires a Docker Hub account and authentication in CI,
+      # while Trivy runs unauthenticated — a scanner nobody can run is not a
+      # control. Scout remains a good local complement (`docker scout cves`).
+      - name: Scan image for CVEs
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: agency-backend:scan
+          format: sarif
+          output: trivy-image.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true   # an unfixable CVE is not an actionable gate
+
+      - name: Upload image scan to code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image
+
+      # Fails the build only on a CRITICAL with a fix available. That is the
+      # narrowest gate that still means something: it says "a patched version
+      # exists and we are not on it", which is always actionable.
+      - name: Fail on fixable CRITICAL vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: agency-backend:scan
+          format: table
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Generate SBOM (CycloneDX)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: agency-backend:scan
+          format: cyclonedx
+          output: sbom.cdx.json
+
+      - name: Publish SBOM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-backend-cyclonedx
+          path: sbom.cdx.json
+          retention-days: 90
+
+  # ── Dependency CVEs (filesystem, not image) ────────────────────────────
+  dependency-scan:
+    name: Python dependency CVEs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Scan requirements for known vulnerabilities
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-fs.sarif
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+
+      - name: Upload dependency scan to code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+
+  # ── Container posture assertions ───────────────────────────────────────
+  # Cheap, dependency-free checks that the security posture the governance
+  # docs claim is the posture the files actually declare. Catches the common
+  # regression where someone adds `privileged: true` to fix a local problem.
+  compose-posture:
+    name: Compose + profile posture
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: pip install --quiet pyyaml
+      - name: Assert container posture
+        run: python scripts/check_container_posture.py

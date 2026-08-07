@@ -1,0 +1,131 @@
+# docker-compose.hardening.yml — least-privilege overlay for the local stack.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.hardening.yml up
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# WHY THIS IS AN OVERLAY AND NOT AN EDIT TO docker-compose.yml
+# ─────────────────────────────────────────────────────────────────────────────
+# Every setting here is a real improvement, and every one of them can also
+# break a container in a way that only shows up at runtime. `read_only: true`
+# breaks any process that writes outside a declared tmpfs; `cap_drop: ALL`
+# breaks anything that binds a low port or changes uid. Which of those apply
+# depends on the image version you pull, so it cannot be settled by reading
+# the file — it has to be observed.
+#
+# The honest split is therefore: `docker-compose.yml` keeps working for
+# everyone unchanged, and this file carries the hardened posture for operators
+# who can verify it in their own environment. Adopt it service by service, and
+# see docs/governance/deployment.md for what each setting breaks when it breaks.
+#
+# WHAT THIS DOES NOT DO
+#   * It does not make the daemon rootless — that is a host setting
+#     (`dockerd-rootless-setuptool.sh install`). Check yours with
+#     `docker info --format '{{.SecurityOptions}}'`; the governance status
+#     endpoint reports it too.
+#   * It does not fix the biggest credential problem in the base compose file,
+#     which is `env_file: .env` handing every secret to every service. That
+#     needs per-service env lists, which is a behavioural change for anyone
+#     relying on a variable being present. See the migration notes.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Application services ────────────────────────────────────────────────
+  proxy:
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    # Not read_only: the proxy writes agent workspaces and a SQLite fallback.
+    # Making it read-only requires knowing every path it writes, which is a
+    # separate piece of work from adding these limits.
+    pids_limit: 4096
+    mem_limit: 2g
+    memswap_limit: 2g          # pinned to mem_limit so the cap cannot be evaded by swapping
+    cpus: 2.0
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m
+    ulimits:
+      nofile: {soft: 4096, hard: 8192}
+      nproc: 2048
+
+  dashboard-backend:
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    pids_limit: 4096
+    mem_limit: 2g
+    memswap_limit: 2g
+    cpus: 2.0
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=512m
+
+  hermes:
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    pids_limit: 1024
+    mem_limit: 1g
+    memswap_limit: 1g
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+
+  # ── Agent runtime sidecars ──────────────────────────────────────────────
+  # These execute model-authored code, so they are the services that most
+  # need the limits and least need extra privilege.
+  opencode: &runtime_hardening
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    pids_limit: 1024
+    mem_limit: 1g
+    memswap_limit: 1g
+    cpus: 1.0
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=256m
+
+  goose: *runtime_hardening
+  aider: *runtime_hardening
+  jcode: *runtime_hardening
+  task-harness: *runtime_hardening
+
+  # ── MCP server ──────────────────────────────────────────────────────────
+  # Clones repos, edits files, runs shell commands, and pushes to git — the
+  # highest-value target in the stack. Already bound to 127.0.0.1 in the base
+  # file, which is correct and should stay that way.
+  mcp-server:
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    pids_limit: 2048
+    mem_limit: 2g
+    memswap_limit: 2g
+    cpus: 2.0
+    tmpfs:
+      - /tmp:rw,nosuid,size=512m
+
+  # ── Data services ───────────────────────────────────────────────────────
+  mongo:
+    security_opt:
+      - no-new-privileges:true
+    # Mongo needs CHOWN/SETUID/SETGID to drop to the `mongodb` user at start.
+    # Dropping ALL without adding these back makes the container exit on boot —
+    # a concrete example of why this file is opt-in rather than the default.
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID]
+    pids_limit: 2048
+    mem_limit: 2g
+    memswap_limit: 2g
+    # Not exposed on 0.0.0.0. The base file publishes 27017 to every interface,
+    # which on a laptop on a café network is an open, unauthenticated database.
+    ports:
+      - "127.0.0.1:27017:27017"
+
+  ollama:
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 4096
+    mem_limit: 8g
+    # Local inference only: no reason to reach the network from outside.
+    ports:
+      - "127.0.0.1:11434:11434"

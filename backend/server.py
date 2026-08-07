@@ -10325,6 +10325,19 @@ app.include_router(spec_router_module.build_spec_router(get_current_user))
 import backend.ceo_router as ceo_router_module  # noqa: E402
 app.include_router(ceo_router_module.build_ceo_router(get_current_user))
 
+# Agent governance: identity, policy, approvals, audit trail, sandbox posture.
+# Admin-only and read-mostly (policy is a git-reviewed file, not an editable
+# resource). Mounted defensively — a governance layer that can block startup
+# would be a bigger availability risk than the risks it exists to reduce.
+try:
+    import backend.governance_router as governance_router_module  # noqa: E402
+    app.include_router(
+        governance_router_module.build_governance_router(get_current_user)
+    )
+    log.info("Governance API mounted at /api/governance")
+except Exception as _governance_router_err:  # noqa: BLE001 - must not block startup
+    log.warning("Governance router not mounted: %s", _governance_router_err, exc_info=True)
+
 # Render platform view (services, deploys, platform logs, metrics) served from
 # the Render MCP server. Admin-only and read-only. Mounted defensively so a
 # missing/unreachable Render config degrades this one page rather than the app.
