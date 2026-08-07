@@ -43,8 +43,10 @@ solving one problem in one place, none inspectable as a policy.
 ## Architecture
 
 ```
-                        AgentRunner._dispatch_tool          ← the one chokepoint
-                                   │
+   AgentRunner._dispatch_tool   mcp_server tools/call   runtimes route_and_execute
+        (agent loop)              (HTTP surface)          (executor choice)
+              └───────────────────────┼───────────────────────┘
+                                      │
                         GovernanceGate.guard()
                                    │
         ┌──────────────┬───────────┼───────────┬──────────────┐
@@ -67,9 +69,13 @@ answer.
 
 ### Modules
 
-The same gate also fronts the **MCP HTTP surface** (`mcp_server/`), which
-exposes clone/write/run_command/git_push over the network. Identity propagates
-across that process boundary via `X-Agent-*` headers.
+Three seams feed one engine. `AgentRunner._dispatch_tool` covers the agent
+loop; `mcp_server/`'s `tools/call` covers the HTTP surface that exposes
+clone/write/run_command/git_push over the network (identity propagates across
+that process boundary via `X-Agent-*` headers); and
+`runtimes/routing.py::route_and_execute` covers which *executor* a task may be
+dispatched to — including every fallback runtime, not just the primary, since a
+fallback runs a different adapter than the one that was checked.
 
 | Module | Responsibility | Can it fail? |
 |---|---|---|
@@ -101,6 +107,7 @@ tools). All 13 surfaces this platform exposes to agents are modelled:
 | `browser` | Browser automation | URLs |
 | `memory` | Vector / memory store access | key globs |
 | `llm_provider` | Which providers a group may use | provider ids |
+| `runtime` | Which executor an agent may dispatch to | runtime ids |
 
 ---
 
@@ -371,12 +378,14 @@ Stated plainly, because a control's boundary matters as much as its coverage:
 |---|---|
 | `AgentRunner._dispatch_tool` (all 34 autonomous loops) | ✅ |
 | `mcp_server/` HTTP surface | ✅ |
-| `runtimes/adapters/*` sidecars (opencode, goose, aider, …) | ❌ |
+| `runtimes/*` dispatch — which executor an agent may use | ✅ |
 | Direct in-process `WorkspaceTools` calls | ❌ |
 
-The sidecars execute model-authored code but do so behind their own container
-boundaries with scoped environments; extending the gate to them is tracked in
-the threat model.
+Runtime *dispatch* is governed on the `runtime` surface, so an agent
+restricted in-process can no longer route the same work to an adapter that
+would do it in a container. What remains ungoverned is a direct in-process
+`WorkspaceTools` call — a path only reachable by code inside this repo, not by
+an agent choosing a tool.
 
 ## Local development
 

@@ -210,9 +210,10 @@ use a policy rule, not a limit of zero.
 
 ## Known limitations at merge
 
-1. Governance covers `AgentRunner._dispatch_tool` **and** the MCP server HTTP
-   surface. `runtimes/adapters/*` sidecars and direct `WorkspaceTools` calls
-   are still **not** governed.
+1. Governance covers `AgentRunner._dispatch_tool`, the MCP server HTTP surface,
+   and runtime dispatch (`runtime` surface). Direct in-process
+   `WorkspaceTools` calls are still **not** governed — a path reachable only
+   by code inside this repo, not by an agent choosing a tool.
 2. seccomp/AppArmor are plumbed but no profile is authored.
 3. The audit trail has no cryptographic integrity guarantee.
 4. Budgets are per-session and in-process; there is no global fleet budget.

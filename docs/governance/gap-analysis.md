@@ -260,7 +260,7 @@ Per the brief: *"If a Docker AI Governance capability is not suitable, explicitl
 | Priority | Capability | Status |
 |---|---|---|
 | P0 | Agent identity | ✅ Implemented |
-| P0 | Policy engine (13 surfaces) | ✅ Implemented |
+| P0 | Policy engine (13 surfaces, incl. `runtime`) | ✅ Implemented |
 | P0 | Tool governance at one chokepoint | ✅ Implemented |
 | P0 | Audit trail (20 fields, redacted) | ✅ Implemented |
 | P0 | Approval workflows with TTL | ✅ Implemented |

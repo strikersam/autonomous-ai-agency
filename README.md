@@ -121,7 +121,7 @@ and adapted to this platform's topology.
 | Control | What it does | Where |
 |---|---|---|
 | **Agent identity** | Every action carries a stable agent id, an owner, a policy group, and a per-run session — so "who did this?" has an answer. | [`packages/governance/identity.py`](packages/governance/identity.py) |
-| **Policy engine** | Declarative rules over 13 surfaces (tools, filesystem, network, credentials, shell, GitHub, Docker, database, MCP, browser, memory, providers). Organisation baseline rules cannot be loosened by a group. | [`config/agent_policy.yaml`](config/agent_policy.yaml) |
+| **Policy engine** | Declarative rules over 13 surfaces (tools, filesystem, network, credentials, shell, GitHub, Docker, database, MCP, browser, memory, providers, runtime). Organisation baseline rules cannot be loosened by a group. | [`config/agent_policy.yaml`](config/agent_policy.yaml) |
 | **Cost ceilings** | Six enforced per-session limits — tool calls, spend, tokens, duration, recursion depth, retries. A policy file cannot stop a runaway loop; a counter can. | [`packages/governance/enforcement.py`](packages/governance/enforcement.py) |
 | **Approval gates** | High-risk actions (merge, delete, deploy, container build) hold for a human. TTL-bounded, and expiry **denies**. | [`packages/governance/approvals.py`](packages/governance/approvals.py) |
 | **Audit trail** | Who / what / when / why / where / cost — 20 fields, secrets redacted *before* storage, SIEM-shippable as one-line JSON. | [`packages/governance/audit.py`](packages/governance/audit.py) |

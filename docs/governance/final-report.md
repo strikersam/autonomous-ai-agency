@@ -195,8 +195,8 @@ Three real defects were found by testing rather than assumed away:
 | # | Capability | Files |
 |---|---|---|
 | 1 | Agent identity | `packages/governance/identity.py` |
-| 2 | Policy engine, 13 surfaces | `packages/governance/policy.py`, `config/agent_policy.yaml` |
-| 3 | Enforcement at one chokepoint | `packages/governance/enforcement.py`, `agent/loop.py` |
+| 2 | Policy engine, 13 surfaces (incl. `runtime`) | `packages/governance/policy.py`, `config/agent_policy.yaml` |
+| 3 | Enforcement at three seams | `packages/governance/enforcement.py`, `agent/loop.py` (agent loop), `mcp_server/governance.py` (HTTP), `runtimes/routing.py` (executor choice + fallbacks) |
 | 4 | Audit trail, 20 fields, redacted | `packages/governance/audit.py` |
 | 5 | Approvals with TTL | `packages/governance/approvals.py` |
 | 6 | Cost / runaway ceilings | `SessionBudget` in `enforcement.py` |
@@ -245,7 +245,7 @@ Three real defects were found by testing rather than assumed away:
 |---|---|---|
 | **P0** | Run 1–2 weeks in observe, then move to `enforce` | Until then nothing is blocked. This is the single highest-value follow-up. |
 | **P0** | Set `E2B_ENABLED=true` in production | Without it the backend is `local` — no hard boundary at all. |
-| ~~P1~~ ✅ | ~~Extend the gate to the MCP server HTTP surface~~ | **Done** — `mcp_server/governance.py`. Remaining ungoverned routes: `runtimes/adapters/*` sidecars and direct `WorkspaceTools` calls. |
+| ~~P1~~ ✅ | ~~Extend the gate to the MCP server HTTP surface~~ | **Done** — `mcp_server/governance.py`, plus runtime dispatch via the `runtime` surface. Remaining ungoverned route: direct in-process `WorkspaceTools` calls. |
 | ~~P1~~ ✅ | ~~Split `env_file: .env` per service~~ | **Done, opt-in** — `.env.backend-secrets` keeps backend-only credentials out of the `hermes` sidecar. Inert until an operator moves the values, so nothing breaks on merge. |
 | **P1** | Adopt the compose hardening overlay | Verify against your own daemon first. |
 | **P2** | Author and test a seccomp profile | Mechanism is ready. |

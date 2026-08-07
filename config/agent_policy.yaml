@@ -141,6 +141,13 @@ groups:
     filesystem:
       read: ["**"]
       write: []               # declared-and-empty = no writes at all
+    runtime:
+      # Without this, the write: [] above is routable around — a research agent
+      # blocked from writing files in-process could dispatch the same work to a
+      # runtime adapter that writes them in its own container. Restricting the
+      # executor is what makes the filesystem restriction actually hold.
+      allow:
+        - internal_agent
     limits:
       max_tool_calls: 100
       max_cost_usd: 2.0

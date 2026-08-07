@@ -162,7 +162,7 @@ or `autonomy_gate.py` to widen its own permissions.
 |---|---|
 | Before | `_dispatch_tool` was the only chokepoint. `mcp_server/` exposed `clone_repo`, `write_file`, `run_command`, `git_push` and `delete_workspace` over HTTP with no policy, no identity, and no audit row — a strictly *larger* capability than the governed path, reachable by a shorter route. |
 | Now | **Closed.** `mcp_server/governance.py` evaluates every `tools/call` against the same policy engine and writes the same audit rows. Identity propagates from the calling backend via `X-Agent-*` headers (`agent/mcp_client.py::_identity_headers`). `GET /health` reports whether governance is active, so a governed server is distinguishable from an ungoverned one without reading logs. The image now vendors the governance packages; when they are absent the server still serves but logs one loud warning naming the consequence. |
-| Residual | Identity headers are a hint, not a credential: a caller holding `MCP_SECRET_TOKEN` can claim any agent id. That can move a caller *between groups* but never past the organization baseline, because `evaluate()` returns on a baseline DENY before any group rule is read — pinned by `test_a_spoofed_identity_cannot_get_past_a_baseline_rule`. Approval-gated actions are refused rather than parked on this surface, since there is no UI attached to it and holding the socket would turn a decision into a hung request. `runtimes/adapters/*` sidecars and direct `WorkspaceTools` calls remain ungoverned. |
+| Residual | Identity headers are a hint, not a credential: a caller holding `MCP_SECRET_TOKEN` can claim any agent id. That can move a caller *between groups* but never past the organization baseline, because `evaluate()` returns on a baseline DENY before any group rule is read — pinned by `test_a_spoofed_identity_cannot_get_past_a_baseline_rule`. Approval-gated actions are refused rather than parked on this surface, since there is no UI attached to it and holding the socket would turn a decision into a hung request. Runtime *dispatch* is now governed too (`runtimes/routing.py`, `runtime` surface), so work cannot be routed around an in-process restriction. Direct in-process `WorkspaceTools` calls remain ungoverned — a path reachable only by code in this repo, not by an agent choosing a tool. |
 
 ### T12 — Denial of service via the governance layer itself
 **Severity: Medium.** A control that can hang or crash the platform is a
@@ -200,7 +200,7 @@ where the blast radius of a false negative is irreversible.
 1. **Observe mode blocks nothing.** Shipping this changes no behaviour. The
    defences described above are *evaluated*, not enforced, until an operator
    sets `mode: enforce`.
-2. **Governance covers the agent loop and the MCP HTTP surface, but not every path to a tool**: `runtimes/adapters/*` sidecars and direct `WorkspaceTools` calls remain ungoverned (T11).
+2. **Governance covers the agent loop, the MCP HTTP surface, and runtime dispatch.** Direct in-process `WorkspaceTools` calls remain ungoverned (T11).
 3. **`local` backend means no isolation at all.** Reported honestly, but real.
 4. **The compose `.env` split is opt-in and inert until adopted** (T5).
 5. **seccomp/AppArmor are plumbed, not authored** (T6).
