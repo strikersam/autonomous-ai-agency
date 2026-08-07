@@ -67,6 +67,10 @@ answer.
 
 ### Modules
 
+The same gate also fronts the **MCP HTTP surface** (`mcp_server/`), which
+exposes clone/write/run_command/git_push over the network. Identity propagates
+across that process boundary via `X-Agent-*` headers.
+
 | Module | Responsibility | Can it fail? |
 |---|---|---|
 | `identity.py` | Who is acting | No — pure dataclass, no I/O |
@@ -293,7 +297,10 @@ Do not skip step 2. Flipping straight to `enforce` will break agent runs —
 that is what a policy that says no does.
 
 1. **Deploy in observe.** No behaviour change.
-2. **Watch for a full workload cycle.**
+2. **Watch for a full workload cycle.** Open **Governance** in the dashboard
+   (`/v5/governance`, admin only): it shows the live would-block count, the
+   decisions behind it with the rule that fired, pending approvals, and which
+   sandbox backend is actually in force. Or, from a terminal:
    ```bash
    curl -s .../api/governance/metrics | jq .audit.would_block
    curl -s '.../api/governance/audit?decision=deny&limit=100' | jq '.events[] | {agent_id, action, rule_id}'
@@ -355,6 +362,21 @@ DELETE /api/governance/sandboxes/{id}         destroy one
 ```
 
 ---
+
+## Where governance does *not* reach
+
+Stated plainly, because a control's boundary matters as much as its coverage:
+
+| Path | Governed? |
+|---|---|
+| `AgentRunner._dispatch_tool` (all 34 autonomous loops) | ✅ |
+| `mcp_server/` HTTP surface | ✅ |
+| `runtimes/adapters/*` sidecars (opencode, goose, aider, …) | ❌ |
+| Direct in-process `WorkspaceTools` calls | ❌ |
+
+The sidecars execute model-authored code but do so behind their own container
+boundaries with scoped environments; extending the gate to them is tracked in
+the threat model.
 
 ## Local development
 

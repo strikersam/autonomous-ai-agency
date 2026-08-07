@@ -1455,6 +1455,17 @@ class AgentRunner:
 
         gate = get_gate()
         identity = resolve_identity_for_runner(self, source_ip=None)
+        # Propagate identity to an attached MCP client so tools executed in the
+        # separate MCP server process are audited against this agent rather
+        # than as `agent:unknown`. Best-effort: an MCP client without the hook
+        # (or none at all) simply carries no identity headers, which the server
+        # treats as the least-privileged default group.
+        attach = getattr(getattr(self, "_mcp", None), "attach_identity", None)
+        if callable(attach):
+            try:
+                attach(identity)
+            except Exception as exc:  # noqa: BLE001 - attribution must not break dispatch
+                log.debug("Could not attach identity to the MCP client: %s", exc)
         guard = await gate.guard(identity, tool, args)
         if not guard.allowed:
             # Returned as a tool *result*, not raised: the executor loop

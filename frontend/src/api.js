@@ -581,3 +581,23 @@ export const setLlmProviderEnabled = (providerId, enabled, durationSec = 300) =>
 export const samStatus = () => API.get('/agent/sam/status');
 export const samChat   = (text, sessionId) => API.post('/agent/sam/chat', { text, session_id: sessionId || 'default' });
 export const samSpeak  = (text) => API.post('/agent/sam/speak', { text });
+
+// ── Agent governance (packages/governance) ────────────────────────────────
+// Admin-only. Reads are gated too: an audit trail is an inventory of the
+// repos, branches, paths, and owners the platform touches, which is exactly
+// what an attacker wants first. See docs/governance/README.md.
+export const getGovernanceStatus   = ()  => API.get('/api/governance/status');
+export const getGovernancePolicy   = ()  => API.get('/api/governance/policy');
+export const reloadGovernancePolicy = () => API.post('/api/governance/policy/reload');
+// Dry-run a decision without performing the action. Shares one implementation
+// with live enforcement, so it cannot disagree with what will actually happen.
+export const simulateGovernancePolicy = (body) => API.post('/api/governance/policy/simulate', body);
+export const getGovernanceMetrics  = ()  => API.get('/api/governance/metrics');
+export const getGovernanceAudit    = (params = {}) => API.get('/api/governance/audit', { params });
+export const getGovernanceApprovals = () => API.get('/api/governance/approvals');
+export const approveGovernanceRequest = (id, note) =>
+  API.post(`/api/governance/approvals/${encodeURIComponent(id)}/approve`, { note });
+export const denyGovernanceRequest = (id, note) =>
+  API.post(`/api/governance/approvals/${encodeURIComponent(id)}/deny`, { note });
+export const getGovernanceSandboxes = () => API.get('/api/governance/sandboxes');
+export const reapGovernanceSandboxes = () => API.post('/api/governance/sandboxes/reap');

@@ -106,31 +106,41 @@ Confirm with `GET /api/governance/status` → `sandbox.backend` should read
 
 ## Optional hardening (operator decisions)
 
-### Compose secret scoping — the largest remaining gap
+### Compose secret scoping — shipped, opt-in
 
-`docker-compose.yml` gives `env_file: .env` to `proxy`, `hermes`, and
-`dashboard-backend`. Every one of those services receives every secret in the
-file. Compromise of any single service yields the Anthropic key, the GitHub
-PAT, the Mongo URL, and the JWT secret.
+The `hermes` sidecar received the whole of `.env` — including the GitHub PAT
+and the JWT signing secret — despite never issuing a JWT, authenticating an
+admin, pushing to GitHub, or talking to Telegram.
 
-This was **not** changed automatically: replacing `env_file` with explicit
-per-service lists breaks any deployment relying on a variable being present,
-which is a user-visible behaviour change. Do it deliberately:
+(The services that execute model-authored code — `opencode`, `goose`, `aider`,
+`jcode`, `task-harness`, `mcp-server` — were already scoped to explicit
+`environment:` lists and never received `.env` at all. An earlier draft of the
+threat model implied otherwise; it has been corrected.)
 
-```yaml
-services:
-  hermes:
-    # env_file: [.env]          ← remove
-    environment:                #   replace with only what this service uses
-      - CEREBRAS_API_KEY=${CEREBRAS_API_KEY:-}
-      - GROQ_API_KEY=${GROQ_API_KEY:-}
-      - NVIDIA_API_KEY=${NVIDIA_API_KEY:-}
-      - OLLAMA_BASE=http://ollama:11434
-      - PORT=8100
+`docker-compose.yml` now loads an optional `.env.backend-secrets` into `proxy`
+and `dashboard-backend` only. **Nothing is scoped until you split the file** —
+the entry is `required: false`, so a single-file `.env` keeps working exactly
+as before. That is what makes this safe to merge.
+
+To adopt:
+
+```bash
+cp .env.backend-secrets.example .env.backend-secrets
+# move SECRET_KEY, ADMIN_PASSWORD, GH_PAT, the OAuth client secrets,
+# TELEGRAM_BOT_TOKEN, SERVICE_TOKEN, RENDER_API_KEY, CLOUDFLARE_API_TOKEN
+# OUT of .env and INTO .env.backend-secrets
+docker compose up -d
+
+# verify hermes no longer sees them
+docker compose exec hermes printenv | grep -E 'GH_PAT|SECRET_KEY|TELEGRAM'
+# → should print nothing
 ```
 
-Work service by service: remove `env_file`, start the service, and add back
-only what it actually needs when it fails.
+`hermes` keeps the LLM provider keys deliberately: it runs the same agent
+brain, so it needs them. Moving a credential a service genuinely needs just
+produces a broken service and an operator who reverts the whole change.
+
+Requires Compose v2.24+ for the long-form `env_file` syntax.
 
 ### Container hardening overlay
 
@@ -200,8 +210,9 @@ use a policy rule, not a limit of zero.
 
 ## Known limitations at merge
 
-1. Governance covers `AgentRunner._dispatch_tool`. The MCP server HTTP surface
-   and direct `WorkspaceTools` calls are **not** governed.
+1. Governance covers `AgentRunner._dispatch_tool` **and** the MCP server HTTP
+   surface. `runtimes/adapters/*` sidecars and direct `WorkspaceTools` calls
+   are still **not** governed.
 2. seccomp/AppArmor are plumbed but no profile is authored.
 3. The audit trail has no cryptographic integrity guarantee.
 4. Budgets are per-session and in-process; there is no global fleet budget.

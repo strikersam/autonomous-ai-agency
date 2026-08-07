@@ -245,8 +245,8 @@ Three real defects were found by testing rather than assumed away:
 |---|---|---|
 | **P0** | Run 1–2 weeks in observe, then move to `enforce` | Until then nothing is blocked. This is the single highest-value follow-up. |
 | **P0** | Set `E2B_ENABLED=true` in production | Without it the backend is `local` — no hard boundary at all. |
-| **P1** | Extend the gate to the MCP server HTTP surface | The largest bypass: governance covers the agent loop, not every path to a tool. |
-| **P1** | Split `env_file: .env` per service | The largest credential gap. Not forced, because it is a behavioural change. |
+| ~~P1~~ ✅ | ~~Extend the gate to the MCP server HTTP surface~~ | **Done** — `mcp_server/governance.py`. Remaining ungoverned routes: `runtimes/adapters/*` sidecars and direct `WorkspaceTools` calls. |
+| ~~P1~~ ✅ | ~~Split `env_file: .env` per service~~ | **Done, opt-in** — `.env.backend-secrets` keeps backend-only credentials out of the `hermes` sidecar. Inert until an operator moves the values, so nothing breaks on merge. |
 | **P1** | Adopt the compose hardening overlay | Verify against your own daemon first. |
 | **P2** | Author and test a seccomp profile | Mechanism is ready. |
 | **P2** | Rootless daemon on self-hosted installs | Closes the container-escape-to-host-root path. |
@@ -258,9 +258,10 @@ Three real defects were found by testing rather than assumed away:
 
 ## 8. Future enhancements
 
-- **Dashboard page.** The API is complete; a React screen showing live
-  `would_block`, pending approvals, and sandbox status would make the observe
-  phase self-service rather than curl-driven.
+- ~~**Dashboard page.**~~ **Done** — `frontend/src/v5/screens/GovernanceScreen.jsx`
+  shows live `would_block`, the decisions behind it, pending approvals with
+  approve/deny, and the real sandbox backend. The observe phase no longer
+  needs a terminal.
 - **Policy-aware planning.** The planner does not know its own restrictions. Feeding
   the effective policy into the plan prompt would let agents avoid blocked
   actions rather than attempting and failing them.

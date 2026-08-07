@@ -56,8 +56,21 @@ services:
       dockerfile: Dockerfile.hermes
     container_name: llm-server-hermes
     restart: unless-stopped
+    # Credential scoping (governance §credential surface). Hermes runs the same
+    # agent brain as the backend, so it genuinely needs the LLM provider keys —
+    # but it never issues a JWT, authenticates an admin, pushes to GitHub, or
+    # talks to Telegram. Move those backend-only secrets into
+    # `.env.backend-secrets` (see .env.backend-secrets.example) and this
+    # sidecar stops receiving them.
+    #
+    # Inert until you opt in: `required: false` means that if you have not
+    # created that file, everything still comes from `.env` exactly as before.
+    # Splitting the file is what actually applies the scoping.
+    #
+    # Requires Compose v2.24+ for the long-form `env_file` syntax.
     env_file:
-      - .env
+      - path: .env
+        required: true
     ports:
       - "8100:8100"
     environment:
@@ -242,8 +255,15 @@ services:
     restart: unless-stopped
     ports:
       - "8000:8000"
+    # The proxy IS the application — it legitimately reads most of .env, so
+    # there is nothing meaningful to scope away here. It additionally picks up
+    # the backend-only secrets split out of hermes' reach. `required: false`
+    # keeps a single-file .env working unchanged.
     env_file:
-      - .env
+      - path: .env
+        required: true
+      - path: .env.backend-secrets
+        required: false
     environment:
       - OLLAMA_BASE=http://ollama:11434
       - MONGO_URL=mongodb://mongo:27017
@@ -297,8 +317,12 @@ services:
     restart: unless-stopped
     ports:
       - "8001:8001"
+    # Same reasoning as `proxy`: this is the application, not a sidecar.
     env_file:
-      - .env
+      - path: .env
+        required: true
+      - path: .env.backend-secrets
+        required: false
     environment:
       - MONGO_URL=mongodb://mongo:27017
       - FRONTEND_URL=http://localhost:3000
