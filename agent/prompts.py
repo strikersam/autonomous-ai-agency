@@ -10,17 +10,31 @@ def build_planning_prompt(
     history: list[dict[str, str]],
     user_memories: dict[str, str] | None = None,
     metadata: dict[str, Any] | None = None,
+    procedural_memories: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
     history_text = "\n".join(f"{item['role']}: {item['content']}" for item in history[-8:])
     memory_section = ""
     if user_memories:
         pairs = "\n".join(f"  {k}: {v}" for k, v in user_memories.items())
         memory_section = f"\n\nUser profile (remembered preferences):\n{pairs}"
-    
+
     metadata_section = ""
     if metadata:
         meta_json = json.dumps(metadata, indent=2)
         metadata_section = f"\n\nTask Metadata (Execute based on these parameters):\n{meta_json}"
+
+    skill_section = ""
+    if procedural_memories:
+        examples = []
+        for rec in procedural_memories:
+            examples.append(
+                f"  - Task like: \"{rec.get('step_description', '')}\" "
+                f"→ Successful approach: {rec.get('action_summary', '')}"
+            )
+        skill_section = (
+            "\n\nRelevant past successes (use as inspiration, not constraint):\n"
+            + "\n".join(examples)
+        )
 
     return [
         {
@@ -53,6 +67,7 @@ def build_planning_prompt(
                 "  Set risky=true on any step touching these files and set requires_risky_review=true on the plan."
                 f"{memory_section}"
                 f"{metadata_section}"
+                f"{skill_section}"
             ),
         },
         {

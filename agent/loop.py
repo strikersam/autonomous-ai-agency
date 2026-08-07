@@ -619,6 +619,20 @@ class AgentRunner:
                     if commit:
                         commits.append(commit)
 
+                # ★4 Procedural Memory: record successful steps so future runs
+                # can reuse proven patterns when planning similar tasks.
+                if result.get("status") == "applied" and result.get("changed_files"):
+                    try:
+                        from agent.procedural_memory import get_procedural_memory
+                        changed = ", ".join(result["changed_files"][:3])
+                        get_procedural_memory().record_success(
+                            goal_summary=plan.goal[:120],
+                            step_description=step_data.get("description", "")[:200],
+                            action_summary=f"edited {changed}",
+                        )
+                    except Exception:
+                        pass
+
                 # Adaptive Loop Halting: early-exit when verifier confidence >= threshold
                 # on all files touched this step. Simple single-file edits often finish
                 # in one pass; no need to burn through remaining planned steps.
@@ -834,7 +848,19 @@ class AgentRunner:
         memory_store: UserMemoryStore | None = None,
     ) -> AgentPlan:
         user_memories = memory_store.recall_all(user_id) if memory_store and user_id else {}
-        messages = build_planning_prompt(instruction, history, user_memories=user_memories)
+        # ★4 Procedural Memory: surface relevant past successes so the planner
+        # can reuse proven approaches instead of rediscovering them.
+        proc_memories: list[dict] = []
+        try:
+            from agent.procedural_memory import get_procedural_memory
+            proc_memories = get_procedural_memory().retrieve_relevant(instruction, limit=3)
+        except Exception:
+            pass
+        messages = build_planning_prompt(
+            instruction, history,
+            user_memories=user_memories,
+            procedural_memories=proc_memories or None,
+        )
         # ── Harness enrichment: inject available tools + skills into planner ───
         self._inject_enrichment(messages)
         # ── Learning loop: surface lessons from recent failed runs so the
