@@ -215,7 +215,7 @@ Three real defects were found by testing rather than assumed away:
 |---|---|---|
 | Agent actions attributable to an identity | 0% | 100% |
 | Audit fields captured | 0 of 20 | 20 of 20 |
-| Control surfaces with a policy model | 0 | 13 |
+| Control surfaces with a policy model | 0 | 14 |
 | Enforced cost/runaway ceilings | 1 (`MAX_SUBAGENT_DEPTH`) | 6 per session |
 | Sandbox profiles dropping all capabilities | 0 of 1 | 8 of 8 |
 | Container images CVE-scanned in CI | 0 of 11 | 1 of 11 (backend; the deployed one) |
@@ -245,7 +245,7 @@ Three real defects were found by testing rather than assumed away:
 |---|---|---|
 | **P0** | Run 1–2 weeks in observe, then move to `enforce` | Until then nothing is blocked. This is the single highest-value follow-up. |
 | **P0** | Set `E2B_ENABLED=true` in production | Without it the backend is `local` — no hard boundary at all. |
-| ~~P1~~ ✅ | ~~Extend the gate to the MCP server HTTP surface~~ | **Done** — `mcp_server/governance.py`. Remaining ungoverned routes: `runtimes/adapters/*` sidecars and direct `WorkspaceTools` calls. |
+| ~~P1~~ ✅ | ~~Extend the gate to the MCP server HTTP surface~~ | **Done** — `mcp_server/governance.py`, plus runtime dispatch via the `runtime` surface. Remaining ungoverned route: direct in-process `WorkspaceTools` calls. |
 | ~~P1~~ ✅ | ~~Split `env_file: .env` per service~~ | **Done, opt-in** — `.env.backend-secrets` keeps backend-only credentials out of the `hermes` sidecar. Inert until an operator moves the values, so nothing breaks on merge. |
 | **P1** | Adopt the compose hardening overlay | Verify against your own daemon first. |
 | **P2** | Author and test a seccomp profile | Mechanism is ready. |

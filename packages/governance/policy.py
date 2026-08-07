@@ -81,6 +81,11 @@ class Surface(str, Enum):
     BROWSER = "browser"
     MEMORY = "memory"
     LLM_PROVIDER = "llm_provider"
+    # Which execution runtime an agent may dispatch work to. Distinct from
+    # DOCKER (which governs sandbox lifecycle): this governs the *choice of
+    # executor* — a research agent has no business dispatching to a runtime
+    # whose whole purpose is editing and committing code.
+    RUNTIME = "runtime"
 
 
 class Decision(str, Enum):

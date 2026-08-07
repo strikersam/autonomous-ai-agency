@@ -41,6 +41,95 @@ if TYPE_CHECKING:
 log = logging.getLogger("qwen-proxy")
 
 
+def _governance_check(
+    spec: "TaskSpec", runtime: "RuntimeAdapter", decision: "RoutingDecision"
+) -> "TaskResult | None":
+    """Evaluate a runtime dispatch against policy; audit it either way.
+
+    Returns ``None`` when the dispatch may proceed, or a failed
+    :class:`TaskResult` when policy blocks it. Returning a result rather than
+    raising keeps the contract of ``route_and_execute`` unchanged — callers
+    already handle an unsuccessful result, whereas a new exception type would
+    propagate somewhere none of them expect.
+
+    Identity comes from ``spec.context`` (``agent_name`` / ``agent_owner``),
+    which the agency already threads through for other purposes. A task with
+    no agent attached resolves to the least-privileged default group rather
+    than an unrestricted one.
+
+    Never raises. Like every other governance seam in this repo, a failure in
+    the layer itself allows the dispatch and logs — a control that can take
+    out task execution would be a worse liability than the risk it mitigates.
+    """
+    try:
+        from packages.governance.enforcement import governance_enabled
+
+        if not governance_enabled():
+            return None
+
+        from packages.governance.audit import events_from_identity, record_event
+        from packages.governance.identity import resolve_identity
+        from packages.governance.policy import Decision, Surface, get_policy_engine
+
+        context = spec.context or {}
+        identity = resolve_identity(
+            agent_name=context.get("agent_name") or context.get("agent"),
+            owner=context.get("agent_owner") or context.get("user_email"),
+            task_id=spec.task_id,
+            repo=spec.repo_url,
+            runtime=runtime.RUNTIME_ID,
+        )
+        verdict = get_policy_engine().evaluate(
+            Surface.RUNTIME, runtime.RUNTIME_ID, identity
+        )
+
+        fields = events_from_identity(identity)
+        fields["policy_group"] = verdict.group
+        blocked = verdict.effective is Decision.DENY
+        fields.update({
+            "surface": Surface.RUNTIME.value,
+            "action": runtime.RUNTIME_ID,
+            "tool": "runtime.dispatch",
+            # The instruction is the agent's own text and can be long; the
+            # audit needs enough to identify the dispatch, not to replay it.
+            "arguments": {"task_type": spec.task_type, "instruction": spec.instruction[:200]},
+            "decision": verdict.decision.value,
+            "effective": verdict.effective.value,
+            "reason": verdict.reason,
+            "rule_id": verdict.rule_id,
+            "mode": verdict.mode.value,
+            "result_status": "blocked" if blocked else "ok",
+        })
+        record_event(**fields)
+
+        if not blocked:
+            return None
+
+        log.warning(
+            "Runtime dispatch blocked by policy: %s → %s (%s)",
+            identity.agent_id, runtime.RUNTIME_ID, verdict.rule_id,
+        )
+        decision.reason += f"; blocked by governance ({verdict.rule_id})"
+        return TaskResult(
+            runtime_id=runtime.RUNTIME_ID,
+            task_id=spec.task_id,
+            success=False,
+            output=(
+                f"[governance] denied: {verdict.reason} (rule {verdict.rule_id})"
+            ),
+            # TaskResult has no `error` field — the reason travels in `output`
+            # (which callers surface) and structurally in `metadata` (which
+            # callers can branch on without string-matching the output).
+            metadata={
+                "governance_blocked": True,
+                "governance_rule_id": verdict.rule_id,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 - fail open, consistent with the other seams
+        log.warning("Runtime governance check failed (%s); allowing dispatch", exc)
+        return None
+
+
 # ── Policy model ──────────────────────────────────────────────────────────────
 
 @dataclass
@@ -178,6 +267,22 @@ class RuntimeRoutingPolicyEngine:
             decision.reason += f"; candidates={candidates_info}"
         except Exception:
             pass
+
+        # ── Governance ────────────────────────────────────────────────────
+        # The last coverage gap in docs/governance/README.md: `_dispatch_tool`
+        # and the MCP surface were governed, but runtime *dispatch* was not —
+        # so an agent restricted from writing files in-process could still hand
+        # the same work to a runtime adapter that writes files in its own
+        # container. This closes that: the choice of executor is now a governed
+        # decision, and every dispatch is attributed and audited.
+        #
+        # Guarded after selection rather than before, so the audit row records
+        # which runtime was actually chosen (and therefore which one a policy
+        # would need to name) instead of only the requested preference.
+        blocked = _governance_check(spec, runtime, decision)
+        if blocked is not None:
+            self._decision_log.append(decision)
+            return blocked, decision
 
         # Step 4–6: Execute with retry/fallback
         result = await self._execute_with_fallback(spec, runtime, decision)

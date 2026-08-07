@@ -85,7 +85,7 @@ across that process boundary via `X-Agent-*` headers.
 ## Control surfaces
 
 Docker AI Governance defines four (network, filesystem, credentials, MCP
-tools). All 13 surfaces this platform exposes to agents are modelled:
+tools). All 14 surfaces this platform exposes to agents are modelled:
 
 | Surface | Governs | Rules written against |
 |---|---|---|
@@ -101,6 +101,7 @@ tools). All 13 surfaces this platform exposes to agents are modelled:
 | `browser` | Browser automation | URLs |
 | `memory` | Vector / memory store access | key globs |
 | `llm_provider` | Which providers a group may use | provider ids |
+| `runtime` | Which executor an agent may dispatch to | runtime ids |
 
 ---
 
@@ -371,12 +372,14 @@ Stated plainly, because a control's boundary matters as much as its coverage:
 |---|---|
 | `AgentRunner._dispatch_tool` (all 34 autonomous loops) | ✅ |
 | `mcp_server/` HTTP surface | ✅ |
-| `runtimes/adapters/*` sidecars (opencode, goose, aider, …) | ❌ |
+| `runtimes/*` dispatch — which executor an agent may use | ✅ |
 | Direct in-process `WorkspaceTools` calls | ❌ |
 
-The sidecars execute model-authored code but do so behind their own container
-boundaries with scoped environments; extending the gate to them is tracked in
-the threat model.
+Runtime *dispatch* is governed on the `runtime` surface, so an agent
+restricted in-process can no longer route the same work to an adapter that
+would do it in a container. What remains ungoverned is a direct in-process
+`WorkspaceTools` call — a path only reachable by code inside this repo, not by
+an agent choosing a tool.
 
 ## Local development
 
