@@ -444,8 +444,16 @@ class GovernanceGate:
     ) -> None:
         from packages.governance.audit import events_from_identity, record_event
 
+        fields = events_from_identity(identity)
+        # The identity carries the group the caller *requested*; the decision
+        # carries the one that actually governed. They differ whenever the
+        # requested group does not exist (an identity defaults its group to its
+        # own agent id, which usually has no group of that name and resolves to
+        # `default`). Recording the requested one would make an audit row
+        # disagree with its own rule_id — so the effective group wins.
+        fields["policy_group"] = decision.group
         record_event(
-            **events_from_identity(identity),
+            **fields,
             surface=decision.surface.value,
             action=decision.action,
             tool=tool,

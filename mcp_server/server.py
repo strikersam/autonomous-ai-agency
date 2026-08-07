@@ -35,6 +35,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from mcp_server import governance
 from mcp_server.workspace import Workspace
 
 log = logging.getLogger("mcp-server")
@@ -288,8 +289,12 @@ def _err(req_id: Any, code: int, message: str) -> dict[str, Any]:
 # ── Endpoints ────────────────────────────────────────────────────────────────
 
 @app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok", "service": "mcp-server"}
+async def health() -> dict[str, Any]:
+    # `governance` is reported here so an operator can tell a governed MCP
+    # server from an ungoverned one without reading container logs — the same
+    # reason /api/governance/status reports `isolation: none` rather than
+    # hiding it. Names and modes only; never a secret.
+    return {"status": "ok", "service": "mcp-server", "governance": governance.status()}
 
 
 @app.post("/mcp")
@@ -328,9 +333,38 @@ async def mcp_dispatch(request: Request) -> JSONResponse:
         arguments = params.get("arguments", {})
         if tool_name not in _TOOL_MAP:
             return JSONResponse(_err(req_id, -32601, f"Tool not found: {tool_name}"))
+
+        # Governance (threat-model T11). This surface exposes clone/write/
+        # run_command/git_push over HTTP — a strictly larger capability than
+        # the in-process agent path, reachable by a shorter route — so it gets
+        # the same policy evaluation and audit trail. Identity comes from the
+        # caller's X-Agent-* headers; a caller that sends none lands on the
+        # least-privileged default group. No-ops when the governance packages
+        # are absent from the image (logged once at import).
+        identity = governance.identity_from_headers(request.headers)
+        allowed, denial, decision = governance.guard(identity, tool_name, arguments)
+        if not allowed:
+            governance.record(
+                identity, tool_name, arguments, decision,
+                status_text="blocked", error=denial,
+            )
+            # Returned as a tool result rather than a JSON-RPC error: the
+            # caller already knows how to surface tool text to the model, and
+            # naming the rule lets it pick a different action instead of
+            # retrying the blocked one into a failure loop.
+            return JSONResponse(_ok(req_id, {
+                "content": [{"type": "text", "text": denial}],
+                "isError": True,
+            }))
+
         try:
-            result = await _handle_tool(tool_name, arguments)
+            with governance.Timer() as timer:
+                result = await _handle_tool(tool_name, arguments)
             text = result if isinstance(result, str) else json.dumps(result, default=str)
+            governance.record(
+                identity, tool_name, arguments, decision,
+                status_text="ok", result=text[:1000], duration_ms=timer.ms,
+            )
             return JSONResponse(_ok(req_id, {
                 "content": [{"type": "text", "text": text}],
                 "isError": False,
@@ -339,6 +373,12 @@ async def mcp_dispatch(request: Request) -> JSONResponse:
             # Log the full exception internally but never forward it to the caller:
             # exception messages may contain internal paths or stack-trace fragments.
             log.warning("tool %r failed: %s", tool_name, exc, exc_info=True)
+            # The audit row keeps the real reason (scrubbed by the audit layer)
+            # even though the caller only ever sees the generic text below.
+            governance.record(
+                identity, tool_name, arguments, decision,
+                status_text="error", error=f"{type(exc).__name__}: {exc}",
+            )
             return JSONResponse(_ok(req_id, {
                 "content": [{"type": "text", "text": "[tool error: internal error — check server logs]"}],
                 "isError": True,

@@ -105,9 +105,9 @@ schedule backlog causing an OOM crash loop (CHANGELOG 2026-08-02/03).
 
 | | |
 |---|---|
-| Before | `docker-compose.yml` gives `env_file: .env` to `proxy`, `hermes`, and `dashboard-backend`. Compromise of any one yields *every* secret — Anthropic key, GH PAT, Mongo URL, JWT secret. `Dockerfile` `COPY . /app` copies the whole build context. |
-| Now | Sandboxes use an `env_allowlist`: a name absent from the profile is dropped even if the caller passes it (tested). The `development` profile receives `GITHUB_TOKEN` only. |
-| Residual | **The compose problem is documented, not fixed.** Splitting `env_file` per service is a behavioural change for anyone relying on a variable being present, so it is in the migration notes as an operator decision rather than forced. This is the largest remaining gap. |
+| Before | `docker-compose.yml` gave `env_file: .env` to `proxy`, `hermes`, and `dashboard-backend` — each receiving *every* secret. `Dockerfile` `COPY . /app` copies the whole build context. **Correction to an earlier draft of this document:** that draft implied the exposure was broader than it is. The services that execute model-authored code — `opencode`, `goose`, `aider`, `jcode`, `task-harness`, `mcp-server` — were *already* scoped to explicit `environment:` lists and never received `.env`. The real gap was narrower and is stated accurately here. |
+| Now | Sandboxes use an `env_allowlist`: a name absent from the profile is dropped even if the caller passes it (tested). Separately, `.env.backend-secrets` splits the backend-only credentials (SECRET_KEY, ADMIN_PASSWORD, GH_PAT, OAuth client secrets, TELEGRAM_BOT_TOKEN, SERVICE_TOKEN, RENDER_API_KEY, CLOUDFLARE_API_TOKEN) out of `hermes`' reach. `hermes` runs the same agent brain, so it keeps the LLM provider keys — moving a credential a service genuinely needs just produces a broken service and an operator who reverts the whole change. |
+| Residual | The split is **inert until adopted**: the compose entries are `required: false`, so a single-file `.env` keeps working exactly as before and nothing is scoped until the operator actually moves the values. `proxy` and `dashboard-backend` still receive everything, correctly — they *are* the application. |
 
 ### T6 — Container escape
 **Severity: Critical if reachable.**
@@ -160,9 +160,9 @@ or `autonomy_gate.py` to widen its own permissions.
 
 | | |
 |---|---|
-| Analysis | `_dispatch_tool` is the chokepoint for the agent loop. It is **not** the only way to touch a tool: `mcp_server/` exposes an HTTP surface, `runtimes/adapters/*` execute via sidecars, and `WorkspaceTools` can be called directly. Those paths are **not** currently governed. |
-| Now | The dominant path — the plan→execute→verify loop that all 34 autonomous loops run through — is covered. |
-| Residual | **Stated explicitly because it is the most important limitation in this document.** Governance covers the agent loop, not every possible route to a tool. Extending the gate to the MCP server HTTP surface is the highest-value follow-up. |
+| Before | `_dispatch_tool` was the only chokepoint. `mcp_server/` exposed `clone_repo`, `write_file`, `run_command`, `git_push` and `delete_workspace` over HTTP with no policy, no identity, and no audit row — a strictly *larger* capability than the governed path, reachable by a shorter route. |
+| Now | **Closed.** `mcp_server/governance.py` evaluates every `tools/call` against the same policy engine and writes the same audit rows. Identity propagates from the calling backend via `X-Agent-*` headers (`agent/mcp_client.py::_identity_headers`). `GET /health` reports whether governance is active, so a governed server is distinguishable from an ungoverned one without reading logs. The image now vendors the governance packages; when they are absent the server still serves but logs one loud warning naming the consequence. |
+| Residual | Identity headers are a hint, not a credential: a caller holding `MCP_SECRET_TOKEN` can claim any agent id. That can move a caller *between groups* but never past the organization baseline, because `evaluate()` returns on a baseline DENY before any group rule is read — pinned by `test_a_spoofed_identity_cannot_get_past_a_baseline_rule`. Approval-gated actions are refused rather than parked on this surface, since there is no UI attached to it and holding the socket would turn a decision into a hung request. `runtimes/adapters/*` sidecars and direct `WorkspaceTools` calls remain ungoverned. |
 
 ### T12 — Denial of service via the governance layer itself
 **Severity: Medium.** A control that can hang or crash the platform is a
@@ -200,9 +200,9 @@ where the blast radius of a false negative is irreversible.
 1. **Observe mode blocks nothing.** Shipping this changes no behaviour. The
    defences described above are *evaluated*, not enforced, until an operator
    sets `mode: enforce`.
-2. **Governance covers the agent loop, not every path to a tool** (T11).
+2. **Governance covers the agent loop and the MCP HTTP surface, but not every path to a tool**: `runtimes/adapters/*` sidecars and direct `WorkspaceTools` calls remain ungoverned (T11).
 3. **`local` backend means no isolation at all.** Reported honestly, but real.
-4. **The compose `.env` broadcast is unfixed** (T5) — the largest remaining gap.
+4. **The compose `.env` split is opt-in and inert until adopted** (T5).
 5. **seccomp/AppArmor are plumbed, not authored** (T6).
 6. **No audit integrity guarantees** (T9).
 7. **The compose hardening overlay is untested against a live daemon** — no
@@ -216,8 +216,8 @@ where the blast radius of a false negative is irreversible.
 | # | Work | Threat | Priority |
 |---|---|---|---|
 | 1 | Move to `mode: enforce` after an observe cycle | T1, T2, T7 | **P0** |
-| 2 | Extend the gate to the MCP server HTTP surface | T11 | **P1** |
-| 3 | Per-service `env_file` split in compose | T5 | **P1** |
+| 2 | ~~Extend the gate to the MCP server HTTP surface~~ — **done** | T11 | ✅ |
+| 3 | Adopt the `.env.backend-secrets` split (ships opt-in) | T5 | **P1** |
 | 4 | Enable E2B in production (`E2B_ENABLED=true`) | T2, T6 | **P1** |
 | 5 | Author + test a seccomp profile | T6 | P2 |
 | 6 | Rootless daemon for self-hosted installs | T6 | P2 |

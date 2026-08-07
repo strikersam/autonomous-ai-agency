@@ -267,7 +267,58 @@ class MCPClient:
             headers["Authorization"] = f"Bearer {self._secret_token}"
         if self._session_id:
             headers["Mcp-Session-Id"] = self._session_id
+        headers.update(self._identity_headers())
         return headers
+
+    def _identity_headers(self) -> dict[str, str]:
+        """Propagate the calling agent's identity across the process boundary.
+
+        The MCP server governs its own tool surface (threat-model T11), but it
+        is a separate process and cannot see who is calling. Without these
+        headers every MCP-executed action would be audited as
+        ``agent:unknown`` — the action would still be *governed* (baseline
+        rules apply regardless of identity) but it would not be *attributable*,
+        which is half the point of the audit trail.
+
+        These are a hint, not a credential: anyone holding ``MCP_SECRET_TOKEN``
+        could send any values. That is fine, because the policy engine's
+        baseline rules are evaluated before any group and cannot be loosened by
+        one — a spoofed identity can move a caller between groups, never past
+        the baseline. See ``mcp_server/governance.py``.
+
+        Returns an empty dict when no identity is attached, which resolves
+        server-side to the least-privileged default group.
+        """
+        identity = getattr(self, "_governance_identity", None)
+        if identity is None:
+            return {}
+        mapping = {
+            "X-Agent-Id": "agent_id",
+            "X-Agent-Name": "display_name",
+            "X-Agent-Owner": "owner",
+            "X-Agent-Session": "session_id",
+            "X-Agent-Task": "task_id",
+            "X-Agent-Repo": "repo",
+            "X-Agent-Branch": "branch",
+        }
+        headers: dict[str, str] = {}
+        for header, attr in mapping.items():
+            value = getattr(identity, attr, None)
+            # Header values must be latin-1 encodable; an agent display name
+            # with an em-dash would otherwise raise inside httpx and take out
+            # the whole tool call for the sake of a label.
+            if value:
+                try:
+                    text = str(value)
+                    text.encode("latin-1")
+                    headers[header] = text
+                except (UnicodeEncodeError, TypeError):
+                    continue
+        return headers
+
+    def attach_identity(self, identity: Any) -> None:
+        """Attach the agent identity whose actions this client executes."""
+        self._governance_identity = identity
 
     def _capture_session(self, resp: "httpx.Response") -> None:
         """Remember a server-issued ``Mcp-Session-Id`` for subsequent requests."""

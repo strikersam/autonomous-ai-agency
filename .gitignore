@@ -3,6 +3,12 @@
 .env.*
 *.env
 !.env.example
+# Template for the backend-only secret split (docker-compose.yml). The real
+# `.env.backend-secrets` stays ignored by the `.env.*` rule above — only the
+# empty-valued example is tracked. Without this negation the template would be
+# invisible to anyone cloning the repo, and the split it documents would never
+# get adopted.
+!.env.backend-secrets.example
 backend/.env
 frontend/.env
 credentials.json
