@@ -55,7 +55,7 @@ def _overlap_score(query_tokens: set[str], record_tokens: set[str]) -> float:
 
 
 def _record_id(goal: str, step_description: str) -> str:
-    digest = hashlib.sha1(f"{goal}|{step_description}".encode()).hexdigest()[:12]
+    digest = hashlib.sha1(f"{goal}|{step_description}".encode(), usedforsecurity=False).hexdigest()[:12]
     return f"pm_{digest}"
 
 
