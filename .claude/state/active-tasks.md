@@ -95,7 +95,7 @@
 | B1 | Nemotron Reward Model Scoring | P0 | `TODO` | — |
 | C1 | Structured Output / JSON Mode | P0 | `DONE` | `_json_instruction()` in AnthropicProvider; 10 new tests; 2026-08-07 |
 | C2 | Function Calling (OpenAI-compatible) | P0 | `TODO` | — |
-| F1 | Precise Diff Application (Codebuff-style) | P0 | `TODO` | — |
+| F1 | Precise Diff Application (Codebuff-style) | P0 | `DONE` | `search_replace_file` in tools.py + loop.py + prompts.py; 14 new tests; 2026-08-08 |
 | ★4 | Skill/Procedural Memory | P1 | `DONE` | `agent/procedural_memory.py` + loop/prompts wiring; 28 new tests; 2026-08-07 |
 | ★5 | Sandboxed Agent Execution | P1 | `TODO` | — |
 | ★6 | Cost Analytics + FTS5 Memory + Constitution | P1 | `TODO` | — |
@@ -110,7 +110,7 @@
 | C3 | Streaming Delta Reconstruction | P1 | `TODO` | — |
 | C4 | Chat History Persistence | P1 | `TODO` | — |
 | C5 | Context Window Management | P1 | `TODO` | — |
-| C6 | Prompt Caching | P1 | `TODO` | — |
+| C6 | Prompt Caching | P1 | `DONE` | System-prompt caching (prior); tool-list caching added to AnthropicProvider.build_payload; 10 new tests; 2026-08-08 |
 | D1 | Helm Chart | P1 | `TODO` | — |
 | D2 | Docker Compose Production Stack | P1 | `TODO` | — |
 | D3 | OpenTelemetry Distributed Tracing | P1 | `TODO` | — |
