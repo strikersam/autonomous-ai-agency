@@ -1665,6 +1665,25 @@ class AgentRunner:
                     pass
             return self.tools.write_file(str(args.get("path", "")), str(args.get("content", "")))
 
+        # search_replace_file — surgical search-and-replace on a local file (F1).
+        # Falls back from MCP (which may expose its own search_replace_file) to the
+        # local WorkspaceTools implementation.  Fails fast when the search string is
+        # absent or ambiguous rather than silently corrupting the wrong occurrence.
+        if tool == "search_replace_file":
+            if self._mcp is not None:
+                try:
+                    return await self._mcp.call_tool("search_replace_file", args)
+                except MCPUnavailableError:
+                    pass
+            try:
+                return self.tools.search_replace_file(
+                    str(args.get("path", "")),
+                    str(args.get("search_string", "")),
+                    str(args.get("replacement_string", "")),
+                )
+            except ValueError as exc:
+                return f"[search_replace_file error: {exc}]"
+
         # run_command — try MCP first; fall back to local _run_command if unavailable
         if tool == "run_command":
             if self._mcp is not None:

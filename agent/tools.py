@@ -118,6 +118,60 @@ class WorkspaceTools:
         self.write_file(path, new_content)
         return {"path": str(target.relative_to(self.root)), "diff": diff}
 
+    def search_replace_file(
+        self,
+        path: str,
+        search_string: str,
+        replacement_string: str,
+    ) -> dict[str, str | int]:
+        """Surgical search-and-replace on a single file (F1: Codebuff-style diff).
+
+        Fails fast when ``search_string`` does not appear exactly once — an
+        ambiguous match would silently corrupt the wrong occurrence, and a zero
+        match means the caller is working from stale content.  Read the file
+        first to confirm the search string is present before calling this tool.
+
+        Args:
+            path: Workspace-relative file path.
+            search_string: Exact substring to locate (must appear exactly once).
+            replacement_string: Text to substitute in place of search_string.
+
+        Returns:
+            dict with ``path``, ``diff``, and ``replacements`` (always 1 on success).
+
+        Raises:
+            ValueError: If the search string is not found or appears more than once.
+        """
+        target = self._resolve_path(path)
+        old_content = target.read_text(encoding="utf-8")
+        count = old_content.count(search_string)
+        if count == 0:
+            raise ValueError(
+                f"search_replace_file: search_string not found in {path!r}. "
+                "Read the file first to verify the exact text."
+            )
+        if count > 1:
+            raise ValueError(
+                f"search_replace_file: search_string appears {count} times in {path!r}. "
+                "Provide enough surrounding context to make the match unique."
+            )
+        new_content = old_content.replace(search_string, replacement_string, 1)
+        diff = "\n".join(
+            difflib.unified_diff(
+                old_content.splitlines(),
+                new_content.splitlines(),
+                fromfile=f"a/{path}",
+                tofile=f"b/{path}",
+                lineterm="",
+            )
+        )
+        target.write_text(new_content, encoding="utf-8")
+        return {
+            "path": str(target.relative_to(self.root)),
+            "diff": diff,
+            "replacements": 1,
+        }
+
     def recall_memory(
         self,
         key: str,
