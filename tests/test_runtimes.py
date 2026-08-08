@@ -383,6 +383,10 @@ class TestAdapterMetadata:
         from runtimes.adapters.task_harness import TaskHarnessAdapter
         self._check_adapter(TaskHarnessAdapter())
 
+    def test_prime_agent_metadata(self):
+        from runtimes.adapters.prime_agent import PrimeAgentAdapter
+        self._check_adapter(PrimeAgentAdapter())
+
     def test_hermes_is_first_class(self):
         from runtimes.adapters.hermes import HermesAdapter
         assert HermesAdapter.TIER == RuntimeTier.FIRST_CLASS

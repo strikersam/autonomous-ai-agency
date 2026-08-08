@@ -12,6 +12,10 @@ Agent runtimes are external LLM-powered agents (hermes, opencode, goose, aider) 
 | **opencode** | Code generator | code_generation, scaffolding | opencode:latest |
 | **goose** | Multi-purpose | code_generation, testing, review | goose:latest |
 | **aider** | Pair programmer | code_generation, refactoring, debugging | aider:latest |
+| **prime_agent** | Long-running autonomous coder | code_generation, repo_editing, review | via `agency` proxy provider |
+
+`prime_agent` is opt-in (`RUNTIME_PRIME_AGENT_ENABLED=true`) and needs the
+`prime-agent` (or `pi`) binary on PATH — see [prime-agent.md](prime-agent.md).
 
 ## Initial Setup
 

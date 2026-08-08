@@ -660,6 +660,41 @@ services:
         sync: false
       - key: REDIS_URL
         sync: false
+      # ── Prime Agent runtime (opt-in, worker-only) ─────────────────────────
+      # Deliberately declared on the WORKER and not on the web service:
+      # prime-agent executes model-generated shell with the container's own
+      # permissions and is explicitly not a security sandbox upstream, so it
+      # stays out of the public-facing service.
+      #
+      # Flipping this to "true" is not sufficient on its own — the binary must
+      # also be baked in by building Dockerfile.backend with
+      # --build-arg INSTALL_PRIME_AGENT=true. Until that build argument is set,
+      # the adapter simply reports available=False and the router falls back to
+      # internal_agent, so leaving this "true" on an unbuilt image is harmless.
+      # See docs/runbooks/prime-agent.md.
+      - key: RUNTIME_PRIME_AGENT_ENABLED
+        value: "false"
+      - key: PRIME_AGENT_PROVIDER
+        value: "agency"
+      - key: PRIME_AGENT_EXTENSION
+        value: "/app/runtimes/extensions/prime_agent/agency-provider.ts"
+      # Model ids the extension advertises; must exist on the proxy.
+      - key: PRIME_AGENT_MODELS
+        value: "z-ai/glm-5.2"
+      - key: PRIME_AGENT_MODEL
+        value: "z-ai/glm-5.2"
+      # Bearer token the extension sends to our own proxy ($PROXY_API_KEY).
+      - key: PROXY_API_KEY
+        sync: false
+      # Base URL of an OpenAI-compatible endpoint (/v1/chat/completions).
+      # NOTE: that endpoint is served by proxy.py, and no service in this
+      # blueprint currently runs proxy.py — the Render web service runs
+      # backend/server.py, which does not mount it. Point this at wherever
+      # proxy.py actually runs before enabling the runtime above; leaving it
+      # unset falls back to http://localhost:8000, which is correct only for a
+      # host that runs the proxy in-process.
+      - key: AGENCY_PROXY_URL
+        sync: false
 
   # ── FreeBuff Telegram bot (24×7 phone control of repo edits) ──────────────
   # Always-on worker that long-polls Telegram and runs the FreeBuff agent
