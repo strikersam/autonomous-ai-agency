@@ -32,7 +32,7 @@ import logging
 from typing import Any, Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 log = logging.getLogger("render_router")
 
@@ -199,10 +199,22 @@ def build_render_router(get_current_user: Callable[..., Any]) -> APIRouter:
         Validates here rather than leaning on FastAPI's response-model coercion,
         so a monitor field that drifts out of contract fails loudly at the
         boundary instead of being silently dropped from the response.
+
+        A validation failure is a bug in this process, not a client error, so it
+        becomes a 500 — but the ValidationError text is kept out of the body for
+        the same reason as in ``_unavailable``: it quotes the offending values,
+        which come from Render (service names, error strings). Operators read
+        the detail from ``log.exception``.
         """
         _require_admin(user)
         from services.render_ops import get_render_ops_monitor
-        return RenderOpsStatus.model_validate(get_render_ops_monitor().get_status())
+        try:
+            return RenderOpsStatus.model_validate(get_render_ops_monitor().get_status())
+        except ValidationError as exc:
+            log.exception("Render ops status failed its own contract: %s", exc)
+            raise HTTPException(
+                status_code=500, detail="Render ops status unavailable",
+            ) from exc
 
     @router.get("/ops/scan")
     async def render_ops_scan(user: dict = Depends(get_current_user)) -> dict:

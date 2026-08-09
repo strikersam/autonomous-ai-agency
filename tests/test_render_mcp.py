@@ -826,3 +826,34 @@ class TestOpsStatusResponseModel:
         declared = set(RenderOpsStatus.model_fields)
 
         assert produced - declared == set(), f"not declared on the response model: {produced - declared}"
+
+    def test_a_broken_status_is_a_500_that_leaks_nothing(self, monkeypatch):
+        """Validation failing here is our bug, so 500 — but the ValidationError
+        quotes the offending values, which come from Render (service names, error
+        text). Those stay in the log, exactly as transport errors do."""
+        import services.render_ops as render_ops
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from backend.render_router import build_render_router
+        from services.render_ops import RenderOpsMonitor
+
+        # interval_seconds is declared ge=0; a negative one is out of contract.
+        broken = {**RenderOpsMonitor(_FakeRender()).get_status(),
+                  "interval_seconds": -1, "last_error": "srv-prod-7 secret leak"}
+
+        class _BadMonitor:
+            @staticmethod
+            def get_status() -> dict:
+                return broken
+
+        monkeypatch.setattr(render_ops, "get_render_ops_monitor", lambda: _BadMonitor())
+        app = FastAPI()
+        app.include_router(build_render_router(lambda: {"role": "admin"}))
+        client = TestClient(app, raise_server_exceptions=False)
+
+        resp = client.get("/api/render/ops/status")
+
+        assert resp.status_code == 500
+        assert resp.json()["detail"] == "Render ops status unavailable"
+        assert "srv-prod-7" not in resp.text
+        assert "interval_seconds" not in resp.text
