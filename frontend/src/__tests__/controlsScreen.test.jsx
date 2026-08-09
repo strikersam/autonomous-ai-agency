@@ -1,5 +1,5 @@
 /**
- * PlatformControlsPage — the dashboard screen that replaces editing feature
+ * ControlsScreen — the v5 dashboard screen that replaces editing feature
  * switches in the Render environment.
  *
  * The behaviours worth pinning are the ones an operator would be misled by:
@@ -9,7 +9,7 @@
  */
 import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
-import PlatformControlsPage from '../pages/PlatformControlsPage';
+import ControlsScreen from '../v5/screens/ControlsScreen';
 
 jest.mock('../api', () => ({
   fmtErr: (d) => (typeof d === 'string' ? d : ''),
@@ -129,7 +129,7 @@ beforeEach(() => {
 });
 
 test('renders each control with where its value came from', async () => {
-  render(<PlatformControlsPage />);
+  render(<ControlsScreen />);
 
   await waitFor(() => expect(screen.getByText('Default runtime')).toBeInTheDocument());
   expect(screen.getByText('Render env')).toBeInTheDocument();
@@ -138,14 +138,14 @@ test('renders each control with where its value came from', async () => {
 });
 
 test('flags controls whose dependency secret is missing', async () => {
-  render(<PlatformControlsPage />);
+  render(<ControlsScreen />);
 
   await waitFor(() => expect(screen.getByText('E2B sandbox runtime')).toBeInTheDocument());
   expect(screen.getByText(/Inactive until E2B_API_KEY is set/)).toBeInTheDocument();
 });
 
 test('marks controls that only take effect after a restart', async () => {
-  render(<PlatformControlsPage />);
+  render(<ControlsScreen />);
 
   await waitFor(() => expect(screen.getByText('Hermes runtime')).toBeInTheDocument());
   expect(screen.getAllByText('Restart required').length).toBe(2);
@@ -155,7 +155,7 @@ test('Apply sends only the edited controls', async () => {
   setPlatformControls.mockResolvedValue({
     data: { ...snapshot(), changed: ['RUNTIME_DEFAULT'], restart_required: [] },
   });
-  render(<PlatformControlsPage />);
+  render(<ControlsScreen />);
 
   await waitFor(() => expect(screen.getByText('Default runtime')).toBeInTheDocument());
   fireEvent.change(screen.getByRole('combobox'), { target: { value: 'hermes' } });
@@ -174,7 +174,7 @@ test('surfaces the restart notice returned by a save', async () => {
       restart_required: ['RUNTIME_HERMES_ENABLED'],
     },
   });
-  render(<PlatformControlsPage />);
+  render(<ControlsScreen />);
 
   await waitFor(() => expect(screen.getByText('Hermes runtime')).toBeInTheDocument());
   fireEvent.click(screen.getByRole('switch', { name: 'Hermes runtime' }));
@@ -187,7 +187,7 @@ test('reset hands a control back to the environment', async () => {
   resetPlatformControl.mockResolvedValue({
     data: { ...snapshot(), changed: [], restart_required: [] },
   });
-  render(<PlatformControlsPage />);
+  render(<ControlsScreen />);
 
   await waitFor(() => expect(screen.getByText('Hermes runtime')).toBeInTheDocument());
   const row = screen.getByTestId('control-RUNTIME_HERMES_ENABLED');
@@ -198,7 +198,7 @@ test('reset hands a control back to the environment', async () => {
 });
 
 test('reset is disabled for a control that has no override', async () => {
-  render(<PlatformControlsPage />);
+  render(<ControlsScreen />);
 
   await waitFor(() => expect(screen.getByText('Default runtime')).toBeInTheDocument());
   const row = screen.getByTestId('control-RUNTIME_DEFAULT');
@@ -206,7 +206,7 @@ test('reset is disabled for a control that has no override', async () => {
 });
 
 test('search narrows the catalogue', async () => {
-  render(<PlatformControlsPage />);
+  render(<ControlsScreen />);
 
   await waitFor(() => expect(screen.getByText('Default runtime')).toBeInTheDocument());
   fireEvent.change(screen.getByPlaceholderText('Search settings…'), { target: { value: 'e2b' } });
@@ -217,7 +217,7 @@ test('search narrows the catalogue', async () => {
 
 
 test('groups past the first are collapsed until opened', async () => {
-  render(<PlatformControlsPage />);
+  render(<ControlsScreen />);
 
   await waitFor(() => expect(screen.getByText('Default runtime')).toBeInTheDocument());
   expect(screen.queryByText('Governance layer')).not.toBeInTheDocument();
@@ -227,7 +227,7 @@ test('groups past the first are collapsed until opened', async () => {
 });
 
 test('a search hit inside a collapsed group is still shown', async () => {
-  render(<PlatformControlsPage />);
+  render(<ControlsScreen />);
 
   await waitFor(() => expect(screen.getByText('Default runtime')).toBeInTheDocument());
   expect(screen.queryByText('Governance layer')).not.toBeInTheDocument();

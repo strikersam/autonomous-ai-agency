@@ -299,7 +299,7 @@ export default function McpCard() {
       )}
 
       <Link
-        to="/controls"
+        to="/v5/controls"
         className="mt-4 inline-flex items-center gap-1.5 text-[11px] text-[#4477FF] hover:underline"
       >
         <SlidersHorizontal size={12} />
