@@ -63,13 +63,15 @@ const OLLAMA_MODELS = [
   { name:'qwen3.6:35b',       size:'22.3 GB', status:'available', type:'general',  ctx:'128k' },
 ];
 
-// MCP servers
-const MCP_SERVERS_DEFAULT = [
-  { id:'mcp-1', name:'filesystem',      cmd:'npx @modelcontextprotocol/server-filesystem /workspace', status:'connected', tools:5,  desc:'Read/write local filesystem. Agents use this for code edits.' },
-  { id:'mcp-2', name:'github',          cmd:'npx @modelcontextprotocol/server-github',               status:'connected', tools:12, desc:'GitHub API — issues, PRs, commits, repos.' },
-  { id:'mcp-3', name:'postgres',        cmd:'npx @modelcontextprotocol/server-postgres $DB_URL',     status:'error',     tools:8,  desc:'Query and update your PostgreSQL database.' },
-  { id:'mcp-4', name:'brave-search',    cmd:'npx @modelcontextprotocol/server-brave-search',         status:'idle',      tools:2,  desc:'Web search via Brave. Good for research agents.' },
-];
+// MCP servers.
+//
+// There is deliberately no hardcoded default list here any more. This screen
+// used to substitute four invented entries (filesystem, github, postgres,
+// brave-search) whenever the API returned nothing, complete with fabricated
+// "connected" statuses and tool counts. None of those servers existed in the
+// deployment, and the two that did — the in-process server and Render — were
+// missing. The list now comes entirely from GET /api/mcp/servers, where
+// platform-managed rows carry measured status; an empty list renders as empty.
 
 function errText(e, fallback) {
   const detail = e?.response?.data?.detail;
@@ -419,22 +421,21 @@ function MCPTab() {
   const [newCmd,   setNewCmd]   = React.useState('');
   const [newDesc,  setNewDesc]  = React.useState('');
 
-  const statusColor = { connected:'#46d9a4', error:'#ff6b7d', idle:'var(--text-muted)' };
+  const statusColor = {
+    connected:'#46d9a4', error:'#ff6b7d',
+    unconfigured:'#ffbd66', idle:'var(--text-muted)',
+  };
 
   const loadServers = React.useCallback(async () => {
     setLoadErr(null);
     try {
       const { data } = await api.listMcpServers();
-      const list = data.servers || [];
-      if (list.length === 0) {
-        // Seed with defaults on first load (one-time migration)
-        setServers(MCP_SERVERS_DEFAULT.map(s => ({ ...s, _seeded: true })));
-      } else {
-        setServers(list);
-      }
+      // Show exactly what the server reports, including an empty list. Filling
+      // a blank screen with invented entries is what made this page mislead.
+      setServers(data.servers || []);
     } catch {
       setLoadErr('Could not load MCP servers.');
-      setServers(MCP_SERVERS_DEFAULT);
+      setServers([]);
     }
   }, []);
 
@@ -452,25 +453,28 @@ function MCPTab() {
     } finally { setSaving(false); }
   };
 
+  // Both handlers apply only to user rows. Platform-managed servers render a
+  // Re-check button instead, because their status is measured server-side and
+  // there is no stored record to toggle or delete.
   const toggleConnect = async (srv) => {
+    if (srv.managed) return;
     const newStatus = srv.status === 'connected' ? 'idle' : 'connected';
     // Optimistic update
     setServers(p => (p||[]).map(s => s.id === srv.id ? { ...s, status: newStatus } : s));
     try {
       await api.updateMcpServer(srv.id, { status: newStatus });
     } catch {
-      // If the server is a seeded default (no backend record), still keep the optimistic state
-      // for the session — the toggle just resets on reload, which is expected for seeded defaults.
-      if (!srv._seeded) {
-        setServers(p => (p||[]).map(s => s.id === srv.id ? { ...s, status: srv.status } : s));
-      }
+      // Roll back to the real value — an optimistic status that silently
+      // sticks is how this screen came to show things that were not true.
+      setServers(p => (p||[]).map(s => s.id === srv.id ? { ...s, status: srv.status } : s));
     }
   };
 
   const removeServer = async (srv) => {
+    if (srv.managed) return;
     setServers(p => (p||[]).filter(s => s.id !== srv.id));
     try {
-      if (srv.id && !srv._seeded) await api.deleteMcpServer(srv.id);
+      if (srv.id) await api.deleteMcpServer(srv.id);
     } catch { await loadServers(); }
   };
 
@@ -521,16 +525,30 @@ function MCPTab() {
                       <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:sc, letterSpacing:'0.10em', textTransform:'uppercase' }}>{srv.status}</span>
                     </div>
                     {srv.tools > 0 && <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', padding:'1px 6px', borderRadius:5, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.09)' }}>{srv.tools} tools</span>}
+                    {srv.managed && <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'#5da2ff', padding:'1px 6px', borderRadius:5, background:'rgba(93,162,255,0.08)', border:'1px solid rgba(93,162,255,0.18)' }} title="Declared by this deployment; status is measured live">platform</span>}
                   </div>
                   <div style={{ fontSize:11, color:'var(--text-muted)', lineHeight:1.5, marginBottom:4 }}>{srv.desc}</div>
+                  {/* Why a server is not connected is the actionable part — an
+                      "unconfigured" badge with no reason just relocates the question. */}
+                  {srv.reason && srv.status !== 'connected' && (
+                    <div style={{ fontSize:10, color:sc, lineHeight:1.5, marginBottom:4 }}>{srv.reason}</div>
+                  )}
                   <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'rgba(255,255,255,0.35)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{srv.cmd}</div>
                 </div>
+                {/* Platform-managed servers come from configuration, so there is
+                    nothing to delete and no client-side connect to toggle. */}
+                {srv.managed ? (
+                  <div style={{ display:'flex', gap:5, flexShrink:0 }}>
+                    <button onClick={loadServers} style={{ padding:'4px 10px', borderRadius:8, fontSize:11, cursor:'pointer', background:'rgba(93,162,255,0.08)', border:'1px solid rgba(93,162,255,0.20)', color:'#5da2ff' }} title="Re-probe this server">Re-check</button>
+                  </div>
+                ) : (
                 <div style={{ display:'flex', gap:5, flexShrink:0 }}>
                   <button onClick={()=>removeServer(srv)} style={{ padding:'4px 8px', borderRadius:8, fontSize:10, cursor:'pointer', background:'rgba(255,107,125,0.06)', border:'1px solid rgba(255,107,125,0.15)', color:'rgba(255,107,125,0.6)' }} title="Remove">✕</button>
                   <button onClick={()=>toggleConnect(srv)} style={{ padding:'4px 10px', borderRadius:8, fontSize:11, cursor:'pointer', background:srv.status==='connected'?'rgba(255,107,125,0.08)':'rgba(70,217,164,0.10)', border:`1px solid ${srv.status==='connected'?'rgba(255,107,125,0.20)':'rgba(70,217,164,0.22)'}`, color:srv.status==='connected'?'#ff6b7d':'#46d9a4' }}>
                     {srv.status==='connected'?'Disconnect':'Connect'}
                   </button>
                 </div>
+                )}
               </div>
             </div>
           );

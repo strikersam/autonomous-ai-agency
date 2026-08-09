@@ -23,6 +23,55 @@ hardest, and the self-heal loop was blind to all of them. The
 [Render MCP server](https://github.com/render-oss/render-mcp-server) exposes that
 missing view as MCP tools; this integration consumes it.
 
+## The MCP registry — one catalogue, measured status
+
+`packages/integrations/mcp_registry.py` is the single source of truth for every
+MCP server this platform knows about. Before it there were three unrelated
+ideas of "an MCP server" and none of them knew about the others:
+
+| Source | Real? | Shown in Providers → MCP? |
+|---|---|---|
+| `mcp_servers` table (per-user CRUD) | Descriptive only — nothing read it | Yes, plus four invented "connected" entries |
+| `MCP_SERVER_BASE_URL` → `/mcp-internal` | Yes | No |
+| `RENDER_MCP_URL` → Render | Yes | No |
+
+The screen showed servers that did not exist while omitting the ones that did,
+and `status` / `tools` were values a human typed in rather than measurements.
+
+The registry replaces that. Each server is declared once as an `MCPServerSpec`,
+and `GET /api/mcp/servers` returns platform-managed rows with **measured**
+state ahead of the user's own rows:
+
+- `configured` — required settings are present, with the reason when they are not
+- `reachable` — an actual `tools/list` round-trip succeeded just now
+- `tool_count` — how many tools it really advertised
+
+Probes run concurrently behind an 8-second timeout, and a probe that hangs,
+raises, or fails degrades to a status rather than breaking the page. Declared
+servers currently are:
+
+| Server | Transport | Purpose |
+|---|---|---|
+| `internal` | in-process | This platform's own server at `/mcp-internal` — files, search, git |
+| `render` | http | Services, deploys, platform logs, metrics |
+| `playwright` | http | Real-browser navigation and assertions for UI verification |
+| `github` | stdio | Issues, PRs, commits — for coding sessions via `.mcp.json` |
+
+A stdio server reports *why* it is not dialable ("available in coding sessions
+via `.mcp.json`, not dialable from the backend") rather than showing as broken,
+because it isn't.
+
+**Adding a server** means adding one `MCPServerSpec` to `_specs()`. Nothing else.
+
+### Playwright
+
+Set `PLAYWRIGHT_MCP_URL` to a reachable `npx @playwright/mcp --port <n>` to let
+agents drive a real browser — navigate, click, fill forms, read the
+accessibility tree — so a UI change can be verified against the deployed app
+instead of inferred from the diff. Unset by default, and reported as
+`unconfigured` rather than silently absent. Chromium is heavy for a 512MB free
+dyno, so run it as its own service or off-box rather than beside the backend.
+
 ## Two consumers, two transports
 
 The Render MCP server supports both MCP transports, and this repo uses each one

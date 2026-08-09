@@ -233,7 +233,19 @@ class RenderOpsMonitor:
         restart, when platform findings matter most.
         """
         findings = await self.scan()
+
+        # Every observation is reported to the healer, including ones inside
+        # their cooldown: that is how it learns a fix did not hold.
+        for finding in findings:
+            _note_recurrence(finding)
+
         filed = [f for f in findings if self._is_cool(f) and _file_issue(f) and self._claim(f)]
+
+        # Newly filed findings also open a verified heal, so the fix is checked
+        # rather than merely scheduled.
+        for finding in filed:
+            await _report_to_healer(finding)
+
         self._findings_filed += len(filed)
         if filed:
             log.warning(
@@ -399,6 +411,57 @@ def _split_memory(payload: Any) -> tuple[float | None, float | None]:
     usage = _latest_metric_value(payload.get("memory_usage") or payload.get("memoryUsage"))
     limit = _latest_metric_value(payload.get("memory_limit") or payload.get("memoryLimit"))
     return usage, limit
+
+
+def _note_recurrence(finding: RenderFinding) -> None:
+    """Tell the healer this platform failure is still happening.
+
+    The healer verifies its own fixes: after dispatching one it watches for the
+    same signature to come back, and regresses or escalates if it does. Without
+    this call a "fixed" deploy failure that recurs every tick would look healed
+    forever, because the six-hour cooldown suppresses re-filing. Reported on
+    every observation, not only when a new issue is filed — that is the whole
+    point of recurrence tracking. Best-effort and synchronous-safe.
+    """
+    try:
+        from agent.self_healing import get_self_healing_agent
+        healer = get_self_healing_agent()
+        if healer:
+            healer.note_recurrence(finding.signature)
+    except Exception as exc:  # noqa: BLE001 - never break the monitor
+        log.debug("RenderOps: recurrence note failed (ignored): %s", exc)
+
+
+async def _report_to_healer(finding: RenderFinding) -> None:
+    """Open a verified heal for this finding via SelfHealingAgent.
+
+    ImprovementLoop alone schedules a fix and forgets it. The healer adds what
+    a platform failure actually needs: dedup by signature, verification that
+    the fix worked, regression when it did not, and escalation when retries are
+    exhausted. LogMonitor already routes application errors here; platform
+    failures deserve the same treatment, since "the build is broken" is
+    precisely the case where an unverified fix is worthless.
+    """
+    try:
+        from agent.self_healing import get_self_healing_agent
+        healer = get_self_healing_agent()
+        if healer is None:
+            return
+        await healer.on_manual_report(
+            title=finding.title,
+            description=(
+                f"{finding.detail}\n\n"
+                f"**Source:** Render MCP ({finding.kind})\n"
+                f"**Service:** `{finding.service_name}` (`{finding.service_id}`)\n"
+                f"**Evidence:** `{finding.evidence}`\n\n"
+                "Observed on the Render platform, not in application logs — the "
+                "process may have had no chance to log anything."
+            ),
+            severity=finding.severity,
+            signature=finding.signature,
+        )
+    except Exception as exc:  # noqa: BLE001 - never break the monitor
+        log.warning("RenderOps: could not open a heal for %s: %s", finding.kind, exc)
 
 
 def _file_issue(finding: RenderFinding) -> bool:
