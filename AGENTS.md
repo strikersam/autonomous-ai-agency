@@ -95,6 +95,16 @@
 | `services/company_graph_store.py` | Company knowledge graph persistence | 1,660 | Medium |
 | `services/scanner.py` | Tech stack scanner (Playwright) | 1,377 | Medium |
 
+> **File-size exception.** `packages/config/control_catalogue.py` exceeds the
+> 800-line limit in §8. It is one flat declarative table — the 109 platform
+> controls an operator can set from the dashboard — with no executable logic:
+> the types and builders live in `packages/config/control_specs.py` (137 lines)
+> and the lookup, grouping, and coercion API in
+> `packages/config/control_registry.py` (140 lines), both well inside the limit.
+> Cutting the table at a group boundary would not shrink any reader's working
+> set, only make "where is control X declared" a two-step question. Revisit if
+> logic accumulates in the catalogue, which is what the limit exists to catch.
+
 > **File-size exception.** `services/ceo_dispatcher.py` exceeds the 800-line
 > limit in §8. It is a pre-existing orchestration hub (652 lines before the
 > micro-management work) and sits on the EXECUTE hot path, so splitting it is a

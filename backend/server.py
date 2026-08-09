@@ -1625,6 +1625,27 @@ async def lifespan(app_: "FastAPI"):
             "LLM Relay Platform started in limited mode — set MONGO_URL to enable full features"
         )
 
+    # Dashboard-set platform controls, applied before anything reads them.
+    # Ordered here deliberately: start_background_services() below builds the
+    # runtime manager and starts the autonomy loops, so an override of
+    # RUNTIME_DEFAULT or AGENCY_CEO_ENABLED has to already be in os.environ.
+    #
+    # Bounded with wait_for rather than _warmup_step for that same ordering
+    # reason: an overrunning warm-up step is deferred to the background, which
+    # here would land the overrides *after* the runtime manager was already
+    # built from the un-overridden environment. One small document read either
+    # finishes inside the timeout or is skipped for this boot — best-effort, so
+    # an unreachable settings store leaves the platform booting on its
+    # environment defaults rather than not booting.
+    try:
+        from packages.config.control_overrides import apply_from_db
+
+        applied = await asyncio.wait_for(apply_from_db(), timeout=5)
+        if applied:
+            log.info("Platform controls applied from dashboard: %s", sorted(applied))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Platform control overrides not applied: %s", exc)
+
     if run_background_in_web():
         # Shares warmup_deadline with bootstrap/reliability-hooks/cache-warm
         # rather than getting its own fresh budget: this step runs Hermes
@@ -10324,6 +10345,15 @@ import backend.spec_router as spec_router_module  # noqa: E402
 app.include_router(spec_router_module.build_spec_router(get_current_user))
 import backend.ceo_router as ceo_router_module  # noqa: E402
 app.include_router(ceo_router_module.build_ceo_router(get_current_user))
+
+# Platform controls: the dashboard surface for the feature switches and
+# multi-option settings that used to be Render-environment-only. Admin-gated
+# inside the router; the catalogue is an allow-list, so secrets are unreachable
+# through it.
+import backend.platform_controls_router as platform_controls_module  # noqa: E402
+app.include_router(
+    platform_controls_module.build_platform_controls_router(get_current_user)
+)
 
 # Agent governance: identity, policy, approvals, audit trail, sandbox posture.
 # Admin-only and read-mostly (policy is a git-reviewed file, not an editable

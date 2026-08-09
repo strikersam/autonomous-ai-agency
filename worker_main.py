@@ -71,6 +71,23 @@ async def _main() -> None:
     except Exception as exc:
         log.warning("DB bootstrap deferred: %s — continuing in limited mode", exc)
 
+    # Dashboard-set platform controls, applied before the loops read them.
+    # This worker runs the same background services as the web process, so a
+    # control chosen in the dashboard has to reach both — otherwise turning the
+    # CEO loop off in the UI would stop it on the web service while the worker
+    # kept running it. Best-effort, and ordered before start_background_services
+    # for the same reason as in the web lifespan. Bounded with the same 5s
+    # timeout too: an unreachable settings store must not hold worker startup
+    # open indefinitely.
+    try:
+        from packages.config.control_overrides import apply_from_db
+
+        applied = await asyncio.wait_for(apply_from_db(), timeout=5)
+        if applied:
+            log.info("Platform controls applied from dashboard: %s", sorted(applied))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Platform control overrides not applied: %s", exc)
+
     bg = await start_background_services(
         workspace_root=ROOT_DIR,
         task_store=task_store,
