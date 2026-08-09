@@ -343,3 +343,54 @@ async def test_dispatch_blocks_and_returns_a_message_in_enforce_mode():
     assert isinstance(result, str)
     assert "[governance]" in result
     assert runner.calls == [], "the blocked tool must never have run"
+
+
+# ── Budget endpoints ──────────────────────────────────────────────────────────
+
+
+def test_budget_list_returns_empty_for_fresh_gate():
+    from packages.governance.enforcement import reset_gate
+
+    reset_gate(None)
+    resp = _client(ADMIN).get("/api/governance/budget")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "budgets" in data
+    assert "count" in data
+    assert data["count"] == 0
+
+
+def test_budget_list_shows_live_session_after_guard():
+    import asyncio
+    from packages.governance.enforcement import GovernanceGate, reset_gate
+    from packages.governance.identity import resolve_identity
+
+    gate = GovernanceGate()
+    reset_gate(gate)
+    try:
+        identity = resolve_identity(agent_name="test-agent")
+        asyncio.run(gate.guard(identity, "web_search", {"query": "hello"}))
+        resp = _client(ADMIN).get("/api/governance/budget")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["count"] >= 1
+        budget = data["budgets"][0]
+        assert "per_tool_calls" in budget
+        assert budget["per_tool_calls"].get("web_search", 0) >= 1
+    finally:
+        reset_gate(None)
+
+
+def test_budget_get_single_session_not_found():
+    from packages.governance.enforcement import reset_gate
+
+    reset_gate(None)
+    resp = _client(ADMIN).get("/api/governance/budget/nonexistent-session")
+    assert resp.status_code == 404
+
+
+def test_budget_endpoints_require_admin():
+    resp = _client(VIEWER).get("/api/governance/budget")
+    assert resp.status_code == 403
+    resp = _client(VIEWER).get("/api/governance/budget/any")
+    assert resp.status_code == 403

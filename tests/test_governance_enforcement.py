@@ -447,3 +447,92 @@ def test_large_results_are_truncated_rather_than_stored_whole():
     event = AuditEvent(action="read", result="x" * 100_000)
     assert len(event.result) < 10_000
     assert "truncated" in event.result
+
+
+# ── Per-tool session caps (Claude Code v2.1.212 parity) ──────────────────────
+
+
+def test_per_tool_calls_tracked_per_tool_not_only_in_aggregate():
+    """guard() must increment both the aggregate counter and the per-tool map."""
+    tracker = BudgetTracker()
+    budget = tracker.get("sess-per-tool", {})
+    budget.tool_calls = 3
+    budget.per_tool_calls["web_search"] = 2
+    budget.per_tool_calls["read_file"] = 1
+
+    d = budget.to_dict()
+    assert d["tool_calls"] == 3
+    assert d["per_tool_calls"] == {"web_search": 2, "read_file": 1}
+
+
+async def test_per_tool_cap_blocks_when_ceiling_reached():
+    """A max_calls_<tool> ceiling must trigger check() once the tool is at the cap."""
+    _engine("enforce", groups={"default": {"limits": {"max_calls_web_search": 2}}})
+    gate = GovernanceGate()
+    identity = resolve_identity(agent_name="researcher")
+
+    # First two calls allowed (under/at ceiling check requires >=, not >).
+    r1 = await gate.guard(identity, "web_search", {"query": "openai"})
+    assert r1.allowed is True
+    r2 = await gate.guard(identity, "web_search", {"query": "anthropic"})
+    assert r2.allowed is True
+
+    # Third call hits the cap.
+    r3 = await gate.guard(identity, "web_search", {"query": "llama"})
+    assert r3.allowed is False
+    assert "max_calls_web_search" in r3.decision.reason
+
+
+async def test_per_tool_cap_does_not_block_other_tools():
+    """Exhausting web_search cap must not block read_file on the same session."""
+    _engine("enforce", groups={"default": {"limits": {"max_calls_web_search": 1}}})
+    gate = GovernanceGate()
+    identity = resolve_identity(agent_name="researcher")
+
+    await gate.guard(identity, "web_search", {"query": "x"})
+    blocked = await gate.guard(identity, "web_search", {"query": "y"})
+    assert blocked.allowed is False
+
+    unaffected = await gate.guard(identity, "read_file", {"path": "README.md"})
+    assert unaffected.allowed is True
+
+
+async def test_missing_per_tool_limit_key_means_unlimited():
+    """Absence of max_calls_<tool> must mean unlimited, not zero."""
+    _engine("enforce", groups={"default": {"limits": {"max_calls_web_search": 0}}})
+    gate = GovernanceGate()
+    identity = resolve_identity(agent_name="coder")
+
+    for _ in range(500):
+        r = await gate.guard(identity, "web_search", {"query": "test"})
+        if not r.allowed:
+            pytest.fail("A ceiling of 0 must mean unlimited, but the call was blocked")
+
+
+async def test_per_tool_calls_populated_after_guard():
+    """After guard(), per_tool_calls in the budget must reflect the actual call."""
+    _engine("observe")
+    gate = GovernanceGate()
+    identity = resolve_identity(agent_name="scout")
+
+    await gate.guard(identity, "web_search", {"query": "test"})
+    await gate.guard(identity, "read_file", {"path": "a.py"})
+    await gate.guard(identity, "web_search", {"query": "more"})
+
+    session_id = str(identity.session_id)
+    all_budgets = {b["session_id"]: b for b in gate.budgets.all()}
+    assert session_id in all_budgets
+    ptc = all_budgets[session_id]["per_tool_calls"]
+    assert ptc.get("web_search", 0) == 2
+    assert ptc.get("read_file", 0) == 1
+
+
+def test_per_tool_caps_do_not_interfere_across_sessions():
+    """A tool cap exhausted in session A must not affect session B."""
+    tracker = BudgetTracker()
+    sess_a = tracker.get("a", {"max_calls_web_search": 1})
+    sess_b = tracker.get("b", {"max_calls_web_search": 1})
+
+    sess_a.per_tool_calls["web_search"] = 1
+    assert sess_a.check_tool("web_search") is not None
+    assert sess_b.check_tool("web_search") is None

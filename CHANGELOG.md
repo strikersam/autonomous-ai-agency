@@ -6,6 +6,17 @@
 
 ### Added
 
+- **Per-tool session call caps + budget API endpoint** (2026-08-09). Inspired by Claude Code v2.1.212's per-session WebSearch limit (200 calls/session) and subagent spawn cap (200/session), this extends `packages/governance/enforcement.py`'s `SessionBudget` with per-tool tracking and enforcement, matching the same pattern at the governance layer used by all 34 autonomous loops.
+  - **`SessionBudget.per_tool_calls`** — a new `dict[str, int]` field tracks how many times each tool has been called in the session. `GovernanceGate.guard()` now increments both the aggregate `tool_calls` counter and `per_tool_calls[tool]` on every governed call.
+  - **`SessionBudget.check_tool(tool)`** — a new method that checks only the cap for the named tool (`max_calls_<tool>` key in `limits`). Per-tool caps are deliberately split from the session-wide `check()` so exhausting one tool's allowance (e.g. `web_search`) never blocks unrelated tools (`read_file`, `apply_diff`) on the same session — the same isolation Claude Code provides.
+  - **`_guard_inner` per-tool gate** — calls `check_tool(tool)` after the session-wide `check()` but before the policy evaluation, returning a `budget.tool.exhausted` denial with the specific limit key in the reason.
+  - **Default caps** in the built-in policy: `max_calls_web_search: 200`, `max_calls_fetch_page: 200`, `max_calls_fetch_url: 200`, `max_calls_fetch_rss: 100`. These are observed-mode defaults so no existing loop is blocked on first deploy.
+  - **`GET /api/governance/budget`** — new admin-only endpoint listing all live session budgets including the `per_tool_calls` breakdown. Surfaces which tools an agent has been calling, how many times, and how close each is to its cap — the visibility needed to decide when per-tool enforcement is safe.
+  - **`GET /api/governance/budget/{session_id}`** — same for a single session; 404 when not tracked.
+  - **`SessionBudget.to_dict()`** now includes `per_tool_calls` so the budget tracker's `all()` output is complete.
+  - 13 new tests: per-tool counter population, per-tool cap enforcement, cross-tool isolation (exhausting one cap does not block another), cross-session isolation, missing-key-means-unlimited, and the two new API endpoints (admin-gating, not-found, and live session reads).
+  - Files: `packages/governance/enforcement.py`, `packages/governance/policy.py`, `backend/governance_router.py`, `tests/test_governance_enforcement.py` (7 new tests), `tests/test_governance_api.py` (6 new tests).
+
 - **Review hardening for the Prime Agent runtime and Continual Harness** (2026-08-08). Automated review of #1233 surfaced defects worth fixing rather than waving through; each is now pinned by a regression test.
   - **The child process no longer inherits the worker environment.** `env={**os.environ}` handed a CLI with a model-controlled `bash` tool every secret the worker holds — `GH_PAT`, `MONGO_URL`, `JWT_SECRET`, every provider key. It now receives an allowlist: PATH/locale settings plus the two proxy variables the extension actually needs.
   - **`--no-approve` was not the isolation it looked like.** It withholds trust from workspace-local *approved* resources but still loads `AGENTS.md`/`CLAUDE.md`, prompt templates, themes and skills out of the repository under test — model instructions from whatever repo the task is operating on. Untrusted workspaces now get the full set (`--no-context-files`, `--no-prompt-templates`, `--no-themes`, `--no-skills`), and a CLI too old to accept them makes the adapter refuse rather than quietly degrade.
