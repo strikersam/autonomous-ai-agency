@@ -312,3 +312,69 @@ class TestReviewRegressions:
         env = _child_env()
         assert env["AGENCY_PROXY_URL"] == "http://proxy:8000"
         assert env["PROXY_API_KEY"] == "bearer-token"
+
+
+class TestFailClosed:
+    """Second-round review findings: controls that quietly failed open."""
+
+    def test_inconclusive_flag_discovery_refuses(self):
+        """An unparseable --help must not read as 'nothing to isolate'.
+
+        This was a fail-open in the isolation check itself: an empty `supported`
+        set meant the probe failed, but it was treated as though the flags were
+        simply unnecessary, so an untrusted workspace ran with none of them.
+        """
+        missing = PrimeAgentAdapter().unsupported_isolation_flags(frozenset())
+        assert set(missing) == set(_UNTRUSTED_WORKSPACE_FLAGS)
+
+    def test_inconclusive_discovery_is_fine_when_trusted(self, monkeypatch):
+        monkeypatch.setenv("PRIME_AGENT_TRUST_WORKSPACE", "true")
+        assert PrimeAgentAdapter().unsupported_isolation_flags(frozenset()) == []
+
+    def test_execute_refuses_when_discovery_is_inconclusive(self, monkeypatch):
+        monkeypatch.setattr(
+            "runtimes.adapters.prime_agent.shutil.which", lambda name: "/usr/bin/pi"
+        )
+        adapter = PrimeAgentAdapter(config={"provider": "none", "extension": ""})
+        monkeypatch.setattr(
+            adapter, "_supported_flags", lambda _bin: asyncio.sleep(0, result=frozenset())
+        )
+        with pytest.raises(Exception) as excinfo:
+            asyncio.run(adapter.execute(_spec()))
+        assert "cannot isolate an untrusted workspace" in str(excinfo.value)
+
+    def test_version_probe_is_reaped_on_timeout(self, monkeypatch):
+        """Health is polled on a timer; a stuck CLI would leak one process per poll."""
+        reaped: list[object] = []
+
+        class StuckProc:
+            returncode = None
+
+            def communicate(self):
+                # Deliberately not a coroutine: the patched wait_for below raises
+                # before awaiting, and a real coroutine would warn about never
+                # being awaited.
+                return None
+
+            def kill(self):
+                reaped.append(self)
+
+            async def wait(self):
+                self.returncode = -9
+
+        async def fake_exec(*args, **kwargs):
+            return StuckProc()
+
+        monkeypatch.setattr(
+            "runtimes.adapters.prime_agent.shutil.which", lambda name: "/usr/bin/pi"
+        )
+        monkeypatch.setattr(
+            "runtimes.adapters.prime_agent.asyncio.create_subprocess_exec", fake_exec
+        )
+        monkeypatch.setattr(
+            "runtimes.adapters.prime_agent.asyncio.wait_for",
+            lambda *a, **k: (_ for _ in ()).throw(asyncio.TimeoutError()),
+        )
+        health = asyncio.run(PrimeAgentAdapter().health_check())
+        assert health.available is False
+        assert reaped, "the timed-out --version process was never killed"

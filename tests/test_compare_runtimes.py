@@ -173,3 +173,50 @@ class TestReviewRegressions:
     def test_task_file_validation_accepts_valid(self):
         tasks = [{"id": "a", "instruction": "do it"}]
         assert compare_runtimes._validate_tasks(tasks) == tasks
+
+
+class TestExitCodes:
+    def test_runtime_that_never_succeeded_exits_nonzero(self, monkeypatch, capsys):
+        """A healthy runtime whose every task raised must not exit 0.
+
+        `execute()` can raise RuntimeUnavailableError after health_check passed —
+        e.g. `agency` without its extension. Exiting 0 would let CI bank a green
+        comparison for a runtime that never actually ran.
+        """
+        summaries = {
+            "good": compare_runtimes.RuntimeSummary(
+                "good", available=True, runs=2, successes=2, durations=[1.0, 1.0]
+            ),
+            "broken": compare_runtimes.RuntimeSummary(
+                "broken", available=True, runs=2, successes=0, durations=[0.1, 0.1]
+            ),
+        }
+        monkeypatch.setattr(
+            compare_runtimes, "compare",
+            lambda *a, **k: _immediate(([], summaries)),
+        )
+        monkeypatch.setattr(
+            "sys.argv", ["compare_runtimes.py", "--runtimes", "good", "broken"]
+        )
+        assert compare_runtimes.main() == 3
+        assert "No task succeeded for: broken" in capsys.readouterr().err
+
+    def test_all_successful_exits_zero(self, monkeypatch):
+        summaries = {
+            "a": compare_runtimes.RuntimeSummary("a", available=True, runs=1, successes=1, durations=[1.0]),
+            "b": compare_runtimes.RuntimeSummary("b", available=True, runs=1, successes=1, durations=[1.0]),
+        }
+        monkeypatch.setattr(
+            compare_runtimes, "compare", lambda *a, **k: _immediate(([], summaries))
+        )
+        monkeypatch.setattr("sys.argv", ["compare_runtimes.py", "--runtimes", "a", "b"])
+        assert compare_runtimes.main() == 0
+
+    def test_single_runtime_is_rejected(self, monkeypatch):
+        monkeypatch.setattr("sys.argv", ["compare_runtimes.py", "--runtimes", "only_one"])
+        with pytest.raises(SystemExit):
+            compare_runtimes.main()
+
+
+async def _immediate(value):
+    return value

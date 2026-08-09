@@ -442,6 +442,7 @@ class PrimeAgentAdapter(RuntimeAdapter):
                 ),
             )
         t0 = time.monotonic()
+        proc: asyncio.subprocess.Process | None = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 bin_path, "--version",
@@ -451,9 +452,13 @@ class PrimeAgentAdapter(RuntimeAdapter):
             )
             stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=15.0)
         except asyncio.TimeoutError:
+            # Health is polled on a timer: without reaping, a stuck CLI would leak
+            # one --version process per poll until the worker restarts.
+            await _kill_and_reap(proc)
             return RuntimeHealth(runtime_id=self.RUNTIME_ID, available=False,
                                  error="--version timed out after 15s")
         except Exception as exc:
+            await _kill_and_reap(proc)
             return RuntimeHealth(runtime_id=self.RUNTIME_ID, available=False, error=str(exc))
 
         version = stdout.decode(errors="replace").strip().splitlines()
@@ -476,9 +481,17 @@ class PrimeAgentAdapter(RuntimeAdapter):
 
         A build that cannot quarantine workspace instructions must not silently
         run them: the caller refuses instead of degrading to a weaker posture.
+
+        Fails closed on inconclusive discovery. An empty `supported` set means the
+        ``--help`` probe timed out or could not be parsed — not that the flags are
+        absent. Treating that as "nothing to isolate" would run an untrusted
+        workspace with no isolation at all, which is the failure this check exists
+        to prevent.
         """
-        if self._trust_workspace or not supported:
+        if self._trust_workspace:
             return []
+        if not supported:
+            return list(_UNTRUSTED_WORKSPACE_FLAGS)
         return [flag for flag in _UNTRUSTED_WORKSPACE_FLAGS if flag not in supported]
 
     def build_command(

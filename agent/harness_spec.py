@@ -101,14 +101,18 @@ def spec_path(workspace_root: str | Path | None = None) -> Path:
     return Path(workspace_root or os.getcwd()) / _SPEC_RELPATH
 
 
-def _known_signatures() -> set[str]:
-    """Signatures recorded in the lesson store.
+def _known_entry_texts() -> dict[str, set[str]]:
+    """Recorded lessons as ``{signature: {acceptable text, ...}}``.
 
-    Fails closed: when the store cannot be read, this returns an empty set and
+    The citation binds to the *text*, not merely the signature. Verifying the
+    signature alone would let a third-party workspace keep a known
+    ``lesson:<sig>`` prefix and swap the body for arbitrary instructions, which
+    `build_block()` would then inject as trusted standing guidance.
+
+    Fails closed: when the store cannot be read this returns an empty mapping and
     every entry is dropped. Injecting unverified workspace text because our own
-    bookkeeping was briefly unavailable would defeat the point of the check —
-    and losing the block is harmless, since it is an enhancement, not a
-    critical path.
+    bookkeeping was briefly unavailable would defeat the check — and losing the
+    block is harmless, since it is an enhancement, not a critical path.
     """
     try:
         from agent.lessons import _get_store  # local import: avoids a cycle
@@ -116,8 +120,22 @@ def _known_signatures() -> set[str]:
         lessons = _get_store().recent(limit=1000)
     except Exception as exc:
         log.warning("harness spec: lesson store unreadable, dropping all entries: %s", exc)
-        return set()
-    return {str(entry.get("signature") or "") for entry in lessons if entry.get("signature")}
+        return {}
+
+    known: dict[str, set[str]] = {}
+    for entry in lessons:
+        signature = str(entry.get("signature") or "")
+        text = _one_line(entry.get("lesson"))
+        if not signature or not text:
+            continue
+        phase = _one_line(entry.get("phase"))
+        # Both renderings are accepted: propose_entries() prefixes the phase, and
+        # a spec written before a phase was recorded would not carry one.
+        accepted = {text}
+        if phase:
+            accepted.add(f"During {phase}: {text}")
+        known.setdefault(signature, set()).update(accepted)
+    return known
 
 
 def read_entries(
@@ -137,25 +155,22 @@ def read_entries(
         raw = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return []
-    known = _known_signatures() if verify else None
+    known = _known_entry_texts() if verify else None
     entries: list[SpecEntry] = []
     for line in raw.splitlines():
         match = _ENTRY_RE.match(line.strip())
         if not match:
             continue
         signature = match.group("sig")
-        if known is not None and signature not in known:
+        text = match.group("text").strip()
+        if known is not None and text not in known.get(signature, set()):
             log.warning(
-                "harness spec: dropping entry with unrecognised citation %s from %s",
+                "harness spec: dropping entry whose text does not match lesson %s in %s",
                 signature, path,
             )
             continue
         entries.append(
-            SpecEntry(
-                signature=signature,
-                hits=int(match.group("hits")),
-                text=match.group("text").strip(),
-            )
+            SpecEntry(signature=signature, hits=int(match.group("hits")), text=text)
         )
     return entries
 

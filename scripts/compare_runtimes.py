@@ -233,6 +233,18 @@ def main() -> int:
     if unavailable:
         print(f"\nUnavailable, nothing measured: {', '.join(unavailable)}", file=sys.stderr)
         return 2
+
+    # A runtime can pass its health check and still never execute — an adapter
+    # that raises RuntimeUnavailableError from execute() (say, `agency` without
+    # its extension) records failures for every task. Exiting 0 there would let
+    # CI bank a green comparison for a runtime that never ran.
+    never_ran = [s.runtime_id for s in summaries.values() if s.runs and not s.successes]
+    if never_ran:
+        print(
+            f"\nNo task succeeded for: {', '.join(never_ran)} — see failures above",
+            file=sys.stderr,
+        )
+        return 3
     return 0
 
 
