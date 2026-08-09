@@ -126,6 +126,9 @@ class BudgetExceeded(Exception):
     """Raised internally when a session exhausts a limit. Never escapes guard()."""
 
 
+_PER_TOOL_LIMIT_PREFIX = "max_calls_"
+
+
 @dataclass
 class SessionBudget:
     """Per-session consumption counters and their ceilings.
@@ -135,6 +138,12 @@ class SessionBudget:
     ceiling of ``0`` or a missing key means unlimited for that dimension —
     absence must not silently mean "zero allowed", which would block
     everything the moment a limit key is omitted.
+
+    Per-tool caps are expressed as ``max_calls_<tool_name>`` entries in
+    ``limits`` — for example ``max_calls_web_search: 200`` caps the
+    ``web_search`` tool at 200 calls per session, matching Claude Code's
+    per-session WebSearch cap introduced in v2.1.212. A missing key means
+    unlimited for that tool; it never defaults to zero.
     """
 
     session_id: str
@@ -144,6 +153,7 @@ class SessionBudget:
     tokens: int = 0
     retries: int = 0
     depth: int = 0
+    per_tool_calls: dict[str, int] = field(default_factory=dict)
     started_at: float = field(default_factory=time.monotonic)
 
     @property
@@ -151,7 +161,12 @@ class SessionBudget:
         return time.monotonic() - self.started_at
 
     def check(self) -> str | None:
-        """Return the name of the first exhausted limit, or None."""
+        """Return the name of the first exhausted session-wide limit, or None.
+
+        Only covers session-wide counters (total tool calls, cost, tokens,
+        etc.). Per-tool caps are checked separately via :meth:`check_tool` so
+        that exhausting one tool's cap does not block unrelated tools.
+        """
         checks = (
             ("max_tool_calls", self.tool_calls),
             ("max_cost_usd", self.cost_usd),
@@ -166,6 +181,23 @@ class SessionBudget:
                 return f"{key}={used:.4g} reached ceiling {ceiling:.4g}"
         return None
 
+    def check_tool(self, tool: str) -> str | None:
+        """Return a reason string if *tool* has hit its per-tool session cap.
+
+        Checks only the cap for the named tool (``max_calls_<tool>`` in
+        ``limits``), so exhausting one tool's allowance never blocks others.
+        A missing limit key means unlimited — absence is not zero.
+        """
+        limit_key = f"{_PER_TOOL_LIMIT_PREFIX}{tool}"
+        ceiling_raw = self.limits.get(limit_key, 0)
+        if not ceiling_raw:
+            return None
+        ceiling = float(ceiling_raw)
+        used = self.per_tool_calls.get(tool, 0)
+        if used >= ceiling:
+            return f"{limit_key}={used} reached ceiling {ceiling:.4g}"
+        return None
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "session_id": self.session_id,
@@ -175,6 +207,7 @@ class SessionBudget:
             "retries": self.retries,
             "depth": self.depth,
             "elapsed_s": round(self.elapsed_s, 1),
+            "per_tool_calls": dict(self.per_tool_calls),
             "limits": dict(self.limits),
         }
 
@@ -309,6 +342,7 @@ class GovernanceGate:
         # cannot spend more while an approval is pending.
         session_id = str(getattr(identity, "session_id", "") or "anonymous")
         budget = self._budgets.get(session_id, engine.limits_for(identity))
+
         exhausted = budget.check()
         if exhausted:
             budget_decision = PolicyDecision(
@@ -322,7 +356,21 @@ class GovernanceGate:
                 decision=budget_decision, budget=budget,
             )
 
+        tool_exhausted = budget.check_tool(tool)
+        if tool_exhausted:
+            tool_decision = PolicyDecision(
+                decision=Decision.DENY, surface=resolved_surface, action=resolved_action,
+                reason=f"session budget exhausted: {tool_exhausted}",
+                rule_id="budget.tool.exhausted", mode=decision.mode, group=decision.group,
+            )
+            self._audit(identity, tool, args, tool_decision, status="blocked")
+            return GuardResult(
+                allowed=tool_decision.effective is not Decision.DENY,
+                decision=tool_decision, budget=budget,
+            )
+
         budget.tool_calls += 1
+        budget.per_tool_calls[tool] = budget.per_tool_calls.get(tool, 0) + 1
 
         effective = decision.effective
         if effective is Decision.DENY:

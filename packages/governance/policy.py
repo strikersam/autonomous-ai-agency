@@ -235,6 +235,12 @@ DEFAULT_POLICY: dict[str, Any] = {
                 "max_duration_s": 1800,
                 "max_depth": 5,
                 "max_retries": 10,
+                # Per-tool session caps (max_calls_<tool_name>).
+                # Mirrors Claude Code's per-session WebSearch cap (v2.1.212).
+                "max_calls_web_search": 200,
+                "max_calls_fetch_page": 200,
+                "max_calls_fetch_url": 200,
+                "max_calls_fetch_rss": 100,
             },
             "sandbox_profile": "development",
         },

@@ -20,6 +20,8 @@ Routes::
     GET  /api/governance/sandboxes           live sandboxes
     POST /api/governance/sandboxes/reap      destroy expired sandboxes (admin)
     DELETE /api/governance/sandboxes/{id}    destroy one sandbox (admin)
+    GET  /api/governance/budget              all live session budgets (per-tool breakdown)
+    GET  /api/governance/budget/{session_id} one session's live budget
 
 Every route requires an authenticated user; mutating routes additionally
 require ``role=admin``. Reads are admin-gated too, because an audit trail
@@ -316,5 +318,40 @@ def build_governance_router(get_current_user: Callable[..., Any]) -> APIRouter:
         if not destroyed:
             raise HTTPException(status_code=404, detail="Sandbox not found or already destroyed")
         return {"destroyed": True, "sandbox_id": sandbox_id}
+
+    # ── Session budgets ───────────────────────────────────────────────────
+
+    @router.get("/budget")
+    async def list_budgets(user: dict = Depends(get_current_user)) -> dict:
+        """All active session budgets — live per-session tool-call and cost counters.
+
+        Surfaces the per-tool call breakdown (per_tool_calls) and the ceilings
+        (limits) so an operator can see which sessions are approaching their
+        caps without a ``curl`` to the audit log. Admin-only: the per-tool
+        breakdown names every tool an agent has called, which is an inventory
+        of what the agent has been doing.
+        """
+        _require_admin(user)
+        from packages.governance.enforcement import get_gate
+
+        budgets = get_gate().budgets.all()
+        return {"budgets": budgets, "count": len(budgets)}
+
+    @router.get("/budget/{session_id}")
+    async def get_budget(
+        session_id: str, user: dict = Depends(get_current_user)
+    ) -> dict:
+        """One session's live budget — counters and ceilings.
+
+        Returns 404 when the session is not tracked (never made a governed
+        tool call, or was evicted from the in-process tracker).
+        """
+        _require_admin(user)
+        from packages.governance.enforcement import get_gate
+
+        budgets = {b["session_id"]: b for b in get_gate().budgets.all()}
+        if session_id not in budgets:
+            raise HTTPException(status_code=404, detail="Session not found in budget tracker")
+        return budgets[session_id]
 
     return router
