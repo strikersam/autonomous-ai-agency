@@ -687,14 +687,19 @@ services:
       - key: PROXY_API_KEY
         sync: false
       # Base URL of an OpenAI-compatible endpoint (/v1/chat/completions).
-      # NOTE: that endpoint is served by proxy.py, and no service in this
-      # blueprint currently runs proxy.py — the Render web service runs
-      # backend/server.py, which does not mount it. Point this at wherever
-      # proxy.py actually runs before enabling the runtime above; leaving it
-      # unset falls back to http://localhost:8000, which is correct only for a
-      # host that runs the proxy in-process.
+      # Set to the deployed backend so the value is concrete rather than blank;
+      # override it in the Render dashboard if the proxy moves.
+      #
+      # VERIFY BEFORE ENABLING THE RUNTIME ABOVE: /v1/* is served by proxy.py,
+      # and no service in this blueprint runs proxy.py — the web service runs
+      # backend/server.py, which does not mount it. If
+      #   curl -s -o /dev/null -w '%{http_code}' \
+      #     https://local-llm-server.onrender.com/v1/models
+      # does not return 200/401, point this at wherever proxy.py actually runs.
+      # A wrong value is not silent: the adapter's run fails with
+      # "Connection error." rather than quietly falling back to another provider.
       - key: AGENCY_PROXY_URL
-        sync: false
+        value: "https://local-llm-server.onrender.com"
 
   # ── FreeBuff Telegram bot (24×7 phone control of repo edits) ──────────────
   # Always-on worker that long-polls Telegram and runs the FreeBuff agent

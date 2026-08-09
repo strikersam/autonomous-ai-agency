@@ -829,6 +829,17 @@ class AgentRunner:
             except Exception:
                 pass
 
+            # ── Continual Harness: promote a lesson seen more than once into a
+            # standing instruction the next planner reads (agent/harness_spec.py).
+            # Lessons alone decay out of the recent-N window; the spec is what
+            # makes a repeated failure stick. No-op unless HARNESS_SPEC_AUTO_REFINE
+            # is set, so prompts are unchanged for anyone who has not opted in.
+            try:
+                from agent.harness_spec import refine
+                refine(self.tools.root)
+            except Exception:
+                pass
+
             return {
                 "goal": plan.goal,
                 "plan": plan.model_dump(),
