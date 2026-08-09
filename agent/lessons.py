@@ -72,9 +72,13 @@ class LessonStore:
             )
 
     def recent(self, limit: int = 5) -> list[dict[str, Any]]:
+        # `signature` is selected so callers can cite a specific lesson — the
+        # harness spec (agent/harness_spec.py) refuses to write an entry it
+        # cannot trace back to one.
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT phase, lesson, hits FROM lessons ORDER BY hits DESC, updated_at DESC LIMIT ?",
+                "SELECT signature, phase, lesson, hits FROM lessons "
+                "ORDER BY hits DESC, updated_at DESC LIMIT ?",
                 (int(limit),),
             ).fetchall()
         return [dict(r) for r in rows]

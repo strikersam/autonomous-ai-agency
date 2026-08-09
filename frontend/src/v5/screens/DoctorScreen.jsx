@@ -408,6 +408,7 @@ function RuntimeHealthPanel({ runtimes, loading, error }) {
     jcode: 'JCode',
     openhands: 'OpenHands',
     task_harness: 'Task Harness',
+    prime_agent: 'Prime Agent',
   };
 
   return (

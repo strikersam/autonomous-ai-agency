@@ -156,6 +156,20 @@ class HarnessEnrichment:
         self._cached_skill_block = block
         return block
 
+    def build_spec_block(self) -> str:
+        """Standing instructions from the Continual Harness spec.
+
+        Deliberately uncached: unlike tools and skills, the spec can change
+        *during* a session (a run that fails twice promotes a lesson), and a
+        stale block would hide the lesson from the very next run.
+        """
+        try:
+            from agent.harness_spec import build_block
+            return build_block(self._workspace_root)
+        except Exception as exc:
+            log.debug("harness spec block skipped: %s", exc)
+            return ""
+
     def build_full_enrichment(self) -> str:
         """Build the complete enrichment block (tools + skills).
 
@@ -164,15 +178,18 @@ class HarnessEnrichment:
         """
         tool_block = self.build_tool_block()
         skill_block = self.build_skill_block()
+        spec_block = self.build_spec_block()
         has_tools = tool_block and "AVAILABLE TOOLS:" in tool_block and len(tool_block) > 25
         has_skills = skill_block and "AVAILABLE SKILLS:" in skill_block and len(skill_block) > 25
-        if not has_tools and not has_skills:
+        if not has_tools and not has_skills and not spec_block:
             return ""
         parts = []
         if has_tools:
             parts.append(tool_block)
         if has_skills:
             parts.append(skill_block)
+        if spec_block:
+            parts.append(spec_block)
         return (
             "─── HARNESS CAPABILITIES ───\n\n"
             + "\n\n".join(parts)
@@ -237,13 +254,22 @@ _enrichment: HarnessEnrichment | None = None
 
 
 def get_enrichment(workspace_root: str | None = None) -> HarnessEnrichment:
+    """Return the enrichment instance for a workspace.
+
+    Keyed by workspace root rather than a single global: the harness spec is
+    per-workspace, so a lone singleton would serve the first caller's spec to
+    every other workspace — and hide a lesson a run had just promoted in its own.
+    """
     global _enrichment
+    key = str(workspace_root or os.getcwd())
     if _enrichment is None:
-        _enrichment = HarnessEnrichment(workspace_root)
-    return _enrichment
+        _enrichment = {}
+    if key not in _enrichment:
+        _enrichment[key] = HarnessEnrichment(key)
+    return _enrichment[key]
 
 
 def invalidate_enrichment_cache() -> None:
     global _enrichment
-    if _enrichment is not None:
-        _enrichment.invalidate_cache()
+    for instance in (_enrichment or {}).values():
+        instance.invalidate_cache()

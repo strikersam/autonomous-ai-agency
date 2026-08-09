@@ -92,6 +92,26 @@ COPY .claude/ .claude/
 # on the gitignored frontend/build/ existing in the build context.
 COPY --from=frontend-build /frontend/build/ frontend/build/
 
+# ── Optional: Prime Agent runtime (Node CLI) ──────────────────────────────────
+# Off by default so the default image is unchanged in size and attack surface.
+# Build with --build-arg INSTALL_PRIME_AGENT=true (see render.yaml: enabled on
+# the worker service only — prime-agent runs model-generated shell commands with
+# the container's own permissions and is explicitly not a security sandbox, so it
+# has no business inside the public web service).
+# Everything is inside one guarded RUN on purpose: a COPY layer cannot be undone
+# by a later rm, so conditionally copying Node would grow the image even when the
+# feature is off. The upstream installer brings its own standalone Node when none
+# is present, so nothing is needed from the frontend-build stage.
+ARG INSTALL_PRIME_AGENT=false
+ARG PRIME_AGENT_CHANNEL=stable
+RUN if [ "$INSTALL_PRIME_AGENT" = "true" ]; then \
+      apt-get update && \
+      apt-get install -y --no-install-recommends curl ca-certificates && \
+      rm -rf /var/lib/apt/lists/* && \
+      curl -fsSL https://app.primeintellect.ai/prime-agent/install.sh | sh -s -- "$PRIME_AGENT_CHANNEL" && \
+      prime-agent --version; \
+    fi
+
 EXPOSE 8001
 
 # Render injects PORT; fall back to 8001 for local use.

@@ -197,6 +197,7 @@ def _build_default_manager() -> RuntimeManager:
       RUNTIME_AIDER_ENABLED       — AiderAdapter
       RUNTIME_JCODE_ENABLED       — JCodeAdapter
       RUNTIME_OPENHANDS_ENABLED   — OpenHandsAdapter
+      RUNTIME_PRIME_AGENT_ENABLED — PrimeAgentAdapter
       TASK_HARNESS_ENABLED        — TaskHarnessAdapter  (legacy flag kept)
 
     This keeps the default surface minimal and avoids probing unavailable
@@ -282,6 +283,11 @@ def _build_default_manager() -> RuntimeManager:
         from runtimes.adapters.openhands import OpenHandsAdapter
         mgr.register(OpenHandsAdapter())
         log.info("RuntimeManager: OpenHandsAdapter registered")
+
+    if _env_flag("RUNTIME_PRIME_AGENT_ENABLED"):
+        from runtimes.adapters.prime_agent import PrimeAgentAdapter
+        mgr.register(PrimeAgentAdapter())
+        log.info("RuntimeManager: PrimeAgentAdapter registered")
 
     if _env_flag("TASK_HARNESS_ENABLED"):
         from runtimes.adapters.task_harness import TaskHarnessAdapter

@@ -829,6 +829,17 @@ class AgentRunner:
             except Exception:
                 pass
 
+            # ── Continual Harness: promote a lesson seen more than once into a
+            # standing instruction the next planner reads (agent/harness_spec.py).
+            # Lessons alone decay out of the recent-N window; the spec is what
+            # makes a repeated failure stick. No-op unless HARNESS_SPEC_AUTO_REFINE
+            # is set, so prompts are unchanged for anyone who has not opted in.
+            try:
+                from agent.harness_spec import refine
+                refine(self.tools.root)
+            except Exception as exc:
+                log.warning("harness spec refine skipped: %s", exc, exc_info=True)
+
             return {
                 "goal": plan.goal,
                 "plan": plan.model_dump(),
@@ -925,7 +936,7 @@ class AgentRunner:
             procedural_memories=proc_memories or None,
         )
         # ── Harness enrichment: inject available tools + skills into planner ───
-        self._inject_enrichment(messages)
+        self._inject_enrichment(messages, str(self.tools.root))
         # ── Learning loop: surface lessons from recent failed runs so the
         # planner avoids known failure modes (agent/lessons.py).
         try:
@@ -1050,7 +1061,7 @@ class AgentRunner:
                 masked_obs = self.ctx.mask_observations(observations)
                 tool_messages = build_tool_prompt(goal=goal, step=step, observations=masked_obs, remaining_calls=remaining)
                 # ── Harness enrichment: inject tool + skill catalog into tool prompt ───
-                self._inject_enrichment(tool_messages)
+                self._inject_enrichment(tool_messages, str(self.tools.root))
                 # Inject ReAct scratchpad trace into the system message so the
                 # model can see its own reasoning across tool calls (A2)
                 scratchpad_ctx = scratchpad.to_prompt_context()
@@ -2473,13 +2484,20 @@ class AgentRunner:
     # ── Harness enrichment helpers ───────────────────────────────────────────
 
     @staticmethod
-    def _inject_enrichment(messages: list[dict[str, str]]) -> None:
+    def _inject_enrichment(
+        messages: list[dict[str, str]], workspace_root: str | None = None
+    ) -> None:
         """Inject available tools + skills catalog into the system message.
+
+        ``workspace_root`` must be the runner's own workspace: the harness spec is
+        per-workspace, and defaulting to the process cwd would show the planner a
+        different workspace's spec — including hiding the lesson this very run
+        just promoted.
 
         Best-effort — never raises, never blocks the agent loop.
         """
         try:
-            enrichment = get_enrichment()
+            enrichment = get_enrichment(workspace_root)
             full = enrichment.build_full_enrichment()
             if full:
                 sys_content = str(messages[0].get("content", ""))
