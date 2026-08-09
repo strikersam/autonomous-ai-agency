@@ -144,7 +144,9 @@ class TestStatusMeasurement:
         rows = await status_all()
         assert len(rows) == len(list_specs())
         for row in rows:
-            assert row["status"] in {"connected", "error", "idle", "unconfigured"}
+            assert row["status"] in {
+                "connected", "error", "idle", "unconfigured", "unavailable"
+            }
 
     @pytest.mark.asyncio
     async def test_status_all_never_raises_when_a_probe_explodes(self, monkeypatch):
@@ -167,6 +169,58 @@ class TestStdioServersAreHonest:
         github = next(r for r in rows if r["id"] == "github")
         assert github["transport"] == "stdio"
         assert "stdio" in github["reason"].lower()
+
+    @pytest.mark.asyncio
+    async def test_stdio_server_is_unavailable_not_error(self, monkeypatch):
+        """Regression: github rendered red, sending operators after a non-bug.
+
+        The registry's own docstring said a stdio server must not "read as a
+        fault", but _status_for mapped every unreachable server to 'error'
+        regardless — so a correctly-configured GitHub entry showed up on the
+        dashboard as broken.
+        """
+        monkeypatch.setattr(mcp_registry.settings, "gh_pat", "tok", raising=False)
+        rows = await status_all()
+        github = next(r for r in rows if r["id"] == "github")
+        assert github["status"] == "unavailable", (
+            "a server the backend cannot dial is not an error"
+        )
+
+    @pytest.mark.asyncio
+    async def test_dialable_server_that_fails_is_still_an_error(self):
+        """The distinction must not swallow genuine faults."""
+        async def _probe():
+            return False, 0, "connection refused"
+        row = await _status_for(_spec(dialable=True, probe=_probe))
+        assert row["status"] == "error"
+
+    @pytest.mark.asyncio
+    async def test_undialable_server_reports_unavailable(self):
+        async def _probe():
+            return False, 0, "not dialable from here"
+        row = await _status_for(_spec(dialable=False, probe=_probe))
+        assert row["status"] == "unavailable"
+
+    def test_http_servers_stay_dialable_by_default(self):
+        """Only servers explicitly marked undialable get the softer status."""
+        specs = {s.server_id: s for s in mcp_registry._specs()}
+        assert specs["render"].dialable is True
+        assert specs["playwright"].dialable is True
+        assert specs["github"].dialable is False
+
+
+class TestReasonsAreActionable:
+    def test_playwright_reason_names_the_fix(self, monkeypatch):
+        """'X is not set' leaves the operator to go find out what to do."""
+        monkeypatch.setattr(mcp_registry.settings, "playwright_mcp_url", "", raising=False)
+        configured, reason = mcp_registry._playwright_configured()
+        assert configured is False
+        assert "@playwright/mcp" in reason
+
+    def test_frontend_colours_unavailable_neutrally(self):
+        """Red is reserved for real faults."""
+        src = (REPO_ROOT / "frontend/src/v5/screens/ProvidersScreen.jsx").read_text()
+        assert "unavailable:'var(--text-muted)'" in src
 
 
 # ── the screen this backs ─────────────────────────────────────────────────────
