@@ -2,6 +2,14 @@
 
 Complete reference for every environment variable in `.env`. Copy `.env.example` to `.env` and fill in the values that apply to your setup. Variables not listed in `.env` use the documented defaults.
 
+> **Most feature switches no longer need an environment edit.** 109 of the
+> variables below — agent runtime selection, brain preference, autonomy loops,
+> governance, routing strategy — are settable from **Dashboard → System →
+> Platform Controls** (`/controls`), which stores the choice in the database and
+> takes precedence over the environment. See
+> [platform-controls.md](platform-controls.md). Secrets and connection URLs are
+> deliberately excluded and remain environment-only.
+
 ---
 
 ## Authentication and Keys

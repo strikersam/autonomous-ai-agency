@@ -601,3 +601,13 @@ export const denyGovernanceRequest = (id, note) =>
   API.post(`/api/governance/approvals/${encodeURIComponent(id)}/deny`, { note });
 export const getGovernanceSandboxes = () => API.get('/api/governance/sandboxes');
 export const reapGovernanceSandboxes = () => API.post('/api/governance/sandboxes/reap');
+
+// ── Platform controls (packages/config/control_registry.py) ───────────────
+// Admin-only. The dashboard surface for the feature switches and multi-option
+// settings that previously had to be edited in the Render environment. The
+// backend catalogue is an allow-list, so secrets are not reachable here.
+export const getPlatformControls = () => API.get('/api/admin/platform-controls');
+export const setPlatformControls = (updates) =>
+  API.put('/api/admin/platform-controls', { updates });
+export const resetPlatformControl = (key) =>
+  API.delete(`/api/admin/platform-controls/${encodeURIComponent(key)}`);

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { healthCheck, getPlatformInfo, githubStatus, getGithubStatus, startGithubOAuth, setGithubToken, deleteGithubToken, listGithubRepos, authorizeGithubRepos, getBackendUrl } from '../api';
-import { Settings, CheckCircle, XCircle, ExternalLink, GitFork as Github, Globe, Server, Cpu, Key, Loader2, Trash2, Lock, ChevronDown, ChevronUp, ArrowLeft } from 'lucide-react';
+import { Settings, CheckCircle, XCircle, ExternalLink, GitFork as Github, Globe, Server, Cpu, Key, Loader2, Trash2, Lock, ChevronDown, ChevronUp, ArrowLeft, SlidersHorizontal as Sliders } from 'lucide-react';
 
 function getBackendOrigin() {
   const configuredBackend = getBackendUrl();
@@ -336,6 +336,25 @@ export default function SettingsPage() {
       {/* ── SYSTEM TAB ── */}
       {activeTab === 'system' && (
         <div className="grid gap-3">
+          {/* Platform Controls — the feature switches that used to be
+              Render-environment-only. Linked from here because this is where an
+              operator looks for "platform configuration"; the page itself is
+              admin-gated. */}
+          <Link to="/controls" className="border border-white/10 bg-[#141414] stagger-1 block hover:border-white/20 transition-colors">
+            <div className="px-4 py-2.5 border-b border-white/10"><span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">Platform Controls</span></div>
+            <div className="p-4 flex items-center gap-3">
+              <Sliders size={16} className="text-[var(--accent)] shrink-0" />
+              <div className="min-w-0">
+                <div className="text-[11px] text-white font-bold">Feature switches &amp; runtime options</div>
+                <div className="text-[10px] text-[#737373] mt-0.5">
+                  Choose the agent runtime, brain, autonomy loops, and governance settings here
+                  instead of editing environment variables. Admin only.
+                </div>
+              </div>
+              <ExternalLink size={12} className="text-[#737373] ml-auto shrink-0" />
+            </div>
+          </Link>
+
           {/* Health */}
           <div className="border border-white/10 bg-[#141414] stagger-1">
             <div className="px-4 py-2.5 border-b border-white/10"><span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">System Health</span></div>
