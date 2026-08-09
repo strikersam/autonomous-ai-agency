@@ -86,13 +86,15 @@ class RenderOpsStatus(BaseModel):
     enabled: bool = Field(description="Ops loop is on and Render is configured.")
     configured: bool = Field(description="RENDER_API_KEY and an MCP endpoint are present.")
     write_allowed: bool = Field(description="Mutating Render tools are permitted.")
-    interval_seconds: int
-    ticks: int
-    findings_filed: int
-    findings_dropped: int = Field(description="Detected, but no repair could be scheduled.")
+    interval_seconds: int = Field(ge=0, description="Configured polling interval, in seconds.")
+    ticks: int = Field(ge=0, description="Scans completed since this process started.")
+    findings_filed: int = Field(ge=0, description="Findings handed to the improvement loop.")
+    findings_dropped: int = Field(
+        ge=0, description="Detected, but no repair could be scheduled."
+    )
     self_heal_ready: bool = Field(description="A filed finding will be scheduled as a fix.")
-    active_cooldowns: int
-    last_tick_at: str = ""
+    active_cooldowns: int = Field(ge=0, description="Signatures currently suppressed from re-filing.")
+    last_tick_at: str = Field(default="", description="RFC3339 timestamp of the most recent scan.")
     # Admin-gated diagnostic. See _unavailable() above: exception text is kept
     # out of HTTP error bodies, and this field is the sanctioned channel for an
     # operator to read why the monitor is failing.
@@ -189,11 +191,18 @@ def build_render_router(get_current_user: Callable[..., Any]) -> APIRouter:
         return {"service_id": service_id, "metrics": payload}
 
     @router.get("/ops/status", response_model=RenderOpsStatus)
-    async def render_ops_status(user: dict = Depends(get_current_user)) -> dict:
-        """Counters for the autonomous Render monitoring loop."""
+    async def render_ops_status(
+        user: dict = Depends(get_current_user),
+    ) -> RenderOpsStatus:
+        """Counters for the autonomous Render monitoring loop.
+
+        Validates here rather than leaning on FastAPI's response-model coercion,
+        so a monitor field that drifts out of contract fails loudly at the
+        boundary instead of being silently dropped from the response.
+        """
         _require_admin(user)
         from services.render_ops import get_render_ops_monitor
-        return get_render_ops_monitor().get_status()
+        return RenderOpsStatus.model_validate(get_render_ops_monitor().get_status())
 
     @router.get("/ops/scan")
     async def render_ops_scan(user: dict = Depends(get_current_user)) -> dict:
