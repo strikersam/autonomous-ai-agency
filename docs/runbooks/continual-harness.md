@@ -46,7 +46,7 @@ run fails → agent/lessons.py records it (hits += 1)
           → AgentRunner._inject_enrichment() puts them in the next system prompt
 ```
 
-The refine call sits in `AgentRunner._run_impl` immediately after
+The refine call sits in `AgentRunner.run()` immediately after
 `record_step_failures`, and the injection reuses the existing enrichment path —
 no second prompt-assembly route was added.
 
@@ -61,9 +61,17 @@ no second prompt-assembly route was added.
 | `HARNESS_SPEC_MAX_CHARS` | `1200` | Cap on the injected block |
 
 **Writing is off by default.** With `HARNESS_SPEC_AUTO_REFINE` unset nothing is
-ever written, no spec file exists, `build_block()` returns `""`, and prompts are
-byte-identical to before this feature landed. Reading is on by default so a
-hand-written spec works without flipping anything.
+ever written. On a workspace that has no `.agency/harness.md`, `build_block()`
+returns `""` and prompts are byte-identical to before this feature landed.
+Reading stays on, so a spec that already exists — generated earlier, or committed
+by hand — is still injected; use `HARNESS_SPEC_ENABLED=false` to stop that too.
+
+**Only cited entries are injected.** The spec lives inside the workspace, which
+for agent work is often a third-party repository. An entry is injected only when
+its citation matches a lesson this platform actually recorded, so a
+`.agency/harness.md` committed by someone else cannot smuggle instructions into
+the system prompt. Hand-written *prose* is preserved in the file but never
+injected — only `- [lesson:…]` entries are.
 
 When the block is truncated by `HARNESS_SPEC_MAX_CHARS`, the most-repeated
 entries survive — if something has to go, keep the lessons that cost the most.

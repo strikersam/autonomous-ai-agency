@@ -383,6 +383,55 @@ configured budgets, EWMA latency and how many requests were routed away.
 
 ---
 
+## Prime Agent runtime — opt-in external executor
+
+Drives [prime-agent](https://github.com/PrimeIntellect-ai/prime-agent) (or the
+`pi` CLI it wraps) as a runtime behind `RuntimeManager`. Off by default; when the
+binary is absent the adapter reports `available=False` and the router falls back
+to `internal_agent`. Full runbook: [`runbooks/prime-agent.md`](runbooks/prime-agent.md).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `RUNTIME_PRIME_AGENT_ENABLED` | `false` | Register the adapter at all |
+| `INSTALL_PRIME_AGENT` | `false` | Docker build arg that bakes the CLI into the image |
+| `PRIME_AGENT_BIN` | `prime-agent`, then `pi` | Binary name or path |
+| `PRIME_AGENT_MODEL` | (unset) | Model id passed to `--model` |
+| `PRIME_AGENT_PROVIDER` | `agency` | Provider name passed to `--provider` |
+| `PRIME_AGENT_EXTENSION` | (unset) | Path to `agency-provider.ts`; **required** when the provider is `agency` |
+| `PRIME_AGENT_MODELS` | `meta/llama-3.3-70b-instruct` | Model ids the extension advertises |
+| `PRIME_AGENT_WORKSPACE` | `.` | Default working directory |
+| `PRIME_AGENT_TIMEOUT_SEC` | `900` | Per-task timeout |
+| `PRIME_AGENT_MAX_TURNS` | (unset) | `--autonomous-max-turns`, when the build supports it |
+| `PRIME_AGENT_TRUST_WORKSPACE` | `false` | `true` loads workspace-local extensions, skills, and `AGENTS.md`/`CLAUDE.md` |
+| `AGENCY_PROXY_URL` | `http://localhost:8000` | Base URL serving `/v1/chat/completions` (`proxy.py`) |
+| `PROXY_API_KEY` | (unset) | **Secret.** Bearer token the extension sends to that proxy |
+
+The CLI has no base-URL variable of its own, so `PRIME_AGENT_EXTENSION` is what
+keeps its traffic inside our router. Without it the CLI falls back to whatever
+provider keys are in the environment, bypassing `packages/ai/router.py` — so the
+adapter refuses to run `agency` without it rather than failing open.
+
+`PROXY_API_KEY` is never written into the extension file: it declares the literal
+string `"$PROXY_API_KEY"`, which the CLI interpolates at request time. The
+subprocess receives an allowlisted environment, not the worker's, because the CLI
+exposes a model-controlled `bash` tool.
+
+## Continual Harness
+
+Promotes a repeated failure lesson into a standing instruction stored in
+`.agency/harness.md`. Reading is on by default; writing is opt-in. Full runbook:
+[`runbooks/continual-harness.md`](runbooks/continual-harness.md).
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `HARNESS_SPEC_ENABLED` | `true` | Kill switch for reading and injecting the spec |
+| `HARNESS_SPEC_AUTO_REFINE` | `false` | Allow runs to append entries |
+| `HARNESS_SPEC_MIN_HITS` | `2` | Repeats before a lesson is promoted |
+| `HARNESS_SPEC_MAX_ENTRIES` | `40` | Entries retained in the file |
+| `HARNESS_SPEC_MAX_CHARS` | `1200` | Cap on the injected prompt block |
+
+---
+
 ## Quick Reference — Minimal Configs
 
 ### Personal use (single key)

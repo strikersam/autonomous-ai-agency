@@ -67,6 +67,32 @@ log = logging.getLogger("runtime.prime_agent")
 # Binaries tried in order when PRIME_AGENT_BIN is not set.
 _DEFAULT_BINS: tuple[str, ...] = ("prime-agent", "pi")
 
+# Environment handed to the child process. An allowlist, not os.environ: the CLI
+# ships a model-controlled `bash` tool, so anything exported here is readable by
+# whatever the model decides to run. Inheriting the worker environment would hand
+# it GH_PAT, MONGO_URL, JWT_SECRET and every provider key in one go.
+_ENV_ALLOWLIST: frozenset[str] = frozenset({
+    "PATH", "HOME", "SHELL", "USER", "LOGNAME", "TMPDIR",
+    "LANG", "LC_ALL", "TERM", "TZ",
+    "NODE_OPTIONS", "NODE_PATH", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME",
+    # Consumed by the agency provider extension, which needs them to reach our proxy.
+    "AGENCY_PROXY_URL", "PROXY_API_KEY",
+    "PRIME_AGENT_MODELS", "PRIME_AGENT_CONTEXT_WINDOW", "PRIME_AGENT_MAX_TOKENS",
+    "PI_OFFLINE",
+})
+
+# Flags that quarantine workspace-supplied instructions. `--no-approve` alone is
+# not enough: it withholds trust from workspace-local *approved* resources but
+# still lets AGENTS.md / CLAUDE.md context files, prompt templates, themes and
+# skills load out of the repository under test.
+_UNTRUSTED_WORKSPACE_FLAGS: tuple[str, ...] = (
+    "--no-approve",
+    "--no-context-files",
+    "--no-prompt-templates",
+    "--no-themes",
+    "--no-skills",
+)
+
 # stopReason values on the final assistant message that mean the run failed.
 _ERROR_STOP_REASONS: frozenset[str] = frozenset({"error", "aborted"})
 
@@ -88,6 +114,26 @@ class ParsedRun:
     retries: int = 0
     settled: bool = False
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
+
+
+async def _kill_and_reap(proc: "asyncio.subprocess.Process | None") -> None:
+    """Terminate a subprocess and wait for it, ignoring races.
+
+    ``asyncio.wait_for`` cancels the pipe read but never signals the child, so
+    every abandoned probe or timed-out run would otherwise leave an orphan.
+    """
+    if proc is None or proc.returncode is not None:
+        return
+    try:
+        proc.kill()
+        await proc.wait()
+    except (ProcessLookupError, OSError) as exc:
+        log.debug("prime_agent: reaping subprocess failed: %s", exc)
+
+
+def _child_env() -> dict[str, str]:
+    """Build the allowlisted environment for the CLI subprocess."""
+    return {key: value for key, value in os.environ.items() if key in _ENV_ALLOWLIST}
 
 
 def _iter_events(lines: Iterable[str]) -> Iterable[dict[str, Any]]:
@@ -197,6 +243,13 @@ def parse_event_stream(lines: Iterable[str]) -> ParsedRun:
 
     assistants = _assistant_messages(last_agent_end)
     run.tokens_used, run.cost_usd = _accumulate_usage(assistants)
+    if not assistants:
+        # agent_end with no assistant message: the run produced nothing. Falling
+        # through would report success with empty output.
+        run.error = "prime-agent ended without an assistant message"
+        run.output = run.error
+        run.success = False
+        return run
     if assistants:
         final = assistants[-1]
         run.model = final.get("model")
@@ -280,6 +333,7 @@ class PrimeAgentAdapter(RuntimeAdapter):
         if self._flag_cache is not None:
             return self._flag_cache
         flags: set[str] = set()
+        proc: asyncio.subprocess.Process | None = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 bin_path, "--help",
@@ -294,13 +348,23 @@ class PrimeAgentAdapter(RuntimeAdapter):
                     flags.add(token)
         except Exception as exc:
             log.debug("prime_agent: --help probe failed: %s", exc)
+            # wait_for cancels the read but leaves the child running; reap it or
+            # every failed probe leaks a process.
+            await _kill_and_reap(proc)
         self._flag_cache = frozenset(flags)
         return self._flag_cache
 
     def required_dependencies(self) -> list[RuntimeDependency]:
+        # Report the binary resolve_bin() would actually pick. The base class
+        # preflight re-resolves this name with shutil.which, so hardcoding
+        # "prime-agent" would fail a host that has only the documented `pi`
+        # fallback installed — health_check() would pass and readiness_check()
+        # would then block the run with missing_binary.
+        resolved = self.resolve_bin()
+        binary_name = os.path.basename(resolved) if resolved else (self._bin or _DEFAULT_BINS[0])
         deps = [
             RuntimeDependency(
-                name="prime-agent",
+                name=binary_name,
                 config_var="PRIME_AGENT_BIN",
                 install_hint=(
                     "Install Prime Agent: "
@@ -331,6 +395,23 @@ class PrimeAgentAdapter(RuntimeAdapter):
         violation is worse than a failed preflight.
         """
         issues = await super().validate_task_spec(spec)
+        if self._provider == "agency" and not self._extension:
+            issues.append(
+                RuntimeValidationIssue(
+                    code="missing_provider_extension",
+                    field="PRIME_AGENT_EXTENSION",
+                    message=(
+                        "Provider 'agency' requires the proxy extension, but "
+                        "PRIME_AGENT_EXTENSION is unset."
+                    ),
+                    fix_hint=(
+                        "Set PRIME_AGENT_EXTENSION to "
+                        "runtimes/extensions/prime_agent/agency-provider.ts, or choose a "
+                        "different PRIME_AGENT_PROVIDER."
+                    ),
+                    details={"provider": self._provider},
+                )
+            )
         if self._extension and not os.path.isfile(self._extension):
             issues.append(
                 RuntimeValidationIssue(
@@ -390,6 +471,16 @@ class PrimeAgentAdapter(RuntimeAdapter):
 
     # ── Execution ─────────────────────────────────────────────────────────────
 
+    def unsupported_isolation_flags(self, supported: frozenset[str]) -> list[str]:
+        """Isolation flags this build lacks, when the workspace is untrusted.
+
+        A build that cannot quarantine workspace instructions must not silently
+        run them: the caller refuses instead of degrading to a weaker posture.
+        """
+        if self._trust_workspace or not supported:
+            return []
+        return [flag for flag in _UNTRUSTED_WORKSPACE_FLAGS if flag not in supported]
+
     def build_command(
         self, bin_path: str, spec: TaskSpec, supported: frozenset[str]
     ) -> list[str]:
@@ -400,8 +491,12 @@ class PrimeAgentAdapter(RuntimeAdapter):
         honour.
         """
         cmd = [bin_path, "-p", "--mode", "json", "--no-session"]
-        if not self._trust_workspace and "--no-approve" in supported:
-            cmd.append("--no-approve")
+        if not self._trust_workspace:
+            # Quarantine everything the workspace could use to steer the model.
+            # Only flags this build actually accepts are passed; see
+            # unsupported_isolation_flags() for the refusal path when a build is
+            # too old to isolate properly.
+            cmd += [flag for flag in _UNTRUSTED_WORKSPACE_FLAGS if flag in supported]
         if self._extension:
             cmd += ["--extension", self._extension]
         if self._provider:
@@ -426,8 +521,26 @@ class PrimeAgentAdapter(RuntimeAdapter):
                 self.RUNTIME_ID, f"'{self._bin or 'prime-agent'}' not found in PATH"
             )
 
+        if self._provider == "agency" and not self._extension:
+            # Guarded here too, not only in preflight: compare_runtimes.py and any
+            # other direct caller bypasses readiness_check, and running 'agency'
+            # without the extension silently falls back to ambient provider keys —
+            # exactly the router bypass this adapter exists to prevent.
+            raise RuntimeUnavailableError(
+                self.RUNTIME_ID,
+                "provider 'agency' requires PRIME_AGENT_EXTENSION (the proxy provider extension)",
+            )
+
         workspace = spec.workspace_path or self._workspace
         supported = await self._supported_flags(bin_path)
+        missing_isolation = self.unsupported_isolation_flags(supported)
+        if missing_isolation:
+            raise RuntimeUnavailableError(
+                self.RUNTIME_ID,
+                "installed CLI cannot isolate an untrusted workspace (missing "
+                f"{', '.join(missing_isolation)}); upgrade it or set "
+                "PRIME_AGENT_TRUST_WORKSPACE=true for workspaces you control",
+            )
         cmd = self.build_command(bin_path, spec, supported)
         timeout = float(spec.timeout_sec or self._timeout)
 
@@ -439,7 +552,7 @@ class PrimeAgentAdapter(RuntimeAdapter):
                 stderr=asyncio.subprocess.PIPE,
                 stdin=asyncio.subprocess.DEVNULL,  # never inherit a TTY: the CLI would hang
                 cwd=workspace,
-                env={**os.environ},
+                env=_child_env(),
             )
         except Exception as exc:
             raise RuntimeExecutionError(self.RUNTIME_ID, f"Subprocess error: {exc}", spec.task_id) from exc
@@ -494,7 +607,20 @@ class PrimeAgentAdapter(RuntimeAdapter):
         if not bin_path:
             raise RuntimeUnavailableError(self.RUNTIME_ID, "prime-agent not found in PATH")
 
+        if self._provider == "agency" and not self._extension:
+            raise RuntimeUnavailableError(
+                self.RUNTIME_ID,
+                "provider 'agency' requires PRIME_AGENT_EXTENSION (the proxy provider extension)",
+            )
+
         supported = await self._supported_flags(bin_path)
+        missing_isolation = self.unsupported_isolation_flags(supported)
+        if missing_isolation:
+            raise RuntimeUnavailableError(
+                self.RUNTIME_ID,
+                "installed CLI cannot isolate an untrusted workspace (missing "
+                f"{', '.join(missing_isolation)})",
+            )
         cmd = self.build_command(bin_path, spec, supported)
         proc = await asyncio.create_subprocess_exec(
             *cmd,
@@ -502,11 +628,31 @@ class PrimeAgentAdapter(RuntimeAdapter):
             stderr=asyncio.subprocess.DEVNULL,
             stdin=asyncio.subprocess.DEVNULL,
             cwd=spec.workspace_path or self._workspace,
-            env={**os.environ},
+            env=_child_env(),
         )
         assert proc.stdout is not None
+        # The same deadline execute() enforces. Without it a stalled agent — or an
+        # agent-spawned child holding the pipe open — streams nothing forever.
+        deadline = time.monotonic() + float(spec.timeout_sec or self._timeout)
         try:
-            async for raw in proc.stdout:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeExecutionError(
+                        self.RUNTIME_ID,
+                        f"Prime Agent stream timed out after {spec.timeout_sec or self._timeout}s",
+                        spec.task_id,
+                    )
+                try:
+                    raw = await asyncio.wait_for(proc.stdout.readline(), timeout=remaining)
+                except asyncio.TimeoutError as exc:
+                    raise RuntimeExecutionError(
+                        self.RUNTIME_ID,
+                        f"Prime Agent stream timed out after {spec.timeout_sec or self._timeout}s",
+                        spec.task_id,
+                    ) from exc
+                if not raw:
+                    break
                 for event in _iter_events([raw.decode(errors="replace")]):
                     if event.get("type") != "message_update":
                         continue
@@ -514,6 +660,4 @@ class PrimeAgentAdapter(RuntimeAdapter):
                     if delta:
                         yield str(delta)
         finally:
-            if proc.returncode is None:
-                proc.kill()
-                await proc.wait()
+            await _kill_and_reap(proc)

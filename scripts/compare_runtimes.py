@@ -35,11 +35,31 @@ from runtimes.base import TaskSpec  # noqa: E402
 
 # Small, deliberately verifiable default set: each task's success is checkable
 # without a model grading it.
+# `expect`, when present, is a case-insensitive substring the output must contain.
+# Adapter success only means the CLI ran; it says nothing about whether the answer
+# was right, and a runtime that returns confident nonsense would otherwise score
+# 100%.
 DEFAULT_TASKS: list[dict[str, str]] = [
-    {"id": "echo", "instruction": "Reply with the single word: ready.", "task_type": "general"},
-    {"id": "explain", "instruction": "In one sentence, say what a unit test is.", "task_type": "reasoning"},
-    {"id": "summarise", "instruction": "Summarise in one line why retries need backoff.", "task_type": "reasoning"},
+    {"id": "echo", "instruction": "Reply with the single word: ready.",
+     "task_type": "general", "expect": "ready"},
+    {"id": "explain", "instruction": "In one sentence, say what a unit test is.",
+     "task_type": "reasoning", "expect": "test"},
+    {"id": "summarise", "instruction": "Summarise in one line why retries need backoff.",
+     "task_type": "reasoning", "expect": "backoff"},
 ]
+
+
+def _validate_tasks(raw: Any) -> list[dict[str, str]]:
+    """Check an operator-supplied task file before anything executes."""
+    if not isinstance(raw, list) or not raw:
+        raise ValueError("task file must be a non-empty JSON list")
+    for index, task in enumerate(raw):
+        if not isinstance(task, dict):
+            raise ValueError(f"task {index} is not an object")
+        for required in ("id", "instruction"):
+            if not isinstance(task.get(required), str) or not task[required].strip():
+                raise ValueError(f"task {index} is missing a non-empty '{required}'")
+    return raw
 
 
 @dataclass
@@ -48,6 +68,7 @@ class RunRecord:
     task_id: str
     success: bool
     duration_s: float
+    expectation_met: bool | None = None
     tokens: int | None = None
     cost_usd: float | None = None
     provider: str | None = None
@@ -92,16 +113,28 @@ async def _run_one(adapter: Any, task: dict[str, str], workspace: str, timeout: 
             runtime_id=adapter.RUNTIME_ID, task_id=task["id"], success=False,
             duration_s=round(time.monotonic() - started, 2), error=f"{type(exc).__name__}: {exc}",
         )
+    expect = (task.get("expect") or "").strip().lower()
+    output = str(result.output or "")
+    expectation_met = (expect in output.lower()) if expect else None
     return RunRecord(
         runtime_id=adapter.RUNTIME_ID,
         task_id=task["id"],
-        success=bool(result.success),
+        # Both must hold: the adapter ran AND the output looks like an answer.
+        success=bool(result.success) and expectation_met is not False,
+        expectation_met=expectation_met,
         duration_s=round(time.monotonic() - started, 2),
         tokens=result.tokens_used,
         cost_usd=result.cost_usd,
         provider=result.provider_used,
         model=result.model_used,
-        error=None if result.success else str(result.metadata.get("error") or result.output)[:200],
+        error=(
+            None if (result.success and expectation_met is not False)
+            else (
+                f"output did not contain {expect!r}"
+                if result.success
+                else str(result.metadata.get("error") or result.output)[:200]
+            )
+        ),
     )
 
 
@@ -172,10 +205,13 @@ def main() -> int:
     parser.add_argument("--json", dest="json_out", help="Write the full report to this path")
     args = parser.parse_args()
 
+    if len(set(args.runtimes)) < 2:
+        parser.error("--runtimes needs at least two distinct ids; this is a comparison")
+
     tasks = DEFAULT_TASKS
     if args.tasks:
         with open(args.tasks) as handle:
-            tasks = json.load(handle)
+            tasks = _validate_tasks(json.load(handle))
 
     records, summaries = asyncio.run(compare(args.runtimes, tasks, args.workspace, args.timeout))
     print(render(summaries, records))

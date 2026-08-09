@@ -19,8 +19,15 @@ _SPEC = importlib.util.spec_from_file_location(
 compare_runtimes = importlib.util.module_from_spec(_SPEC)
 # Must be registered before exec_module: @dataclass resolves cls.__module__
 # through sys.modules, and a module loaded by path alone is not there yet.
+# Restore whatever was there afterwards so the entry does not leak into the rest
+# of the session.
+_PREVIOUS = sys.modules.get("compare_runtimes")
 sys.modules["compare_runtimes"] = compare_runtimes
 _SPEC.loader.exec_module(compare_runtimes)
+if _PREVIOUS is not None:
+    sys.modules["compare_runtimes"] = _PREVIOUS
+else:
+    sys.modules.pop("compare_runtimes", None)
 
 RunRecord = compare_runtimes.RunRecord
 RuntimeSummary = compare_runtimes.RuntimeSummary
@@ -100,3 +107,69 @@ class TestExecution:
         )
         assert record.success is False
         assert record.error == "Connection error."
+
+
+class TestReviewRegressions:
+    def test_expectation_failure_is_not_a_success(self):
+        """Adapter success only means the CLI ran, not that the answer was right."""
+        import asyncio
+
+        class Confident:
+            RUNTIME_ID = "confident"
+
+            async def execute(self, spec):
+                class Result:
+                    success = True
+                    output = "completely unrelated prose"
+                    tokens_used = 10
+                    cost_usd = 0.0
+                    provider_used = "agency"
+                    model_used = "m"
+                    metadata: dict = {}
+                return Result()
+
+        record = asyncio.run(
+            compare_runtimes._run_one(
+                Confident(), {"id": "t1", "instruction": "x", "expect": "ready"}, ".", 5
+            )
+        )
+        assert record.success is False
+        assert record.expectation_met is False
+        assert "did not contain" in (record.error or "")
+
+    def test_expectation_met_passes(self):
+        import asyncio
+
+        class Good:
+            RUNTIME_ID = "good"
+
+            async def execute(self, spec):
+                class Result:
+                    success = True
+                    output = "READY."
+                    tokens_used = 3
+                    cost_usd = 0.0
+                    provider_used = "agency"
+                    model_used = "m"
+                    metadata: dict = {}
+                return Result()
+
+        record = asyncio.run(
+            compare_runtimes._run_one(
+                Good(), {"id": "t1", "instruction": "x", "expect": "ready"}, ".", 5
+            )
+        )
+        assert record.success is True
+        assert record.expectation_met is True
+
+    def test_default_tasks_all_carry_an_expectation(self):
+        assert all(task.get("expect") for task in compare_runtimes.DEFAULT_TASKS)
+
+    def test_task_file_validation_rejects_junk(self):
+        for bad in ({}, [], [{"id": "x"}], [{"instruction": "y"}], ["nope"]):
+            with pytest.raises(ValueError):
+                compare_runtimes._validate_tasks(bad)
+
+    def test_task_file_validation_accepts_valid(self):
+        tasks = [{"id": "a", "instruction": "do it"}]
+        assert compare_runtimes._validate_tasks(tasks) == tasks

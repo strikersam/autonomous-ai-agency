@@ -254,13 +254,22 @@ _enrichment: HarnessEnrichment | None = None
 
 
 def get_enrichment(workspace_root: str | None = None) -> HarnessEnrichment:
+    """Return the enrichment instance for a workspace.
+
+    Keyed by workspace root rather than a single global: the harness spec is
+    per-workspace, so a lone singleton would serve the first caller's spec to
+    every other workspace — and hide a lesson a run had just promoted in its own.
+    """
     global _enrichment
+    key = str(workspace_root or os.getcwd())
     if _enrichment is None:
-        _enrichment = HarnessEnrichment(workspace_root)
-    return _enrichment
+        _enrichment = {}
+    if key not in _enrichment:
+        _enrichment[key] = HarnessEnrichment(key)
+    return _enrichment[key]
 
 
 def invalidate_enrichment_cache() -> None:
     global _enrichment
-    if _enrichment is not None:
-        _enrichment.invalidate_cache()
+    for instance in (_enrichment or {}).values():
+        instance.invalidate_cache()

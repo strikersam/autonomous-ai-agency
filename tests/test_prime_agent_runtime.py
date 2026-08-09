@@ -17,7 +17,12 @@ from pathlib import Path
 
 import pytest
 
-from runtimes.adapters.prime_agent import PrimeAgentAdapter, parse_event_stream
+from runtimes.adapters.prime_agent import (
+    _UNTRUSTED_WORKSPACE_FLAGS,
+    PrimeAgentAdapter,
+    _child_env,
+    parse_event_stream,
+)
 from runtimes.base import RuntimeCapability, RuntimeTier, TaskSpec
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -223,3 +228,86 @@ class TestShippedExtension:
         assert "AGENCY_PROXY_URL" in source
         assert 'registerProvider("agency"' in source
         assert "openai-completions" in source
+
+
+class TestReviewRegressions:
+    """Regressions for defects found in review of this adapter."""
+
+    SUPPORTED = frozenset({*_UNTRUSTED_WORKSPACE_FLAGS, "--autonomous"})
+
+    def test_agent_end_without_assistant_message_is_a_failure(self):
+        """An agent_end carrying no assistant message produced nothing."""
+        run = parse_event_stream([
+            '{"type":"agent_end","messages":[{"role":"user","content":[]}]}',
+            '{"type":"agent_settled"}',
+        ])
+        assert run.success is False
+        assert "without an assistant message" in (run.error or "")
+        assert run.output == run.error
+
+    def test_preflight_accepts_the_pi_fallback(self, monkeypatch, tmp_path):
+        """health_check() and readiness_check() must agree about the binary.
+
+        The base class re-resolves the declared dependency name, so a hardcoded
+        "prime-agent" blocked hosts that only have the documented `pi` fallback.
+        """
+        monkeypatch.delenv("PRIME_AGENT_BIN", raising=False)
+        monkeypatch.setattr(
+            "runtimes.adapters.prime_agent.shutil.which",
+            lambda name: "/usr/bin/pi" if name == "pi" else None,
+        )
+        deps = PrimeAgentAdapter().required_dependencies()
+        assert deps[0].name == "pi"
+
+    def test_agency_provider_requires_the_extension(self):
+        """Preflight rejects agency without the proxy extension configured."""
+        adapter = PrimeAgentAdapter(config={"provider": "agency", "extension": ""})
+        issues = asyncio.run(adapter.validate_task_spec(_spec()))
+        assert any(i.code == "missing_provider_extension" for i in issues)
+
+    def test_execute_refuses_agency_without_extension(self, monkeypatch):
+        """compare_runtimes.py calls execute() directly, bypassing preflight."""
+        monkeypatch.setattr(
+            "runtimes.adapters.prime_agent.shutil.which", lambda name: "/usr/bin/pi"
+        )
+        adapter = PrimeAgentAdapter(config={"provider": "agency", "extension": ""})
+        with pytest.raises(Exception) as excinfo:
+            asyncio.run(adapter.execute(_spec()))
+        assert "PRIME_AGENT_EXTENSION" in str(excinfo.value)
+
+    def test_untrusted_workspace_quarantines_context_files(self):
+        """--no-approve alone still loads AGENTS.md/CLAUDE.md from the repo."""
+        cmd = PrimeAgentAdapter().build_command("/usr/bin/pi", _spec(), self.SUPPORTED)
+        for flag in _UNTRUSTED_WORKSPACE_FLAGS:
+            assert flag in cmd
+
+    def test_refuses_a_cli_that_cannot_isolate(self):
+        adapter = PrimeAgentAdapter()
+        missing = adapter.unsupported_isolation_flags(frozenset({"--no-approve"}))
+        assert "--no-context-files" in missing
+
+    def test_trusted_workspace_has_nothing_to_isolate(self, monkeypatch):
+        monkeypatch.setenv("PRIME_AGENT_TRUST_WORKSPACE", "true")
+        adapter = PrimeAgentAdapter()
+        assert adapter.unsupported_isolation_flags(frozenset()) == []
+
+    def test_child_env_excludes_worker_secrets(self, monkeypatch):
+        """The CLI ships a model-controlled bash tool; os.environ must not leak."""
+        monkeypatch.setenv("GH_PAT", "ghp-secret")
+        monkeypatch.setenv("MONGO_URL", "mongodb://secret")
+        monkeypatch.setenv("JWT_SECRET", "jwt-secret")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret")
+        monkeypatch.setenv("PATH", "/usr/bin")
+        env = _child_env()
+        assert "GH_PAT" not in env
+        assert "MONGO_URL" not in env
+        assert "JWT_SECRET" not in env
+        assert "ANTHROPIC_API_KEY" not in env
+        assert env["PATH"] == "/usr/bin"
+
+    def test_child_env_passes_what_the_extension_needs(self, monkeypatch):
+        monkeypatch.setenv("AGENCY_PROXY_URL", "http://proxy:8000")
+        monkeypatch.setenv("PROXY_API_KEY", "bearer-token")
+        env = _child_env()
+        assert env["AGENCY_PROXY_URL"] == "http://proxy:8000"
+        assert env["PROXY_API_KEY"] == "bearer-token"

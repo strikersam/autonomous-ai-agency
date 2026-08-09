@@ -36,6 +36,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -53,6 +54,11 @@ _HEADER = "# Harness Spec\n\n" \
 # regex would silently stop parsing entries this module itself wrote.
 _ENTRY_RE = re.compile(r"^- \[lesson:(?P<sig>[\w.-]+) hits=(?P<hits>\d+)\] (?P<text>.+)$")
 
+# Serialises the read-merge-write in refine(): two runs finishing at the same
+# moment would otherwise both read the old file, and the second write would
+# silently drop the first run's promotion.
+_REFINE_LOCK = threading.Lock()
+
 
 def _flag(name: str, default: bool) -> bool:
     raw = os.environ.get(name, "").strip().lower()
@@ -67,6 +73,15 @@ def _int_env(name: str, default: int) -> int:
     except (TypeError, ValueError):
         return default
     return value if value > 0 else default
+
+
+def _one_line(value: Any) -> str:
+    """Collapse a value to a single trimmed line.
+
+    Entries are one Markdown list item each, and the parser reads line by line —
+    an embedded newline would silently truncate an entry on the next read.
+    """
+    return " ".join(str(value or "").split()).strip()
 
 
 @dataclass(frozen=True)
@@ -86,24 +101,62 @@ def spec_path(workspace_root: str | Path | None = None) -> Path:
     return Path(workspace_root or os.getcwd()) / _SPEC_RELPATH
 
 
-def read_entries(workspace_root: str | Path | None = None) -> list[SpecEntry]:
-    """Parse existing entries. Never raises — a broken file yields no entries."""
+def _known_signatures() -> set[str]:
+    """Signatures recorded in the lesson store.
+
+    Fails closed: when the store cannot be read, this returns an empty set and
+    every entry is dropped. Injecting unverified workspace text because our own
+    bookkeeping was briefly unavailable would defeat the point of the check —
+    and losing the block is harmless, since it is an enhancement, not a
+    critical path.
+    """
+    try:
+        from agent.lessons import _get_store  # local import: avoids a cycle
+
+        lessons = _get_store().recent(limit=1000)
+    except Exception as exc:
+        log.warning("harness spec: lesson store unreadable, dropping all entries: %s", exc)
+        return set()
+    return {str(entry.get("signature") or "") for entry in lessons if entry.get("signature")}
+
+
+def read_entries(
+    workspace_root: str | Path | None = None, *, verify: bool = False
+) -> list[SpecEntry]:
+    """Parse existing entries. Never raises — a broken file yields no entries.
+
+    With ``verify=True`` an entry is kept only when its citation matches a lesson
+    this platform actually recorded. The spec file lives *inside the workspace*,
+    which for agent work is frequently a third-party repository — without the
+    check, anyone able to commit a `.agency/harness.md` could write arbitrary
+    text straight into the agent's system prompt. A citation nobody can trace is
+    exactly the thing this module refuses to trust.
+    """
     path = spec_path(workspace_root)
     try:
         raw = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return []
+    known = _known_signatures() if verify else None
     entries: list[SpecEntry] = []
     for line in raw.splitlines():
         match = _ENTRY_RE.match(line.strip())
-        if match:
-            entries.append(
-                SpecEntry(
-                    signature=match.group("sig"),
-                    hits=int(match.group("hits")),
-                    text=match.group("text").strip(),
-                )
+        if not match:
+            continue
+        signature = match.group("sig")
+        if known is not None and signature not in known:
+            log.warning(
+                "harness spec: dropping entry with unrecognised citation %s from %s",
+                signature, path,
             )
+            continue
+        entries.append(
+            SpecEntry(
+                signature=signature,
+                hits=int(match.group("hits")),
+                text=match.group("text").strip(),
+            )
+        )
     return entries
 
 
@@ -120,11 +173,15 @@ def propose_entries(lessons: list[dict[str, Any]], *, min_hits: int | None = Non
         if not isinstance(lesson, dict):
             continue
         signature = str(lesson.get("signature") or "").strip()
-        text = str(lesson.get("lesson") or "").strip()
-        hits = int(lesson.get("hits") or 0)
+        text = _one_line(lesson.get("lesson"))
+        try:
+            hits = int(lesson.get("hits") or 0)
+        except (TypeError, ValueError):
+            # One malformed row must not discard the whole batch.
+            continue
         if not signature or not text or hits < threshold:
             continue
-        phase = str(lesson.get("phase") or "").strip()
+        phase = _one_line(lesson.get("phase"))
         prefix = f"During {phase}: " if phase else ""
         proposals.append(SpecEntry(signature=signature, hits=hits, text=f"{prefix}{text}"))
     return proposals
@@ -151,7 +208,11 @@ def write_entries(entries: list[SpecEntry], workspace_root: str | Path | None = 
 
     body = "\n".join(preserved).strip() or _HEADER.strip()
     rendered = "\n".join(entry.render() for entry in entries)
-    path.write_text(f"{body}\n\n## Standing instructions\n\n{rendered}\n", encoding="utf-8")
+    # Write-then-replace: a crash mid-write must not leave a half-parsed spec,
+    # and os.replace is atomic within the same directory.
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(f"{body}\n\n## Standing instructions\n\n{rendered}\n", encoding="utf-8")
+    os.replace(tmp, path)
     return path
 
 
@@ -170,21 +231,34 @@ def refine(
     if not force and not _flag("HARNESS_SPEC_AUTO_REFINE", False):
         return []
     try:
-        if lessons is None:
-            from agent.lessons import _get_store  # local import: avoids a cycle
-            lessons = _get_store().recent(limit=_int_env("HARNESS_SPEC_MAX_ENTRIES", 40))
-        existing = read_entries(workspace_root)
-        known = {entry.signature for entry in existing}
-        added = [p for p in propose_entries(lessons) if p.signature not in known]
-        if not added:
-            return []
-        combined = (existing + added)[-_int_env("HARNESS_SPEC_MAX_ENTRIES", 40):]
-        write_entries(combined, workspace_root)
-        log.info("harness spec: promoted %d lesson(s) at %s", len(added), spec_path(workspace_root))
-        return added
+        # Read-merge-write under one lock: two runs finishing together would
+        # otherwise both read the old file and the second would drop the first's
+        # promotion.
+        with _REFINE_LOCK:
+            return _refine_locked(workspace_root, lessons)
     except Exception as exc:  # refinement is best-effort, like lessons themselves
-        log.debug("harness spec refine skipped: %s", exc)
+        log.error("harness spec refine failed: %s", exc, exc_info=True)
         return []
+
+
+def _refine_locked(
+    workspace_root: str | Path | None,
+    lessons: list[dict[str, Any]] | None,
+) -> list[SpecEntry]:
+    """Merge qualifying lessons into the spec. Caller holds _REFINE_LOCK."""
+    if lessons is None:
+        from agent.lessons import _get_store  # local import: avoids a cycle
+
+        lessons = _get_store().recent(limit=_int_env("HARNESS_SPEC_MAX_ENTRIES", 40))
+    existing = read_entries(workspace_root)
+    known = {entry.signature for entry in existing}
+    added = [p for p in propose_entries(lessons) if p.signature not in known]
+    if not added:
+        return []
+    combined = (existing + added)[-_int_env("HARNESS_SPEC_MAX_ENTRIES", 40):]
+    write_entries(combined, workspace_root)
+    log.info("harness spec: promoted %d lesson(s) at %s", len(added), spec_path(workspace_root))
+    return added
 
 
 def build_block(workspace_root: str | Path | None = None, *, max_chars: int | None = None) -> str:
@@ -195,7 +269,9 @@ def build_block(workspace_root: str | Path | None = None, *, max_chars: int | No
     """
     if not _flag("HARNESS_SPEC_ENABLED", True):
         return ""
-    entries = read_entries(workspace_root)
+    # verify=True: this text goes into a system prompt, and the file is
+    # workspace-controlled.
+    entries = read_entries(workspace_root, verify=True)
     if not entries:
         return ""
     budget = max_chars if max_chars is not None else _int_env("HARNESS_SPEC_MAX_CHARS", 1200)
@@ -204,8 +280,10 @@ def build_block(workspace_root: str | Path | None = None, *, max_chars: int | No
     # Most-repeated first: if the budget truncates, keep the costliest lessons.
     for entry in sorted(entries, key=lambda e: e.hits, reverse=True):
         line = f"- {entry.text}"
-        if used + len(line) > budget:
+        # +1 for the newline "\n".join() will add — without it the rendered block
+        # can exceed HARNESS_SPEC_MAX_CHARS.
+        if used + len(line) + 1 > budget:
             break
         lines.append(line)
-        used += len(line)
+        used += len(line) + 1
     return "\n".join(lines) if len(lines) > 1 else ""

@@ -14,7 +14,8 @@ Prime Agent wraps `@earendil-works/pi-coding-agent` (the `pi` CLI). The adapter 
 either binary, preferring `prime-agent` and falling back to `pi`:
 
 ```bash
-prime-agent -p --mode json --no-session --no-approve \
+prime-agent -p --mode json --no-session \
+  --no-approve --no-context-files --no-prompt-templates --no-themes --no-skills \
   --extension <ext>.ts --provider agency --model <model> "<instruction>"
 ```
 
@@ -50,17 +51,30 @@ provider named `agency` against our OpenAI-compatible proxy.
 
 This is load-bearing, not cosmetic: without it the CLI falls back to whatever provider
 keys sit in the environment, bypassing `packages/ai/router.py` and losing failover, the
-brain watchdog, and cost accounting (CLAUDE.md §3). Preflight fails when
-`PRIME_AGENT_EXTENSION` points at a missing file, so a silent bypass surfaces as an
-error instead.
+brain watchdog, and cost accounting (CLAUDE.md §3). The adapter refuses to run the
+`agency` provider when `PRIME_AGENT_EXTENSION` is unset or points at a missing file —
+in preflight *and* at the top of `execute()`, since direct callers such as
+`scripts/compare_runtimes.py` never go through preflight. A silent bypass surfaces as
+an error instead.
 
 The API key is never written into the file — the extension declares the literal string
 `"$PROXY_API_KEY"`, which the CLI interpolates from the environment at request time.
 
-> **Which endpoint?** `/v1/chat/completions` is served by `proxy.py`, **not** by
-> `backend/server.py`. No service in `render.yaml` currently runs `proxy.py`, so on the
-> Render deployment there is nothing for `AGENCY_PROXY_URL` to point at until you run
-> the proxy somewhere. Locally the default `http://localhost:8000` is correct.
+> **Which endpoint? Verify before enabling.** `/v1/chat/completions` is served by
+> `proxy.py`, **not** by `backend/server.py`. No service in `render.yaml` currently runs
+> `proxy.py`, so on Render there is nothing for `AGENCY_PROXY_URL` to point at until you
+> run the proxy somewhere. `render.yaml` sets it to the deployed backend as a concrete
+> starting value — confirm it answers before turning the runtime on:
+>
+> ```bash
+> curl -s -o /dev/null -w '%{http_code}\n' "$AGENCY_PROXY_URL/v1/models"   # expect 200 or 401
+> ```
+>
+> If it does not, either add a Render service running `proxy.py` (mirroring the
+> `agency-hermes` service shape) and point `AGENCY_PROXY_URL` at it, or leave the runtime
+> disabled. A wrong URL is not silent: runs fail with `Connection error.` rather than
+> quietly falling back to another provider. Locally the default
+> `http://localhost:8000` is correct when the proxy runs in-process.
 
 ## Configuration
 
@@ -70,12 +84,12 @@ The API key is never written into the file — the extension declares the litera
 | `PRIME_AGENT_BIN` | `prime-agent`, then `pi` | Binary name or path |
 | `PRIME_AGENT_MODEL` | (unset) | Model id passed to `--model` |
 | `PRIME_AGENT_PROVIDER` | `agency` | Provider name passed to `--provider` |
-| `PRIME_AGENT_EXTENSION` | (unset) | Path to `agency-provider.ts` |
+| `PRIME_AGENT_EXTENSION` | (unset) | Path to `agency-provider.ts`; **required** when the provider is `agency` |
 | `PRIME_AGENT_MODELS` | `meta/llama-3.3-70b-instruct` | Model ids the extension advertises |
 | `PRIME_AGENT_WORKSPACE` | `.` | Default working directory |
 | `PRIME_AGENT_TIMEOUT_SEC` | `900` | Default task timeout |
 | `PRIME_AGENT_MAX_TURNS` | (unset) | `--autonomous-max-turns`, when supported |
-| `PRIME_AGENT_TRUST_WORKSPACE` | `false` | Load workspace-local extensions and skills |
+| `PRIME_AGENT_TRUST_WORKSPACE` | `false` | Load workspace-local extensions, skills, and context files |
 | `AGENCY_PROXY_URL` | `http://localhost:8000` | Base URL of the proxy |
 | `PROXY_API_KEY` | (unset) | Bearer token sent to the proxy |
 
@@ -85,9 +99,20 @@ build accepts.
 
 ### `PRIME_AGENT_TRUST_WORKSPACE`
 
-Off by default, which makes the adapter pass `--no-approve`. Left on, the CLI would load
-extensions and skills found *inside the workspace* — arbitrary code from whatever repo
-the task happens to be working on. Only enable it for workspaces you control.
+Off by default. The adapter then passes the full isolation set — `--no-approve`,
+`--no-context-files`, `--no-prompt-templates`, `--no-themes`, `--no-skills` — because
+`--no-approve` alone still lets `AGENTS.md`/`CLAUDE.md`, prompt templates, themes and
+skills load out of the repository under test. Those are instructions to the model from
+whatever repo the task happens to be working on.
+
+If the installed CLI does not accept every one of those flags, the adapter refuses to
+run rather than degrading to a weaker posture. Set `PRIME_AGENT_TRUST_WORKSPACE=true`
+only for workspaces you control.
+
+The subprocess also receives an **allowlisted environment**, not the worker's: the CLI
+ships a model-controlled `bash` tool, so inheriting `os.environ` would hand it `GH_PAT`,
+`MONGO_URL`, `JWT_SECRET` and every provider key. Only PATH/locale settings and the
+proxy variables the extension needs are passed through.
 
 ## Deploying on Render
 
@@ -101,9 +126,11 @@ model-generated shell with the container's own permissions and its own README st
 worker/kernel processes are not a security sandbox. `render.yaml` declares the variables
 on `local-llm-server-worker` for that reason.
 
-Whether Render passes blueprint `envVars` through as Docker build args is **unverified**.
-If it does not, add a thin Dockerfile that sets `ARG INSTALL_PRIME_AGENT=true` and point
-the worker service at it — no other change is needed.
+Render exposes a Docker service's environment variables as same-name build arguments,
+so `render.yaml` declares `INSTALL_PRIME_AGENT` alongside `RUNTIME_PRIME_AGENT_ENABLED`.
+Both must be `"true"`: one bakes the CLI into the image at build time, the other
+registers the adapter at runtime. Setting only the second leaves the binary absent, and
+the adapter simply reports `available=False`.
 
 ## Verifying
 

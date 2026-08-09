@@ -672,6 +672,12 @@ services:
       # the adapter simply reports available=False and the router falls back to
       # internal_agent, so leaving this "true" on an unbuilt image is harmless.
       # See docs/runbooks/prime-agent.md.
+      # Render exposes a Docker service's environment variables as same-name
+      # build arguments, so this is what actually installs the binary at build
+      # time. Both this and RUNTIME_PRIME_AGENT_ENABLED must be "true" — one
+      # bakes the CLI into the image, the other registers the adapter.
+      - key: INSTALL_PRIME_AGENT
+        value: "false"
       - key: RUNTIME_PRIME_AGENT_ENABLED
         value: "false"
       - key: PRIME_AGENT_PROVIDER
