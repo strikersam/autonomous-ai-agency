@@ -396,3 +396,33 @@ def test_delete_reverts_a_control_to_the_environment(controls_app):
 def test_delete_of_an_unknown_key_is_a_404(controls_app):
     test_client, _role, _stored = controls_app
     assert test_client.delete("/api/admin/platform-controls/ANTHROPIC_API_KEY").status_code == 404
+
+
+# ── 5. The routes are actually mounted on the real app ────────────────────────
+
+
+def test_routes_are_mounted_on_the_backend_app():
+    """Guards two ways this can silently not work.
+
+    FastAPI defers router expansion, so the endpoints do not appear as plain
+    entries in ``app.routes`` — inspecting that list suggests the router was
+    never included when it was. And ``backend.server`` ends with an SPA
+    catch-all (``/{full_path:path}``) that would answer an unmounted API path
+    with the frontend instead of a 404, hiding the mistake.
+
+    Driving real requests is the only check that distinguishes those cases: an
+    unauthenticated call must be refused (route exists, auth applies), while a
+    neighbouring path that was never registered must still 404.
+    """
+    from fastapi.testclient import TestClient
+
+    import backend.server as backend_server
+
+    # No context manager: the lifespan needs a database, and route resolution
+    # does not.
+    http = TestClient(backend_server.app, raise_server_exceptions=False)
+
+    assert http.get("/api/admin/platform-controls").status_code == 401
+    assert http.put("/api/admin/platform-controls", json={"updates": {}}).status_code == 401
+    assert http.delete("/api/admin/platform-controls/GOVERNANCE_ENABLED").status_code == 401
+    assert http.get("/api/admin/platform-controls-not-a-route").status_code == 404
