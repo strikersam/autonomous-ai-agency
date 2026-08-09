@@ -6,7 +6,9 @@ The screen where feature switches and multi-option settings are chosen, instead
 of editing ~100 `true`/`false` rows in the Render environment editor and waiting
 for a redeploy.
 
-- Catalogue: [`packages/config/control_registry.py`](../packages/config/control_registry.py)
+- Catalogue: [`packages/config/control_catalogue.py`](../packages/config/control_catalogue.py) — the 109 declared controls
+- Types + builders: [`packages/config/control_specs.py`](../packages/config/control_specs.py)
+- Lookup + validation API: [`packages/config/control_registry.py`](../packages/config/control_registry.py) — import from here
 - Override layer: [`packages/config/control_overrides.py`](../packages/config/control_overrides.py)
 - API: [`backend/platform_controls_router.py`](../backend/platform_controls_router.py)
 - UI: [`frontend/src/pages/PlatformControlsPage.js`](../frontend/src/pages/PlatformControlsPage.js)
@@ -15,7 +17,7 @@ for a redeploy.
 
 ## How a value is resolved
 
-```
+```text
 DB override  →  Render environment  →  code default
 ```
 
@@ -98,7 +100,7 @@ primitive. A test asserts no secret-shaped key ever enters the catalogue.
 
 1. Confirm the environment variable is actually read somewhere in the Python
    source. `tests/test_platform_controls.py` fails the build otherwise.
-2. Add a `ControlSpec` to the relevant tuple in `control_registry.py`. Use
+2. Add a `ControlSpec` to the relevant tuple in `control_catalogue.py`. Use the
    `_toggle` / `_number` helpers, or `ControlSpec` directly for a choice.
 3. Set `live=True` **only** after checking the read site: a module-level
    constant or a cached singleton is not live.
@@ -115,7 +117,7 @@ primitive. A test asserts no secret-shaped key ever enters the catalogue.
 
 All three endpoints require an admin role.
 
-```
+```text
 GET    /api/admin/platform-controls          → {groups, control_count, override_count}
 PUT    /api/admin/platform-controls          ← {"updates": {"RUNTIME_DEFAULT": "hermes"}}
 DELETE /api/admin/platform-controls/{key}    → reverts the key to the environment

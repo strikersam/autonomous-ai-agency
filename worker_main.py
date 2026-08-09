@@ -76,11 +76,13 @@ async def _main() -> None:
     # control chosen in the dashboard has to reach both — otherwise turning the
     # CEO loop off in the UI would stop it on the web service while the worker
     # kept running it. Best-effort, and ordered before start_background_services
-    # for the same reason as in the web lifespan.
+    # for the same reason as in the web lifespan. Bounded with the same 5s
+    # timeout too: an unreachable settings store must not hold worker startup
+    # open indefinitely.
     try:
         from packages.config.control_overrides import apply_from_db
 
-        applied = await apply_from_db()
+        applied = await asyncio.wait_for(apply_from_db(), timeout=5)
         if applied:
             log.info("Platform controls applied from dashboard: %s", sorted(applied))
     except Exception as exc:  # noqa: BLE001

@@ -89,22 +89,36 @@ _TASK_TYPE_KEYS = {
 # ── Persistence ───────────────────────────────────────────────────────────────
 
 
-async def load_overrides() -> dict[str, str]:
-    """Read the stored overrides. Returns ``{}`` on any storage failure.
+async def read_overrides() -> dict[str, str]:
+    """Read the stored overrides, propagating a storage failure.
 
-    A settings screen that cannot reach the DB must not stop the platform from
-    booting on its environment defaults.
+    Read-modify-write callers must use this rather than :func:`load_overrides`.
+    A failed read that silently becomes ``{}`` would be saved back as ``{}``
+    plus the one key being changed — erasing every other override the operator
+    had set. A write that cannot first read the current state must not happen
+    at all.
     """
-    try:
-        from app_settings import get_setting
+    from app_settings import get_setting
 
-        stored = await get_setting(OVERRIDES_KEY, {})
-    except Exception:  # noqa: BLE001 — config must never break startup
-        log.exception("control_overrides: failed to load overrides")
-        return {}
+    stored = await get_setting(OVERRIDES_KEY, {})
     if not isinstance(stored, dict):
         return {}
     return {k: str(v) for k, v in stored.items() if is_controllable(k)}
+
+
+async def load_overrides() -> dict[str, str]:
+    """Read the stored overrides. Returns ``{}`` on any storage failure.
+
+    The fail-open read, for startup and for rendering the settings screen: a
+    platform whose settings store is unreachable must still boot on its
+    environment defaults. Never use this to build a value that will be written
+    back — see :func:`read_overrides`.
+    """
+    try:
+        return await read_overrides()
+    except Exception:  # noqa: BLE001 — config must never break startup
+        log.exception("control_overrides: failed to load overrides")
+        return {}
 
 
 async def save_overrides(overrides: dict[str, str], actor: str = "admin") -> None:
@@ -260,10 +274,17 @@ async def set_overrides(updates: dict[str, Any], actor: str = "admin") -> dict[s
     hand a key back to the environment.
 
     Raises ``ValueError`` when any key or value is invalid; nothing is persisted
-    in that case, so a bad field cannot half-apply a batch.
+    in that case, so a bad field cannot half-apply a batch. A storage failure on
+    the read propagates for the same reason — saving on top of an unread state
+    would erase the operator's other overrides.
+
+    The read-modify-write is not atomic: two admins saving different controls in
+    the same instant can have the earlier write dropped. Left as-is deliberately
+    — this is a single-operator admin screen, and the response returns the
+    resulting state, so a lost write is visible rather than silent.
     """
     coerced = {key: coerce(key, value) for key, value in updates.items()}
-    overrides = await load_overrides()
+    overrides = await read_overrides()
     overrides.update(coerced)
     await save_overrides(overrides, actor=actor)
     changed = apply_overrides(overrides)
@@ -278,7 +299,7 @@ async def clear_override(key: str, actor: str = "admin") -> dict[str, Any]:
     """Drop the override for *key*, reverting it to the environment default."""
     if not is_controllable(key):
         raise ValueError(f"'{key}' is not an operator-controllable setting")
-    overrides = await load_overrides()
+    overrides = await read_overrides()
     overrides.pop(key, None)
     await save_overrides(overrides, actor=actor)
     changed = apply_overrides(overrides)

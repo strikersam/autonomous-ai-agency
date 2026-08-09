@@ -161,6 +161,7 @@ function ControlRow({ control, pending, onChange, onReset, busy }) {
           <select
             value={value}
             disabled={busy}
+            aria-label={control.label}
             onChange={(e) => onChange(control.key, e.target.value)}
             className="w-full rounded-lg border px-2.5 py-1.5 text-xs md:w-56"
             style={{ background: 'var(--bg-base)', borderColor: C.border, color: C.primary }}
@@ -177,6 +178,7 @@ function ControlRow({ control, pending, onChange, onReset, busy }) {
             type="number"
             value={value}
             disabled={busy}
+            aria-label={control.label}
             min={control.minimum ?? undefined}
             max={control.maximum ?? undefined}
             onChange={(e) => onChange(control.key, e.target.value)}
@@ -429,7 +431,7 @@ export default function PlatformControlsPage() {
 
       {pendingCount > 0 && (
         <div
-          className="fixed bottom-0 left-0 right-0 z-20 border-t px-4 py-3 md:left-64"
+          className="fixed bottom-0 left-0 right-0 z-20 border-t px-4 py-3 lg:left-[280px]"
           style={{ background: C.surface, borderColor: C.border }}
         >
           <div className="mx-auto flex max-w-5xl items-center justify-between gap-3">

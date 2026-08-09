@@ -156,13 +156,19 @@ def clean_overrides():
     before = {k: os.environ.get(k) for k in watched}
     applied_before = dict(control_overrides._applied)
     yield
-    control_overrides._applied.clear()
-    control_overrides._applied.update(applied_before)
     for key, value in before.items():
         if value is None:
             os.environ.pop(key, None)
         else:
             os.environ[key] = value
+    # Restoring os.environ is not enough: the settings singleton still holds the
+    # values the test applied, and every later test shares that object. Re-apply
+    # an empty set so it is rebuilt from the restored environment.
+    control_overrides._applied.clear()
+    control_overrides._applied.update({k: v for k, v in before.items() if v is not None})
+    control_overrides.apply_overrides({})
+    control_overrides._applied.clear()
+    control_overrides._applied.update(applied_before)
 
 
 def test_apply_overrides_writes_only_catalogued_keys(clean_overrides):
