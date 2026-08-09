@@ -250,14 +250,14 @@ def parse_event_stream(lines: Iterable[str]) -> ParsedRun:
         run.output = run.error
         run.success = False
         return run
-    if assistants:
-        final = assistants[-1]
-        run.model = final.get("model")
-        run.provider = final.get("provider")
-        run.stop_reason = final.get("stopReason")
-        run.output = "\n".join(t for t in (_message_text(m) for m in assistants) if t)
-        if final.get("errorMessage"):
-            run.error = str(final["errorMessage"])
+
+    final = assistants[-1]
+    run.model = final.get("model")
+    run.provider = final.get("provider")
+    run.stop_reason = final.get("stopReason")
+    run.output = "\n".join(t for t in (_message_text(m) for m in assistants) if t)
+    if final.get("errorMessage"):
+        run.error = str(final["errorMessage"])
 
     if retry_failure:
         run.error = retry_failure

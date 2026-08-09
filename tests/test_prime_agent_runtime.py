@@ -186,10 +186,11 @@ class TestCommandConstruction:
         cmd = adapter.build_command("/usr/bin/pi", _spec(model_preference="better-model"), frozenset())
         assert cmd[cmd.index("--model") + 1] == "better-model"
 
-    def test_extension_is_passed_when_configured(self):
-        adapter = PrimeAgentAdapter(config={"extension": "/tmp/agency-provider.ts"})
+    def test_extension_is_passed_when_configured(self, tmp_path):
+        extension = tmp_path / "agency-provider.ts"
+        adapter = PrimeAgentAdapter(config={"extension": str(extension)})
         cmd = adapter.build_command("/usr/bin/pi", _spec(), frozenset())
-        assert cmd[cmd.index("--extension") + 1] == "/tmp/agency-provider.ts"
+        assert cmd[cmd.index("--extension") + 1] == str(extension)
 
 
 class TestPreflight:
