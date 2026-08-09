@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Providers → MCP no longer flags a working GitHub entry as broken** (2026-08-09). Reported from the live screen: `github` rendered red with status `error`, and Playwright's reason gave a variable name rather than a fix.
+  - **`error` was wrong for a server the backend structurally cannot dial.** `mcp_registry` mapped every unreachable server to `error`, contradicting its own docstring, which said a stdio server "must not read as a fault". GitHub is reached by the backend through `agent/github_tools.py`, not MCP; its stdio entry exists for coding sessions via `.mcp.json`. Nothing was broken, but the dashboard sent an operator hunting for a break. Specs now carry `dialable`, and an undialable server reports `unavailable` — muted on the screen, since red is reserved for a server we expected to reach and could not. A `dialable` server that fails is still an `error`; a regression test pins that the softer status cannot swallow a genuine fault.
+  - **Reasons now name the fix.** Playwright's `unconfigured` row said only "PLAYWRIGHT_MCP_URL is not set", leaving the operator to go and find out what to point it at. It now names the command (`npx @playwright/mcp@latest --port 8931`) and what to set. Files: `packages/integrations/mcp_registry.py`, `frontend/src/v5/screens/ProvidersScreen.jsx`, `tests/test_mcp_registry.py`.
+
 ### Added
 
 - **One MCP registry, measured status, and Providers → MCP stops showing servers that do not exist** (2026-08-09). The Render integration exposed a pre-existing problem it then made worse: there were three unrelated ideas of "an MCP server" in the repo and none of them knew about the others.

@@ -61,6 +61,11 @@ class MCPServerSpec:
     transport: str                      # "http" | "stdio" | "in-process"
     command: str = ""                   # display form: URL or argv
     requires: tuple[str, ...] = ()      # env/setting names an operator must set
+    # False for servers the backend structurally cannot dial (stdio ones live
+    # in a coding session, not in this process). Their "not reachable" is a
+    # property of the transport, not a fault, so it must not render as an
+    # error — an operator seeing red goes looking for a break that isn't there.
+    dialable: bool = True
     # Returns (configured, reason). Kept a callable so it reads live settings
     # rather than whatever they were at import time.
     is_configured: Callable[[], tuple[bool, str]] = lambda: (True, "")
@@ -119,12 +124,14 @@ async def _probe_render() -> tuple[bool, int, str]:
     return True, int(health.get("tool_count", 0)), ""
 
 
-def _unreachable_stdio(reason: str) -> Callable[[], Any]:
-    """A stdio server cannot be dialled from the backend; say so plainly.
+def _not_dialable(reason: str) -> Callable[[], Any]:
+    """Report a server the backend structurally cannot reach.
 
-    These servers are real and useful — they run inside a coding session via
-    `.mcp.json` — but the long-lived backend is not a subprocess host, so
-    reporting "unreachable" without the reason would read as a fault.
+    These servers are real and useful — a stdio one runs inside a coding
+    session via `.mcp.json` — but the long-lived backend is not a subprocess
+    host. Pair this with ``dialable=False`` so the row renders as
+    ``unavailable`` with the reason, rather than as a red error an operator
+    would waste time investigating.
     """
     async def _probe() -> tuple[bool, int, str]:
         return False, 0, reason
@@ -142,8 +149,14 @@ def _render_configured() -> tuple[bool, str]:
 
 
 def _playwright_configured() -> tuple[bool, str]:
+    # Name the fix, not just the missing variable — an operator reading this
+    # row wants to know what to do next, and "X is not set" leaves them to
+    # go and find that out somewhere else.
     if not settings.playwright_mcp_url:
-        return False, "PLAYWRIGHT_MCP_URL is not set"
+        return False, (
+            "PLAYWRIGHT_MCP_URL is not set — run `npx @playwright/mcp@latest "
+            "--port 8931` somewhere reachable and set it to that /mcp URL"
+        )
     return True, ""
 
 
@@ -221,9 +234,11 @@ def _specs() -> list[MCPServerSpec]:
             is_configured=lambda: (
                 (True, "") if settings.gh_pat else (False, "GH_PAT is not set")
             ),
-            probe=_unreachable_stdio(
-                "stdio transport — available in coding sessions via .mcp.json, "
-                "not dialable from the backend"
+            dialable=False,
+            probe=_not_dialable(
+                "stdio transport — used by coding sessions via .mcp.json. The "
+                "backend reaches GitHub through agent/github_tools.py instead, "
+                "so nothing is broken here."
             ),
         ),
     ]
@@ -263,7 +278,12 @@ async def _status_for(spec: MCPServerSpec) -> dict[str, Any]:
         entry["reason"] = str(exc)
         return entry
 
-    entry["status"] = "connected" if reachable else "error"
+    if reachable:
+        entry["status"] = "connected"
+    else:
+        # A server that cannot be dialled from here is "unavailable", not
+        # "error". Only a server we expected to reach and could not is a fault.
+        entry["status"] = "error" if spec.dialable else "unavailable"
     entry["tools"] = tool_count
     entry["reason"] = probe_reason
     return entry

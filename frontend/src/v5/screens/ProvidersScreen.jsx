@@ -421,9 +421,13 @@ function MCPTab() {
   const [newCmd,   setNewCmd]   = React.useState('');
   const [newDesc,  setNewDesc]  = React.useState('');
 
+  // Only 'error' is red. 'unconfigured' is amber (an operator can act on it),
+  // and 'unavailable' is muted — a server the backend structurally cannot dial
+  // is not broken, and colouring it red sends people hunting for a fault.
   const statusColor = {
     connected:'#46d9a4', error:'#ff6b7d',
-    unconfigured:'#ffbd66', idle:'var(--text-muted)',
+    unconfigured:'#ffbd66', unavailable:'var(--text-muted)',
+    idle:'var(--text-muted)',
   };
 
   const loadServers = React.useCallback(async () => {
