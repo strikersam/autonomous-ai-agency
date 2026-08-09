@@ -234,6 +234,13 @@ class Settings:
             "RENDER_MCP_ALLOW_WRITES", "false"
         ).lower()
 
+        # ── Playwright MCP (browser automation for agents) ──────────────────
+        # Lets an agent verify a deployed UI actually works instead of
+        # inferring it from the diff. Unset by default: it needs a running
+        # `npx @playwright/mcp --port <n>` (or equivalent) to point at, and a
+        # declared-but-absent server would just report unreachable forever.
+        self.playwright_mcp_url: str = os.environ.get("PLAYWRIGHT_MCP_URL", "").rstrip("/")
+
         # ── Operational-incident tracker (agent/operational_incidents.py) ────
         # Operational failures (timeouts, "all runtimes failed", rate limits)
         # never become code-fix tasks — an LLM editing source cannot fix a
