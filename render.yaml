@@ -387,6 +387,19 @@ services:
         value: "false"
 
       # ================================================================
+      # PLAYWRIGHT MCP — browser automation, so an agent can verify a
+      # deployed UI actually works instead of inferring it from the diff.
+      #
+      # Unset by default and therefore reported as "unconfigured" on the
+      # Providers -> MCP screen rather than silently missing. Point it at a
+      # reachable `npx @playwright/mcp --port <n>` to enable. Chromium is
+      # heavy for a 512MB free dyno, so run it as its own service or off-box
+      # rather than beside the backend.
+      # ================================================================
+      - key: PLAYWRIGHT_MCP_URL
+        sync: false
+
+      # ================================================================
       # WORKFLOW / AGENCY — golden-path execution backbone
       # orchestrator = full 11-phase golden path (default); legacy = old paths
       # ================================================================

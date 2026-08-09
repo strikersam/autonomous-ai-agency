@@ -6560,9 +6560,21 @@ async def get_skill(skill_id: str, user: dict = Depends(get_current_user)):
     return {**skill.as_dict(), "content": skill.raw_content}
 
 # ─── MCP Server Configuration ───────────────────────────────────────────────────
-# Stores user-configured MCP server records in the database.
-# Status is *not* polled server-side (MCP servers run on the user's machine);
-# the frontend sets status when it attempts a connection test.
+# Two kinds of row are returned here, and the distinction matters:
+#
+#   * PLATFORM-MANAGED (managed=true) — the servers this deployment actually
+#     has, declared once in packages/integrations/mcp_registry.py. Their
+#     status and tool count are MEASURED on each request, not stored. They are
+#     not editable or deletable, because they are configuration, not content.
+#   * USER ROWS (managed=false) — the hand-maintained records this endpoint has
+#     always stored. Their status is still whatever the frontend last set,
+#     since those servers run on the user's machine and the backend cannot
+#     reach them.
+#
+# Previously only the second kind existed, so Providers → MCP listed servers
+# that were never connected to anything while omitting the in-process server
+# and Render, which were. Measured rows come first so the real state is what
+# an operator sees at the top of the screen.
 
 class McpServerBody(BaseModel):
     name: str
@@ -6574,11 +6586,22 @@ class McpServerBody(BaseModel):
 
 @app.get("/api/mcp/servers")
 async def list_mcp_servers(user: dict = Depends(get_current_user)):
-    """Return all MCP server configurations for this user."""
-    uid = str(user.get("_id", user.get("id", "")))
+    """Return platform-managed MCP servers (live) plus this user's own rows."""
     servers: list[dict] = []
+
+    # Platform-managed first, with measured health. Never let a probe failure
+    # break the page — the user's own rows must still render.
+    try:
+        from packages.integrations.mcp_registry import status_all
+        servers.extend(await status_all())
+    except Exception as exc:  # noqa: BLE001
+        log.warning("MCP registry unavailable: %s", exc)
+
+    uid = str(user.get("_id", user.get("id", "")))
     async for s in get_db().mcp_servers.find({"user_id": uid}).sort("created_at", 1):
         s["id"] = str(s.pop("_id"))
+        s.setdefault("managed", False)
+        s.setdefault("editable", True)
         servers.append(s)
     return {"servers": servers}
 
