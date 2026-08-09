@@ -32,6 +32,7 @@ import logging
 from typing import Any, Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
 log = logging.getLogger("render_router")
 
@@ -67,6 +68,35 @@ def _unavailable(exc: Exception) -> HTTPException:
     """
     log.exception("Render MCP transport failure: %s", exc)
     return HTTPException(status_code=503, detail="Render MCP unavailable")
+
+
+
+class RenderOpsStatus(BaseModel):
+    """Response shape of ``GET /api/render/ops/status``.
+
+    Declared here rather than in ``services/render_ops.py`` so the monitor keeps
+    returning a plain dict to its internal callers (the ops loop and its tests)
+    while the external contract is validated at the boundary, per AGENTS.md §8.
+
+    ``self_heal_ready`` is the field that distinguishes a monitor which is merely
+    watching from one whose findings actually become repairs; ``findings_dropped``
+    counts the ones detected with nothing to fix them.
+    """
+
+    enabled: bool = Field(description="Ops loop is on and Render is configured.")
+    configured: bool = Field(description="RENDER_API_KEY and an MCP endpoint are present.")
+    write_allowed: bool = Field(description="Mutating Render tools are permitted.")
+    interval_seconds: int
+    ticks: int
+    findings_filed: int
+    findings_dropped: int = Field(description="Detected, but no repair could be scheduled.")
+    self_heal_ready: bool = Field(description="A filed finding will be scheduled as a fix.")
+    active_cooldowns: int
+    last_tick_at: str = ""
+    # Admin-gated diagnostic. See _unavailable() above: exception text is kept
+    # out of HTTP error bodies, and this field is the sanctioned channel for an
+    # operator to read why the monitor is failing.
+    last_error: str = ""
 
 
 def build_render_router(get_current_user: Callable[..., Any]) -> APIRouter:
@@ -158,7 +188,7 @@ def build_render_router(get_current_user: Callable[..., Any]) -> APIRouter:
             raise _unavailable(exc) from exc
         return {"service_id": service_id, "metrics": payload}
 
-    @router.get("/ops/status")
+    @router.get("/ops/status", response_model=RenderOpsStatus)
     async def render_ops_status(user: dict = Depends(get_current_user)) -> dict:
         """Counters for the autonomous Render monitoring loop."""
         _require_admin(user)

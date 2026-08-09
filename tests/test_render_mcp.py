@@ -795,3 +795,34 @@ class TestSelfHealVisibility:
         for key in ("configured", "enabled", "self_heal_ready", "write_allowed",
                     "findings_filed", "findings_dropped"):
             assert key in status, f"{key} missing from ops status"
+
+
+class TestOpsStatusResponseModel:
+    """The external status contract is validated at the API boundary.
+
+    ``get_status()`` deliberately keeps returning a plain dict — the ops loop and
+    these tests are internal callers — while the route declares a Pydantic model
+    so the shape other consumers depend on cannot drift silently (AGENTS.md §8).
+    """
+
+    def test_model_accepts_what_the_monitor_produces(self):
+        from backend.render_router import RenderOpsStatus
+        from services.render_ops import RenderOpsMonitor
+
+        status = RenderOpsMonitor(_FakeRender()).get_status()
+
+        model = RenderOpsStatus(**status)
+
+        assert model.self_heal_ready == status["self_heal_ready"]
+        assert model.findings_dropped == status["findings_dropped"]
+
+    def test_model_covers_every_field_the_monitor_returns(self):
+        """A field the monitor reports but the model omits would be dropped from
+        the response without any error — silent contract loss."""
+        from backend.render_router import RenderOpsStatus
+        from services.render_ops import RenderOpsMonitor
+
+        produced = set(RenderOpsMonitor(_FakeRender()).get_status())
+        declared = set(RenderOpsStatus.model_fields)
+
+        assert produced - declared == set(), f"not declared on the response model: {produced - declared}"

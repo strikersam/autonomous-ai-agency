@@ -145,3 +145,20 @@ test('reports the failure instead of rendering zeroes that look healthy', async 
 
   expect(await screen.findByText('Admin role required')).toBeInTheDocument();
 });
+
+
+test('self-healing cannot be green while monitoring is stopped', async () => {
+  // The backend can legitimately report self_heal_ready=true (the improvement
+  // loop is up) while the ops loop is off. Showing that as healthy would claim
+  // repairs are running with nothing producing findings to repair.
+  api.getRenderOpsStatus.mockResolvedValue({
+    data: status({ enabled: false, self_heal_ready: true }),
+  });
+  view();
+
+  await screen.findByText('Filed');
+  expect(screen.getByText(/Ops loop is off/)).toBeInTheDocument();
+  expect(screen.getByText(/Nothing is being monitored, so there are no findings to repair/))
+    .toBeInTheDocument();
+  expect(screen.queryByText(/schedules the repair task automatically/)).not.toBeInTheDocument();
+});

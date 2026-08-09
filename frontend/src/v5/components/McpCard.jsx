@@ -140,7 +140,10 @@ export default function McpCard() {
 
   const configured = Boolean(ops?.configured);
   const watching = Boolean(ops?.enabled) && configured;
-  const heals = Boolean(ops?.self_heal_ready);
+  // Gated on `watching`, not just the backend flag: repairs are scheduled off
+  // findings, and a stopped monitor produces none. Showing this green while
+  // Monitoring is red would claim repairs are active with nothing feeding them.
+  const heals = watching && Boolean(ops?.self_heal_ready);
   const findings = scan?.findings || [];
 
   return (
@@ -223,7 +226,9 @@ export default function McpCard() {
             ok={heals}
             tone="warn"
             okText="Findings are filed to the improvement loop, which schedules the repair task automatically."
-            badText="Findings are detected but nothing will fix them — the improvement loop is not running. Check “Improvement loop” and “Run background services in the web process” in Platform Controls."
+            badText={watching
+              ? "Findings are detected but nothing will fix them — the improvement loop is not running. Check “Improvement loop” and “Run background services in the web process” in Platform Controls."
+              : "Nothing is being monitored, so there are no findings to repair. Fix the stage above first."}
           />
         </div>
 
