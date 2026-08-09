@@ -3,6 +3,7 @@ import { listProviders, createProvider, deleteProvider, testProvider, updateProv
 import { Layers, Plus, Trash2, Zap, CheckCircle, XCircle, AlertCircle, Server, Globe, Loader2, Star, X } from 'lucide-react';
 import BrainCard from '../v5/components/BrainCard';
 import LocalBrainToggleCard from '../v5/components/LocalBrainToggleCard';
+import McpCard from '../v5/components/McpCard';
 
 const PROVIDER_TYPES = [
   { id: 'ollama', label: 'Ollama', desc: 'Local LLM via Ollama API' },
@@ -112,6 +113,12 @@ export default function ProvidersPage() {
           BrainCard exposes the per-role Cloud/Local brain config. */}
       <BrainCard />
       <LocalBrainToggleCard />
+
+      {/* MCP servers — capability providers rather than token providers, which
+          is why they sit here with the LLM providers. Render MCP is the only
+          view the agency has of platform failures (build errors, OOM kills,
+          restarts) that never reach this process's own logs. */}
+      <McpCard />
 
       {/* Add form */}
       {showAdd && (

@@ -171,19 +171,31 @@ class RenderOpsMonitor:
         self._cooldowns: dict[str, float] = {}
         self._ticks = 0
         self._findings_filed = 0
+        self._findings_dropped = 0
         self._last_error: str = ""
         self._last_tick_at: str = ""
 
     # ── public API ───────────────────────────────────────────────────────────
 
     def get_status(self) -> dict[str, Any]:
-        """Snapshot for ``/api/render/ops/status`` and the dashboard."""
+        """Snapshot for ``/api/render/ops/status`` and the dashboard.
+
+        ``self_heal_ready`` is the difference between *detecting* platform
+        failures and *fixing* them. Findings are handed to the ImprovementLoop,
+        which schedules the actual repair task; when that loop is not running the
+        finding is logged and dropped, and the monitor looks healthy while
+        nothing heals. Reporting it here means the dashboard can say which of
+        the two is happening instead of showing a green tick either way.
+        """
         return {
             "enabled": settings.is_render_ops_enabled,
             "configured": self._client.is_configured,
+            "write_allowed": settings.is_render_mcp_write_allowed,
             "interval_seconds": settings.render_ops_interval_seconds,
             "ticks": self._ticks,
             "findings_filed": self._findings_filed,
+            "findings_dropped": self._findings_dropped,
+            "self_heal_ready": _self_heal_ready(),
             "active_cooldowns": len(self._cooldowns),
             "last_tick_at": self._last_tick_at,
             "last_error": self._last_error,
@@ -233,12 +245,33 @@ class RenderOpsMonitor:
         restart, when platform findings matter most.
         """
         findings = await self.scan()
-        filed = [f for f in findings if self._is_cool(f) and _file_issue(f) and self._claim(f)]
+        filed: list[RenderFinding] = []
+        dropped = 0
+        for finding in findings:
+            if not self._is_cool(finding):
+                continue
+            if not _file_issue(finding):
+                # Detected but nothing will fix it — almost always the
+                # ImprovementLoop being down. Counted so the dashboard can show
+                # "finding things, healing nothing" rather than a silent zero.
+                dropped += 1
+                continue
+            if self._claim(finding):
+                filed.append(finding)
+
         self._findings_filed += len(filed)
+        self._findings_dropped += dropped
         if filed:
             log.warning(
                 "RenderOps: filed %d platform issue(s): %s",
                 len(filed), ", ".join(f"{f.kind}/{f.service_name}" for f in filed),
+            )
+        if dropped:
+            log.warning(
+                "RenderOps: %d finding(s) detected but not filed — no fix will be "
+                "scheduled for them. Check that the ImprovementLoop is running "
+                "(AGENCY_IMPROVEMENT_ENABLED, RUN_BACKGROUND_IN_WEB).",
+                dropped,
             )
         return filed
 
@@ -399,6 +432,25 @@ def _split_memory(payload: Any) -> tuple[float | None, float | None]:
     usage = _latest_metric_value(payload.get("memory_usage") or payload.get("memoryUsage"))
     limit = _latest_metric_value(payload.get("memory_limit") or payload.get("memoryLimit"))
     return usage, limit
+
+
+def _self_heal_ready() -> bool:
+    """True when a filed finding will actually be scheduled as a fix.
+
+    Detection and repair are separate halves. ``_file_issue`` hands findings to
+    the ImprovementLoop, and the loop only schedules a repair task when it was
+    constructed with an ``on_task`` callback (``scheduler.create`` in
+    ``services/background.py``). Without either, findings are recorded and
+    nothing acts on them — a state that otherwise looks identical to "nothing
+    is wrong". Never raises: this is a status probe, not a control path.
+    """
+    try:
+        from agent.improvement_loop import get_improvement_loop
+
+        loop = get_improvement_loop()
+        return bool(loop is not None and getattr(loop, "_on_task", None))
+    except Exception:  # noqa: BLE001 — a status probe must never break a scan
+        return False
 
 
 def _file_issue(finding: RenderFinding) -> bool:

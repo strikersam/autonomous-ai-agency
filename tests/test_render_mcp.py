@@ -702,3 +702,96 @@ class TestBackendWiring:
 
     def test_api_key_is_never_committed(self):
         assert _env(_service("local-llm-server"))["RENDER_API_KEY"]["sync"] is False
+
+
+class TestSelfHealVisibility:
+    """The gap between *detecting* a platform failure and *fixing* it.
+
+    RenderOps hands findings to the ImprovementLoop, which schedules the repair
+    task. When that loop is down the finding is logged and dropped — and the
+    monitor's counters look identical to "nothing is wrong". These tests pin the
+    signal that tells the two apart.
+    """
+
+    @pytest.mark.asyncio
+    async def test_finding_that_cannot_be_filed_is_counted_as_dropped(self, monkeypatch):
+        from services import render_ops
+        from services.render_ops import ERROR_LOG_THRESHOLD, RenderOpsMonitor
+
+        logs = [{"message": "boom"} for _ in range(ERROR_LOG_THRESHOLD)]
+        monitor = RenderOpsMonitor(_FakeRender(logs=logs))
+        monkeypatch.setattr(render_ops, "_file_issue", lambda finding: False)
+
+        filed = await monitor.tick()
+
+        assert filed == [], "nothing can be filed when the intake refuses it"
+        assert monitor.get_status()["findings_dropped"] == 1
+        assert monitor.get_status()["findings_filed"] == 0
+
+    @pytest.mark.asyncio
+    async def test_dropped_finding_does_not_burn_its_cooldown(self, monkeypatch):
+        """Otherwise a restart window would silence the finding for six hours."""
+        from services import render_ops
+        from services.render_ops import ERROR_LOG_THRESHOLD, RenderOpsMonitor
+
+        logs = [{"message": "boom"} for _ in range(ERROR_LOG_THRESHOLD)]
+        monitor = RenderOpsMonitor(_FakeRender(logs=logs))
+
+        monkeypatch.setattr(render_ops, "_file_issue", lambda finding: False)
+        await monitor.tick()
+        assert monitor.get_status()["active_cooldowns"] == 0
+
+        # Intake recovers — the same finding must still be filable.
+        monkeypatch.setattr(render_ops, "_file_issue", lambda finding: True)
+        filed = await monitor.tick()
+        assert len(filed) == 1
+        assert monitor.get_status()["findings_filed"] == 1
+
+    @pytest.mark.asyncio
+    async def test_filed_finding_is_not_counted_as_dropped(self, monkeypatch):
+        from services import render_ops
+        from services.render_ops import ERROR_LOG_THRESHOLD, RenderOpsMonitor
+
+        logs = [{"message": "boom"} for _ in range(ERROR_LOG_THRESHOLD)]
+        monitor = RenderOpsMonitor(_FakeRender(logs=logs))
+        monkeypatch.setattr(render_ops, "_file_issue", lambda finding: True)
+
+        await monitor.tick()
+
+        assert monitor.get_status()["findings_filed"] == 1
+        assert monitor.get_status()["findings_dropped"] == 0
+
+    def test_self_heal_ready_is_false_without_an_improvement_loop(self, monkeypatch):
+        import agent.improvement_loop as improvement_loop
+        from services.render_ops import _self_heal_ready
+
+        monkeypatch.setattr(improvement_loop, "_loop_instance", None)
+        assert _self_heal_ready() is False
+
+    def test_self_heal_ready_requires_a_dispatch_callback(self, monkeypatch):
+        """A loop with no on_task registers issues but schedules no repair —
+        `_schedule_fix` returns immediately. That is not self-healing."""
+        import agent.improvement_loop as improvement_loop
+        from services.render_ops import _self_heal_ready
+
+        class _LoopWithoutDispatch:
+            _on_task = None
+
+        class _LoopWithDispatch:
+            _on_task = staticmethod(lambda **kwargs: None)
+
+        monkeypatch.setattr(improvement_loop, "_loop_instance", _LoopWithoutDispatch())
+        assert _self_heal_ready() is False
+
+        monkeypatch.setattr(improvement_loop, "_loop_instance", _LoopWithDispatch())
+        assert _self_heal_ready() is True
+
+    def test_status_exposes_the_whole_chain(self):
+        """The dashboard needs all three stages, not just the last one."""
+        from services.render_ops import RenderOpsMonitor
+
+        status = RenderOpsMonitor(_FakeRender()).get_status()
+
+        for key in ("configured", "enabled", "self_heal_ready", "write_allowed",
+                    "findings_filed", "findings_dropped"):
+            assert key in status, f"{key} missing from ops status"
