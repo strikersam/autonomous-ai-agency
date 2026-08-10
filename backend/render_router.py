@@ -32,6 +32,7 @@ import logging
 from typing import Any, Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field, ValidationError
 
 log = logging.getLogger("render_router")
 
@@ -67,6 +68,37 @@ def _unavailable(exc: Exception) -> HTTPException:
     """
     log.exception("Render MCP transport failure: %s", exc)
     return HTTPException(status_code=503, detail="Render MCP unavailable")
+
+
+
+class RenderOpsStatus(BaseModel):
+    """Response shape of ``GET /api/render/ops/status``.
+
+    Declared here rather than in ``services/render_ops.py`` so the monitor keeps
+    returning a plain dict to its internal callers (the ops loop and its tests)
+    while the external contract is validated at the boundary, per AGENTS.md §8.
+
+    ``self_heal_ready`` is the field that distinguishes a monitor which is merely
+    watching from one whose findings actually become repairs; ``findings_dropped``
+    counts the ones detected with nothing to fix them.
+    """
+
+    enabled: bool = Field(description="Ops loop is on and Render is configured.")
+    configured: bool = Field(description="RENDER_API_KEY and an MCP endpoint are present.")
+    write_allowed: bool = Field(description="Mutating Render tools are permitted.")
+    interval_seconds: int = Field(ge=0, description="Configured polling interval, in seconds.")
+    ticks: int = Field(ge=0, description="Scans completed since this process started.")
+    findings_filed: int = Field(ge=0, description="Findings handed to the improvement loop.")
+    findings_dropped: int = Field(
+        ge=0, description="Detected, but no repair could be scheduled."
+    )
+    self_heal_ready: bool = Field(description="A filed finding will be scheduled as a fix.")
+    active_cooldowns: int = Field(ge=0, description="Signatures currently suppressed from re-filing.")
+    last_tick_at: str = Field(default="", description="RFC3339 timestamp of the most recent scan.")
+    # Admin-gated diagnostic. See _unavailable() above: exception text is kept
+    # out of HTTP error bodies, and this field is the sanctioned channel for an
+    # operator to read why the monitor is failing.
+    last_error: str = ""
 
 
 def build_render_router(get_current_user: Callable[..., Any]) -> APIRouter:
@@ -158,12 +190,31 @@ def build_render_router(get_current_user: Callable[..., Any]) -> APIRouter:
             raise _unavailable(exc) from exc
         return {"service_id": service_id, "metrics": payload}
 
-    @router.get("/ops/status")
-    async def render_ops_status(user: dict = Depends(get_current_user)) -> dict:
-        """Counters for the autonomous Render monitoring loop."""
+    @router.get("/ops/status", response_model=RenderOpsStatus)
+    async def render_ops_status(
+        user: dict = Depends(get_current_user),
+    ) -> RenderOpsStatus:
+        """Counters for the autonomous Render monitoring loop.
+
+        Validates here rather than leaning on FastAPI's response-model coercion,
+        so a monitor field that drifts out of contract fails loudly at the
+        boundary instead of being silently dropped from the response.
+
+        A validation failure is a bug in this process, not a client error, so it
+        becomes a 500 — but the ValidationError text is kept out of the body for
+        the same reason as in ``_unavailable``: it quotes the offending values,
+        which come from Render (service names, error strings). Operators read
+        the detail from ``log.exception``.
+        """
         _require_admin(user)
         from services.render_ops import get_render_ops_monitor
-        return get_render_ops_monitor().get_status()
+        try:
+            return RenderOpsStatus.model_validate(get_render_ops_monitor().get_status())
+        except ValidationError as exc:
+            log.exception("Render ops status failed its own contract: %s", exc)
+            raise HTTPException(
+                status_code=500, detail="Render ops status unavailable",
+            ) from exc
 
     @router.get("/ops/scan")
     async def render_ops_scan(user: dict = Depends(get_current_user)) -> dict:

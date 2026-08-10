@@ -702,3 +702,158 @@ class TestBackendWiring:
 
     def test_api_key_is_never_committed(self):
         assert _env(_service("local-llm-server"))["RENDER_API_KEY"]["sync"] is False
+
+
+class TestSelfHealVisibility:
+    """The gap between *detecting* a platform failure and *fixing* it.
+
+    RenderOps hands findings to the ImprovementLoop, which schedules the repair
+    task. When that loop is down the finding is logged and dropped — and the
+    monitor's counters look identical to "nothing is wrong". These tests pin the
+    signal that tells the two apart.
+    """
+
+    @pytest.mark.asyncio
+    async def test_finding_that_cannot_be_filed_is_counted_as_dropped(self, monkeypatch):
+        from services import render_ops
+        from services.render_ops import ERROR_LOG_THRESHOLD, RenderOpsMonitor
+
+        logs = [{"message": "boom"} for _ in range(ERROR_LOG_THRESHOLD)]
+        monitor = RenderOpsMonitor(_FakeRender(logs=logs))
+        monkeypatch.setattr(render_ops, "_file_issue", lambda finding: False)
+
+        filed = await monitor.tick()
+
+        assert filed == [], "nothing can be filed when the intake refuses it"
+        assert monitor.get_status()["findings_dropped"] == 1
+        assert monitor.get_status()["findings_filed"] == 0
+
+    @pytest.mark.asyncio
+    async def test_dropped_finding_does_not_burn_its_cooldown(self, monkeypatch):
+        """Otherwise a restart window would silence the finding for six hours."""
+        from services import render_ops
+        from services.render_ops import ERROR_LOG_THRESHOLD, RenderOpsMonitor
+
+        logs = [{"message": "boom"} for _ in range(ERROR_LOG_THRESHOLD)]
+        monitor = RenderOpsMonitor(_FakeRender(logs=logs))
+
+        monkeypatch.setattr(render_ops, "_file_issue", lambda finding: False)
+        await monitor.tick()
+        assert monitor.get_status()["active_cooldowns"] == 0
+
+        # Intake recovers — the same finding must still be filable.
+        monkeypatch.setattr(render_ops, "_file_issue", lambda finding: True)
+        filed = await monitor.tick()
+        assert len(filed) == 1
+        assert monitor.get_status()["findings_filed"] == 1
+
+    @pytest.mark.asyncio
+    async def test_filed_finding_is_not_counted_as_dropped(self, monkeypatch):
+        from services import render_ops
+        from services.render_ops import ERROR_LOG_THRESHOLD, RenderOpsMonitor
+
+        logs = [{"message": "boom"} for _ in range(ERROR_LOG_THRESHOLD)]
+        monitor = RenderOpsMonitor(_FakeRender(logs=logs))
+        monkeypatch.setattr(render_ops, "_file_issue", lambda finding: True)
+
+        await monitor.tick()
+
+        assert monitor.get_status()["findings_filed"] == 1
+        assert monitor.get_status()["findings_dropped"] == 0
+
+    def test_self_heal_ready_is_false_without_an_improvement_loop(self, monkeypatch):
+        import agent.improvement_loop as improvement_loop
+        from services.render_ops import _self_heal_ready
+
+        monkeypatch.setattr(improvement_loop, "_loop_instance", None)
+        assert _self_heal_ready() is False
+
+    def test_self_heal_ready_requires_a_dispatch_callback(self, monkeypatch):
+        """A loop with no on_task registers issues but schedules no repair —
+        `_schedule_fix` returns immediately. That is not self-healing."""
+        import agent.improvement_loop as improvement_loop
+        from services.render_ops import _self_heal_ready
+
+        class _LoopWithoutDispatch:
+            _on_task = None
+
+        class _LoopWithDispatch:
+            _on_task = staticmethod(lambda **kwargs: None)
+
+        monkeypatch.setattr(improvement_loop, "_loop_instance", _LoopWithoutDispatch())
+        assert _self_heal_ready() is False
+
+        monkeypatch.setattr(improvement_loop, "_loop_instance", _LoopWithDispatch())
+        assert _self_heal_ready() is True
+
+    def test_status_exposes_the_whole_chain(self):
+        """The dashboard needs all three stages, not just the last one."""
+        from services.render_ops import RenderOpsMonitor
+
+        status = RenderOpsMonitor(_FakeRender()).get_status()
+
+        for key in ("configured", "enabled", "self_heal_ready", "write_allowed",
+                    "findings_filed", "findings_dropped"):
+            assert key in status, f"{key} missing from ops status"
+
+
+class TestOpsStatusResponseModel:
+    """The external status contract is validated at the API boundary.
+
+    ``get_status()`` deliberately keeps returning a plain dict — the ops loop and
+    these tests are internal callers — while the route declares a Pydantic model
+    so the shape other consumers depend on cannot drift silently (AGENTS.md §8).
+    """
+
+    def test_model_accepts_what_the_monitor_produces(self):
+        from backend.render_router import RenderOpsStatus
+        from services.render_ops import RenderOpsMonitor
+
+        status = RenderOpsMonitor(_FakeRender()).get_status()
+
+        model = RenderOpsStatus(**status)
+
+        assert model.self_heal_ready == status["self_heal_ready"]
+        assert model.findings_dropped == status["findings_dropped"]
+
+    def test_model_covers_every_field_the_monitor_returns(self):
+        """A field the monitor reports but the model omits would be dropped from
+        the response without any error — silent contract loss."""
+        from backend.render_router import RenderOpsStatus
+        from services.render_ops import RenderOpsMonitor
+
+        produced = set(RenderOpsMonitor(_FakeRender()).get_status())
+        declared = set(RenderOpsStatus.model_fields)
+
+        assert produced - declared == set(), f"not declared on the response model: {produced - declared}"
+
+    def test_a_broken_status_is_a_500_that_leaks_nothing(self, monkeypatch):
+        """Validation failing here is our bug, so 500 — but the ValidationError
+        quotes the offending values, which come from Render (service names, error
+        text). Those stay in the log, exactly as transport errors do."""
+        import services.render_ops as render_ops
+        from fastapi import FastAPI
+        from fastapi.testclient import TestClient
+        from backend.render_router import build_render_router
+        from services.render_ops import RenderOpsMonitor
+
+        # interval_seconds is declared ge=0; a negative one is out of contract.
+        broken = {**RenderOpsMonitor(_FakeRender()).get_status(),
+                  "interval_seconds": -1, "last_error": "srv-prod-7 secret leak"}
+
+        class _BadMonitor:
+            @staticmethod
+            def get_status() -> dict:
+                return broken
+
+        monkeypatch.setattr(render_ops, "get_render_ops_monitor", lambda: _BadMonitor())
+        app = FastAPI()
+        app.include_router(build_render_router(lambda: {"role": "admin"}))
+        client = TestClient(app, raise_server_exceptions=False)
+
+        resp = client.get("/api/render/ops/status")
+
+        assert resp.status_code == 500
+        assert resp.json()["detail"] == "Render ops status unavailable"
+        assert "srv-prod-7" not in resp.text
+        assert "interval_seconds" not in resp.text

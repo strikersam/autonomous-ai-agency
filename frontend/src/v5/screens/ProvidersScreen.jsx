@@ -2,6 +2,7 @@
 import React from 'react';
 import { useSafeData } from '../hooks/useSafeData';
 import * as api from '../../api';
+import McpCard from '../components/McpCard';
 import BrainCard from '../components/BrainCard';
 import LocalBrainToggleCard from '../components/LocalBrainToggleCard';
 import ProviderHealthToggleCard from '../components/ProviderHealthToggleCard';
@@ -484,6 +485,8 @@ function MCPTab() {
 
   return (
     <div>
+      <McpCard/>
+
       <div style={{ padding:'10px 14px', borderRadius:14, background:'rgba(196,181,253,0.05)', border:'1px solid rgba(196,181,253,0.15)', marginBottom:16, fontSize:12, color:'var(--text-secondary)', lineHeight:1.6 }}>
         <strong style={{ color:'#c4b5fd' }}>Model Context Protocol</strong> — MCP servers expose tools, resources, and prompts to agents. Connect any MCP-compatible server to give agents new capabilities (filesystem, databases, search, APIs).
       </div>

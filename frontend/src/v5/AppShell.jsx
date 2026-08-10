@@ -25,11 +25,12 @@ const NAV_ITEMS = [
   { id:'governance', label:'Governance', icon:'ShieldCheck',    desc:'Policy, approvals, audit', section:'SYSTEM', adminOnly:true },
   { id:'doctor',     label:'Doctor',     icon:'Stethoscope',    desc:'Diagnostics',             section:'SYSTEM' },
   { id:'admin',      label:'Admin',      icon:'Shield',         desc:'Users & access',          section:'SYSTEM', adminOnly:true },
+  { id:'controls',   label:'Controls',   icon:'Sliders',        desc:'Feature switches & options', section:'SYSTEM', adminOnly:true },
   { id:'sam',        label:'SAM',        icon:'Mic',            desc:'Voice command & control',  section:'SYSTEM' },
 ];
 
 const MOBILE_PRIMARY = ['dashboard', 'chat', 'sam', 'doctor'];
-const MOBILE_MORE    = ['agents', 'tasks', 'schedules', 'skills', 'portfolio', 'intelligence', 'knowledge', 'providers', 'loops', 'github', 'logs', 'company', 'onboarding', 'admin'];
+const MOBILE_MORE    = ['agents', 'tasks', 'schedules', 'skills', 'portfolio', 'intelligence', 'knowledge', 'providers', 'loops', 'github', 'logs', 'company', 'onboarding', 'admin', 'controls'];
 
 function Icon({ name, size=18, style={} }) {
   const s = size;
@@ -59,6 +60,10 @@ function Icon({ name, size=18, style={} }) {
     Cpu:             <><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><path d="M15 2v2M15 20v2M9 2v2M9 20v2M2 15h2M2 9h2M20 15h2M20 9h2"/></>,
     LogOut:          <><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></>,
     Mic:             <><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></>,
+    // Three labelled sliders — Platform Controls. The `paths` map has no
+    // meaningful fallback (an unknown name renders a plain circle), so a nav
+    // item without its own entry here would silently look broken.
+    Sliders:         <><line x1="4" y1="7" x2="20" y2="7"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="20" y2="17"/><circle cx="9" cy="7" r="2"/><circle cx="16" cy="12" r="2"/><circle cx="7" cy="17" r="2"/></>,
     Menu:            <><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></>,
     X:               <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>,
     MoreHorizontal:  <><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></>,

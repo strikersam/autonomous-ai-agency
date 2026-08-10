@@ -347,7 +347,7 @@ export default function SettingsPage() {
               match the sidebar entry: a non-admin following this link would only
               reach a 403. */}
           {isAdmin && (
-          <Link to="/controls" className="border border-white/10 bg-[#141414] stagger-1 block hover:border-white/20 transition-colors">
+          <Link to="/v5/controls" className="border border-white/10 bg-[#141414] stagger-1 block hover:border-white/20 transition-colors">
             <div className="px-4 py-2.5 border-b border-white/10"><span className="text-[10px] tracking-[0.15em] uppercase text-[#A0A0A0] font-mono font-bold">Platform Controls</span></div>
             <div className="p-4 flex items-center gap-3">
               <Sliders size={16} className="text-[var(--accent)] shrink-0" />

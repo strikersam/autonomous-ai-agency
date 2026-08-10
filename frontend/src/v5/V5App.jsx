@@ -27,6 +27,7 @@ const DoctorScreen       = React.lazy(() => import('./screens/DoctorScreen'));
 const AdminScreen        = React.lazy(() => import('./screens/AdminScreen'));
 const GovernanceScreen   = React.lazy(() => import('./screens/GovernanceScreen'));
 const SamVoiceScreen     = React.lazy(() => import('./screens/SamVoiceScreen'));
+const ControlsScreen     = React.lazy(() => import('./screens/ControlsScreen'));
 
 function ScreenLoading() {
   return (
@@ -73,7 +74,7 @@ function AdminLocked() {
 const V5_SCREENS = [
   'chat', 'dashboard', 'tasks', 'agents', 'schedules', 'skills', 'portfolio',
   'intelligence', 'knowledge', 'providers', 'loops', 'github', 'logs', 'company',
-  'onboarding', 'doctor', 'admin', 'sam', 'governance',
+  'onboarding', 'doctor', 'admin', 'sam', 'governance', 'controls',
 ];
 
 function screenFromPath(pathname) {
@@ -124,6 +125,9 @@ export default function V5App() {
     // Every governance route is admin-only on the backend too; gating here
     // avoids rendering a screen that would only render 403s.
     governance:   isAdmin ? <GovernanceScreen /> : <AdminLocked />,
+    // The controls API is admin-only on the backend, so a non-admin would only
+    // ever render a 403 here.
+    controls:     isAdmin ? <ControlsScreen /> : <AdminLocked />,
     sam:          <SamVoiceScreen />,
   };
   return (

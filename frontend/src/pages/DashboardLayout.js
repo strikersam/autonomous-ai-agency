@@ -5,7 +5,7 @@ import {
   LayoutDashboard, MessageSquare, BookOpen, Upload, Activity,
   Settings, LogOut, Menu, X, Cpu, Layers, BarChart3,
   GitFork as Github, Shield, Bot, CheckSquare, Radio,
-  Zap, Lock, Calendar, TrendingUp, MoreHorizontal, SlidersHorizontal,
+  Zap, Lock, Calendar, TrendingUp, MoreHorizontal,
 } from 'lucide-react';
 import ControlPlanePage from './ControlPlanePage';
 import ChatPage from './ChatPage';
@@ -26,7 +26,6 @@ import SchedulesPage from './SchedulesPage';
 import RoutingPolicyPage from './RoutingPolicyPage';
 import KnowledgePage from './KnowledgePage';
 import LogsPage from './LogsPage';
-import PlatformControlsPage from './PlatformControlsPage';
 
 /**
  * navSections — Autonomous AI Agency navigation matching the Control Plane design system.
@@ -74,9 +73,6 @@ function buildNavSections(isAdmin, isPowerUser) {
       items: [
         { to: '/logs', icon: BarChart3, label: 'Logs' },
         { to: '/setup', icon: Zap, label: 'Setup Wizard' },
-        ...(isAdmin ? [
-          { to: '/controls', icon: SlidersHorizontal, label: 'Platform Controls', adminOnly: true },
-        ] : []),
         ...(isAdmin || isPowerUser ? [
           { to: '/admin', icon: Shield, label: 'Admin Portal', adminOnly: true },
         ] : []),
@@ -321,10 +317,13 @@ export default function DashboardLayout() {
             <Route path="/activity" element={<Navigate to="/logs" replace />} />
             <Route path="/setup" element={<div className="h-full overflow-y-auto"><SetupWizardPage /></div>} />
             <Route path="/admin" element={<AdminPortalPage />} />
-            <Route path="/controls" element={<div className="h-full overflow-y-auto"><PlatformControlsPage /></div>} />
             <Route path="/settings" element={<div className="h-full overflow-y-auto"><SettingsPage /></div>} />
 
             {/* Legacy redirects */}
+            {/* Platform Controls moved to the v5 shell, which is where an
+                authenticated user lands. Kept as a redirect so a bookmarked
+                /legacy/controls still arrives somewhere real. */}
+            <Route path="/controls" element={<Navigate to="/v5/controls" replace />} />
             <Route path="/keys" element={<Navigate to="/admin" replace />} />
             <Route path="/agentview" element={<Navigate to="/chat" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />

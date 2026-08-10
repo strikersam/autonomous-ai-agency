@@ -113,6 +113,11 @@ export default function ProvidersPage() {
       <BrainCard />
       <LocalBrainToggleCard />
 
+      {/* MCP servers — capability providers rather than token providers, which
+          is why they sit here with the LLM providers. Render MCP is the only
+          view the agency has of platform failures (build errors, OOM kills,
+          restarts) that never reach this process's own logs. */}
+
       {/* Add form */}
       {showAdd && (
         <div className="bg-[#111111] border border-[#002FA7]/20 rounded-xl p-5 sm:p-6 mb-6 animate-fade-in" data-testid="add-provider-form">

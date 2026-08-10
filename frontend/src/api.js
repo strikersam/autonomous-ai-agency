@@ -611,3 +611,14 @@ export const setPlatformControls = (updates) =>
   API.put('/api/admin/platform-controls', { updates });
 export const resetPlatformControl = (key) =>
   API.delete(`/api/admin/platform-controls/${encodeURIComponent(key)}`);
+
+// ── Render MCP + autonomous platform ops (services/render_ops.py) ─────────
+// Admin-only. The Render MCP server is the only view the agency has of
+// platform-level failures — build errors, OOM kills, restart loops — which
+// never reach this process's own logs because the process was not alive to
+// write them.
+export const getRenderHealth    = ()  => API.get('/api/render/health');
+export const getRenderOpsStatus = ()  => API.get('/api/render/ops/status');
+// Read-only: reports what Render thinks is wrong right now without filing
+// issues. The background loop's tick() is what files.
+export const runRenderOpsScan   = ()  => API.get('/api/render/ops/scan');
