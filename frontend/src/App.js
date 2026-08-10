@@ -3,11 +3,15 @@ import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './AuthContext';
 import LoginPage from './pages/LoginPage';
 import AuthCallback from './pages/AuthCallback';
-import DashboardLayout from './pages/DashboardLayout';
 import SetupWizardPage from './pages/SetupWizardPage';
 import { getSetupState, getBackendUrl } from './api';
 
 const V5App = React.lazy(() => import('./v5/V5App'));
+// The legacy v4 dashboard is a rollback path reached only at /legacy/*, so it
+// must not be in the boot bundle. Imported eagerly it forced every visitor —
+// including phones on the redirect straight to /v5 — to download ~24 screens
+// nobody navigates to before the v5 chunk could even start.
+const DashboardLayout = React.lazy(() => import('./pages/DashboardLayout'));
 
 function LoadingScreen({ message }) {
   return (
@@ -82,7 +86,9 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <SetupGuard>
-              <DashboardLayout />
+              <Suspense fallback={<LoadingScreen message="Loading the legacy dashboard" />}>
+                <DashboardLayout />
+              </Suspense>
             </SetupGuard>
           </ProtectedRoute>
         }
