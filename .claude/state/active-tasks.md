@@ -57,6 +57,7 @@
 | 31 | BUG_FIXED: post-#931 Render deploy crash-loop — in-process voice worker OOM-killed the 512MB instance at boot | `BUG_FIXED` | `claude/sam-voice-livekit-xjow4g` (fix PR pending) | SAM_VOICE_IN_PROCESS now defaults to false (livekit_config.py + render.yaml); image still ships deps so flag-flip enables it on >=2GB instances; regression test pins default OFF; docs sizing guidance | 2026-07-03 |
 | 30 | OpenHands-inspired hardening: StuckDetector (tool-loop no-progress abort) + microagents (`.openhands/microagents/` keyword-triggered planner knowledge) | `DONE` | [#932](https://github.com/strikersam/autonomous-ai-agency/pull/932) merged (`2b45a8e`) | `agent/stuck_detector.py` + `agent/microagents.py` wired into AgentRunner; 4 starter microagents; 66 new tests; all 28 CI checks green | 2026-07-03 |
 | 34 | Daily automation: per-tool session caps + budget API (Claude Code v2.1.212 parity) | `DONE` | `claude/nifty-pasteur-erwj6y` (commit `714d3631`) | SessionBudget.per_tool_calls + check_tool(), _guard_inner per-tool gate, default web_search/fetch_page/fetch_url/fetch_rss caps (observe mode), GET /api/governance/budget endpoints; 13 new tests; changelog + parity green | 2026-08-09 |
+| 36 | Daily automation: Claude Opus 5 + Sonnet 5 registered in model router | `DONE` | `claude/nifty-pasteur-wpecsj` (commit `4a77394`) | Added to router/registry.py, model_router.py alias table, cost_tracker.py, cost_attribution.py; updated stale ANTHROPIC_MODEL defaults; 4 new tests (135 total passing); changelog + parity green | 2026-08-10 |
 
 ---
 
