@@ -1,28 +1,21 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import {
-  AlertTriangle,
-  Check,
-  Loader2,
-  Plug,
-  RefreshCw,
-  Search,
-  ShieldAlert,
-  SlidersHorizontal,
-  X,
-} from 'lucide-react';
 import * as api from '../../api';
 
 /**
- * McpCard — the MCP section of the Providers screen.
+ * McpCard — the Render section of Providers → MCP.
  *
  * An MCP server is a provider of *capability* rather than of tokens, which is
  * why it belongs here next to the LLM providers rather than on its own screen.
- * Today the agency connects to one: the Render MCP server, which is the only
- * view it has of platform-level failures. `agent/log_monitor.py` attaches to
- * this process's root logger, so a build failure, an OOM kill, or a container
- * that died before FastAPI booted leaves no trace it can act on — the process
- * was never alive to log it. Render MCP is where those come from.
+ * `MCPTab` lists every registered server and its measured status; this card
+ * covers the one server whose job is not "expose tools" but "watch the
+ * platform", and whose usefulness therefore depends on a chain rather than a
+ * single reachability check.
+ *
+ * The Render MCP server is the only view the agency has of platform-level
+ * failures. `agent/log_monitor.py` attaches to this process's root logger, so a
+ * build failure, an OOM kill, or a container that died before FastAPI booted
+ * leaves no trace it can act on — the process was never alive to log it.
  *
  * The card answers three questions in order, because each one only matters if
  * the previous one is true:
@@ -34,21 +27,40 @@ import * as api from '../../api';
  *                            perfectly healthy while nothing is being fixed, so
  *                            it is called out rather than implied.
  *
+ * Styled with inline styles rather than Tailwind utilities, like every other v5
+ * component: `.v5-root *` in the v5 theme sets `margin:0; padding:0` at equal
+ * specificity to a Tailwind spacing utility and is injected after the CSS
+ * bundle, so `px-4` inside this shell loses the cascade.
+ *
  * Reads: GET /api/render/health, /api/render/ops/status
  * Action: GET /api/render/ops/scan — read-only, files nothing.
  */
 
-const CARD = 'bg-[#111111] border border-[#002FA7]/20 rounded-xl p-5 sm:p-6 mb-6';
+const TONES = {
+  ok: { border: '1px solid rgba(70,217,164,0.30)', background: 'rgba(70,217,164,0.10)', color: '#46d9a4' },
+  warn: { border: '1px solid rgba(255,189,102,0.30)', background: 'rgba(255,189,102,0.10)', color: '#ffbd66' },
+  bad: { border: '1px solid rgba(255,107,125,0.30)', background: 'rgba(255,107,125,0.10)', color: '#ff6b7d' },
+  idle: { border: '1px solid rgba(255,255,255,0.10)', background: 'rgba(255,255,255,0.05)', color: 'var(--text-muted)' },
+};
+
+const NOTE = (tone) => ({
+  marginTop: 11, display: 'flex', alignItems: 'flex-start', gap: 8,
+  borderRadius: 10, padding: '8px 11px', fontSize: 11, lineHeight: 1.55,
+  ...TONES[tone],
+});
+
+const BTN = {
+  display: 'inline-flex', alignItems: 'center', gap: 6, borderRadius: 10,
+  padding: '7px 12px', fontSize: 12, background: 'rgba(255,255,255,0.04)',
+  border: '1px solid rgba(255,255,255,0.10)', color: 'var(--text-secondary)',
+};
 
 function Pill({ tone, children }) {
-  const tones = {
-    ok: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400',
-    warn: 'border-amber-500/30 bg-amber-500/10 text-amber-400',
-    bad: 'border-red-500/30 bg-red-500/10 text-red-400',
-    idle: 'border-white/10 bg-white/5 text-[#777777]',
-  };
   return (
-    <span className={`rounded border px-2 py-0.5 text-[10px] font-medium ${tones[tone] || tones.idle}`}>
+    <span style={{
+      borderRadius: 6, padding: '2px 7px', fontSize: 10, fontWeight: 600,
+      fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', ...(TONES[tone] || TONES.idle),
+    }}>
       {children}
     </span>
   );
@@ -57,14 +69,21 @@ function Pill({ tone, children }) {
 /** One of the three chain stages, with the reason when it is not satisfied. */
 function Stage({ label, ok, okText, badText, tone = 'bad' }) {
   return (
-    <div className="flex items-start gap-2.5 py-2">
-      <span className="mt-0.5 shrink-0">
-        {ok ? <Check size={14} className="text-emerald-400" />
-            : <X size={14} className={tone === 'warn' ? 'text-amber-400' : 'text-red-400'} />}
+    <div style={{
+      display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 0',
+      borderTop: '1px solid rgba(255,255,255,0.05)',
+    }}>
+      <span style={{
+        marginTop: 1, flexShrink: 0, fontSize: 12,
+        color: ok ? '#46d9a4' : (tone === 'warn' ? '#ffbd66' : '#ff6b7d'),
+      }}>
+        {ok ? '✓' : '✕'}
       </span>
-      <div className="min-w-0">
-        <div className="text-[12px] font-medium text-white">{label}</div>
-        <div className="text-[11px] text-[#777777] mt-0.5">{ok ? okText : badText}</div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{label}</div>
+        <div style={{ marginTop: 2, fontSize: 11, lineHeight: 1.55, color: 'var(--text-muted)' }}>
+          {ok ? okText : badText}
+        </div>
       </div>
     </div>
   );
@@ -73,8 +92,13 @@ function Stage({ label, ok, okText, badText, tone = 'bad' }) {
 function Stat({ label, value }) {
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-wider text-[#555555] font-mono">{label}</div>
-      <div className="text-sm text-white mt-0.5">{value}</div>
+      <div style={{
+        fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em',
+        fontFamily: 'var(--font-mono)', color: 'var(--text-muted)',
+      }}>
+        {label}
+      </div>
+      <div style={{ marginTop: 2, fontSize: 14, color: 'var(--text-primary)' }}>{value}</div>
     </div>
   );
 }
@@ -147,48 +171,53 @@ export default function McpCard() {
   const findings = scan?.findings || [];
 
   return (
-    <div className={CARD} data-testid="mcp-card">
-      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
-        <div className="flex items-start gap-2.5">
-          <Plug size={16} className="text-[#002FA7] mt-0.5 shrink-0" />
-          <div>
-            <h2 className="text-base font-semibold text-white">MCP</h2>
-            <p className="text-[11px] text-[#555555] mt-0.5">
-              Capability providers reached over Model Context Protocol
-            </p>
-          </div>
+    <div
+      data-testid="mcp-card"
+      style={{
+        padding: '16px 16px 18px', borderRadius: 16, marginBottom: 16,
+        background: 'rgba(93,162,255,0.04)', border: '1px solid rgba(93,162,255,0.18)',
+      }}
+    >
+      <div style={{
+        display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start',
+        justifyContent: 'space-between', gap: 12, marginBottom: 14,
+      }}>
+        <div>
+          <h2 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
+            Render — platform watch
+          </h2>
+          <p style={{ marginTop: 2, fontSize: 11, color: 'var(--text-muted)' }}>
+            The MCP server that reports deployment failures, not just tools
+          </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
             onClick={runScan}
             disabled={scanning || !configured}
             title={configured ? 'Ask Render what is wrong right now — read-only, files nothing'
                               : 'Needs RENDER_API_KEY before a scan can run'}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-[#A0A0A0] transition-colors enabled:hover:bg-white/5 disabled:opacity-40"
+            style={{
+              ...BTN,
+              cursor: scanning || !configured ? 'not-allowed' : 'pointer',
+              opacity: scanning || !configured ? 0.4 : 1,
+            }}
           >
-            {scanning ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />}
-            Scan now
+            {scanning ? 'Scanning…' : 'Scan now'}
           </button>
-          <button
-            onClick={refresh}
-            className="rounded-lg border border-white/10 p-1.5 text-[#A0A0A0] transition-colors hover:bg-white/5"
-            title="Refresh"
-          >
-            <RefreshCw size={13} />
+          <button onClick={refresh} title="Refresh" style={{ ...BTN, cursor: 'pointer' }}>
+            Refresh
           </button>
         </div>
       </div>
 
-      {loadErr && (
-        <div className="mb-4 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
-          <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {loadErr}
-        </div>
-      )}
+      {loadErr && <div style={{ ...NOTE('bad'), marginTop: 0, marginBottom: 14 }}>{loadErr}</div>}
 
-      {/* ── Render MCP server ────────────────────────────────────────────── */}
-      <div className="rounded-lg border border-white/10 bg-[#0C0C0C] p-4">
-        <div className="flex flex-wrap items-center gap-2 mb-1">
-          <span className="text-[13px] font-semibold text-white">Render</span>
+      <div style={{
+        borderRadius: 12, padding: 15,
+        background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)',
+      }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Render</span>
           <Pill tone={configured ? 'ok' : 'idle'}>{configured ? 'Connected' : 'Not configured'}</Pill>
           {ops?.write_allowed
             ? <Pill tone="warn">Writes allowed</Pill>
@@ -199,13 +228,13 @@ export default function McpCard() {
             </Pill>
           )}
         </div>
-        <p className="text-[11px] text-[#777777] leading-relaxed">
+        <p style={{ fontSize: 11, lineHeight: 1.6, color: 'var(--text-muted)' }}>
           Platform-level view of the deployment: build failures, OOM kills, restarts, and error-log
           spikes. These never reach the application logs — the process was not alive to write them.
         </p>
 
         {/* The three stages, in dependency order. */}
-        <div className="mt-3 divide-y divide-white/5">
+        <div style={{ marginTop: 12 }}>
           <Stage
             label="Connection"
             ok={configured}
@@ -233,7 +262,10 @@ export default function McpCard() {
         </div>
 
         {ops && (
-          <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-4 border-t border-white/5 pt-3">
+          <div style={{
+            marginTop: 15, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)',
+            display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(90px, 1fr))', gap: 14,
+          }}>
             <Stat label="Filed" value={ops.findings_filed ?? 0} />
             <Stat label="Dropped" value={ops.findings_dropped ?? 0} />
             <Stat label="Cooldowns" value={ops.active_cooldowns ?? 0} />
@@ -242,8 +274,7 @@ export default function McpCard() {
         )}
 
         {ops?.findings_dropped > 0 && (
-          <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-400">
-            <ShieldAlert size={13} className="mt-0.5 shrink-0" />
+          <div style={NOTE('warn')}>
             <span>
               {ops.findings_dropped} finding{ops.findings_dropped === 1 ? '' : 's'} detected but never
               filed, so no repair was scheduled for {ops.findings_dropped === 1 ? 'it' : 'them'}. They
@@ -253,43 +284,49 @@ export default function McpCard() {
         )}
 
         {health && !health.reachable && health.reason && (
-          <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-400">
-            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-            <span className="break-all">MCP endpoint: {health.reason}</span>
+          <div style={NOTE('bad')}>
+            <span style={{ wordBreak: 'break-all' }}>MCP endpoint: {health.reason}</span>
           </div>
         )}
 
         {ops?.last_error && (
-          <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-400">
-            <AlertTriangle size={13} className="mt-0.5 shrink-0" />
-            <span className="break-all">{ops.last_error}</span>
+          <div style={NOTE('bad')}>
+            <span style={{ wordBreak: 'break-all' }}>{ops.last_error}</span>
           </div>
         )}
       </div>
 
-      {/* ── Scan result ──────────────────────────────────────────────────── */}
-      {scanErr && (
-        <div className="mt-3 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
-          <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {scanErr}
-        </div>
-      )}
+      {scanErr && <div style={NOTE('bad')}>{scanErr}</div>}
       {scan && (
-        <div className="mt-3 rounded-lg border border-white/10 bg-[#0C0C0C] p-4" data-testid="mcp-scan-result">
-          <div className="text-[11px] uppercase tracking-wider text-[#555555] font-mono mb-2">
+        <div
+          data-testid="mcp-scan-result"
+          style={{
+            marginTop: 12, borderRadius: 12, padding: 15,
+            background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)',
+          }}
+        >
+          <div style={{
+            marginBottom: 9, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em',
+            fontFamily: 'var(--font-mono)', color: 'var(--text-muted)',
+          }}>
             Scan result — read-only, nothing filed
           </div>
           {findings.length === 0 ? (
-            <p className="text-xs text-emerald-400">Render reports no platform failures right now.</p>
+            <p style={{ fontSize: 12, color: '#46d9a4' }}>Render reports no platform failures right now.</p>
           ) : (
-            <ul className="space-y-2">
+            <ul style={{ display: 'flex', flexDirection: 'column', gap: 9, listStyle: 'none' }}>
               {findings.map((f, i) => (
-                <li key={f.signature || i} className="text-xs">
-                  <div className="flex flex-wrap items-center gap-2">
+                <li key={f.signature || i} style={{ fontSize: 12 }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
                     <Pill tone={f.severity === 'critical' ? 'bad' : 'warn'}>{f.severity || 'issue'}</Pill>
-                    <span className="text-white">{f.title}</span>
+                    <span style={{ color: 'var(--text-primary)' }}>{f.title}</span>
                   </div>
                   {f.service_name && (
-                    <div className="text-[10px] text-[#555555] mt-0.5 font-mono">{f.kind} · {f.service_name}</div>
+                    <div style={{
+                      marginTop: 2, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)',
+                    }}>
+                      {f.kind} · {f.service_name}
+                    </div>
                   )}
                 </li>
               ))}
@@ -300,10 +337,12 @@ export default function McpCard() {
 
       <Link
         to="/v5/controls"
-        className="mt-4 inline-flex items-center gap-1.5 text-[11px] text-[#4477FF] hover:underline"
+        style={{
+          marginTop: 14, display: 'inline-block', fontSize: 11,
+          color: 'var(--accent)', textDecoration: 'none',
+        }}
       >
-        <SlidersHorizontal size={12} />
-        Configure in Platform Controls
+        Configure in Platform Controls →
       </Link>
     </div>
   );
