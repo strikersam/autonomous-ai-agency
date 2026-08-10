@@ -45,7 +45,8 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "llama-3.3-70b-versatile": (0.0, 0.0),
     "deepseek-r1-distill-llama-70b": (0.0, 0.0),
     "llama-3.1-8b-instant": (0.0, 0.0),
-    # --- Anthropic (paid) — Claude Sonnet 5 / Sonnet 4.x / Opus 4.x ---
+    # --- Anthropic (paid) — Claude 5 family ---
+    "claude-opus-5": (15.0, 75.0),          # GA July 2026, flagship; adaptive thinking
     "claude-sonnet-5": (3.0, 15.0),        # GA July 2026, 1M context, adaptive thinking
     "claude-sonnet-5-20260501": (3.0, 15.0),
     "claude-fable-5": (3.0, 15.0),

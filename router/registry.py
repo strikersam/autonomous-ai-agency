@@ -463,6 +463,50 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         cost_tier=1,
         tags=["bedrock", "claude", "claude4", "fast"],
     ),
+    # ── Anthropic API — Claude 5 family (GA, July 2026) ─────────────────────
+    # Opus 5: heavy reasoning + analysis flagship; adaptive thinking (no temperature param).
+    # Extended thinking budget parameter is not accepted — adaptive thinking only.
+    "claude-opus-5": ModelCapability(
+        name="claude-opus-5",
+        strengths=[
+            "reasoning",
+            "analysis",
+            "planning",
+            "math",
+            "complex_tasks",
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "conversation",
+            "data_analysis",
+        ],
+        context_window=200000,
+        type="reasoning",
+        cost_tier=3,
+        tags=["anthropic", "claude", "claude5", "flagship", "adaptive-thinking"],
+    ),
+    # Sonnet 5: balanced speed + capability; adaptive thinking; 1M context window.
+    # Temperature and extended-thinking budget are not accepted for this model.
+    "claude-sonnet-5": ModelCapability(
+        name="claude-sonnet-5",
+        strengths=[
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "conversation",
+            "analysis",
+            "data_analysis",
+            "reasoning",
+        ],
+        context_window=1000000,
+        type="coder",
+        cost_tier=2,
+        tags=["anthropic", "claude", "claude5", "adaptive-thinking", "1m-context"],
+    ),
     # ── Anthropic API — Claude 5 family (Mythos-class tier, above Opus) ──────
     # Fable 5: most intelligent generally available model; standard safeguards.
     # NOTE: suspended under US export-control directive as of 2026-06-12.

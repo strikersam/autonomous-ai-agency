@@ -59,6 +59,8 @@ _MODEL_COSTS: dict[str, float] = {
     "deepseek-ai/deepseek-v4-pro": 0.0,
     "z-ai/glm-5.2": 0.0,
     # Cloud Anthropic models
+    "claude-opus-5": 75.0,
+    "claude-sonnet-5": 15.0,
     "claude-opus-4-8": 75.0,
     "claude-sonnet-4-6": 15.0,
     "claude-haiku-4-5-20251001": 3.0,

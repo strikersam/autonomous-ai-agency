@@ -781,3 +781,40 @@ def test_mythos_5_alias_routes():
     decision = _router().route(requested_model="claude-mythos-5")
     assert decision.resolved_model == "deepseek-r1:671b"
     assert decision.selection_source == "model_map"
+
+
+# ── Claude 5 Sonnet + Opus (GA July 2026) ──────────────────────────────────
+
+def test_claude_opus_5_in_registry():
+    reg = get_registry()
+    assert "claude-opus-5" in reg
+    cap = reg["claude-opus-5"]
+    assert cap.type == "reasoning"
+    assert cap.cost_tier == 3
+    assert "flagship" in cap.tags
+    assert "claude5" in cap.tags
+    assert "adaptive-thinking" in cap.tags
+    assert "reasoning" in cap.strengths
+
+
+def test_claude_sonnet_5_in_registry():
+    reg = get_registry()
+    assert "claude-sonnet-5" in reg
+    cap = reg["claude-sonnet-5"]
+    assert cap.type == "coder"
+    assert cap.cost_tier == 2
+    assert "claude5" in cap.tags
+    assert "adaptive-thinking" in cap.tags
+    assert "1m-context" in cap.tags
+    assert cap.context_window == 1_000_000
+
+
+def test_claude_opus_5_alias_routes():
+    decision = _router().route(requested_model="claude-opus-5")
+    assert decision.resolved_model == "deepseek-r1:671b"
+    assert decision.selection_source == "model_map"
+
+
+def test_claude_sonnet_5_alias_routes():
+    decision = _router().route(requested_model="claude-sonnet-5")
+    assert decision.selection_source == "model_map"

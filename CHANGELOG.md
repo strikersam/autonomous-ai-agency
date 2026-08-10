@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Claude Opus 5 and Sonnet 5 registered in the model router** (2026-08-10). Both models were already referenced by `brain_config.py` and `brain_failover.py` for the `aerolink`/`anthropic` provider profiles, but were absent from `router/registry.py` and the alias table in `router/model_router.py` — any request routed to them would fall through to the default without capability matching. Registered now as GA (July 2026) entries: `claude-opus-5` (reasoning flagship, 200K context, `cost_tier=3`, adaptive-thinking tag) and `claude-sonnet-5` (balanced mid-tier, 1M context, `cost_tier=2`, adaptive-thinking + 1m-context tags). Both are added to the model alias table (`_largest` and `_coder` categories respectively) and to the cost-attribution tables in `packages/ai/cost_tracker.py` (`claude-opus-5`: $15/$75 per M tokens) and `services/cost_attribution.py`. The `ANTHROPIC_MODEL` / `ANTHROPIC_DEFAULT_MODEL` env-var defaults are updated from the retired `claude-3-5-sonnet-latest` / `claude-sonnet-4-5` to `claude-sonnet-4-6` — the current stable alias. 4 new tests pin registry presence, tags, context window, and routing behaviour for both models. Files: `router/registry.py`, `router/model_router.py`, `packages/ai/cost_tracker.py`, `services/cost_attribution.py`, `backend/server.py`, `packages/llm/config.py`, `tests/test_model_router.py`.
+
 ### Fixed
 
 - **The boot bundle no longer ships the dashboard nobody opens** (2026-08-10). `App.js` imported the legacy v4 shell (`DashboardLayout`, ~24 screens) eagerly while `V5App` — the shell every authenticated user is redirected to — was lazy. Every visitor therefore downloaded the entire v4 dashboard *before* the v5 chunk could start, which on a phone is the whole cost of the first paint spent on screens that are unreachable from the UI. Making the legacy shell lazy takes the main bundle from **864.9 KB to 375.0 KB** (measured on `npm run build`, both figures uncompressed), with a Suspense boundary added on the `/legacy/*` route since a lazy component without one throws.

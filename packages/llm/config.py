@@ -515,7 +515,7 @@ _ENV_PROVIDERS: tuple[tuple[str, str, str, str, str, str, int, str, str], ...] =
     ("mistral",   "openai",    "MISTRAL_BASE_URL",   "https://api.mistral.ai/v1", "MISTRAL_API_KEY", "cheap", 48, "MISTRAL_DEFAULT_MODEL", ""),
     ("openai",    "openai",    "OPENAI_BASE_URL",    "https://api.openai.com/v1", "OPENAI_API_KEY", "premium", 60, "OPENAI_DEFAULT_MODEL", "gpt-4o-mini"),
     ("azure",     "openai",    "AZURE_OPENAI_BASE_URL", "",                    "AZURE_OPENAI_API_KEY", "premium", 62, "AZURE_OPENAI_DEPLOYMENT", ""),
-    ("anthropic", "anthropic", "ANTHROPIC_BASE_URL", "https://api.anthropic.com", "ANTHROPIC_API_KEY", "premium", 64, "ANTHROPIC_DEFAULT_MODEL", "claude-sonnet-4-5"),
+    ("anthropic", "anthropic", "ANTHROPIC_BASE_URL", "https://api.anthropic.com", "ANTHROPIC_API_KEY", "premium", 64, "ANTHROPIC_DEFAULT_MODEL", "claude-sonnet-4-6"),
 )
 
 

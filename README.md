@@ -136,6 +136,12 @@ available — because a dashboard that overstates containment is worse than none
 
 Guide, gap analysis, and threat model: [docs/governance/](docs/governance/README.md).
 
+## What's New (2026-08-10)
+
+**Claude Opus 5 and Sonnet 5 now routable.** Both GA July 2026 Anthropic flagship models are registered in the model router, capability registry, and cost-attribution tables. When your `ANTHROPIC_API_KEY` is set and `BRAIN_PREFERENCE=anthropic`, the platform can now assign Opus 5 to planner/judge roles and Sonnet 5 (1M context, adaptive thinking) to executor/verifier roles. Previously these models were referenced in the brain config but unknown to the router — calls silently fell back to the default. Default `ANTHROPIC_MODEL` updated from `claude-3-5-sonnet-latest` (retired) to `claude-sonnet-4-6`.
+
+---
+
 ## What's New (2026-07-24)
 
 **Structured output strict mode + refusal handling.** The OpenAI `json_schema` + `strict: true` pattern is now the preferred way to request schema-conformant JSON from any model (replacing the legacy `json_object` mode). The proxy translates strict-mode requests into a tighter system-prompt constraint for Anthropic and other providers that don't natively support it, and detects model refusals (`choices[0].message.refusal`) so callers get a clear error instead of empty/garbled JSON.
