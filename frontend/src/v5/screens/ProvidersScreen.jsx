@@ -1,5 +1,6 @@
 /* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
 import React from 'react';
+import { Link } from 'react-router-dom';
 import { useSafeData } from '../hooks/useSafeData';
 import * as api from '../../api';
 import McpCard from '../components/McpCard';
@@ -810,7 +811,19 @@ function ProvidersScreen() {
                 per-role models, local GLM toggle, legacy provider breakers
               </span>
             </summary>
+            {/* Two surfaces genuinely own brain settings and they are easy to
+                confuse: this section assigns a concrete provider/model per role
+                and flips the local runtime, while Controls sets the global
+                policy the resolver applies (BRAIN_PREFERENCE, ALLOW_PAID_BRAIN,
+                INCLUDE_LOCAL_FALLBACK). Saying which is which beats leaving an
+                operator to discover it by changing one and watching the other
+                not move. */}
             <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <p style={{ fontSize: 11, lineHeight: 1.6, color: 'var(--text-tertiary)' }}>
+                These pick a specific provider and model. The global policy — preferred brain,
+                whether paid models are allowed, whether local is in the fallback chain — lives in{' '}
+                <Link to="/v5/controls" style={{ color: 'var(--accent)' }}>Controls → Brain &amp; Model Routing</Link>.
+              </p>
               <BrainCard />
               <LocalBrainToggleCard />
               <ProviderHealthToggleCard />

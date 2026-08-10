@@ -420,11 +420,21 @@ export default function ControlsScreen() {
       </div>
 
       {pendingCount > 0 && (
-        <div style={{
-          position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 20,
-          padding: '11px 16px', background: 'var(--bg-surface)',
-          borderTop: '1px solid var(--border)',
-        }}>
+        <div className="pc-savebar" data-testid="controls-save-bar">
+          {/* The shell's mobile bottom nav is `position:fixed; bottom:0;
+              z-index:50`. A save bar at `bottom:0` therefore sits *behind* it on
+              a phone and Apply cannot be tapped at all, so the bar is lifted
+              clear of the nav below the shell's 1024px desktop breakpoint. */}
+          <style>{`
+            .pc-savebar {
+              position: fixed; left: 0; right: 0; z-index: 40;
+              bottom: calc(env(safe-area-inset-bottom, 0px) + 72px);
+              padding: 11px 16px;
+              background: var(--bg-surface);
+              border-top: 1px solid var(--border);
+            }
+            @media (min-width: 1024px) { .pc-savebar { bottom: 0; } }
+          `}</style>
           <div style={{
             maxWidth: 1000, margin: '0 auto', display: 'flex', alignItems: 'center',
             justifyContent: 'space-between', gap: 12,
