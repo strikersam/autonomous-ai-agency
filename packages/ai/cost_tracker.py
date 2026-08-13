@@ -37,14 +37,22 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "deepseek-ai/deepseek-r1": (0.0, 0.0),
     "z-ai/glm-5.2": (0.0, 0.0),
     "nvidia/nemotron-3-super-120b-a12b": (0.0, 0.0),
-    # --- Cerebras (free tier) ---
+    # DeepSeek V4 Pro — live in NIM catalog Aug 2026 (free tier).
+    "deepseek-ai/deepseek-v4-pro": (0.0, 0.0),
+    # --- Cerebras (free/paid tier) ---
     "qwen-3-coder-480b": (0.0, 0.0),
     "llama-3.3-70b": (0.0, 0.0),
     "llama-3.1-8b": (0.0, 0.0),
-    # --- Groq (free tier) ---
+    # gpt-oss-120B — Cerebras's 120B OSS model, ~3000 tok/s (Aug 2026).
+    "gpt-oss-120b": (0.85, 1.20),
+    # --- Groq (free/paid tier) ---
     "llama-3.3-70b-versatile": (0.0, 0.0),
     "deepseek-r1-distill-llama-70b": (0.0, 0.0),
     "llama-3.1-8b-instant": (0.0, 0.0),
+    # Kimi K2 on Groq — Moonshot AI MoE, ~1M context (Aug 2026).
+    "moonshotai/kimi-k2-instruct": (0.0, 0.0),
+    # Qwen3 32B on Groq — strong coder, free tier (Aug 2026).
+    "qwen-qwq-32b": (0.0, 0.0),
     # --- Anthropic (paid) — Claude Sonnet 5 / Sonnet 4.x / Opus 4.x ---
     "claude-sonnet-5": (3.0, 15.0),        # GA July 2026, 1M context, adaptive thinking
     "claude-sonnet-5-20260501": (3.0, 15.0),
