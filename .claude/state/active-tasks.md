@@ -57,6 +57,8 @@
 | 31 | BUG_FIXED: post-#931 Render deploy crash-loop — in-process voice worker OOM-killed the 512MB instance at boot | `BUG_FIXED` | `claude/sam-voice-livekit-xjow4g` (fix PR pending) | SAM_VOICE_IN_PROCESS now defaults to false (livekit_config.py + render.yaml); image still ships deps so flag-flip enables it on >=2GB instances; regression test pins default OFF; docs sizing guidance | 2026-07-03 |
 | 30 | OpenHands-inspired hardening: StuckDetector (tool-loop no-progress abort) + microagents (`.openhands/microagents/` keyword-triggered planner knowledge) | `DONE` | [#932](https://github.com/strikersam/autonomous-ai-agency/pull/932) merged (`2b45a8e`) | `agent/stuck_detector.py` + `agent/microagents.py` wired into AgentRunner; 4 starter microagents; 66 new tests; all 28 CI checks green | 2026-07-03 |
 | 34 | Daily automation: per-tool session caps + budget API (Claude Code v2.1.212 parity) | `DONE` | `claude/nifty-pasteur-erwj6y` (commit `714d3631`) | SessionBudget.per_tool_calls + check_tool(), _guard_inner per-tool gate, default web_search/fetch_page/fetch_url/fetch_rss caps (observe mode), GET /api/governance/budget endpoints; 13 new tests; changelog + parity green | 2026-08-09 |
+| 36 | Daily automation 2026-08-13: Anthropic beta headers (mid-conversation tool changes + server-side fallback) | `DONE` | `claude/nifty-pasteur-9404h8` | packages/ai/router.py _get_request_headers(); ANTHROPIC_TOOL_SWAP_BETA + ANTHROPIC_SERVER_FALLBACK_BETA env opt-outs | 2026-08-13 |
+| 37 | Daily automation 2026-08-13: Model catalog — DeepSeek V4 Pro (NIM), gpt-oss-120b (Cerebras), Kimi K2 + QwQ 32B (Groq) | `DONE` | `claude/nifty-pasteur-9404h8` | packages/ai/brain_config.py + packages/ai/cost_tracker.py | 2026-08-13 |
 
 ---
 
@@ -97,7 +99,7 @@
 | B1 | Nemotron Reward Model Scoring | P0 | `TODO` | — |
 | C1 | Structured Output / JSON Mode | P0 | `DONE` | `_json_instruction()` in AnthropicProvider; 10 new tests; 2026-08-07 |
 | C2 | Function Calling (OpenAI-compatible) | P0 | `TODO` | — |
-| F1 | Precise Diff Application (Codebuff-style) | P0 | `TODO` | — |
+| F1 | Precise Diff Application (Codebuff-style) | P0 | `DONE` | `edit_file(path, old_string, new_string)` in agent/tools.py + capability_registry + prompts; 7 tests; 2026-08-13 |
 | ★4 | Skill/Procedural Memory | P1 | `DONE` | `agent/procedural_memory.py` + loop/prompts wiring; 28 new tests; 2026-08-07 |
 | ★5 | Sandboxed Agent Execution | P1 | `TODO` | — |
 | ★6 | Cost Analytics + FTS5 Memory + Constitution | P1 | `TODO` | — |
