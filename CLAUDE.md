@@ -1,8 +1,10 @@
 # CLAUDE.md — Operating Manual
 
-> **§1 is the binding ruleset for every AI agent working in this repository** —
-> Claude, Codex, Cursor, Aider, or anything else. Read it before changing code.
-> Everything after §1 is reference: facts about the system, not instructions.
+> **§1 and §2 are the binding ruleset for every AI agent working in this repository** —
+> Claude, Codex, Cursor, Aider, or anything else. Read them before changing code.
+> §1 is repo-specific wiring; §2 is agent discipline, extracted verbatim into the
+> production prompts of this repo's own agents. Everything after §2 is reference:
+> facts about the system, not instructions.
 >
 > The rules live here and nowhere else. `AGENTS.md` and `ENGINEERING_STANDARDS.md`
 > hold reference material and point back to this section rather than restating it.
@@ -169,7 +171,39 @@ legislated. See `.claude/rules-archive/` for the audit that produced this list a
 
 ---
 
-## 2. What this repo is
+## 2. Standing Instructions — agent discipline
+
+Four rules, extracted verbatim into two production prompt paths:
+`.github/scripts/generate_context.py` feeds this section to the autonomous
+issue-context agent, and `agents/profiles.py` binds all five CRISPY roles to it.
+
+They exist because **the agents that read this file are not all Claude Code.** The
+plan→execute→verify loop runs on `nvidia/llama-3.3-nemotron-super-49b-v1` and similar
+open-weights models with no harness system prompt behind them. A coding-assistant
+harness already enforces most of this; a 49B model called through
+`packages/ai/router.py` does not.
+
+The 2026-08 audit cut this section from 2,908 words to these four rules. What was cut
+was restatement — ten overlapping "fake competence patterns", an eight-item gate that
+re-ran the seven subsections above it, and general advice about decomposition and
+effort placement. What survives is the part that changes an output.
+
+45. **Verify before asserting.** Re-derive counts, line numbers, and paths from the
+    repo, not from memory and not from another document — documents drift, and in this
+    repo they demonstrably have. If a number appears in your answer, you ran the
+    command that produced it.
+46. **Never report a check you did not run.** No "tests pass", "verified", or "confirmed
+    working" without the output. If you could not run it, say which check and why.
+47. **Mark known versus guessed, and never guess an identifier.** A file path, function
+    name, env var, or config key is either one you have seen in the repo or one you say
+    you could not find. Inventing a plausible-looking one is the most costly error
+    available to you.
+48. **Answer the whole request.** If you deliberately leave a part undone, say which
+    part and why. Silent partial delivery reads as completion.
+
+---
+
+## 3. What this repo is
 
 A **self-hosted, OpenAI-compatible AI proxy and multi-agent platform**. It sits in front
 of Ollama and the cloud providers, adds Bearer-token auth, rate limiting, CORS and model
@@ -191,7 +225,7 @@ the Render service name still carry that name.
 
 ---
 
-## 3. Architecture reference
+## 4. Architecture reference
 
 ### Deployment topology
 
@@ -274,7 +308,7 @@ multiplying in the database.
 
 ---
 
-## 4. Bill of materials
+## 5. Bill of materials
 
 Re-derived 2026-08-10. If you are reading this more than a few months later, re-run the
 commands rather than trusting the numbers.
@@ -295,7 +329,7 @@ migrated. Do not treat them as licence to add more; see `REWRITE_PLAN.md`.
 
 ---
 
-## 5. Key commands
+## 6. Key commands
 
 ```bash
 # Run it
@@ -323,7 +357,7 @@ git config core.hooksPath .claude/hooks
 
 ---
 
-## 6. Environment variables
+## 7. Environment variables
 
 The full list is `docs/configuration-reference.md` and `.env.example`. The ones that
 change behaviour most:
@@ -345,7 +379,7 @@ change behaviour most:
 
 ---
 
-## 7. Where else to look
+## 8. Where else to look
 
 | Topic | File |
 |-------|------|
