@@ -1,33 +1,40 @@
-# Updated Node.js version to match the runner's environment
-name: Test
-on: [push]
+# Updated to use Node.js 24 for compatibility
+name: Test (Python 3.13)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
 jobs:
   build:
+
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: [3.13]
+        python-version: [ '3.13' ]
+        node-version: [ '24' ]
+
     steps:
     - uses: actions/checkout@v4
     - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v4
       with:
         python-version: ${{ matrix.python-version }}
+    - name: Set up Node.js ${{ matrix.node-version }}
+      uses: actions/setup-node@v3
+      with:
+        node-version: ${{ matrix.node-version }}
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install flake8 pytest
     - name: Lint with flake8
       run: |
-        # stop the build if there are Python syntax errors or undefined names
+        # stop the command from failing early (non-zero exit code)
         flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        # exit-zero treats all errors as warnings. The GitHub editor is 1-column wide
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=88 --statistics
     - name: Test with pytest
       run: |
         pytest
-    # Update Node.js version to a supported one (e.g., Node.js 24)
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '24'
