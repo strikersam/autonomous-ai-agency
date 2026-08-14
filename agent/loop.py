@@ -975,7 +975,17 @@ class AgentRunner:
             raw = self._normalize_plan_response(raw, instruction)
             plan = AgentPlan.model_validate(raw)
         except Exception as exc:
-            raise AgentPhaseError(f"planning: {exc}") from exc
+            # Name the cause even when the exception stringifies to nothing.
+            # ``asyncio.TimeoutError()`` has an empty ``str()``, so a planning
+            # call that hit its timeout previously surfaced in production as the
+            # undiagnosable "planning: " — with no type, no cause — which then
+            # propagated verbatim into the runtime error, the task's
+            # error_message, and any incident filed from it ("All runtimes
+            # failed … Last error: … planning: "). Falling back to the exception
+            # class name makes the single most common autonomous-loop failure
+            # legible without changing any control flow.
+            detail = str(exc).strip() or type(exc).__name__
+            raise AgentPhaseError(f"planning: {detail}") from exc
         plan.steps = plan.steps[:max_steps]
         return plan
 
