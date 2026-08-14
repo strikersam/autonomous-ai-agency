@@ -16,6 +16,19 @@ that no longer exist.** `admin_auth.py`, `rbac.py`, and `social_auth.py` moved i
 paths that could never match. Fixed in `CLAUDE.md` rule 15 and the `AGENTS.md` risky
 table. Recorded as C9 in `CONFLICTS.md`.
 
+**The §14 cut was partly wrong, and is partly reversed.** The audit judged §14
+removable because the Claude Code harness already mandates it. That is true for
+Claude Code and false for this repo's own agents: `.github/scripts/generate_context.py`
+fed §14 to the autonomous issue-context agent, and `agents/profiles.py` bound all five
+CRISPY roles to it. Those run on `nvidia/llama-3.3-nemotron-super-49b-v1` with no
+harness behind them. CI caught it — the two tests guarding those paths failed.
+
+Resolution: §14's four load-bearing directives are restored as `CLAUDE.md` §2, rules
+45–48, at 250 words against the original 2,908. Both consumers now carve out §1 + §2
+whole (~1,350 words) instead of a flat 4,000-char excerpt that cut mid-ruleset, so
+those agents get *more* of the binding rules than before, not less. The 56 cut
+directives stay cut. Ruleset total: **48 rules**, not 44.
+
 One recommendation in `REMOVED-RULES.md` was withdrawn on inspection:
 `.claude/state/learnings.md` is written by five skills (`learn-rule`,
 `replay-learnings`, `session-handoff`, `wrap-up`, `insights`), so deleting it would

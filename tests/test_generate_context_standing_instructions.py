@@ -1,12 +1,12 @@
-"""Regression test: autonomous issue-context generation must not silently
-truncate CLAUDE.md before it reaches §14 Standing Instructions.
+"""Regression test: autonomous issue-context generation must not truncate
+CLAUDE.md's binding ruleset before it reaches the LLM.
 
 `_load_codebase_context()` in `.github/scripts/generate_context.py` feeds
-CLAUDE.md into the LLM context used by the autonomous GitHub issue-driven
-agent (issue-context-generator workflow). It excerpts only the first 4000
-chars for a general overview; §14 lives much further into the file, so
-without an explicit carve-out the mandatory Standing Instructions never
-reach that autonomous agent at all.
+CLAUDE.md into the context used by the autonomous GitHub issue-driven agent
+(issue-context-generator workflow). A flat first-N-chars excerpt cuts the file
+mid-ruleset, so §1 (the 44 rules) and §2 (Standing Instructions) are carved out
+and sent whole. Those agents run on open-weights models with no harness system
+prompt behind them, so §2 is the only place that discipline reaches them.
 """
 from __future__ import annotations
 
@@ -26,20 +26,33 @@ def _load_module():
     return module
 
 
-def test_claude_md_standing_instructions_present_past_4000_chars() -> None:
+def test_claude_md_has_the_carved_out_sections() -> None:
     """Sanity check on the fixture assumption this test relies on."""
     claude_md = (REPO_ROOT / "CLAUDE.md").read_text()
-    marker_idx = claude_md.find("## 14. Standing Instructions")
-    assert marker_idx >= 4000, (
-        "CLAUDE.md §14 moved inside the 4000-char excerpt window — "
-        "the carve-out in _load_codebase_context() may now be redundant "
-        "but should still be verified, not silently dropped."
+    rules_idx = claude_md.find("## 1. The Rules")
+    standing_idx = claude_md.find("## 2. Standing Instructions")
+    ref_idx = claude_md.find("## 3. What this repo is")
+    assert 0 <= rules_idx < standing_idx < ref_idx, (
+        "CLAUDE.md section order changed — _load_codebase_context() carves "
+        "§1 through §2 by these markers and would fall back to a flat excerpt."
     )
 
 
-def test_load_codebase_context_includes_standing_instructions() -> None:
+def test_load_codebase_context_includes_rules_and_standing_instructions() -> None:
     module = _load_module()
     context = module._load_codebase_context()
 
-    assert "## 14. Standing Instructions" in context
-    assert "Final Gate" in context or "14.11" in context
+    assert "## 1. The Rules" in context
+    assert "## 2. Standing Instructions" in context
+    # A rule from the far end of §1 — proves the ruleset was not truncated.
+    assert "graphify update" in context
+    # A rule from §2 — proves the discipline block survived.
+    assert "Never report a check you did not run" in context
+
+
+def test_reference_sections_are_not_shipped() -> None:
+    """§3 onward is architecture reference, not instruction — dropping it is
+    what buys room to send the whole ruleset."""
+    module = _load_module()
+    context = module._load_codebase_context()
+    assert "## 5. Bill of materials" not in context
