@@ -200,9 +200,17 @@ jobs:
       # master and stay green here while every clean clone fails — which is
       # exactly how the missing yaml@2.9.0 entry went unnoticed (#1259). ci
       # refuses instead, failing on the PR that introduces the drift.
+      #
+      # Deliberately WITHOUT --legacy-peer-deps. That flag changes the tree npm
+      # validates against, and it takes the sync check with it: on a lock with
+      # the yaml entry deleted, `npm ci` exits 1 while `npm ci --legacy-peer-deps`
+      # exits 0 and installs happily. Keeping the flag here would have left this
+      # gate unable to catch the one drift it exists for. Plain `npm ci` resolves
+      # nothing itself — it installs the locked tree — so the peer conflicts that
+      # made `npm install` need the flag do not arise.
       - name: Install frontend dependencies
         working-directory: frontend
-        run: npm ci --legacy-peer-deps
+        run: npm ci
 
       - name: Run frontend tests
         working-directory: frontend
