@@ -451,6 +451,22 @@ services:
       # was data + concurrency, not code). Raise only on a >=2GB instance.
       - key: TASK_DISPATCH_CONCURRENCY
         value: "1"
+      # ── Memory: keep RSS off the 512MB OOM ceiling ────────────────────────
+      # This async service runs many threads (motor, httpx, the APScheduler
+      # pool, every asyncio.to_thread). glibc gives each thread its own malloc
+      # arena — up to 8×CPU — and only ever returns the top of the main heap to
+      # the OS, so RSS creeps monotonically (~450MB baseline → ~510MB → OOM
+      # restart, observed 2026-08-14) even while live memory is flat. Capping
+      # arenas holds the baseline down; the in-process memory guard
+      # (services/memory_guard.py, on by default) runs a periodic malloc_trim(0)
+      # that reclaims the mid-arena fragmentation the auto-trim threshold below
+      # cannot. Raise MALLOC_ARENA_MAX only on a >=2GB instance.
+      - key: MALLOC_ARENA_MAX
+        value: "2"
+      - key: MALLOC_TRIM_THRESHOLD_
+        value: "100000"
+      - key: MEMORY_GUARD_ENABLED
+        value: "true"
       # One-shot backlog purge on boot (2026-07-03 remediation). Runs ONCE
       # per nonce value: the app stores the executed nonce durably and skips
       # every boot after that, so leaving this set is harmless. To purge
@@ -590,6 +606,17 @@ services:
       # to the web service's dashboard/API and vice versa.
       - key: STORAGE_BACKEND
         value: "mongo"
+      # Memory: this worker also runs start_background_services() (and thus the
+      # memory guard) on the same 512MB free plan, so it needs the same allocator
+      # caps as the web service. Dockerfile.backend already sets MALLOC_* as ENV
+      # defaults; declared here too for parity and so a dashboard override is
+      # obvious. See the web service block for the rationale.
+      - key: MALLOC_ARENA_MAX
+        value: "2"
+      - key: MALLOC_TRIM_THRESHOLD_
+        value: "100000"
+      - key: MEMORY_GUARD_ENABLED
+        value: "true"
       - key: JWT_SECRET
         fromService:
           type: web

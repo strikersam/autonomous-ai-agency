@@ -48,6 +48,8 @@ _ceo_supervisor_task: "asyncio.Task | None" = None
 # Module-level handle to the single Render platform-monitoring task (idempotency):
 # a duplicate would double every Render API call the loop makes.
 _render_ops_task: "asyncio.Task | None" = None
+
+_memory_guard_task: "asyncio.Task | None" = None
 # Module-level handle to the one-shot boot refresh of the remote skill registries.
 _skill_refresh_task: "asyncio.Task | None" = None
 # Module-level handle to the in-process Hermes sidecar (idempotency + shutdown).
@@ -570,6 +572,28 @@ def _start_autonomy_loops(scheduler: "AgentScheduler") -> list:
             )
     except Exception as exc:  # noqa: BLE001
         log.warning("Render ops monitor could not start: %s", exc)
+
+    # 8. Memory guard — periodic gc + glibc malloc_trim to return freed pages to
+    #    the OS. Without it, RSS creeps monotonically on the 512MB dyno (glibc
+    #    only auto-trims the top of the heap) until an OOM restart. Cheap and
+    #    fail-soft; default on.
+    try:
+        from services.memory_guard import memory_guard_enabled, memory_guard_loop
+        if memory_guard_enabled():
+            try:
+                running = asyncio.get_running_loop()
+            except RuntimeError:
+                running = None
+            global _memory_guard_task
+            if running is not None and (_memory_guard_task is None or _memory_guard_task.done()):
+                _memory_guard_task = running.create_task(memory_guard_loop())
+                tasks.append(_memory_guard_task)
+            elif running is None:
+                log.info("Memory guard not started (no running event loop)")
+        else:
+            log.info("Memory guard disabled (MEMORY_GUARD_ENABLED=false)")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Memory guard could not start: %s", exc)
 
     return tasks
 

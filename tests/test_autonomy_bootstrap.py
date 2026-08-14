@@ -114,9 +114,10 @@ async def test_bootstrap_is_idempotent_with_running_loop(monkeypatch):
     sched = _FakeScheduler()
     first = _start_autonomy_loops(sched)
     second = _start_autonomy_loops(sched)
-    # Two daemon pollers are scheduled on first boot: the trend poller and the
-    # ephemeral-company reaper.
-    assert len(first) == 2
+    # Three daemon tasks are scheduled on first boot under a running loop: the
+    # trend poller, the ephemeral-company reaper, and the memory guard (periodic
+    # gc + malloc_trim). Each is a singleton, so the second call schedules none.
+    assert len(first) == 3
     assert second == []             # second call schedules none (idempotent)
     for t in first:
         t.cancel()

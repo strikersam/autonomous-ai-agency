@@ -247,6 +247,19 @@ The `agency-render-mcp` service itself takes no secrets: in HTTP mode it reads
 the Render token per-request from the caller's `Authorization` header, so the
 only key involved is the backend's.
 
+### Memory management
+
+Not Render-MCP related — these tune the backend process allocator and the
+in-process memory guard (`services/memory_guard.py`) so RSS does not creep to
+the 512MB free-instance OOM ceiling.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `MALLOC_ARENA_MAX` | `2` (Dockerfile/render.yaml) | Caps glibc per-thread malloc arenas. This async service runs many threads (motor, httpx, APScheduler, `asyncio.to_thread`); glibc's default of up to 8×CPU arenas retains freed memory per-arena and inflates RSS until the 512MB instance OOM-restarts. Raise only on a ≥2GB instance. |
+| `MALLOC_TRIM_THRESHOLD_` | `100000` (Dockerfile/render.yaml) | Bytes of free space at the top of the heap before glibc returns it to the OS. Low value keeps the baseline down; mid-arena fragmentation is handled by the memory guard's explicit `malloc_trim(0)`. |
+| `MEMORY_GUARD_ENABLED` | `true` | In-process loop that periodically runs `gc.collect()` + glibc `malloc_trim(0)` to hand freed pages back to the kernel — the piece automatic top-of-heap trimming misses. Fail-soft; skips the trim on non-glibc libc. |
+| `MEMORY_GUARD_INTERVAL_SEC` | `180` | How often the memory guard sweeps, floored at 30s so a bad value cannot busy-loop. A trim is microseconds, so the cost is negligible. |
+
 ### Operational-incident tracker
 
 `agent/operational_incidents.py`. Operational failures — timeouts, "all
