@@ -3,6 +3,7 @@
      move the gate to root. -->
 
 ## [Unreleased]
+### Fixed - `tests/test_auth_me_regression.py` — Mocked auth during testing to resolve MongoDB connection errors in CI. Ensured tests use SQLite for isolated, reliable execution.
 
 ### Fixed
 
