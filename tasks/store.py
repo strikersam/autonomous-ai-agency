@@ -17,6 +17,30 @@ from tasks.models import Task, TaskStatus, TaskPriority, _coerce_ts
 log = logging.getLogger("qwen-proxy")
 
 
+_PRIORITY_RANK: dict[str, int] = {
+    TaskPriority.URGENT.value: 3,
+    TaskPriority.HIGH.value: 2,
+    TaskPriority.MEDIUM.value: 1,
+    TaskPriority.LOW.value: 0,
+}
+
+# How many oldest-updated pending tasks list_pending() fetches before ranking
+# them by priority in Python. Large enough to cover a realistic backlog so the
+# priority ordering is globally exact, small enough to bound the per-tick fetch.
+_PENDING_CANDIDATE_WINDOW = int(os.environ.get("PENDING_CANDIDATE_WINDOW", "500"))
+
+
+def _priority_rank(priority: Any) -> int:
+    """Numeric rank for a task priority (higher = more urgent).
+
+    Accepts an enum, its string value, or ``None`` and never raises — an
+    unknown or missing priority ranks as LOW (0), so it can only ever sort a
+    task *later*, never ahead of a task with a known priority.
+    """
+    value = getattr(priority, "value", priority)
+    return _PRIORITY_RANK.get(value, 0)
+
+
 def _ts_to_float(v: Any) -> float:
     """Normalise a timestamp value to a float Unix epoch.
 
@@ -277,13 +301,34 @@ class TaskStore:
         return [Task.model_validate(d) for d in docs]
 
     async def list_pending(self, *, limit: int = 50) -> list[Task]:
-        """Return tasks queued for agent execution."""
+        """Return tasks queued for agent execution, highest-priority first.
+
+        Ordered by priority (urgent > high > medium > low), then oldest-updated
+        within a priority. The dispatcher pulls the front of this list (often
+        ``limit=1``), so ordering *is* the scheduling policy: with a pure
+        ``updated_at`` sort, a freshly materialized HIGH-priority portfolio
+        initiative queued behind the entire older backlog and was picked up last.
+        The priority tiebreak lets urgent/high work surface ahead of stale
+        low-value tasks while still draining oldest-first within each tier.
+        """
+        # Fetch an oldest-updated-first candidate window, then rank by priority
+        # in Python. The ranking is deliberately NOT a DB-side aggregation: the
+        # SQLite storage shim's aggregate() only implements $match/$sort/$limit/
+        # $group and silently drops $addFields/$switch/$project, so a pipeline
+        # would rank nothing there. A plain find().sort() works identically on
+        # both Mongo and the shim, and Python does the priority tiebreak.
+        #
+        # The window covers more than ``limit`` so a high-priority task that is
+        # not among the very oldest still surfaces; at the current backlog size
+        # this fetches the whole pending set, so the ordering is globally exact.
+        window = max(limit, _PENDING_CANDIDATE_WINDOW)
         if self._mode == "mongo":
             cursor = self._collection.find(
-                {"pending_agent_run": True, "status": {"$in": [TaskStatus.TODO.value, TaskStatus.IN_PROGRESS.value]}},
+                {"pending_agent_run": True,
+                 "status": {"$in": [TaskStatus.TODO.value, TaskStatus.IN_PROGRESS.value]}},
                 {"_id": 0},
-            ).sort("updated_at", 1).limit(limit)
-            docs = await cursor.to_list(length=limit)
+            ).sort("updated_at", 1).limit(window)
+            docs = await cursor.to_list(length=window)
         else:
             docs = [
                 value for value in self._mem.values()
@@ -291,8 +336,12 @@ class TaskStore:
                 and value.get("status") in {TaskStatus.TODO.value, TaskStatus.IN_PROGRESS.value}
             ]
             docs.sort(key=lambda d: _ts_to_float(d.get("updated_at", d.get("created_at", 0))))
-            docs = docs[:limit]
-        return [Task.model_validate(d) for d in docs]
+            docs = docs[:window]
+        docs.sort(key=lambda d: (
+            -_priority_rank(d.get("priority")),
+            _ts_to_float(d.get("updated_at", d.get("created_at", 0))),
+        ))
+        return [Task.model_validate(d) for d in docs[:limit]]
 
     async def list_blocked(self, *, limit: int = 50) -> list[Task]:
         """Return BLOCKED tasks that are candidates for auto-retry."""

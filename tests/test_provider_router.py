@@ -175,8 +175,13 @@ async def test_provider_router_records_failure_on_failed_provider(monkeypatch):
     failures: list[str] = []
     successes: list[str] = []
 
-    def _stub_record_failure(provider):
+    failure_statuses: list[int | None] = []
+
+    def _stub_record_failure(provider, status_code=None):
+        # Mirrors the real WatchdogState.record_failure signature: the router now
+        # threads the failing HTTP status through so the cause is logged.
         failures.append(provider)
+        failure_statuses.append(status_code)
         return None  # never trigger failover in this test
     def _stub_record_success(provider):
         successes.append(provider)
@@ -211,6 +216,9 @@ async def test_provider_router_records_failure_on_failed_provider(monkeypatch):
     # The failed provider had its failure recorded; the successful one had success recorded.
     assert failures == ["primary-down"]
     assert successes == ["backup-ok"]
+    # And the failing HTTP status (503) was forwarded so the watchdog can log the
+    # cause — a regression here would silently drop the diagnostic.
+    assert failure_statuses == [503]
 
 
 @pytest.mark.anyio

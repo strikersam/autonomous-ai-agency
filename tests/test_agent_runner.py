@@ -266,6 +266,38 @@ def test_agent_runner_surfaces_structured_planner_failure(tmp_path: Path):
         )
 
 
+def test_planning_timeout_names_its_cause(tmp_path: Path):
+    """Regression: a planning timeout must not surface as an empty "planning: ".
+
+    ``asyncio.TimeoutError()`` stringifies to "", so the production autonomous
+    loop's most common failure was logged as "Runtime 'internal_agent'
+    execution error: planning: " with no cause — undiagnosable, and useless to
+    the incident/self-heal path that reads it. The phase error must name the
+    exception type when the underlying error carries no message.
+    """
+    import asyncio as _asyncio
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    runner = AgentRunner(ollama_base="http://localhost:11434", workspace_root=root)
+
+    async def timeout_chat_text(model: str, messages: list[dict[str, str]]) -> str:
+        raise _asyncio.TimeoutError()
+
+    runner._chat_text = timeout_chat_text  # type: ignore[method-assign]
+
+    with pytest.raises(AgentPhaseError, match="planning: TimeoutError"):
+        asyncio.run(
+            runner.run(
+                instruction="Plan this work",
+                history=[],
+                requested_model=None,
+                auto_commit=False,
+                max_steps=3,
+            )
+        )
+
+
 def test_agent_runner_surfaces_structured_verifier_failure(tmp_path: Path):
     root = tmp_path / "repo"
     root.mkdir()

@@ -137,8 +137,17 @@ async def mark_provider_failed(provider_id: str, cooldown_seconds: int | None = 
 # provider attempt). Errors are swallowed — the watchdog is best-effort and
 # must NEVER block or break the request path.
 
-def _notify_watchdog(provider_id: str, *, success: bool) -> None:
+def _notify_watchdog(
+    provider_id: str, *, success: bool, status_code: int | None = None
+) -> None:
     """Notify the brain watchdog of a provider call outcome (fire-and-forget).
+
+    ``status_code`` is the HTTP status of the last (failing) attempt when known.
+    Threading it through lets the watchdog log *why* a provider failed — a 401
+    means a bad or expired key that a human must rotate, a 429 means a rate limit
+    that heals on its own. Without it the log only ever said "failure #N", which
+    is exactly the ambiguity that makes "which provider keys actually work?"
+    impossible to answer from the logs alone.
 
     Called from ProviderRouter._try_one_provider on both success and failure-
     exhaustion paths. Imported lazily inside the function so module-level
@@ -157,7 +166,7 @@ def _notify_watchdog(provider_id: str, *, success: bool) -> None:
         if success:
             wd.record_success(provider_id)
         else:
-            wd.record_failure(provider_id)
+            wd.record_failure(provider_id, status_code=status_code)
     except Exception as exc:  # pragma: no cover - defensive, never fail the request
         log.debug(
             "provider_router: brain watchdog notification failed for %s (success=%s): %s",
@@ -1288,6 +1297,11 @@ class ProviderRouter:
                         provider.provider_id, model, None, error=str(exc), latency_ms=latency_ms,
                     ))
                     last_was_conn_error = True
+                    # This attempt produced no HTTP response, so any status left
+                    # in last_status belongs to an *earlier* attempt. Clear it so
+                    # a connection error on the final attempt cannot make the
+                    # watchdog log a stale cause (e.g. "auth failed" for a timeout).
+                    last_status = None
                 finally:
                     # Runs on every exit path including the success `return`,
                     # so in-flight never leaks. Swallow errors — accounting
@@ -1338,7 +1352,9 @@ class ProviderRouter:
         # N1a — reliability spine: notify the brain watchdog of the failure so
         # its consecutive-failure counter advances (and triggers failover when
         # the threshold is hit). Fire-and-forget — never blocks the request.
-        _notify_watchdog(provider.provider_id, success=False)
+        # ``last_status`` carries the HTTP status of the final failing attempt so
+        # the watchdog can name the cause (401 bad key vs 429 rate limit).
+        _notify_watchdog(provider.provider_id, success=False, status_code=last_status)
         return None
 
     async def chat_completion(

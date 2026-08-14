@@ -975,7 +975,17 @@ class AgentRunner:
             raw = self._normalize_plan_response(raw, instruction)
             plan = AgentPlan.model_validate(raw)
         except Exception as exc:
-            raise AgentPhaseError(f"planning: {exc}") from exc
+            # Name the cause even when the exception stringifies to nothing.
+            # ``asyncio.TimeoutError()`` has an empty ``str()``, so a planning
+            # call that hit its timeout previously surfaced in production as the
+            # undiagnosable "planning: " — with no type, no cause — which then
+            # propagated verbatim into the runtime error, the task's
+            # error_message, and any incident filed from it ("All runtimes
+            # failed … Last error: … planning: "). Falling back to the exception
+            # class name makes the single most common autonomous-loop failure
+            # legible without changing any control flow.
+            detail = str(exc).strip() or type(exc).__name__
+            raise AgentPhaseError(f"planning: {detail}") from exc
         plan.steps = plan.steps[:max_steps]
         return plan
 
@@ -2036,13 +2046,24 @@ class AgentRunner:
                     system_parts.append(content)
                 elif role in {"user", "assistant"}:
                     anthropic_messages.append({"role": role, "content": content})
-            anthropic_payload = {
+            # ``max_tokens`` must not exceed the model's output cap or Anthropic
+            # rejects the whole request with 400 — Claude 3.5 Sonnet caps at 8192,
+            # Haiku at 4096, so the previous hardcoded 16384 was a 400 on those
+            # models (observed in production as repeated anthropic-claude failover
+            # every cycle). Default to 8192 (safe for 3.5 Sonnet and up) and make
+            # it env-tunable for models that support more or less.
+            _anthropic_max_tokens = int(os.environ.get("ANTHROPIC_MAX_TOKENS", "8192"))
+            anthropic_payload: dict[str, Any] = {
                 "model": model,
                 "messages": anthropic_messages or [{"role": "user", "content": ""}],
-                "system": "\n\n".join(system_parts) if system_parts else None,
-                "max_tokens": 16384,
+                "max_tokens": _anthropic_max_tokens,
                 "temperature": payload.get("temperature", 0.3),
             }
+            # ``system`` must be a string when present — Anthropic 400s on an
+            # explicit ``system: null``. Include the key only when non-empty.
+            _system_text = "\n\n".join(system_parts).strip()
+            if _system_text:
+                anthropic_payload["system"] = _system_text
             start = time.perf_counter()
             async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
                 resp = await client.post(
@@ -2051,6 +2072,15 @@ class AgentRunner:
                     headers=headers,
                 )
             duration_ms = int((time.perf_counter() - start) * 1000)
+            if resp.status_code >= 400:
+                # Surface Anthropic's own error message. raise_for_status()
+                # discards the body, which is why a 400 here previously showed up
+                # only as an opaque failover with no cause. The body names the
+                # exact field at fault (bad model, max_tokens over the cap, …).
+                log.warning(
+                    "Anthropic API %d for model=%s: %s",
+                    resp.status_code, model, resp.text[:500],
+                )
             resp.raise_for_status()
             data = resp.json()
             out_text = "\n".join(

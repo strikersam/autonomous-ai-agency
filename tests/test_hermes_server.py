@@ -69,3 +69,39 @@ def test_tasks_auth_gate_when_key_set(monkeypatch):
     # No/incorrect bearer → 401.
     r = client.post("/tasks", json={"instruction": "x"}, headers={"Authorization": "Bearer wrong"})
     assert r.status_code == 401
+
+
+def test_tasks_sets_orchestrator_bypass_across_http_hop():
+    """Regression: the Hermes runtime was 100% broken in orchestrator mode.
+
+    The adapter reaches this server over an HTTP hop, so the ``_BYPASS``
+    ContextVar the calling coordinator set does not propagate here. Without the
+    server re-establishing it, ``AgentRunner.run()`` raises "blocked in
+    orchestrator mode" and every Hermes task fails. This asserts the bypass is
+    active *inside* ``execute()`` and is reset afterwards so it never leaks.
+    """
+    from services import workflow_orchestrator as _wo
+
+    seen: dict[str, bool] = {}
+
+    async def capture_execute(self, spec):
+        seen["bypass_inside"] = _wo._BYPASS.get()
+        return TaskResult(
+            runtime_id="internal_agent",
+            task_id=spec.task_id,
+            success=True,
+            output="ok",
+            artifacts=[],
+        )
+
+    # Bypass must start False (no ambient context leaking in).
+    assert _wo._BYPASS.get() is False
+    with patch(
+        "runtimes.adapters.internal_agent.InternalAgentAdapter.execute",
+        capture_execute,
+    ):
+        r = client.post("/tasks", json={"instruction": "do work"})
+
+    assert r.status_code == 200
+    assert seen.get("bypass_inside") is True   # enabled for the sanctioned run
+    assert _wo._BYPASS.get() is False          # and reset afterwards — no leak
