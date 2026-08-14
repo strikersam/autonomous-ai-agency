@@ -147,7 +147,14 @@ legislated. See `.claude/rules-archive/` for the audit that produced this list a
 ### J. Autonomy limits
 
 39. Query the knowledge graph before reading raw source (see the header of this file).
-    Run `graphify update .` after making changes.
+    Run `graphify update .` after making changes and **commit the regenerated
+    `graphify-out/GRAPH_REPORT.md` alongside them** — it is the one tracked graph
+    artifact (`graph.json` and `graph.html` are gitignored), the SessionStart hook loads
+    it into every session, and a report built from an older commit silently points the
+    next session at the wrong files. The Stop hook regenerates it, so seeing it modified
+    at the end of a turn is expected, not noise: stage it, never discard it. Its
+    "Built from commit" line must match `git rev-parse HEAD`; if it does not, the graph
+    is stale and needs another `graphify update .`.
 40. Stop and ask a human before: modifying a risky module (rule 15), a database
     migration, a change to GitHub Actions permissions, a breaking API or schema change,
     a dependency upgrade with a breaking change, or a change spanning more than 5 files
