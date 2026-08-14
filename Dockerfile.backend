@@ -114,6 +114,18 @@ RUN if [ "$INSTALL_PRIME_AGENT" = "true" ]; then \
 
 EXPOSE 8001
 
+# ── Memory: cap glibc malloc arenas on small dynos ───────────────────────────
+# This async service spins up many threads (motor, httpx, the APScheduler pool,
+# every asyncio.to_thread) and glibc gives each thread its own arena — up to
+# 8×CPU of them — each retaining freed memory that never returns to the OS. On a
+# 512MB free instance that RSS creep is what OOM-kills the box. Capping arenas
+# (and lowering the auto-trim threshold) keeps the baseline down; the in-process
+# memory guard (services/memory_guard.py) does the periodic malloc_trim(0) that
+# reclaims mid-arena fragmentation the threshold cannot. A platform env var of
+# the same name still overrides these (render.yaml sets them explicitly too).
+ENV MALLOC_ARENA_MAX=2 \
+    MALLOC_TRIM_THRESHOLD_=100000
+
 # Render injects PORT; fall back to 8001 for local use.
 # The OpenClaw Gateway is an in-process WebSocket server — no background subprocess needed.
 CMD ["sh", "-c", "uvicorn backend.server:app --host 0.0.0.0 --port ${PORT:-8001}"]
