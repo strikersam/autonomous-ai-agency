@@ -272,7 +272,14 @@ class ProviderConfig:
                     )
                 except ValueError:
                     _thinking_budget = 0
-                if _thinking_budget > 0:
+                # ANTHROPIC_THINKING_EFFORT (low|medium|high) uses the newer effort
+                # API (Opus 4.6+) which enables interleaved thinking automatically —
+                # no separate beta header needed. Fall back to budget_tokens path
+                # which does need the beta.
+                _thinking_effort_hdr = (
+                    os.environ.get("ANTHROPIC_THINKING_EFFORT") or ""
+                ).strip().lower()
+                if _thinking_effort_hdr not in ("low", "medium", "high") and _thinking_budget > 0:
                     betas.append("interleaved-thinking-2025-05-14")
                 # Mid-conversation tool swapping (2026-07-01): add/remove tools between
                 # turns without a prompt-cache miss. Enables narrow tool sets per
@@ -1790,15 +1797,24 @@ class ProviderRouter:
             "temperature": float(payload.get("temperature") or 0.3),
         }
 
-        try:
-            _thinking_budget = int(
-                os.environ.get("ANTHROPIC_THINKING_BUDGET", "0") or "0"
-            )
-        except ValueError:
-            _thinking_budget = 0
-        if _thinking_budget > 0:
-            out["thinking"] = {"type": "enabled", "budget_tokens": _thinking_budget}
+        # Extended thinking: prefer effort API (Opus 4.6+) if ANTHROPIC_THINKING_EFFORT
+        # is set; fall back to budget_tokens for older models / existing deployments.
+        _thinking_effort = (
+            os.environ.get("ANTHROPIC_THINKING_EFFORT") or ""
+        ).strip().lower()
+        if _thinking_effort in ("low", "medium", "high"):
+            out["thinking"] = {"type": "enabled", "effort": _thinking_effort}
             out["temperature"] = 1  # Anthropic requires temperature=1 for extended thinking
+        else:
+            try:
+                _thinking_budget = int(
+                    os.environ.get("ANTHROPIC_THINKING_BUDGET", "0") or "0"
+                )
+            except ValueError:
+                _thinking_budget = 0
+            if _thinking_budget > 0:
+                out["thinking"] = {"type": "enabled", "budget_tokens": _thinking_budget}
+                out["temperature"] = 1
 
         return out
 

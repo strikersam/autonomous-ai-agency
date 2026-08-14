@@ -55,6 +55,8 @@ Complete reference for every environment variable in `.env`. Copy `.env.example`
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MODEL_MAP` | (built-in defaults) | Maps Anthropic model names to local Ollama model names. Format: `anthropic_name:local_name` — comma-separated. `*` is a catch-all fallback. Example: `claude-sonnet-4-6:qwen3-coder:30b,claude-opus-4-6:deepseek-r1:32b,*:qwen3-coder:30b` |
+| `ANTHROPIC_THINKING_EFFORT` | `` (disabled) | Enable extended thinking via the `effort` API (Opus 4.6+). Values: `low`, `medium`, `high`. When set, takes precedence over `ANTHROPIC_THINKING_BUDGET` and the `interleaved-thinking` beta is not added (it is enabled automatically by the effort API). |
+| `ANTHROPIC_THINKING_BUDGET` | `0` (disabled) | Enable extended thinking via the legacy `budget_tokens` API. Integer; `0` disables. Ignored when `ANTHROPIC_THINKING_EFFORT` is set. |
 
 Built-in default mappings (active when `MODEL_MAP` is not set):
 

@@ -78,6 +78,7 @@ providers:
       - meta/llama-3.3-70b-instruct
       - nvidia/llama-3.1-nemotron-70b-instruct
       - deepseek-ai/deepseek-r1
+      - deepseek-ai/deepseek-v4-pro
 
   cerebras:
     display_name: Cerebras (fast, free tier)
@@ -94,6 +95,7 @@ providers:
       - qwen-3-coder-480b
       - llama-3.3-70b
       - llama-3.1-8b
+      - gpt-oss-120b
 
   groq:
     display_name: Groq (fast, free tier)
@@ -110,6 +112,8 @@ providers:
       - llama-3.3-70b-versatile
       - deepseek-r1-distill-llama-70b
       - llama-3.1-8b-instant
+      - moonshotai/kimi-k2-instruct
+      - qwen-qwq-32b
 
   mistral:
     display_name: Mistral (free tier)
