@@ -153,8 +153,10 @@ legislated. See `.claude/rules-archive/` for the audit that produced this list a
     it into every session, and a report built from an older commit silently points the
     next session at the wrong files. The Stop hook regenerates it, so seeing it modified
     at the end of a turn is expected, not noise: stage it, never discard it. Its
-    "Built from commit" line must match `git rev-parse HEAD`; if it does not, the graph
-    is stale and needs another `graphify update .`.
+    "Built from commit" line names the commit the graph was built from, which will be
+    the *parent* of the commit carrying the report — committing the report moves `HEAD`,
+    so it can never name `HEAD` itself. Rebuild when that line is behind anything that
+    changed code, not merely behind by one.
 40. Stop and ask a human before: modifying a risky module (rule 15), a database
     migration, a change to GitHub Actions permissions, a breaking API or schema change,
     a dependency upgrade with a breaking change, or a change spanning more than 5 files
