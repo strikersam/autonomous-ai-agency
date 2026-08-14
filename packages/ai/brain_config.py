@@ -334,12 +334,26 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         "meta/llama-3.3-70b-instruct",
         "nvidia/llama-3.1-nemotron-70b-instruct",
         "deepseek-ai/deepseek-r1",
+        # DeepSeek V4 Pro — now live in NVIDIA NIM catalog (Aug 2026).
+        # Verify the slug against NIM's /models endpoint before routing.
+        "deepseek-ai/deepseek-v4-pro",
     ],
-    "cerebras": ["qwen-3-coder-480b", "llama-3.3-70b", "llama-3.1-8b"],
+    "cerebras": [
+        "qwen-3-coder-480b",
+        "llama-3.3-70b",
+        "llama-3.1-8b",
+        # gpt-oss-120B — Cerebras's 120B open-source model (~3000 tok/s, Aug 2026).
+        # $0.85/$1.20 per 1M tokens; faster than qwen-3-coder-480b for general tasks.
+        "gpt-oss-120b",
+    ],
     "groq": [
         "llama-3.3-70b-versatile",
         "deepseek-r1-distill-llama-70b",
         "llama-3.1-8b-instant",
+        # Kimi K2 on Groq (Moonshot AI's MoE, Aug 2026). ~1M token context.
+        "moonshotai/kimi-k2-instruct",
+        # Qwen3 32B — strong coder, available on Groq free tier (Aug 2026).
+        "qwen-qwq-32b",
     ],
     "mistral": [
         "mistral-small-latest",
