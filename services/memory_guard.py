@@ -33,9 +33,29 @@ from typing import Callable
 
 log = logging.getLogger("qwen-proxy")
 
-# How often to sweep. 180s is frequent enough to flatten the sawtooth well below
-# the OOM ceiling without adding measurable CPU (a trim is microseconds).
-_INTERVAL_SEC = int(os.environ.get("MEMORY_GUARD_INTERVAL_SEC", "180"))
+# Never sweep faster than this, whatever the env says — a 0 or negative value
+# would turn the loop into a CPU-burning busy-wait, which on a box we are trying
+# to *relieve* is strictly worse than the leak.
+_MIN_INTERVAL_SEC = 30
+
+
+def _resolve_interval_sec() -> int:
+    """Parse the sweep interval, flooring it and tolerating a bad value.
+
+    180s is frequent enough to flatten the sawtooth well below the OOM ceiling
+    without measurable CPU (a trim is microseconds). A non-integer or too-small
+    value falls back / floors to a safe minimum rather than busy-looping.
+    """
+    raw = os.environ.get("MEMORY_GUARD_INTERVAL_SEC", "180")
+    try:
+        val = int(raw)
+    except (TypeError, ValueError):
+        log.warning("memory_guard: invalid MEMORY_GUARD_INTERVAL_SEC=%r; using 180", raw)
+        val = 180
+    return max(_MIN_INTERVAL_SEC, val)
+
+
+_INTERVAL_SEC = _resolve_interval_sec()
 
 
 def memory_guard_enabled() -> bool:
@@ -74,13 +94,16 @@ def trim_now(trim: "Callable[[int], int] | None" = None) -> int:
 async def memory_guard_loop() -> None:
     """Sweep + trim on a fixed interval until cancelled."""
     trim = _load_malloc_trim()
+    # Re-clamp at loop entry so even a directly-mutated module global (or a test
+    # that sets _INTERVAL_SEC) can never produce a busy-wait.
+    interval = max(_MIN_INTERVAL_SEC, _INTERVAL_SEC)
     log.info(
         "Memory guard started — gc + malloc_trim every %ds (malloc_trim=%s)",
-        _INTERVAL_SEC, "available" if trim else "unavailable",
+        interval, "available" if trim else "unavailable",
     )
     while True:
         try:
-            await asyncio.sleep(_INTERVAL_SEC)
+            await asyncio.sleep(interval)
             trim_now(trim)
         except asyncio.CancelledError:
             log.info("Memory guard stopped")

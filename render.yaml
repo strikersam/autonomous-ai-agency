@@ -606,6 +606,17 @@ services:
       # to the web service's dashboard/API and vice versa.
       - key: STORAGE_BACKEND
         value: "mongo"
+      # Memory: this worker also runs start_background_services() (and thus the
+      # memory guard) on the same 512MB free plan, so it needs the same allocator
+      # caps as the web service. Dockerfile.backend already sets MALLOC_* as ENV
+      # defaults; declared here too for parity and so a dashboard override is
+      # obvious. See the web service block for the rationale.
+      - key: MALLOC_ARENA_MAX
+        value: "2"
+      - key: MALLOC_TRIM_THRESHOLD_
+        value: "100000"
+      - key: MEMORY_GUARD_ENABLED
+        value: "true"
       - key: JWT_SECRET
         fromService:
           type: web

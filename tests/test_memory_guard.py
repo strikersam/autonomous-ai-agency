@@ -36,10 +36,26 @@ def test_trim_now_returns_int_and_never_raises():
 
 def test_trim_now_survives_a_broken_trim():
     # A malloc_trim that raises must be swallowed, not propagated.
-    def _boom(_n):
+    def _boom(_n: int) -> int:
         raise RuntimeError("simulated libc failure")
 
     assert memory_guard.trim_now(trim=_boom) >= 0
+
+
+@pytest.mark.parametrize("raw,expected_floor", [
+    ("0", True), ("-5", True), ("1", True), ("10", True),  # too-small → floored
+    ("not-an-int", True), ("", True),                       # invalid → default then floored
+])
+def test_interval_is_floored_never_busy_loops(monkeypatch, raw, expected_floor):
+    # A 0/negative/invalid interval must never yield a sub-minimum sleep, which
+    # would turn the guard into a CPU-burning busy-wait.
+    monkeypatch.setenv("MEMORY_GUARD_INTERVAL_SEC", raw)
+    assert memory_guard._resolve_interval_sec() >= memory_guard._MIN_INTERVAL_SEC
+
+
+def test_interval_honours_a_valid_large_value(monkeypatch):
+    monkeypatch.setenv("MEMORY_GUARD_INTERVAL_SEC", "600")
+    assert memory_guard._resolve_interval_sec() == 600
 
 
 def test_load_malloc_trim_is_callable_or_none():
