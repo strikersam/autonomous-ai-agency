@@ -1,117 +1,99 @@
 # CLAUDE.md — agent/
 
-> **RISKY MODULE.** This package orchestrates multi-step AI task execution and
-> writes files to the filesystem. Read this entire file before modifying anything here.
+> **RISKY MODULE.** This package orchestrates multi-step AI task execution and writes
+> files to the filesystem.
+>
+> The invariants you must not break are `CLAUDE.md` rules 16–20; the SSRF boundary is
+> rule 14; `agent/tools.py` and `agent/web_reach.py` are both gated by rule 15. Read
+> those first. This file covers what the package *is* and how to extend it.
 
 ---
 
-## What This Package Does
+## What this package does
 
-`agent/` implements the three-role orchestration loop:
+The three-role orchestration loop:
 
 ```
-Planner  (deepseek-r1:32b)  → produces AgentPlan with ordered steps
-Executor (qwen3-coder:30b)  → applies file changes per step
-Verifier (deepseek-r1:32b)  → validates each change before it is written
+Planner   → produces an AgentPlan with ordered steps
+Executor  → applies file changes per step
+Verifier  → validates each change before it is written
 ```
 
-The `AgentRunner.run()` method in `loop.py` drives the whole cycle.
-`RepowiseIntelligence` in `repowise.py` provides advanced codebase understanding.
-`WorkspaceTools` in `tools.py` is the only place that writes to the filesystem.
+`AgentRunner.run()` in `loop.py` drives the cycle. `RepowiseIntelligence` in
+`repowise.py` provides codebase understanding. `WorkspaceTools` in `tools.py` is the
+only place that writes to the filesystem.
+
+Per-role models come from `AGENT_PLANNER_MODEL`, `AGENT_EXECUTOR_MODEL`,
+`AGENT_VERIFIER_MODEL`, and `AGENT_JUDGE_MODEL`, all defaulting to
+`nvidia/llama-3.3-nemotron-super-49b-v1`. Override in `.env` to test without large
+models.
 
 ---
 
-## Security Surface
+## Security surface
 
-### `agent/tools.py` — `apply_diff()`
+**`tools.py` → `apply_diff()`** writes arbitrary content to disk. It resolves paths but
+does not enforce a strict root boundary by default — any change to path handling must
+keep resolved paths inside `self.root`, and must never take a raw path from untrusted
+input.
 
-- This method **writes arbitrary content to disk**.
-- It uses `path.resolve()` but does **NOT** enforce a strict root boundary by default.
-- **Any change to path handling must be reviewed.** Ensure resolved paths stay within `self.root`.
-- Never accept raw file paths from untrusted user input without validation.
+**`loop.py` → `_local_safety_check()`** scans generated code for hardcoded secrets (JWT
+secret keys, fake user DBs). Add new risky patterns here — OS command injection, `eval`
+— as you find them. The verifier LLM is best-effort and is not a security layer on its
+own.
 
-### `agent/loop.py` — `_local_safety_check()`
-
-- Scans generated code for hardcoded secrets (JWT secret keys, fake user DBs).
-- If you add new risky patterns (e.g., OS command injection, eval), add them here.
-- The verifier LLM is a best-effort check — do not rely on it as the sole security layer.
-
-### `agent/loop.py` — `_commit_step()`
-
-- Auto-commits with `git commit` when `auto_commit=True`.
-- Only commits the specific `changed_files`, not the whole working tree.
-- Never pass unsanitized step descriptions as commit messages without escaping.
+**`loop.py` → `_commit_step()`** auto-commits when `auto_commit=True`. Never pass an
+unsanitised step description as a commit message.
 
 ---
 
-## Invariants — Do Not Break
+## Adding a new tool
 
-1. **Verifier must pass before `apply_diff` is called.** Never skip or bypass the `VerificationResult.status == "pass"` check.
-2. **`max_steps` is always respected.** Never allow unbounded iteration.
-3. **Retry limit is 3.** `while retries <= 2` — keep this bound.
-4. **JSON extraction has a 3-attempt retry.** Beyond that, raise — don't silently swallow.
-5. **`_local_syntax_check` runs before verification.** It catches Python parse errors cheaply.
+Two supported paths. Pick one.
 
----
+**A. Hardcoded dispatch** — for filesystem or container operations that need `self._mcp`
+routing or other `AgentRunner` state (see `read_file`, `write_file`, `run_command`):
 
-## Adding New Tools
-
-Two supported paths, pick one:
-
-**A. Hardcoded dispatch** (filesystem/container ops that need `self._mcp` routing
-or other `AgentRunner` state — see `read_file`, `write_file`, `run_command`):
 1. Implement the operation in `tools.py`.
-2. Add a dispatch case in `_dispatch_tool()` (checked after the tool registry).
-3. Document the tool in `agent/models.py` (ToolCall schema).
-4. Add tests in `tests/test_agent_tools.py` (or `tests/test_repowise_intelligence.py` for intelligence tools).
+2. Add a dispatch case in `_dispatch_tool()` — it is checked after the tool registry.
+3. Document the tool in `agent/models.py` (`ToolCall` schema).
+4. Add tests in `tests/test_agent_tools.py`, or `tests/test_repowise_intelligence.py`
+   for intelligence tools.
 
-**B. Capability registry** (self-contained capabilities with no `AgentRunner`
-state dependency — see `agent/web_reach.py`'s `fetch_url`/`web_search`/etc.):
-1. Implement the capability as its own module (own file, own tests, fail-soft
-   — never raise, return a result dict the model can read).
-2. Register it with `registry.agent_tool(...)` in a `_register_*_tools()`
-   function called from `_register_builtin_tools()` in `capability_registry.py`.
-   `_dispatch_tool()` already checks the registry first — no dispatch-chain
-   edit needed.
-3. **Add the tool to `build_tool_prompt()` in `prompts.py`.** The registry
-   makes a tool *callable*; the executor LLM only calls tools it's told about
-   in that prompt's "Available tools" list — registering alone is silent.
-4. Add tests for the module directly, plus one asserting the registry exposes
-   it (see `tests/test_web_reach.py`).
+**B. Capability registry** — for self-contained capabilities with no `AgentRunner` state
+dependency (see `web_reach.py`'s `fetch_url` / `web_search`):
 
-Any tool that accepts a URL, path, or other externally-influenced target
-(especially one an LLM could construct from content it read, not just from
-the direct task instruction) needs an SSRF/traversal guard before the first
-network or filesystem call — see `unsafe_target_reason()` in `web_reach.py`
-for the pattern (block private/loopback/link-local resolved IPs, and
-re-validate every redirect hop rather than trusting `follow_redirects=True`).
+1. Implement it as its own module, with its own tests. Fail soft — never raise; return a
+   result dict the model can read.
+2. Register it with `registry.agent_tool(...)` from a `_register_*_tools()` function
+   called by `_register_builtin_tools()` in `capability_registry.py`. `_dispatch_tool()`
+   already checks the registry first, so no dispatch-chain edit is needed.
+3. Add it to `build_tool_prompt()` in `prompts.py` — **rule 19**. Registration alone is
+   silent.
+4. Test the module directly, plus one test asserting the registry exposes it (see
+   `tests/test_web_reach.py`).
+
+Any tool accepting a URL, path, or other externally-influenced target needs its
+SSRF/traversal guard before the first network or filesystem call — `unsafe_target_reason()`
+in `web_reach.py` is the pattern. That is rule 14, and it is not optional.
 
 ---
 
-## Testing Expectations
+## Testing
 
-- `tests/test_agent_runner.py` — integration tests for `AgentRunner` (uses mocks/monkeypatching).
-- `tests/test_agent_tools.py` — unit tests for `WorkspaceTools`.
-- Any new tool or loop change **must** include a test.
-- Use `pytest -x tests/test_agent_runner.py tests/test_agent_tools.py` to run just agent tests.
+| File | Covers |
+|------|--------|
+| `tests/test_agent_runner.py` | `AgentRunner` integration, via mocks and monkeypatching |
+| `tests/test_agent_tools.py` | `WorkspaceTools` units |
+| `tests/test_web_reach.py` | Web Reach capabilities and registry exposure |
 
----
-
-## Model Env Vars
-
-```
-AGENT_PLANNER_MODEL   Default: nvidia/llama-3.3-nemotron-super-49b-v1 (reasoning MoE on free NIM)
-AGENT_EXECUTOR_MODEL  Default: nvidia/llama-3.3-nemotron-super-49b-v1 (dense 49B for tool calls)
-AGENT_VERIFIER_MODEL  Default: nvidia/llama-3.3-nemotron-super-49b-v1 (reasoning MoE on free NIM)
-AGENT_JUDGE_MODEL     Default: nvidia/llama-3.3-nemotron-super-49b-v1
+```bash
+pytest -x tests/test_agent_runner.py tests/test_agent_tools.py
 ```
 
-Override these in `.env` for testing without large models.
-
 ---
 
-## Skills to Use When Modifying This Package
+## Skills worth invoking here
 
-- `risky-module-review` — mandatory for any change to `tools.py` or auth surface
-- `test-first-executor` — write tests before implementing new tools
-- `implementation-planner` — plan multi-step agent capability additions
+`risky-module-review` (required by rule 15 for `tools.py` and `web_reach.py`),
+`test-first-executor`, `implementation-planner`.

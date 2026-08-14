@@ -1,15 +1,17 @@
 ---
 name: repo
 type: repo
-version: 1.0.0
+version: 2.0.0
 ---
 
-Repository ground rules (from CLAUDE.md — the full constitution):
+The binding rules for this repository are in `CLAUDE.md` §1 — 44 numbered rules,
+authoritative for every agent regardless of tool. Read that section before changing
+code; do not rely on a summary.
 
-- No user-visible behaviour may change unless explicitly requested.
-- All LLM calls go through the provider router; never call a provider API directly.
-- Never read environment variables outside config modules (`brain_policy.py`, `packages/config/`).
-- Secrets are env-only — never write them to disk or code.
-- Every new endpoint needs a test in `tests/test_*.py`; every bug fix needs a regression test.
-- Every behaviour change updates BOTH `CHANGELOG.md` and `docs/changelog.md` (CI enforces parity).
-- Use `logging`, never `print()`. Max 50 lines per function. Type hints on all Python functions.
+`AGENTS.md` holds the codebase map, the risky-module list, and the deployment and
+monitoring reference. `ENGINEERING_STANDARDS.md` holds worked examples — fixtures,
+log levels, error-handling patterns.
+
+The rules were deliberately deduplicated in 2026-08. Earlier versions of this file
+carried its own copy, which drifted: it named `brain_policy.py` as a config module,
+and no such file exists. Do not reintroduce a local copy here.
