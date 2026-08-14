@@ -48,6 +48,21 @@ def test_resolve_identity_with_dict_agent_name_does_not_raise():
     assert identity.owner == "system"
 
 
+def test_resolve_identity_coerces_dict_policy_group():
+    # policy_group also flows through _coerce_text: a dict value must yield its
+    # name field, never raise, and never leak the dict into the policy key.
+    identity = resolve_identity(
+        agent_name="Quality Agent",
+        policy_group={"name": "restricted-group"},
+    )
+    assert identity.policy_group == "restricted-group"
+
+    # A dict policy_group with no usable name falls back to the agent id (the
+    # documented default), exactly as an empty string would.
+    fallback = resolve_identity(agent_name="Quality Agent", policy_group={"x": 1})
+    assert fallback.policy_group == "agent:quality-agent"
+
+
 def test_resolve_identity_string_path_unchanged():
     # The common string path must be byte-for-byte what it always was.
     identity = resolve_identity(agent_name="Finance Agent", owner="user@example.com")

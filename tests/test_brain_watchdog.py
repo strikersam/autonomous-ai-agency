@@ -51,11 +51,14 @@ class TestBrainWatchdog:
             wd.record_failure("nvidia", status_code=429)
         assert any("rate limited" in r.message for r in caplog.records)
 
-    def test_record_failure_backward_compatible_without_status(self):
+    def test_record_failure_backward_compatible_without_status(self, caplog):
         # The status is optional: the historical single-arg call must still work
-        # and must not append a cause clause.
+        # and must not append a cause clause when no status is known.
         wd = BrainWatchdog(max_failures=3)
-        assert wd.record_failure("cerebras") is None
+        with caplog.at_level("WARNING"):
+            assert wd.record_failure("cerebras") is None
+        record = next(r for r in caplog.records if "cerebras failure #1" in r.message)
+        assert " — " not in record.message   # no cause suffix without a status
         assert wd._failure_counts["cerebras"] == 1
 
     @patch.object(BrainWatchdog, "_persist_failover")

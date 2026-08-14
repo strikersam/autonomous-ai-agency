@@ -1297,6 +1297,11 @@ class ProviderRouter:
                         provider.provider_id, model, None, error=str(exc), latency_ms=latency_ms,
                     ))
                     last_was_conn_error = True
+                    # This attempt produced no HTTP response, so any status left
+                    # in last_status belongs to an *earlier* attempt. Clear it so
+                    # a connection error on the final attempt cannot make the
+                    # watchdog log a stale cause (e.g. "auth failed" for a timeout).
+                    last_status = None
                 finally:
                     # Runs on every exit path including the success `return`,
                     # so in-flight never leaks. Swallow errors — accounting

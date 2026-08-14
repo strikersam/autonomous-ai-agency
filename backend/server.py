@@ -2485,8 +2485,25 @@ _BOOTSTRAP_DONE = False
 _BOOTSTRAP_LOCK = asyncio.Lock()
 
 
+def _is_index_options_conflict(exc: Exception) -> bool:
+    """True when *exc* is Mongo refusing to redefine an existing index.
+
+    Mongo raises IndexOptionsConflict (85) or IndexKeySpecsConflict (86) when a
+    ``create_index`` names a key pattern that already exists with different
+    options — it never silently alters the old index. We match on the pymongo
+    error ``code`` when present, falling back to the message so the check still
+    works if the exception is a plain wrapper. A dup-key build failure (E11000)
+    is deliberately *not* a conflict: dropping the index would not help there.
+    """
+    code = getattr(exc, "code", None)
+    if code in (85, 86):
+        return True
+    text = str(exc)
+    return "IndexOptionsConflict" in text or "IndexKeySpecsConflict" in text
+
+
 async def _ensure_tasks_source_id_unique_index() -> None:
-    """Add a unique+sparse index on tasks.source_id — isolated from the
+    """Add a unique **partial** index on tasks.source_id — isolated from the
     main bootstrap try/except on purpose.
 
     This closes a real race: TaskStore.create()'s dedup is a check-then-
@@ -2508,27 +2525,51 @@ async def _ensure_tasks_source_id_unique_index() -> None:
     So: try a proactive dedup pass first (best-effort — the periodic
     self-heal loop will retry every 5 minutes regardless), then attempt
     the index build in its own try/except that only logs on failure.
-    Sparse so the many tasks with source_id=None are unaffected.
+
+    A **partial** index (not sparse) is required. A sparse unique index still
+    indexes documents whose ``source_id`` is present-but-null, so the many
+    tasks written with an explicit ``source_id: null`` all collide on the null
+    key and the build fails (E11000 dup key {source_id: null}).
+    ``partialFilterExpression`` restricts the index to documents whose
+    ``source_id`` is an actual string, so nulls are excluded entirely while
+    uniqueness is still enforced on real source ids.
+
+    A deploy that already carries the legacy ``source_id_1`` index (the earlier
+    sparse attempt, or any prior definition) needs migrating: Mongo never
+    *alters* an existing index's options, it raises IndexOptionsConflict (85) /
+    IndexKeySpecsConflict (86) and leaves the old index in place. So on that
+    specific conflict we drop ``source_id_1`` once and rebuild as partial,
+    making the migration autonomous instead of a manual ``dropIndex``.
     """
     try:
         from services.self_heal import _heal_task_duplicates
         await _heal_task_duplicates()
     except Exception as exc:
         log.debug("pre-index task dedup pass failed (non-fatal): %s", exc)
-    try:
-        # A partial index — not sparse — is required here. A sparse unique index
-        # still indexes documents whose ``source_id`` is present-but-null, so the
-        # many tasks written with an explicit ``source_id: null`` all collide on
-        # the null key and the build fails outright (E11000 dup key {source_id:
-        # null}). ``partialFilterExpression`` restricts the index to documents
-        # whose ``source_id`` is an actual string, so nulls are excluded entirely
-        # and uniqueness is still enforced on real source ids.
+
+    async def _build() -> None:
         await get_db().tasks.create_index(
             "source_id",
             unique=True,
             partialFilterExpression={"source_id": {"$type": "string"}},
         )
+
+    try:
+        await _build()
     except Exception as exc:
+        if _is_index_options_conflict(exc):
+            # A legacy source_id_1 with different options is blocking the build.
+            # Drop it and rebuild as partial — the whole point of this pass.
+            try:
+                await get_db().tasks.drop_index("source_id_1")
+                await _build()
+                log.info(
+                    "tasks.source_id: migrated legacy index to unique partial "
+                    "(string-only) index",
+                )
+                return
+            except Exception as exc2:  # noqa: BLE001 - fall through to the warning
+                exc = exc2
         log.warning(
             "tasks.source_id unique index build failed (likely pre-existing "
             "duplicates) — will retry on next restart once self-heal has "

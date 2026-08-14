@@ -186,7 +186,17 @@ def resolve_identity(
     """
     agent_id = slugify_agent(agent_name)
     resolved_owner = _coerce_text(owner).strip() or SYSTEM_OWNER
-    known = {k: v for k, v in context.items() if k in AgentIdentity.__dataclass_fields__}
+    # Pass through only the *extra* context fields (task_id, repo, runtime, …).
+    # The six fields this function sets explicitly below must be excluded, or a
+    # caller whose context happens to carry one of those keys (``owner``,
+    # ``policy_group``, …) would collide with the explicit keyword and raise
+    # TypeError — which, for a function documented as total and wired into the
+    # governance seam as fail-open, would silently disable enforcement.
+    _explicit = {"agent_id", "display_name", "owner", "roles", "policy_group", "session_id"}
+    known = {
+        k: v for k, v in context.items()
+        if k in AgentIdentity.__dataclass_fields__ and k not in _explicit
+    }
     return AgentIdentity(
         agent_id=agent_id,
         display_name=_coerce_text(agent_name).strip() or "unknown",
