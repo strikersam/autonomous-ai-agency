@@ -3,6 +3,10 @@
 Every figure below was re-derived in this repo at audit time. The command that
 produced it is shown, so you can re-run any of them.
 
+**All nine were resolved on 2026-08-10** when the audit was applied. This file is kept
+as the record of what was wrong and how it was decided — particularly C2, C3, and C9,
+where resolving the conflict meant picking one of two documented answers.
+
 ---
 
 ## C1 — The bill of materials is wrong in both directions
@@ -113,6 +117,33 @@ itself, but it is worth knowing the section had an internal contradiction.
 10, so §11–§14 are each one off from where a cross-reference would put them.
 `AGENTS.md` cross-references "`CLAUDE.md` §14" by name rather than by number, so
 nothing currently breaks.
+
+---
+
+## C9 — The risky-module gate named three files that do not exist
+
+Found while applying the audit, not during it. `AGENTS.md` listed the modules requiring
+a `risky-module-review` before modification. Three of them were not in the repo:
+
+| Listed | Actual location |
+|--------|-----------------|
+| `admin_auth.py` | `packages/auth/admin.py` |
+| `rbac.py` | `packages/auth/rbac.py` |
+| `social_auth.py` | `packages/auth/oauth.py` |
+| `services/service_token.py` | `packages/auth/service_token.py` |
+
+Verified with `find . -name 'admin_auth.py'` (no results) and `ls packages/auth/`
+(`__init__.py admin.py facade.py oauth.py rbac.py service_token.py`).
+
+This is the most consequential item in this file. The other eight cost an agent
+accuracy; this one silently disabled a security gate. An agent asked to change OAuth
+handling would open `packages/auth/oauth.py`, find it on no risky-module list, and skip
+the review the rule exists to force. `packages/auth/service_token.py` was not on the
+list under any name.
+
+Resolved in `CLAUDE.md` rule 15 and the `AGENTS.md` risky-module table, both of which
+now name the real paths and add `agent/web_reach.py` (the SSRF boundary, previously
+governed by a rule but absent from the gate list).
 
 ---
 

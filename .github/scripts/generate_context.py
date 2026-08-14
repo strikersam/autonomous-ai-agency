@@ -56,30 +56,43 @@ CLAUDE_MODEL = "claude-opus-4-8"
 # Codebase context loader
 # ---------------------------------------------------------------------------
 
-STANDING_INSTRUCTIONS_MARKER = "## 14. Standing Instructions"
+RULES_MARKER = "## 1. The Rules"
+STANDING_INSTRUCTIONS_MARKER = "## 2. Standing Instructions"
+REFERENCE_MARKER = "## 3. What this repo is"
 
 
 def _load_codebase_context() -> str:
     """Load CLAUDE.md + GRAPH_REPORT summary for LLM context.
 
-    CLAUDE.md is excerpted to the first 4000 chars for a general repo
-    overview, which falls short of §14 Standing Instructions further down
-    the file. Every autonomous agent must receive those mandatory
-    procedures regardless of truncation, so they're extracted and appended
-    verbatim when not already covered by the excerpt.
+    A flat first-N-chars excerpt cuts CLAUDE.md mid-ruleset, so §1 (the 44
+    binding rules) and §2 (Standing Instructions) are carved out and sent
+    whole — together ~1,300 words, and the only part of the file an
+    autonomous agent must not receive truncated. The leading excerpt covers
+    the header; §3 onward is reference material and is deliberately dropped.
     """
     parts: list[str] = []
 
     claude_md = REPO_ROOT / "CLAUDE.md"
     if claude_md.exists():
         full_text = claude_md.read_text()
-        parts.append("=== CLAUDE.md (project guide) ===")
-        parts.append(full_text[:4000])
+        rules_idx = full_text.find(RULES_MARKER)
+        ref_idx = full_text.find(REFERENCE_MARKER)
 
-        marker_idx = full_text.find(STANDING_INSTRUCTIONS_MARKER)
-        if marker_idx >= 4000:
-            parts.append("\n=== CLAUDE.md — Standing Instructions (mandatory, full text) ===")
-            parts.append(full_text[marker_idx:])
+        parts.append("=== CLAUDE.md (project guide) ===")
+        parts.append(full_text[:rules_idx] if rules_idx > 0 else full_text[:4000])
+
+        if rules_idx >= 0 and ref_idx > rules_idx:
+            # §1 + §2 verbatim: the binding ruleset, never truncated.
+            parts.append("\n=== CLAUDE.md §1-§2 — Rules + Standing Instructions (mandatory, full text) ===")
+            parts.append(full_text[rules_idx:ref_idx])
+        else:
+            # Layout changed — fall back to the old behaviour rather than
+            # silently shipping a context with no rules in it.
+            marker_idx = full_text.find(STANDING_INSTRUCTIONS_MARKER)
+            parts.append(full_text[:4000])
+            if marker_idx >= 4000:
+                parts.append("\n=== CLAUDE.md — Standing Instructions (mandatory, full text) ===")
+                parts.append(full_text[marker_idx:])
 
     graph_report = REPO_ROOT / "graphify-out" / "GRAPH_REPORT.md"
     if graph_report.exists():
@@ -242,7 +255,7 @@ def _build_user_message(
         'the plan creates>"],\n'
         '  "risk_flags": ["<R7: only modules a TODO above actually modifies>"],\n'
         '  "notes": "<architectural notes or open questions, marked per '
-        'CLAUDE.md §14.5>"\n'
+        'CLAUDE.md §2 rule 47>"\n'
         "}"
     )
 

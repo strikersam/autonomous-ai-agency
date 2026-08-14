@@ -1,649 +1,235 @@
-# AGENTS.md — Source of Truth for All AI Agents
+# AGENTS.md — Codebase Map & Operations Reference
 
-> **This file is the authoritative operating guide for every AI agent working in this repository.**
-> All agents MUST read this file before starting work. It supersedes agent-specific instructions
-> wherever there is a conflict.
-
----
-
-## Repository Purpose
-
-`local-llm-server` (Agency Core v5) is a **self-hosted, OpenAI-compatible AI proxy and multi-agent platform** that:
-
-1. Sits in front of Ollama (local LLM inference) and exposes three API surfaces: OpenAI `/v1/*`, Anthropic `/v1/messages`, Ollama native `/api/*`
-2. Adds Bearer token authentication, rate limiting, CORS, and intelligent model routing
-3. Implements a three-role plan→execute→verify agent orchestration loop
-4. Hosts a fleet of specialist agents (quality, finance, research, agile, etc.)
-5. Serves a React dashboard for administration, monitoring, and company graph management
-6. Provides Langfuse observability, Telegram bot control, and GitHub integration
-
-**Production URL:** `https://local-llm-server.strikersam.workers.dev`
-**Primary Owner:** strikersam@gmail.com
+> **The rules are in [`CLAUDE.md` §1](CLAUDE.md#1-the-rules).** All 44 of them, binding on
+> every agent — Claude, Codex, Cursor, Aider, or anything else. Read that section before
+> changing code.
+>
+> This file is reference: where things are, how big they are, how the system is deployed
+> and monitored. It deliberately does not restate a single rule. If you catch it doing
+> so, delete the copy — see `.claude/rules-archive/CONFLICTS.md` for what duplicated rule
+> sets did to this repo.
 
 ---
 
-## Architecture Overview
+## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│ Client: Claude Code / Cursor / Aider / Continue / Telegram / SPA    │
-└──────────────────────────┬──────────────────────────────────────────┘
-                           │ HTTP (OpenAI / Anthropic / Ollama format)
+Client: Claude Code / Cursor / Aider / Continue / Telegram / SPA
+                          │  HTTP (OpenAI / Anthropic / Ollama format)
                     Bearer Auth / JWT
-                           │
-            ┌──────────────▼──────────────┐
-            │    proxy.py (FastAPI :8000)  │
-            │  Auth → Rate Limit → Route   │
-            └──────────────┬──────────────┘
-                           │
-         ┌─────────────────┼─────────────────┐
-         │                 │                 │
-    /v1/messages    /v1/chat/completions    /api/*
-    Anthropic compat  OpenAI handlers    Ollama native
-         │                 │                 │
-         └─────────────────┼─────────────────┘
-                           │
-                  ┌────────▼──────────┐
-                  │   router/          │
-                  │   ModelRouter      │
-                  │   classify_task()  │
-                  └────────┬──────────┘
-                           │
-               ┌───────────▼───────────┐
-               │        Ollama          │
-               │   qwen3-coder:30b      │
-               │   deepseek-r1:32b      │
-               └───────────────────────┘
-                           ▲
-               ┌───────────┴───────────┐
-               │   agent/AgentRunner    │
-               │   Plan→Execute→Verify  │
-               └───────────────────────┘
+                          ▼
+              proxy.py (FastAPI :8000)
+              Auth → Rate Limit → Route
+                          │
+     ┌────────────────────┼────────────────────┐
+ /v1/messages   /v1/chat/completions        /api/*
+ Anthropic compat   OpenAI handlers      Ollama native
+     └────────────────────┼────────────────────┘
+                          ▼
+                    router/ModelRouter
+                    classify_task()
+                          ▼
+                       Ollama
+                          ▲
+                 agent/AgentRunner
+                 Plan → Execute → Verify
 ```
 
-**Secondary backend:** `backend/server.py` (FastAPI :8001) — Dashboard API, Company Graph, Onboarding, Workflow Orchestrator, Secrets, Skills.
+`backend/server.py` (FastAPI :8001) is the second app: dashboard API, company graph,
+onboarding, workflow orchestrator, secrets, skills.
 
 ---
 
-## Codebase Map
+## Codebase map
 
-| Path | Purpose | LOC | Risk |
-|------|---------|-----|------|
-| `proxy.py` | Main entry point, auth, rate limit, routing | 1,719 | HIGH |
-| `chat_handlers.py` | OpenAI/Ollama streaming handlers | 710 | Medium |
-| `direct_chat.py` | Direct chat sessions, intent classification | 833 | Medium |
-| `packages/ai/router.py` | Multi-provider backend with fallback | 1,238 | Medium |
-| `admin_auth.py` | Admin session auth (Windows + secret) | 154 | **RISKY** |
-| `key_store.py` | API key CRUD, SHA-256 hashing, JSON persistence | 244 | **RISKY** |
-| `langfuse_obs.py` | Langfuse trace emission | ~300 | Low |
-| `rbac.py` | Role-based access control | ~400 | HIGH |
-| `social_auth.py` | GitHub/Google OAuth | ~400 | HIGH |
-| `agent/loop.py` | AgentRunner — plan/execute/verify loop | 1,122 | **RISKY** |
-| `agent/tools.py` | WorkspaceTools — filesystem read/write | ~200 | **RISKY** |
-| `agent/repowise.py` | RepowiseIntelligence — codebase analysis | 866 | Low |
-| `router/model_router.py` | ModelRouter — central routing logic | ~400 | HIGH |
-| `router/classifier.py` | Task classification | ~300 | Medium |
-| `router/registry.py` | Model capability registry | ~400 | Medium |
-| `handlers/anthropic_compat.py` | Anthropic API adapter | 708 | Medium |
-| `backend/server.py` | Dashboard API server | 6,487 | HIGH |
-| `services/workflow_orchestrator.py` | Workflow execution engine | 1,119 | HIGH |
-| `services/ceo_dispatcher.py` | CEO delegation + supervised escalation loop | 1,064 | HIGH |
-| `services/ceo_micromanager.py` | Tier ladder, decomposition, subtask briefs | 652 | Medium |
+Line counts re-measured 2026-08-10 (`wc -l`). Re-run before trusting them — the previous
+version of this table was off by up to 4,179 lines on a single file.
+
+| Path | Purpose | Lines | Risk |
+|------|---------|------:|------|
+| `backend/server.py` | Dashboard API server | 10,666 | HIGH |
+| `proxy.py` | Main entry point, auth, rate limit, routing | 4,116 | HIGH |
+| `agent/loop.py` | AgentRunner — plan/execute/verify loop | 2,940 | **RISKY** |
+| `packages/ai/router.py` | Multi-provider backend with fallback | 1,988 | Medium |
+| `services/workflow_orchestrator.py` | Workflow execution engine | 1,940 | HIGH |
+| `services/scanner.py` | Tech stack scanner (Playwright) | 1,726 | Medium |
+| `services/company_graph_store.py` | Company knowledge graph persistence | 1,722 | Medium |
+| `services/ceo_dispatcher.py` | CEO delegation + supervised escalation | 1,083 | HIGH |
+| `packages/config/control_catalogue.py` | Declarative platform-control table | 1,064 | Low |
+| `direct_chat.py` | Direct chat sessions, intent classification | 892 | Medium |
+| `agent/repowise.py` | RepowiseIntelligence — codebase analysis | 867 | Low |
+| `chat_handlers.py` | OpenAI/Ollama streaming handlers | 866 | Medium |
+| `handlers/anthropic_compat.py` | Anthropic API adapter | 739 | Medium |
+| `router/registry.py` | Model capability registry | 671 | Medium |
+| `services/ceo_micromanager.py` | Tier ladder, decomposition, subtask briefs | 643 | Medium |
+| `services/ceo_ledger.py` | Durable goal/subtask/attempt record | 616 | Medium |
+| `router/model_router.py` | ModelRouter — central routing logic | 529 | HIGH |
+| `services/ceo_supervisor.py` | 24x7 sweep: close / re-drive / abandon goals | 497 | HIGH |
+| `agent/web_reach.py` | Zero-key read-only internet access | 460 | **RISKY** |
+| `langfuse_obs.py` | Langfuse trace emission | 451 | Low |
+| `packages/config/settings.py` | Central settings / env resolution | 415 | Medium |
+| `packages/auth/rbac.py` | Role-based access control | 391 | **RISKY** |
+| `key_store.py` | API key CRUD, SHA-256 hashing, persistence | 305 | **RISKY** |
 | `services/ceo_quality.py` | Anti-slop gate + bounded escalation ladder | 222 | Medium |
-| `services/ceo_ledger.py` | Durable goal/subtask/attempt record | 539 | Medium |
-| `services/ceo_supervisor.py` | 24x7 sweep: close / re-drive / abandon goals | 431 | HIGH |
-| `services/company_graph_store.py` | Company knowledge graph persistence | 1,660 | Medium |
-| `services/scanner.py` | Tech stack scanner (Playwright) | 1,377 | Medium |
+| `agent/tools.py` | WorkspaceTools — filesystem read/write | 210 | **RISKY** |
+| `handlers/v3_auth.py` | JWT validation | 177 | **RISKY** |
+| `router/classifier.py` | Task classification | 172 | Medium |
 
-> **File-size exception.** `packages/config/control_catalogue.py` exceeds the
-> 800-line limit in §8. It is one flat declarative table — the 109 platform
-> controls an operator can set from the dashboard — with no executable logic:
-> the types and builders live in `packages/config/control_specs.py` (137 lines)
-> and the lookup, grouping, and coercion API in
-> `packages/config/control_registry.py` (140 lines), both well inside the limit.
-> Cutting the table at a group boundary would not shrink any reader's working
-> set, only make "where is control X declared" a two-step question. Revisit if
-> logic accumulates in the catalogue, which is what the limit exists to catch.
+### Risky modules
 
-> **File-size exception.** `services/ceo_dispatcher.py` exceeds the 800-line
-> limit in §8. It is a pre-existing orchestration hub (652 lines before the
-> micro-management work) and sits on the EXECUTE hot path, so splitting it is a
-> standalone refactor rather than a rider on a behaviour change. Decompose it
-> along the seam the CEO work already exposes: delegation/planning, supervised
-> execution, and ledger writes. `services/ceo_micromanager.py` was split at that
-> same seam — the judging half moved to `services/ceo_quality.py` — and both
-> halves are now within the limit.
-
----
-
-## Coding Standards
-
-All code in this repository MUST follow these standards. No exceptions.
-
-### 1. Language & Runtime
-- Python 3.13+ (no backports, no compatibility hacks)
-- Type annotations on ALL public functions and methods
-- Use `from __future__ import annotations` at top of every module
-
-### 2. Async
-- ALL I/O operations must be `async`
-- FastAPI handlers must be `async def`
-- Agent methods must be `async def`
-- No blocking I/O in async context (no `requests.get()`, no `open()` without `aiofiles`)
-- Exception: `WorkspaceTools` which uses sync file I/O (legacy, do not add new sync I/O)
-
-### 3. Data Models
-- Pydantic v2 models for ALL API request/response shapes
-- No raw `dict` as function return types for external-facing data
-- Use `Field(...)` with description, min/max constraints for all public schema fields
-
-### 4. Logging
-- Use `log = logging.getLogger("qwen-proxy")` at module level
-- Use `logging`, never `print`
-- Never log sensitive values (API keys, tokens, passwords, email addresses)
-- Log at `INFO` for normal operations, `WARNING` for degraded states, `ERROR` for failures
-
-### 5. Error Handling
-- Never expose internal error details to API clients
-- Use `HTTPException(status_code=..., detail="generic message")` + `log.exception()`
-- Never catch and swallow exceptions silently
-
-### 6. Security
-- No hardcoded secrets, tokens, or keys in source code
-- All config from environment variables
-- API keys must be hashed before storage (SHA-256 is acceptable for key lookup)
-- Admin secrets must not be logged, even partially
-
-### 7. Comments
-- Default to writing NO comments
-- Only add a comment when the WHY is non-obvious (hidden constraint, workaround, invariant)
-- Never write comments that describe WHAT the code does (use self-documenting names instead)
-
-### 8. File Size
-- No file should exceed 800 lines without architectural justification
-- If a file exceeds 800 lines, create a decomposition issue before adding more code
-
----
-
-## Security Requirements
-
-### Must-Have for Every Change
-
-1. **Auth checks**: Every new endpoint must use `verify_api_key` (for API surfaces) or `_get_admin_identity_from_request` (for admin surfaces). No unauthenticated endpoints except `/health`, `/version`, and `/api/doctor/public`.
-
-2. **Input validation**: All user-provided data must be validated with Pydantic before use. Never use raw request body strings in business logic.
-
-3. **No command injection**: subprocess calls must use list form — never `shell=True` with user-supplied data.
-
-4. **Filesystem safety**: Agent-driven file writes must go through `WorkspaceTools._resolve_path()` which enforces workspace boundaries.
-
-5. **Secrets in env**: If a new feature requires an API key or secret, document the env var in `docs/configuration-reference.md` and add it to `.env.example`.
-
-### Risky Module Review Required
-
-Before modifying ANY of these, invoke the `risky-module-review` skill:
+Rule 15 gates these behind the `risky-module-review` skill. The auth modules moved into
+`packages/auth/` — the old top-level `admin_auth.py`, `rbac.py`, and `social_auth.py`
+paths no longer exist, so any document still naming them is stale and the gate it
+describes cannot fire.
 
 | Module | Risk |
 |--------|------|
-| `admin_auth.py` | Session auth, cookie signing |
+| `packages/auth/admin.py` | Admin session auth, cookie signing |
+| `packages/auth/rbac.py` | Permission enforcement |
+| `packages/auth/oauth.py` | GitHub/Google OAuth flows |
+| `packages/auth/service_token.py` | Service-token issuance and checks |
 | `key_store.py` | API key storage, hash operations |
 | `agent/tools.py` | Filesystem write surface |
-| `proxy.py` (lines 195-292) | Auth middleware |
+| `agent/web_reach.py` | Outbound fetch surface — the SSRF boundary |
 | `handlers/v3_auth.py` | JWT validation |
-| `rbac.py` | Permission enforcement |
-| `social_auth.py` | OAuth flows |
+| `proxy.py` auth middleware | Request authentication |
+
+### File-size exceptions
+
+Two files are past rule 28's 800-line limit with justification on record. Add to this
+list rather than silently exceeding it.
+
+**`packages/config/control_catalogue.py`** (1,064) is one flat declarative table — the
+platform controls an operator can set from the dashboard — with no executable logic. The
+types and builders live in `control_specs.py` and the lookup, grouping, and coercion API
+in `control_registry.py`, both well inside the limit. Cutting the table at a group
+boundary would not shrink any reader's working set, only make "where is control X
+declared" a two-step question. Revisit if logic accumulates in the catalogue, which is
+what the limit exists to catch.
+
+**`services/ceo_dispatcher.py`** (1,083) is a pre-existing orchestration hub sitting on
+the EXECUTE hot path, so splitting it is a standalone refactor rather than a rider on a
+behaviour change. Decompose along the seam the CEO work already exposes: delegation and
+planning, supervised execution, ledger writes. `services/ceo_micromanager.py` was split
+at that seam — the judging half became `services/ceo_quality.py`.
+
+`backend/server.py` and `proxy.py` are also over the limit and are being migrated per
+`REWRITE_PLAN.md`. Neither is licence to add more.
 
 ---
 
-## Git Operations & Credentials
+## Deployment
 
-**Use the `GH_PAT` environment variable for ALL git/GitHub authentication.** It is
-the single source of truth for the GitHub token and is rotated in one place
-(the `GH_PAT` GitHub Actions repository secret).
+| Service | Platform | Trigger |
+|---------|----------|---------|
+| Proxy + Backend | Render (`deploy-backend.yml`) | Push to `master` |
+| Frontend SPA | **GitHub Pages** (`deploy-frontend.yml`, `actions/deploy-pages`) | Push to `master` |
+| Remote Admin / Worker | Cloudflare Workers (`deploy-cloudflare.yml`) | Push to `master` |
 
-- Git credentials are wired once, in the global git config
-  (`credential.https://github.com.helper`), to read `$GH_PAT` at runtime — never
-  hardcode or paste a token into config, code, commits, workflow files, or chat.
-- Workflows that run `git` against GitHub must expose the secret to the step:
-  `env: GH_PAT: ${{ secrets.GH_PAT }}`. The credential helper then supplies it.
-- On rotation, only the `GH_PAT` secret changes; nothing in the repo needs editing.
-- If a token is ever exposed, redact it and treat rotation as mandatory.
+There is no Vercel deployment. Earlier versions of this file said there was; no workflow
+has ever referenced it (`grep -rli vercel .github/workflows/` returns nothing).
 
----
-
-## Testing Requirements
-
-### Mandatory Rules
-
-1. **Run `pytest -x` before every commit.** The commit-msg hook will check for changelog updates but tests must pass before pushing.
-
-2. **New features require new tests.** No PR merges without test coverage for the new code path.
-
-3. **Bug fixes require regression tests.** Reproduce the bug in a failing test, then fix it, then verify the test passes.
-
-4. **Coverage must not decrease.** Current estimated baseline: ~65%. Target: 80%.
-
-5. **Test organization:**
-   - Unit tests: `tests/test_<module_name>.py`
-   - Integration tests: `tests/test_<feature>_integration.py`
-   - E2E tests: `tests/e2e/`
-   - Live/external tests (require credentials): mark with `@pytest.mark.live`
-
-6. **No placeholder tests.** A test function body that is only `pass` fails review.
-
-### Running Tests
+Local development:
 
 ```bash
-# Standard — run before every push
-pytest -x
-
-# Verbose
-pytest -v --tb=short
-
-# Specific module
-pytest -x tests/test_model_router.py
-
-# With coverage
-pytest --cov=. --cov-report=term-missing --cov-fail-under=70
-
-# Skip live tests (default in CI)
-pytest -x --ignore=tests/test_hardware.py --ignore=tests/test_backend_runtime_bootstrap.py
-
-# Agent-specific tests
-pytest -x tests/test_agent_runner.py tests/test_agent_tools.py
-```
-
----
-
-## Documentation Requirements
-
-1. **Update `docs/changelog.md`** as part of every meaningful commit. See CLAUDE.md for changelog format.
-
-2. **Update module-level CLAUDE.md** when changing module contracts, adding new tools, or modifying invariants.
-
-3. **Update `docs/configuration-reference.md`** when adding new environment variables.
-
-4. **Update `docs/api-surfaces.md`** when adding new API endpoints.
-
-5. **Never let documentation lag implementation.** If you change behavior, update docs in the same PR.
-
----
-
-## Deployment Process
-
-### Local Development
-
-```bash
-# Activate virtualenv
 source .venv/bin/activate
-
-# Start proxy (port 8000) — for AI tools
-uvicorn proxy:app --reload --port 8000
-
-# Start backend (port 8001) — for dashboard
-uvicorn backend.server:app --reload --port 8001
-
-# Run tests
-pytest -x
+uvicorn proxy:app --reload --port 8000            # AI proxy
+uvicorn backend.server:app --reload --port 8001   # dashboard API
 ```
 
-### Production
+### Release
 
-| Service | Platform | URL | Trigger |
-|---------|----------|-----|---------|
-| Proxy + Backend | Render | https://relay.example.com | Push to `master` |
-| Frontend SPA | Vercel | (configured per deployment) | Push to `master` |
-| Remote Admin | Cloudflare Workers | https://local-llm-server.strikersam.workers.dev | `wrangler deploy` |
-| Static Site | GitHub Pages | (GitHub Pages URL) | Push to `gh-pages` |
+1. Move `## [Unreleased]` to `## [vX.Y.Z] — YYYY-MM-DD` in both changelogs.
+2. `pytest` green.
+3. `git tag vX.Y.Z && git push origin vX.Y.Z`.
+4. CI runs on the tag; deployment follows.
 
-### Deploy Backend
-
-Push to `master` → `deploy-backend.yml` → Render redeploys automatically.
-
-### Deploy Frontend
-
-Push to `master` → `deploy-frontend.yml` → Vercel redeploys automatically.
+Full checklist: `docs/runbooks/release.md`. Run the `release-readiness` skill first.
 
 ---
 
-## Release Process
-
-1. Move `## [Unreleased]` to `## [vX.Y.Z] — YYYY-MM-DD` in `docs/changelog.md`
-2. Run `pytest` — must be green
-3. `git tag vX.Y.Z && git push origin vX.Y.Z`
-4. CI runs on the tag; deployment to production is triggered
-5. See `docs/runbooks/release.md` for the full checklist
-
----
-
-## Monitoring Standards
-
-### Health Checks
+## Monitoring
 
 | Endpoint | Auth | Purpose |
 |----------|------|---------|
 | `GET /health` | None | Process liveness |
-| `GET /api/doctor/public` | None | System-level checks (5 checks) |
-| `GET /api/doctor/diagnostics` | JWT | Authenticated diagnostics (5 checks) |
+| `GET /api/doctor/public` | None | System-level checks |
+| `GET /api/doctor/diagnostics` | JWT | Authenticated diagnostics |
 | `GET /api/ping` | JWT | Backend liveness |
 | `GET /api/status` | JWT | System status summary |
 
-### Observability Stack
+LLM traces go to Langfuse (`LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY`), errors to
+Sentry when `SENTRY_DSN` is set, and verbosity is controlled by `LOG_LEVEL`.
 
-- **LLM traces:** Langfuse (`LANGFUSE_PUBLIC_KEY` + `LANGFUSE_SECRET_KEY` required)
-- **Error tracking:** Sentry (add `SENTRY_DSN` to env when configured)
-- **Uptime monitoring:** Configure external monitoring for `/health` endpoints
-- **Logs:** `LOG_LEVEL` env var controls verbosity (default: INFO)
-
-### Alerts — What Should Wake You Up
-
-- Any 5xx error rate >1% over 5 minutes
-- Ollama health check failing for >60 seconds
-- Agent session stuck (no progress for >10 minutes)
-- Rate limit bucket near capacity (>80% of max keys)
-- Memory usage >85%
+Conditions worth an alert: 5xx rate above 1% over 5 minutes; Ollama health failing for
+more than 60 seconds; an agent session with no progress for 10 minutes; rate-limit
+buckets above 80% of capacity; memory above 85%.
 
 ---
 
-## Bug Triage Process
+## Agent roles
 
-1. **Reproduce** the bug locally (write a failing test if possible)
-2. **Identify** the affected module and severity:
-   - P0: Production down / data loss / security breach
-   - P1: Major feature broken, no workaround
-   - P2: Feature degraded, workaround exists
-   - P3: Minor UX issue or edge case
-3. **Assign** to appropriate subagent (Security, QA, Bug Fix)
-4. **Fix** in a feature branch following coding standards
-5. **Add regression test** before fixing
-6. **Update changelog** and submit PR
-7. For P0/P1: bypass changelog requirement, fix directly, document after
+`agents/` holds 24 specialist profiles. The six with matching slash commands in
+`.claude/commands/`:
 
----
-
-## PR Review Checklist
-
-Every PR MUST meet all of these criteria before merge:
-
-### Code Quality
-- [ ] Type annotations on all public functions
-- [ ] No hardcoded secrets or API keys
-- [ ] No `print()` statements (use `logging`)
-- [ ] No raw `dict` returns for API shapes (use Pydantic)
-- [ ] No blocking I/O in async handlers
-- [ ] File size under 800 lines (or justified)
-
-### Security
-- [ ] New endpoints have auth guards
-- [ ] User input validated with Pydantic
-- [ ] Risky modules reviewed (if applicable)
-- [ ] No new CVEs introduced (pip-audit passes)
-
-### Testing
-- [ ] `pytest -x` passes
-- [ ] New tests added for new functionality
-- [ ] Regression test for any bug fix
-- [ ] No placeholder (`pass`) tests
-
-### Documentation
-- [ ] `docs/changelog.md` updated under `[Unreleased]`
-- [ ] Env vars documented if added
-- [ ] API endpoints documented if added
-- [ ] Module CLAUDE.md updated if contracts changed
-
-### CI
-- [ ] All GitHub Actions checks pass
-- [ ] No new lint warnings
-- [ ] Frontend builds successfully (if frontend changed)
+| Agent | Scope | Skills it leans on |
+|-------|-------|--------------------|
+| Security | Vulnerability scanning, auth review, CVE monitoring | `risky-module-review`, `security-review`, `dependency-audit` |
+| QA | Test coverage, regression detection, CI monitoring | `test-first-executor`, `council-review` |
+| Architecture | Module boundaries, technical debt, ADRs | `implementation-planner`, `modularity-review` |
+| DevOps | CI/CD, Docker, Render/Cloudflare deploys | `release-readiness`, `docs-sync` |
+| Documentation | README, changelogs, API docs, runbooks | `docs-sync`, `changelog-enforcer` |
+| Bug Fix | Reproduce, isolate, fix, test, PR | `test-first-executor`, `risky-module-review` |
 
 ---
 
-## Definition of Done
+## Session state
 
-A task is **Done** when:
+Rules 43 and 44 govern what may be written where. The files:
 
-1. ✅ Code is written, follows coding standards, has type annotations
-2. ✅ Tests pass (`pytest -x` green)
-3. ✅ New tests exist for the new/changed behavior
-4. ✅ `docs/changelog.md` updated
-5. ✅ PR review checklist complete
-6. ✅ Branch merged to `master`
-7. ✅ Deployment verified (for production changes)
-8. ✅ Documentation updated (for user-visible changes)
+| File | Content |
+|------|---------|
+| `.claude/state/active-tasks.md` | Live task tracker — injected at session start |
+| `.claude/state/NEXT_ACTION.md` | Next step, read by `scripts/ai_runner.py` |
+| `.claude/state/agent-state.json` | Machine-readable session state |
+| `.claude/state/checkpoint.jsonl` | Ordered step log |
+| `.claude/state/learnings.md` | Append-only session learnings |
+| `.claude/state/runner.lock` | Active session lock |
+| `.claude/state/archive/` | Completed task rows, moved out of the live tracker |
 
----
-
-## Autonomous Maintenance Rules
-
-When operating in autonomous maintenance mode, agents MUST:
-
-1. **Read before modifying.** Always read the current file before editing. Never assume content.
-2. **Query graphify first.** Use `graphify query "..."` before opening source files — 70x token savings.
-3. **Verify time-sensitive facts before acting on them.** A library API, a dependency's current behavior, an error message's actual meaning — if it could have changed since training and the answer is one lookup away, look it up (`web_search`/`fetch_url` via `agent/web_reach.py`, or `WebSearch`/`WebFetch` if you're a coding-agent session rather than this repo's runtime agent) rather than asserting it from memory. See §14.8 in this file and "Internet access (Web Reach)" in `CLAUDE.md` §6.
-4. **Run baseline tests.** `pytest -x` before any change. If baseline is broken, report before fixing.
-5. **Scope changes tightly.** Fix only what is requested. Do not refactor or clean up adjacent code unless explicitly asked.
-6. **Update state after milestones.** Write to `.claude/state/` after completing significant steps.
-7. **Commit incrementally.** Prefer small commits over large multi-change commits.
-8. **Never force-push.** Use rebase-merge or regular merge. Never force-push to `master`.
-9. **Never bypass CI.** Do not use `--no-verify` or skip hooks. If CI is broken, fix the root cause.
-10. **Escalate uncertainty.** If a change may affect auth, billing, or agent filesystem writes, stop and ask before proceeding.
+The parent directory is tracked in git and team-shared. `.claude/state/sessions/<id>/` is
+gitignored and is the only place session-private material — anything that may contain the
+operator's literal credentials — may go. The convention is documented in
+`.agents/SKILLS-CATALOG.md`, and the redaction discipline in the `replay-learnings` skill.
 
 ---
 
-## Internet Access & Self-Improvement
+## Git hooks
 
-The agency's runtime agents (Executor loop, self-healing, improvement loop —
-see `agent/loop.py`, `agent/self_healing.py`, `agent/improvement_loop.py`) are
-not limited to this repo's contents. `agent/web_reach.py` gives them four
-zero-key, read-only tools, available mid-step with no setup:
+`git config core.hooksPath .claude/hooks` activates four blocking hooks. They enforce
+mechanically what would otherwise have to be prose:
 
-| Tool | Use it for |
+| Hook | Blocks on |
 |------|-----------|
-| `fetch_url(url)` | Reading a page's actual content — docs, a GitHub issue, a changelog |
-| `youtube_transcript(url)` | Pulling spoken content out of a linked video, not just its title |
-| `web_search(query)` | Finding the current answer to something training data can't be trusted for |
-| `fetch_rss(url)` | Reading a feed's recent entries |
+| `pre-commit` | Staged `.env` or `keys.json`; hardcoded `SECRET_KEY`; Python syntax errors |
+| `commit-msg` | Code changes with no `docs/changelog.md` entry, unless the subject carries an exempt prefix |
+| `pre-push` | `pytest -x` failing |
+| `post-commit` | (non-blocking) refreshes the graphify knowledge graph |
 
-**Why this matters for self-healing and learning:** a scheduled fix
-(`self_healing.py` → `improvement_loop.py` → this same Executor loop) that
-hits an unfamiliar error can now search for it before guessing a patch — the
-same behavior a human engineer would default to. `trend_watcher.py` already
-runs a continuous, scheduled scan of 13 public sources for relevant
-developments (models, papers, tooling) and turns high-relevance findings into
-improvement-loop issues; Web Reach is the complementary on-demand path — the
-research a specific step needs *right now*, not on the next scan cycle.
-
-**Non-negotiable guardrail:** every URL these tools touch is externally
-influenced and must be treated as untrusted — direct user input, a URL an
-LLM constructed, or one pulled from content the agent read (a fetched page,
-an issue body) are all the same confused-deputy/SSRF vector, not a
-hypothetical one, since Web Reach runs inside the production backend process
-alongside the database and admin API.
-`unsafe_target_reason()` rejects private/loopback/link-local/reserved
-resolved targets before any request and every redirect hop is re-validated.
-Any code built on top of Web Reach must go through it — never call `httpx`
-directly with `follow_redirects=True` on a URL that could be
-externally-influenced.
+`.claude/settings.json` adds two SessionStart hooks — `graphify-refresh` and
+`session-plan-bootstrap` — plus a Stop hook that refreshes the graph in the background.
 
 ---
 
-## Agent Escalation Rules
-
-Autonomous agents MUST stop and request human review when:
-
-1. Modifying any **RISKY MODULE** (see list above)
-2. Discovering a **P0 security vulnerability** (immediate escalation)
-3. A change affects **>5 files** in a core module (proxy.py, router/, agent/loop.py)
-4. Tests are **consistently failing** and root cause is unclear after 2 attempts
-5. A dependency upgrade introduces a **breaking change**
-6. The change requires a **database migration**
-7. The change requires modifying **GitHub Actions workflow** permissions
-8. Uncertainty about whether a change **breaks backward compatibility**
-
----
-
-## Production Safety Rules
-
-These rules protect production deployments:
-
-1. **Never merge to `master` without passing CI.** No exceptions.
-2. **Never deploy to production without testing locally first.**
-3. **Feature flags for risky features.** Gate new agent capabilities behind env vars.
-4. **Database changes must be backward-compatible.** Old code must work with new schema.
-5. **API changes must be backward-compatible.** Old clients must continue to work.
-6. **Secrets are never in code.** Not even in test files. Use `pytest` fixtures for test secrets.
-7. **Rate limits must be configured.** Never deploy without `RATE_LIMIT_RPM` set.
-8. **CORS must be restricted.** Set `CORS_ORIGINS` explicitly. Never use `*` in production.
-
----
-
-## Subagent Roles & Responsibilities
-
-| Agent | Scope | Primary Tools | Escalates To |
-|-------|-------|--------------|--------------|
-| **Security Agent** | Vulnerability scanning, auth review, CVE monitoring, dependency audit | `risky-module-review`, `security-review`, `dependency-audit` | Human on P0/P1 |
-| **QA Agent** | Test coverage, regression detection, test authoring, CI monitoring | `test-first-executor`, `council-review` | Bug Fix Agent |
-| **Architecture Agent** | Code structure, technical debt, module boundaries, ADR authoring | `implementation-planner`, `modularity-review` | Human for large refactors |
-| **DevOps Agent** | CI/CD workflows, Docker, Render/Vercel deployment, monitoring | `release-readiness`, `docs-sync` | Human for infra changes |
-| **Documentation Agent** | README, CHANGELOG, API docs, runbooks, CLAUDE.md sync | `docs-sync`, `changelog-enforcer` | Architecture Agent |
-| **Bug Fix Agent** | Reproduce, isolate, fix, test, PR for reported bugs | `test-first-executor`, `risky-module-review` | Security Agent for security bugs |
-
----
-
-## Graphify Knowledge Graph
-
-**Always query graphify before opening source files.**
-
-```bash
-# Query the knowledge graph (70x cheaper than reading source files)
-graphify query "how does model routing work"
-graphify explain "AgentRunner"
-graphify query "where are API keys stored"
-
-# Read the graph report (free overview)
-cat graphify-out/GRAPH_REPORT.md
-
-# Refresh the graph after code changes
-graphify update .
-```
-
-If graphify is not installed:
-```bash
-python -m pip install graphifyy && graphify install && graphify update .
-```
-
----
-
-## State Persistence
-
-Agents MUST write checkpoints after significant milestones:
-
-| File | Content | Update When |
-|------|---------|-------------|
-| `.claude/state/agent-state.json` | Machine-readable session state | After each major step |
-| `.claude/state/NEXT_ACTION.md` | Next step description | Before ending session |
-| `.claude/state/checkpoint.jsonl` | Ordered step log | After each completed step |
-| `.claude/state/session.log` | Activity log | Continuously |
-| `.claude/state/runner.lock` | Active session lock | On start/stop |
-
-**Convention split — share vs. share-not:**
-
-- **Parent `.claude/state/` (TRACKED in git, team-shared).** Use for: shared operator
-  checklists, runner locks, log streams, anything a teammate can pick up and read.
-  **Never** write session-private content here — it ships to master on the next commit,
-  including `git clone` history. Examples to AVOID in this dir: literal access tokens,
-  password strings, sender PII, full request/response payloads with credentials.
-- **Subdir `.claude/state/sessions/<session-id>/` (GITIGNORED, **session-private**).**
-  Use for: per-session memory dumps, narrative session logs, machine-readable
-  `STATE.json` for cross-session resume, replay scripts, anything that may contain
-  the operator's literal credentials. Each session creates its own dir and writes
-  `SESSION.md`, `NEXT.md`, `STATE.json`, and any replay scripts there. The
-  convention is documented in `.agents/SKILLS-CATALOG.md` under "Session state"
-  and the redaction discipline is in `replay-learnings`.
-
----
-
-## Quick Reference — Key Commands
-
-```bash
-# Development
-source .venv/bin/activate
-uvicorn proxy:app --reload --port 8000
-uvicorn backend.server:app --reload --port 8001
-
-# Testing
-pytest -x                                          # Fast fail
-pytest -v --tb=short                               # Verbose
-pytest --cov=. --cov-report=term-missing           # With coverage
-pytest -x tests/test_model_router.py               # Single file
-
-# AI Runner
-python scripts/ai_runner.py manifest               # List tools/commands
-python scripts/ai_runner.py status                 # Session state
-python scripts/ai_runner.py resume                 # Resume interrupted work
-
-# Knowledge graph
-graphify query "<question>"
-graphify update .
-
-# Key management
-python generate_api_key.py
-
-# Git hooks
-git config core.hooksPath .claude/hooks            # Activate hooks
-```
-
----
-
-## Environment Variables — Critical Ones
-
-| Variable | Default | Required | Description |
-|----------|---------|----------|-------------|
-| `OLLAMA_BASE` | `http://localhost:11434` | Yes | Ollama endpoint |
-| `PROXY_PORT` | `8000` | No | Proxy listen port |
-| `API_KEYS` | `` | Yes* | Comma-separated API keys (legacy) |
-| `KEYS_FILE` | `` | Yes* | Path to keys.json (persistent store) |
-| `ADMIN_SECRET` | `` | No | Admin dashboard secret (min 32 chars) |
-| `CORS_ORIGINS` | `*` | Yes (prod) | CORS allowed origins — NEVER use `*` in prod |
-| `RATE_LIMIT_RPM` | `60` | No | Requests per minute per key |
-| `AGENT_PLANNER_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | No | Planner LLM (reasoning-tuned 120B-a12b MoE on free NIM) |
-| `AGENT_EXECUTOR_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | No | Executor LLM (dense 49B, JSON-clean tool-calling) |
-| `AGENT_VERIFIER_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | No | Verifier LLM |
-| `AGENT_JUDGE_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | No | Judge LLM (release-gate verdict) |
-| `STORAGE_BACKEND` | `mongo` | No | `mongo` or `sqlite` |
-| `MONGO_URL` | `` | Yes (mongo mode) | MongoDB connection string |
-| `LANGFUSE_PUBLIC_KEY` | `` | No | Langfuse observability |
-| `LANGFUSE_SECRET_KEY` | `` | No | Langfuse observability |
-| `ANTHROPIC_API_KEY` | `` | No | Anthropic fallback provider |
-| `AGENT_WORKSPACE_ROOT` | `.` | Yes (prod) | Agent filesystem sandbox root |
-| `GITHUB_TOKEN` | `` | No | GitHub API token for agent GitHub tools |
-| `LOG_LEVEL` | `INFO` | No | Logging verbosity |
-
-*At least one of `API_KEYS` or `KEYS_FILE` must be configured.
-
----
-
-## Standing Instructions — Universal Agent Discipline (MANDATORY)
-
-**Every agent working in this repository — Claude, Codex, Cursor, Aider, or any other tool —
-MUST follow the Standing Instructions in [`CLAUDE.md` §14](CLAUDE.md#14-standing-instructions--universal-agent-discipline).**
-They are executable procedures (trigger → action) covering: reading intent, problem decomposition,
-effort placement, verification, known-vs-guessed marking, self-attack, completeness, refusing to
-guess, delivery order, and the 10 fake-competence patterns — plus a final gate checklist that must
-pass before any answer is sent. They are not advice; run them literally on every task.
-
----
-
-## Further Reading
+## Further reading
 
 | Topic | Location |
 |-------|----------|
-| Operating guide | `CLAUDE.md` (incl. §14 Standing Instructions — mandatory for all agents) |
-| Architecture overview | `docs/architecture/overview.md` |
+| **The rules** | `CLAUDE.md` §1 |
+| Naming, log levels, fixtures, performance targets | `ENGINEERING_STANDARDS.md` |
+| Architecture overview | `docs/architecture/overview.md`, `ARCHITECTURE.md` |
 | Model routing | `docs/architecture/model-routing.md`, `router/CLAUDE.md` |
 | Agent orchestration | `docs/architecture/agent-orchestration.md`, `agent/CLAUDE.md` |
 | Configuration | `docs/configuration-reference.md` |
-| Runbooks | `docs/runbooks/` |
-| Changelog | `docs/changelog.md` |
-| ADRs | `docs/adrs/` |
-| Audit documents | `audit/` |
+| Runbooks, ADRs, changelog | `docs/` |
+| Rules audit — what was cut and why | `.claude/rules-archive/` |

@@ -153,9 +153,9 @@ def _get_defaults() -> dict[str, str]:
 
 # Single source of truth for the mandatory-discipline pointer appended to every
 # CRISPY role prompt below — one line, not the full text, so all five roles
-# stay bound to CLAUDE.md §14 without duplicating or bloating each prompt.
+# stay bound to CLAUDE.md §2 without duplicating or bloating each prompt.
 STANDING_INSTRUCTIONS_NOTICE = (
-    "You are bound by the mandatory Standing Instructions in CLAUDE.md §14 "
+    "You are bound by the mandatory Standing Instructions in CLAUDE.md §2 "
     "(verification, epistemic marking, completeness, self-attack, refusing "
     "to guess) — apply them to every response in this role."
 )

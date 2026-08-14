@@ -71,7 +71,7 @@ class TestAgentProfile:
         assert set(profiles.keys()) == {"architect", "scout", "coder", "reviewer", "verifier"}
 
     def test_every_profile_carries_standing_instructions_notice(self):
-        """Every CRISPY role must be bound to CLAUDE.md §14, not just
+        """Every CRISPY role must be bound to CLAUDE.md §2, not just
         IDE-facing tools — this is the production LLM prompt path for the
         autonomous plan→execute→verify loop."""
         from agents.profiles import STANDING_INSTRUCTIONS_NOTICE

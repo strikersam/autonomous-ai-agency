@@ -5,14 +5,46 @@ An audit of every standing instruction this repository gives an AI agent:
 `CLAUDE.md` files, `.openhands/microagents/`, the `.claude/hooks/` scripts,
 `.claude/settings.json`, `.claude/state/` memory, and the two skill trees.
 
-**Nothing in this audit has been applied.** `CLAUDE.md`, `AGENTS.md`, and
-`ENGINEERING_STANDARDS.md` are byte-identical to what they were before. This
-folder is the proposal.
+**Status: applied 2026-08-10.** `CLAUDE.md` §1 is now the single source of the 44
+rules; `AGENTS.md` and `ENGINEERING_STANDARDS.md` were rewritten as reference-only
+and point back to it. This folder is the record of what changed and why — keep it,
+it is the argument for every rule that is missing.
+
+A ninth conflict surfaced while applying: **the risky-module list gated three files
+that no longer exist.** `admin_auth.py`, `rbac.py`, and `social_auth.py` moved into
+`packages/auth/` (`admin.py`, `rbac.py`, `oauth.py`), so rule 15's review gate named
+paths that could never match. Fixed in `CLAUDE.md` rule 15 and the `AGENTS.md` risky
+table. Recorded as C9 in `CONFLICTS.md`.
+
+**The §14 cut was partly wrong, and is partly reversed.** The audit judged §14
+removable because the Claude Code harness already mandates it. That is true for
+Claude Code and false for this repo's own agents: `.github/scripts/generate_context.py`
+fed §14 to the autonomous issue-context agent, and `agents/profiles.py` bound all five
+CRISPY roles to it. Those run on `nvidia/llama-3.3-nemotron-super-49b-v1` with no
+harness behind them. CI caught it — the two tests guarding those paths failed.
+
+Resolution: §14's four load-bearing directives are restored as `CLAUDE.md` §2, rules
+45–48, at 250 words against the original 2,908. Both consumers now carve out §1 + §2
+whole (~1,350 words) instead of a flat 4,000-char excerpt that cut mid-ruleset, so
+those agents get *more* of the binding rules than before, not less. The 56 cut
+directives stay cut. Ruleset total: **48 rules**, not 44.
+
+One recommendation in `REMOVED-RULES.md` was withdrawn on inspection:
+`.claude/state/learnings.md` is written by five skills (`learn-rule`,
+`replay-learnings`, `session-handoff`, `wrap-up`, `insights`), so deleting it would
+break them. It stays. That it has zero entries is a skill-adoption problem, not a
+file problem.
 
 | | Before | After | Change |
 |---|---|---|---|
 | Normative statements | 352 | **44** | −308 |
-| Words of standing instruction | 11,880 | **1,055** | −91% |
+| Words of binding rules | 11,880 | **1,055** | −91% |
+| Words across the whole always-on layer | 11,880 | **5,566** | −53% |
+
+Two numbers because the old files interleaved rules with reference material, so all
+11,880 words read as instruction. The 44 rules are 1,055 words; the remaining ~4,500
+are the reference tables — architecture, codebase map, env vars, fixtures — kept,
+corrected, and now clearly marked as *not* rules.
 
 ## Read in this order
 
@@ -70,10 +102,24 @@ Three things dominate the 308:
    `pre-push`, and 22 CI checks already block on. A rule a machine is already
    enforcing cannot change an agent's outcome; it can only cost context.
 
-## If you approve
+## What was applied
 
-Applying this means: replace `CLAUDE.md` §0–§14 and the normative half of
-`AGENTS.md` and `ENGINEERING_STANDARDS.md` with `KEPT-RULES.md`, keep the reference
-tables where they are (they are useful; they are just not rules), and fix the eight
-items in `CONFLICTS.md` — four of which are wrong regardless of what happens to the
-rest of this audit.
+- **`CLAUDE.md`** — §1 is the 44 rules; §2–§7 are reference (what the repo is,
+  architecture, a re-measured bill of materials, commands, env vars, pointers).
+  5,384 → 2,216 words.
+- **`AGENTS.md`** — reference only: codebase map with re-measured line counts, risky
+  modules, file-size exceptions, deployment, monitoring, agent roles, session state,
+  git hooks. States no rule. 3,873 → 1,522 words.
+- **`ENGINEERING_STANDARDS.md`** — worked examples and lookup tables only: log levels,
+  error handling, authorization patterns, fixtures, commit format, performance
+  targets, indexes, ADRs. 1,229 → 683 words.
+- **`agent/CLAUDE.md`, `router/CLAUDE.md`** — package reference plus a pointer to the
+  invariants (rules 16–23), instead of a second copy of them.
+- **`.openhands/microagents/`** — four files reduced to pointers at `CLAUDE.md` §1.
+  The `brain_policy.py` reference (C2) is gone.
+- **`.claude/state/`** — 63 closed rows and the session log moved to
+  `archive/completed-2026-06-to-08.md`; the live tracker now carries only open work,
+  with a note that its six `IN_PROGRESS` rows have not been re-verified since July.
+- **All nine conflicts** in `CONFLICTS.md` resolved in the files themselves.
+
+Every path named in the 44 rules was checked to exist before this was committed.
