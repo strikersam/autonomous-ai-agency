@@ -48,13 +48,17 @@ class AuditReport:
 
 def _check_claude_md_sections(path: Path) -> list[CheckResult]:
     results = []
+    # Anchored on the structure the 2026-08 rules audit produced: §1 carries the
+    # binding rules (coding, testing and changelog among them) and §2 the agent
+    # discipline both production prompt paths extract. The codebase map moved to
+    # AGENTS.md, so CLAUDE.md is checked for the bill of materials instead.
     required = [
-        ("What This Repo Does", "purpose section"),
-        ("Codebase Map", "file map"),
-        ("Key Commands", "commands cheatsheet"),
-        ("Coding Rules", "coding rules"),
-        ("Testing Expectations", "test expectations"),
-        ("Changelog Rule", "changelog enforcement"),
+        ("## 1. The Rules", "binding ruleset"),
+        ("## 2. Standing Instructions", "agent discipline"),
+        ("What this repo is", "purpose section"),
+        ("Bill of materials", "file map"),
+        ("Key commands", "commands cheatsheet"),
+        ("`CHANGELOG.md`", "changelog enforcement"),
     ]
     if not path.exists():
         return [CheckResult("CLAUDE.md exists", False, f"{path} not found", weight=5)]
