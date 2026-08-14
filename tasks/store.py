@@ -17,6 +17,25 @@ from tasks.models import Task, TaskStatus, TaskPriority, _coerce_ts
 log = logging.getLogger("qwen-proxy")
 
 
+_PRIORITY_RANK: dict[str, int] = {
+    TaskPriority.URGENT.value: 3,
+    TaskPriority.HIGH.value: 2,
+    TaskPriority.MEDIUM.value: 1,
+    TaskPriority.LOW.value: 0,
+}
+
+
+def _priority_rank(priority: Any) -> int:
+    """Numeric rank for a task priority (higher = more urgent).
+
+    Accepts an enum, its string value, or ``None`` and never raises — an
+    unknown or missing priority ranks as LOW (0), so it can only ever sort a
+    task *later*, never ahead of a task with a known priority.
+    """
+    value = getattr(priority, "value", priority)
+    return _PRIORITY_RANK.get(value, 0)
+
+
 def _ts_to_float(v: Any) -> float:
     """Normalise a timestamp value to a float Unix epoch.
 
@@ -277,20 +296,48 @@ class TaskStore:
         return [Task.model_validate(d) for d in docs]
 
     async def list_pending(self, *, limit: int = 50) -> list[Task]:
-        """Return tasks queued for agent execution."""
+        """Return tasks queued for agent execution, highest-priority first.
+
+        Ordered by priority (urgent > high > medium > low), then oldest-updated
+        within a priority. The dispatcher pulls the front of this list (often
+        ``limit=1``), so ordering *is* the scheduling policy: with a pure
+        ``updated_at`` sort, a freshly materialized HIGH-priority portfolio
+        initiative queued behind the entire older backlog and was picked up last.
+        The priority tiebreak lets urgent/high work surface ahead of stale
+        low-value tasks while still draining oldest-first within each tier.
+        """
+        match = {
+            "pending_agent_run": True,
+            "status": {"$in": [TaskStatus.TODO.value, TaskStatus.IN_PROGRESS.value]},
+        }
         if self._mode == "mongo":
-            cursor = self._collection.find(
-                {"pending_agent_run": True, "status": {"$in": [TaskStatus.TODO.value, TaskStatus.IN_PROGRESS.value]}},
-                {"_id": 0},
-            ).sort("updated_at", 1).limit(limit)
-            docs = await cursor.to_list(length=limit)
+            # Rank in the pipeline so the DB does the ordering; unknown/absent
+            # priorities fall to 0 (same as LOW) rather than erroring.
+            pipeline = [
+                {"$match": match},
+                {"$addFields": {"_prank": {"$switch": {
+                    "branches": [
+                        {"case": {"$eq": ["$priority", TaskPriority.URGENT.value]}, "then": 3},
+                        {"case": {"$eq": ["$priority", TaskPriority.HIGH.value]}, "then": 2},
+                        {"case": {"$eq": ["$priority", TaskPriority.MEDIUM.value]}, "then": 1},
+                    ],
+                    "default": 0,
+                }}}},
+                {"$sort": {"_prank": -1, "updated_at": 1}},
+                {"$limit": limit},
+                {"$project": {"_id": 0, "_prank": 0}},
+            ]
+            docs = await self._collection.aggregate(pipeline).to_list(length=limit)
         else:
             docs = [
                 value for value in self._mem.values()
                 if value.get("pending_agent_run") is True
                 and value.get("status") in {TaskStatus.TODO.value, TaskStatus.IN_PROGRESS.value}
             ]
-            docs.sort(key=lambda d: _ts_to_float(d.get("updated_at", d.get("created_at", 0))))
+            docs.sort(key=lambda d: (
+                -_priority_rank(d.get("priority")),
+                _ts_to_float(d.get("updated_at", d.get("created_at", 0))),
+            ))
             docs = docs[:limit]
         return [Task.model_validate(d) for d in docs]
 
