@@ -259,6 +259,7 @@ the 512MB free-instance OOM ceiling.
 | `MALLOC_TRIM_THRESHOLD_` | `100000` (Dockerfile/render.yaml) | Bytes of free space at the top of the heap before glibc returns it to the OS. Low value keeps the baseline down; mid-arena fragmentation is handled by the memory guard's explicit `malloc_trim(0)`. |
 | `MEMORY_GUARD_ENABLED` | `true` | In-process loop that periodically runs `gc.collect()` + glibc `malloc_trim(0)` to hand freed pages back to the kernel — the piece automatic top-of-heap trimming misses. Fail-soft; skips the trim on non-glibc libc. |
 | `MEMORY_GUARD_INTERVAL_SEC` | `180` | How often the memory guard sweeps, floored at 30s so a bad value cannot busy-loop. A trim is microseconds, so the cost is negligible. |
+| `BLOCKED_TASK_RETIRE_SEC` | `21600` (6h) | How long a task may sit BLOCKED before the self-heal loop retires it to terminal FAILED. A blocked task has already exhausted its dispatch-retry budget, so leaving it lets the autonomous loop resurrect and re-run it on every restart; retiring caps the backlog and stops the churn. Read at call time (tunable without restart). FAILED stays reopenable by a human. |
 
 ### Operational-incident tracker
 

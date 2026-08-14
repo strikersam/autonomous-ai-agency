@@ -187,6 +187,54 @@ async def test_stuck_task_cleanup(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_blocked_backlog_retires_old_blocked(monkeypatch):
+    """A BLOCKED task older than the retire age becomes terminal FAILED.
+
+    It must be pinned at/above the reconciler's auto-retry cap so the FAILED
+    pass cannot resurrect it, cleared of pending_agent_run, and — critically —
+    keep its execution_log (store.update does a whole-document replace, so the
+    retirement must re-fetch the full task, not persist a log-less copy).
+    """
+    monkeypatch.setenv("BLOCKED_TASK_RETIRE_SEC", "3600")  # 1h
+    monkeypatch.setenv("TASK_AUTO_RETRY_MAX", "5")
+    from tasks.store import TaskStore
+    from tasks.models import Task, TaskStatus
+    from services.self_heal import _heal_blocked_backlog
+
+    store = TaskStore()  # in-memory by default
+
+    old = Task(owner_id="user1", title="Doomed", status=TaskStatus.BLOCKED,
+               blocked_reason="No runtime available after 5 attempts")
+    old.add_log("attempt 5 failed", event_type="runtime_unavailable")
+    old.updated_at = time.time() - 7200  # blocked 2h ago
+    await store.create(old)
+
+    fresh = Task(owner_id="user1", title="Just blocked", status=TaskStatus.BLOCKED,
+                 blocked_reason="brain down")
+    fresh.updated_at = time.time()  # blocked just now
+    await store.create(fresh)
+
+    import tasks.store as ts
+    original_get = ts.get_task_store
+    ts.get_task_store = lambda: store
+    try:
+        result = await _heal_blocked_backlog()
+        assert result["retired"] == 1
+        assert result["blocked_total"] == 2
+
+        retired = await store.get(old.task_id)
+        assert retired.status == TaskStatus.FAILED
+        assert retired.pending_agent_run is False
+        assert retired.auto_retry_count >= 5           # above cap → not resurrected
+        assert len(retired.execution_log) >= 1         # log preserved through replace
+
+        kept = await store.get(fresh.task_id)
+        assert kept.status == TaskStatus.BLOCKED       # too fresh → left alone
+    finally:
+        ts.get_task_store = original_get
+
+
+@pytest.mark.asyncio
 async def test_telegram_no_token():
     """Self-heal skips Telegram when no token is set."""
     from services.self_heal import _heal_telegram

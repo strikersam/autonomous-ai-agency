@@ -29,6 +29,26 @@ _PRIORITY_RANK: dict[str, int] = {
 # priority ordering is globally exact, small enough to bound the per-tick fetch.
 _PENDING_CANDIDATE_WINDOW = int(os.environ.get("PENDING_CANDIDATE_WINDOW", "500"))
 
+# Fields that are unbounded and append-only, so they dominate a task document's
+# size (execution_log is measured at 10k+ entries / 7 MB+ on long-lived
+# autonomous tasks). A list view never renders them, yet fetching them from the
+# DB and validating them into Task models is what made the Task Board take ~27s
+# and time out. The list endpoints pass ``include_log=False`` to project them
+# out at the query, so they are never pulled off the wire in the first place.
+_HEAVY_LIST_FIELDS = ("execution_log", "workflow_history")
+_LIGHT_LIST_PROJECTION: dict[str, Any] = {"_id": 0, **{f: 0 for f in _HEAVY_LIST_FIELDS}}
+
+
+def _strip_heavy_fields(doc: dict[str, Any]) -> dict[str, Any]:
+    """Return a shallow copy of ``doc`` without the heavy list fields.
+
+    The Mongo path drops them with a projection; the in-memory (SQLite/dev) path
+    holds live dicts, so it must copy-and-drop rather than mutate the stored doc.
+    """
+    if not any(f in doc for f in _HEAVY_LIST_FIELDS):
+        return doc
+    return {k: v for k, v in doc.items() if k not in _HEAVY_LIST_FIELDS}
+
 
 def _priority_rank(priority: Any) -> int:
     """Numeric rank for a task priority (higher = more urgent).
@@ -232,6 +252,7 @@ class TaskStore:
         limit: int = 50,
         offset: int = 0,
         include_system: bool = True,
+        include_log: bool = True,
     ) -> list[Task]:
         """List tasks for a specific user with optional filters.
 
@@ -241,6 +262,11 @@ class TaskStore:
         Without this, agent-created tasks were returned by the admin/global API
         but filtered out of the owner-scoped Task Board, so the human operator
         could never see what the agents were doing.
+
+        ``include_log`` (default True) fetches the full task document. Pass
+        ``False`` from list views to project out the unbounded append-only
+        fields (:data:`_HEAVY_LIST_FIELDS`) at the query, which is what keeps a
+        backlog of long-lived tasks from making the board slow to load.
         """
         owner_match: Any = (
             {"$in": [owner_id, _AGENCY_OWNER_ID]} if include_system else owner_id
@@ -259,8 +285,9 @@ class TaskStore:
             o = v.get("owner_id")
             return o == owner_id or (include_system and o == _AGENCY_OWNER_ID)
 
+        projection = {"_id": 0} if include_log else _LIGHT_LIST_PROJECTION
         if self._mode == "mongo":
-            cursor = self._collection.find(query, {"_id": 0}).sort("created_at", -1).skip(offset).limit(limit)
+            cursor = self._collection.find(query, projection).sort("created_at", -1).skip(offset).limit(limit)
             docs = await cursor.to_list(length=limit)
         else:
             docs = [
@@ -273,6 +300,7 @@ class TaskStore:
             ]
             docs.sort(key=lambda d: _ts_to_float(d.get("created_at", 0)), reverse=True)
             docs = docs[offset: offset + limit]
+            docs = [_strip_heavy_fields(d) for d in docs] if not include_log else docs
 
         return [Task.model_validate(d) for d in docs]
 
@@ -282,14 +310,20 @@ class TaskStore:
         status: TaskStatus | None = None,
         limit: int = 100,
         offset: int = 0,
+        include_log: bool = True,
     ) -> list[Task]:
-        """Admin-only: list all tasks across all users."""
+        """Admin-only: list all tasks across all users.
+
+        ``include_log`` mirrors :meth:`list_for_user` — pass ``False`` from list
+        views to project the unbounded append-only fields out at the query.
+        """
         query: dict[str, Any] = {}
         if status:
             query["status"] = status.value
 
+        projection = {"_id": 0} if include_log else _LIGHT_LIST_PROJECTION
         if self._mode == "mongo":
-            cursor = self._collection.find(query, {"_id": 0}).sort("created_at", -1).skip(offset).limit(limit)
+            cursor = self._collection.find(query, projection).sort("created_at", -1).skip(offset).limit(limit)
             docs = await cursor.to_list(length=limit)
         else:
             docs = list(self._mem.values())
@@ -297,6 +331,7 @@ class TaskStore:
                 docs = [d for d in docs if d.get("status") == status.value]
             docs.sort(key=lambda d: _ts_to_float(d.get("created_at", 0)), reverse=True)
             docs = docs[offset: offset + limit]
+            docs = [_strip_heavy_fields(d) for d in docs] if not include_log else docs
 
         return [Task.model_validate(d) for d in docs]
 

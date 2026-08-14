@@ -265,7 +265,7 @@ async def list_tasks(
                 if cached and time.monotonic() - cached["ts"] < _LIST_ALL_CACHE_TTL:
                     tasks = cached["tasks"]
                 else:
-                    tasks = await store.list_all(status=status, limit=limit, offset=offset)
+                    tasks = await store.list_all(status=status, limit=limit, offset=offset, include_log=False)
                     _LIST_ALL_CACHE[cache_key] = {"tasks": tasks, "ts": time.monotonic()}
                     _evict_stale(_LIST_ALL_CACHE, _LIST_ALL_CACHE_TTL)
     else:
@@ -287,11 +287,16 @@ async def list_tasks(
                         tag=tag,
                         limit=limit,
                         offset=offset,
+                        include_log=False,
                     )
                     _LIST_USER_CACHE[cache_key] = {"tasks": tasks, "ts": time.monotonic()}
                     _evict_stale(_LIST_USER_CACHE, _LIST_USER_CACHE_TTL)
-    # Exclude execution_log from list view — it can be 10k+ entries per task
-    # (7 MB+ response, 27s load time). Full log is available on GET /{task_id}.
+    # The heavy append-only fields (execution_log at 10k+ entries / 7 MB+, plus
+    # workflow_history) are already projected out at the DB query via
+    # ``include_log=False`` above, so they were never fetched or deserialized —
+    # that projection is what fixed the ~27s load / timeout. The comprehension
+    # below is a cheap belt-and-suspenders drop in case a cached Task predates
+    # the projection. Full log is available on GET /{task_id}.
     return {"tasks": [
         {k: v for k, v in task.as_dict().items() if k != "execution_log"}
         for task in tasks
