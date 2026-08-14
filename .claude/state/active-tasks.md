@@ -61,7 +61,6 @@
 | A2 | Multi-Hop ReAct Loop | P0 | `TODO` | — |
 | B1 | Nemotron Reward Model Scoring | P0 | `TODO` | — |
 | C2 | Function Calling (OpenAI-compatible) | P0 | `TODO` | — |
-| F1 | Precise Diff Application (Codebuff-style) | P0 | `TODO` | — |
 | ★5 | Sandboxed Agent Execution | P1 | `TODO` | — |
 | ★6 | Cost Analytics + FTS5 Memory + Constitution | P1 | `TODO` | — |
 | A3 | Capability Registry + Dynamic Tool Discovery | P1 | `TODO` | — |

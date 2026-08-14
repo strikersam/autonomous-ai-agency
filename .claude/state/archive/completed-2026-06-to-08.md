@@ -55,6 +55,11 @@
 | C1 | Structured Output / JSON Mode | P0 | `DONE` | `_json_instruction()` in AnthropicProvider; 10 new tests; 2026-08-07 |
 | ★4 | Skill/Procedural Memory | P1 | `DONE` | `agent/procedural_memory.py` + loop/prompts wiring; 28 new tests; 2026-08-07 |
 | ★7 | Adaptive Loop Halting | P1 | `DONE` | `agent/adaptive_halting.py` AdaptiveHalter (velocity + consecutive-fail gates), wired into AgentRunner.run(); 14 tests (2026-07-13) |
+| 36 | Daily automation 2026-08-13: Anthropic beta headers (mid-conversation tool changes + server-side fallback) | `DONE` | `claude/nifty-pasteur-9404h8` | packages/ai/router.py _get_request_headers(); ANTHROPIC_TOOL_SWAP_BETA + ANTHROPIC_SERVER_FALLBACK_BETA env opt-outs | 2026-08-13 |
+| 37 | Daily automation 2026-08-13: Model catalog — DeepSeek V4 Pro (NIM), gpt-oss-120b (Cerebras), Kimi K2 + QwQ 32B (Groq) | `DONE` | `claude/nifty-pasteur-9404h8` | packages/ai/brain_config.py + packages/ai/cost_tracker.py | 2026-08-13 |
+
+| F1 | Precise Diff Application (Codebuff-style) | P0 | `DONE` | `edit_file(path, old_string, new_string)` in agent/tools.py + capability_registry + prompts; 7 tests; 2026-08-13 |
+
 ## Session Log
 
 | Date | Agent/Tool | Branch | Action |

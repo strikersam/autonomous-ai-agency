@@ -274,6 +274,23 @@ class ProviderConfig:
                     _thinking_budget = 0
                 if _thinking_budget > 0:
                     betas.append("interleaved-thinking-2025-05-14")
+                # Mid-conversation tool swapping (2026-07-01): add/remove tools between
+                # turns without a prompt-cache miss. Enables narrow tool sets per
+                # plan→execute→verify phase. Opt-in; default on for Anthropic provider.
+                _tool_swap = os.environ.get(
+                    "ANTHROPIC_TOOL_SWAP_BETA", "true"
+                ).strip().lower() not in ("0", "false", "no", "off")
+                if _tool_swap:
+                    betas.append("mid-conversation-tool-changes-2026-07-01")
+                # Server-side automatic fallbacks (2026-07-01): Anthropic routes around
+                # rate limits server-side and reports the fallback model + reason in
+                # response metadata. Complements the local watchdog by feeding in-band
+                # pressure signals rather than waiting for timeouts.
+                _server_fallback = os.environ.get(
+                    "ANTHROPIC_SERVER_FALLBACK_BETA", "true"
+                ).strip().lower() not in ("0", "false", "no", "off")
+                if _server_fallback:
+                    betas.append("server-side-fallback-2026-07-01")
                 if betas:
                     headers["anthropic-beta"] = ",".join(betas)
             else:

@@ -118,6 +118,66 @@ class WorkspaceTools:
         self.write_file(path, new_content)
         return {"path": str(target.relative_to(self.root)), "diff": diff}
 
+    def edit_file(self, path: str, old_string: str, new_string: str) -> dict[str, str]:
+        """Precise string replacement — F1 roadmap item (Codebuff/Claude Code-style edit).
+
+        Unlike ``apply_diff`` (which replaces the entire file), this replaces exactly
+        one occurrence of *old_string* with *new_string*, making targeted edits
+        safe on large files without regenerating the whole content.
+
+        Returns a dict with:
+          - ``"path"`` — repo-relative path that was edited
+          - ``"diff"`` — unified-diff showing what changed
+          - ``"error"`` — non-empty when *old_string* was not found (file unchanged)
+        """
+        target = self._resolve_path(path)
+        if not target.exists():
+            return {"path": path, "diff": "", "error": f"file not found: {path!r}"}
+
+        original = target.read_text(encoding="utf-8")
+
+        # Exact match first.
+        if old_string in original:
+            updated = original.replace(old_string, new_string, 1)
+        else:
+            # Whitespace-normalised fallback: strip trailing spaces per line so
+            # that copy-paste differences (e.g. trailing tabs) don't block the edit.
+            stripped_original = "\n".join(l.rstrip() for l in original.splitlines())
+            stripped_old = "\n".join(l.rstrip() for l in old_string.splitlines())
+            if stripped_old in stripped_original:
+                # Rebuild the original with the stripped lines only in the matched block.
+                start = stripped_original.index(stripped_old)
+                prefix_lines = stripped_original[:start].count("\n")
+                end_line = prefix_lines + stripped_old.count("\n") + 1
+                orig_lines = original.splitlines(keepends=True)
+                before = "".join(orig_lines[:prefix_lines])
+                after = "".join(orig_lines[end_line:])
+                updated = before + new_string + after
+                if not updated.endswith("\n") and original.endswith("\n"):
+                    updated += "\n"
+            else:
+                return {
+                    "path": path,
+                    "diff": "",
+                    "error": (
+                        f"old_string not found in {path!r}. "
+                        "Check indentation and whitespace and try again."
+                    ),
+                }
+
+        diff = "\n".join(
+            difflib.unified_diff(
+                original.splitlines(),
+                updated.splitlines(),
+                fromfile=f"a/{path}",
+                tofile=f"b/{path}",
+                n=3,
+                lineterm="",
+            )
+        )
+        target.write_text(updated, encoding="utf-8")
+        return {"path": str(target.relative_to(self.root)), "diff": diff, "error": ""}
+
     def recall_memory(
         self,
         key: str,

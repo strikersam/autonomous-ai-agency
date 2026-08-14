@@ -473,6 +473,34 @@ def _register_builtin_tools(registry: ToolRegistry, workspace_root: str | None =
         return ws.apply_diff(path, new_content)
 
     @registry.agent_tool(
+        name="edit_file",
+        description=(
+            "Precise string replacement in a file (F1 — Codebuff/Claude Code-style edit). "
+            "Replaces exactly one occurrence of old_string with new_string. "
+            "Prefer this over apply_diff for targeted edits on large files — it never "
+            "rewrites content you didn't intend to change."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "Repo-relative path to the file"},
+                "old_string": {
+                    "type": "string",
+                    "description": "Exact text to find (must be unique in the file; include surrounding context lines if needed)",
+                },
+                "new_string": {
+                    "type": "string",
+                    "description": "Replacement text (use empty string to delete old_string)",
+                },
+            },
+            "required": ["path", "old_string", "new_string"],
+        },
+        capabilities=["filesystem", "write", "edit"],
+    )
+    def _edit_file_tool(path: str, old_string: str, new_string: str) -> dict:
+        return ws.edit_file(path, old_string, new_string)
+
+    @registry.agent_tool(
         name="finish",
         description="Signal completion of the current step",
         parameters={

@@ -1,5 +1,5 @@
 fastapi>=0.141.1
-uvicorn[standard]>=0.52.0
+uvicorn[standard]>=0.52.1
 motor>=3.7.1
 pymongo>=4.17.0
 pydantic>=2.13.4
@@ -10,7 +10,7 @@ PyJWT>=2.13.0
 python-multipart>=0.0.30
 itsdangerous>=2.2.0
 jinja2>=3.1.6
-cryptography>=49.0.0
+cryptography>=50.0.0
 
 aiosqlite>=0.22.1  # SQLite async adapter for STORAGE_BACKEND=sqlite
 
@@ -25,13 +25,13 @@ lxml>=6.1.1           # HTML parser for BeautifulSoup (seo_audit.py uses bs4 "lx
 #     (without it, gucci.com-class Akamai sites return a blocked/empty body).
 #   - dnspython: the MX/NS/TXT/CNAME analysis (_analyze_dns) that yields the
 #     ~11 "no-browser-needed" systems (Akamai, Microsoft 365, Salesforce, …).
-curl_cffi>=0.15.0
+curl_cffi>=0.16.0
 dnspython>=2.8.0
 
 # Headless-browser rendering for the website scanner (JS-rendered / bot-protected
 # sites). The Chromium binary is installed in the Docker image (see Dockerfile.backend);
 # where it is absent the scanner gracefully falls back to static-HTML detection.
-playwright>=1.60.0
+playwright>=1.62.0
 
 # CTO-level PDF export for SEO/GEO/AEO/AIO audit reports (services/seo_report_pdf.py).
 # Must stay in sync with the root requirements.txt entry.
@@ -47,7 +47,7 @@ gTTS>=2.5.0
 # THIS file (not root requirements.txt), so langfuse MUST be here — without it,
 # get_langfuse_client() logs "langfuse package not installed" and no traces
 # are emitted, even when LANGFUSE_PUBLIC_KEY/SECRET_KEY are set on Render.
-langfuse>=4.14.2,<5
+langfuse>=4.14.3,<5
 
 # ── Runtime deps that shipped code imports directly ──────────────────────────
 # Same failure mode as the scanner/langfuse entries above: Dockerfile.backend
