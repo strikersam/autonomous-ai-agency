@@ -1,10 +1,19 @@
-name: CI (docs-context stub)
+name: CI (generated-artifact stub)
 
 # Companion to ci.yml / security-gate.yml / codeql: those workflows ignore
-# docs/context/** paths, but branch protection on master requires their
-# check names. Without this stub, docs-only context PRs (the auto-generated
-# implementation plans the agency loop produces) can never satisfy required
-# checks and are permanently unmergeable.
+# docs/context/** and graphify-out/** paths, but branch protection on master
+# requires their check names. Without this stub, a PR touching only those
+# paths can never satisfy required checks and is permanently unmergeable.
+#
+# Two path classes, both machine-generated and both carrying no executable
+# code:
+#   * docs/context/**  — implementation plans the agency loop produces.
+#   * graphify-out/**  — the codebase graph the graphify-refresh hook rebuilds.
+#
+# The two must stay in step with the paths-ignore lists in ci.yml,
+# changelog-check.yml and browser-e2e.yml. They were not: this stub covered
+# only docs/context, so a graphify-only refresh was skipped by the real CI
+# and unmatched here, leaving it blocked with nothing left to run.
 #
 # This is GitHub's documented pattern for "skipped but required checks":
 # a same-named success check for the path class the real workflows skip.
@@ -13,17 +22,17 @@ name: CI (docs-context stub)
 on:
   pull_request:
     branches: ["main", "master"]
-    paths: ["docs/context/**"]
+    paths: ["docs/context/**", "graphify-out/**"]
 
 permissions:
   contents: read
 
 jobs:
   guard:
-    name: Docs-only guard
+    name: Generated-only guard
     runs-on: ubuntu-latest
     outputs:
-      docs_only: ${{ steps.check.outputs.docs_only }}
+      generated_only: ${{ steps.check.outputs.generated_only }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -33,80 +42,86 @@ jobs:
           git fetch origin ${{ github.event.pull_request.base.sha }} --quiet
           CHANGED=$(git diff --name-only ${{ github.event.pull_request.base.sha }} ${{ github.event.pull_request.head.sha }})
           echo "$CHANGED"
-          if echo "$CHANGED" | grep -qv '^docs/context/'; then
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          # One path outside the generated classes means real code is in play:
+          # the path filters then let the real CI run, and this stub must stand
+          # down rather than report a second, hollow success under the same
+          # check name. The file list is re-derived here rather than trusted
+          # from the event, so adding a source file to a graphify-only PR
+          # cannot buy a free pass.
+          if echo "$CHANGED" | grep -qvE '^(docs/context/|graphify-out/)'; then
+            echo "generated_only=false" >> "$GITHUB_OUTPUT"
           else
-            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+            echo "generated_only=true" >> "$GITHUB_OUTPUT"
           fi
 
   test:
     name: Test (Python 3.13)
     needs: guard
-    if: needs.guard.outputs.docs_only == 'true'
+    if: needs.guard.outputs.generated_only == 'true'
     runs-on: ubuntu-latest
     steps:
-      - run: echo "docs/context-only change — real CI intentionally skipped"
+      - run: echo "generated-artifact-only change — real CI intentionally skipped"
 
   frontend:
     name: Frontend test + build
     needs: guard
-    if: needs.guard.outputs.docs_only == 'true'
+    if: needs.guard.outputs.generated_only == 'true'
     runs-on: ubuntu-latest
     steps:
-      - run: echo "docs/context-only change — skipped"
+      - run: echo "generated-artifact-only change — skipped"
 
   lint:
     name: Lint check
     needs: guard
-    if: needs.guard.outputs.docs_only == 'true'
+    if: needs.guard.outputs.generated_only == 'true'
     runs-on: ubuntu-latest
     steps:
-      - run: echo "docs/context-only change — skipped"
+      - run: echo "generated-artifact-only change — skipped"
 
   secrets:
     name: Secret / Credential Scan
     needs: guard
-    if: needs.guard.outputs.docs_only == 'true'
+    if: needs.guard.outputs.generated_only == 'true'
     runs-on: ubuntu-latest
     steps:
-      - run: echo "docs/context-only change — skipped"
+      - run: echo "generated-artifact-only change — skipped"
 
   cve:
     name: Dependency CVE Audit
     needs: guard
-    if: needs.guard.outputs.docs_only == 'true'
+    if: needs.guard.outputs.generated_only == 'true'
     runs-on: ubuntu-latest
     steps:
-      - run: echo "docs/context-only change — skipped"
+      - run: echo "generated-artifact-only change — skipped"
 
   bandit:
     name: Bandit SAST
     needs: guard
-    if: needs.guard.outputs.docs_only == 'true'
+    if: needs.guard.outputs.generated_only == 'true'
     runs-on: ubuntu-latest
     steps:
-      - run: echo "docs/context-only change — skipped"
+      - run: echo "generated-artifact-only change — skipped"
 
   codeql-python:
     name: Analyze (python)
     needs: guard
-    if: needs.guard.outputs.docs_only == 'true'
+    if: needs.guard.outputs.generated_only == 'true'
     runs-on: ubuntu-latest
     steps:
-      - run: echo "docs/context-only change — skipped"
+      - run: echo "generated-artifact-only change — skipped"
 
   codeql-js:
     name: Analyze (javascript-typescript)
     needs: guard
-    if: needs.guard.outputs.docs_only == 'true'
+    if: needs.guard.outputs.generated_only == 'true'
     runs-on: ubuntu-latest
     steps:
-      - run: echo "docs/context-only change — skipped"
+      - run: echo "generated-artifact-only change — skipped"
 
   security-gate:
     name: Security Gate — No New Alerts
     needs: guard
-    if: needs.guard.outputs.docs_only == 'true'
+    if: needs.guard.outputs.generated_only == 'true'
     runs-on: ubuntu-latest
     steps:
-      - run: echo "docs/context-only change — no code, no new alerts"
+      - run: echo "generated-artifact-only change — no code, no new alerts"

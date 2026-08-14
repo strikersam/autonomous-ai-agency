@@ -1,0 +1,33 @@
+---
+name: Test
+on: [push]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [24]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Run tests
+        run: |
+          pip install pytest
+          pytest tests/
+      - name: Docker Setup for MongoDB (if applicable)
+        run: |
+          # Ensure Docker is set up correctly for MongoDB, if used in tests
+          # Example setup might include:
+          # docker-compose up -d mongo
+          # Your specific Docker/MongoDB setup commands here
+      - name: Stop Docker Containers (Cleanup)
+        run: |
+          docker rm -f $(docker ps -aq)
+          docker network rm github_network_6a6e751571d84a0f8346d727576ff3cc || true
