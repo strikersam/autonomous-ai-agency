@@ -24,6 +24,11 @@ _PRIORITY_RANK: dict[str, int] = {
     TaskPriority.LOW.value: 0,
 }
 
+# How many oldest-updated pending tasks list_pending() fetches before ranking
+# them by priority in Python. Large enough to cover a realistic backlog so the
+# priority ordering is globally exact, small enough to bound the per-tick fetch.
+_PENDING_CANDIDATE_WINDOW = int(os.environ.get("PENDING_CANDIDATE_WINDOW", "500"))
+
 
 def _priority_rank(priority: Any) -> int:
     """Numeric rank for a task priority (higher = more urgent).
@@ -306,40 +311,37 @@ class TaskStore:
         The priority tiebreak lets urgent/high work surface ahead of stale
         low-value tasks while still draining oldest-first within each tier.
         """
-        match = {
-            "pending_agent_run": True,
-            "status": {"$in": [TaskStatus.TODO.value, TaskStatus.IN_PROGRESS.value]},
-        }
+        # Fetch an oldest-updated-first candidate window, then rank by priority
+        # in Python. The ranking is deliberately NOT a DB-side aggregation: the
+        # SQLite storage shim's aggregate() only implements $match/$sort/$limit/
+        # $group and silently drops $addFields/$switch/$project, so a pipeline
+        # would rank nothing there. A plain find().sort() works identically on
+        # both Mongo and the shim, and Python does the priority tiebreak.
+        #
+        # The window covers more than ``limit`` so a high-priority task that is
+        # not among the very oldest still surfaces; at the current backlog size
+        # this fetches the whole pending set, so the ordering is globally exact.
+        window = max(limit, _PENDING_CANDIDATE_WINDOW)
         if self._mode == "mongo":
-            # Rank in the pipeline so the DB does the ordering; unknown/absent
-            # priorities fall to 0 (same as LOW) rather than erroring.
-            pipeline = [
-                {"$match": match},
-                {"$addFields": {"_prank": {"$switch": {
-                    "branches": [
-                        {"case": {"$eq": ["$priority", TaskPriority.URGENT.value]}, "then": 3},
-                        {"case": {"$eq": ["$priority", TaskPriority.HIGH.value]}, "then": 2},
-                        {"case": {"$eq": ["$priority", TaskPriority.MEDIUM.value]}, "then": 1},
-                    ],
-                    "default": 0,
-                }}}},
-                {"$sort": {"_prank": -1, "updated_at": 1}},
-                {"$limit": limit},
-                {"$project": {"_id": 0, "_prank": 0}},
-            ]
-            docs = await self._collection.aggregate(pipeline).to_list(length=limit)
+            cursor = self._collection.find(
+                {"pending_agent_run": True,
+                 "status": {"$in": [TaskStatus.TODO.value, TaskStatus.IN_PROGRESS.value]}},
+                {"_id": 0},
+            ).sort("updated_at", 1).limit(window)
+            docs = await cursor.to_list(length=window)
         else:
             docs = [
                 value for value in self._mem.values()
                 if value.get("pending_agent_run") is True
                 and value.get("status") in {TaskStatus.TODO.value, TaskStatus.IN_PROGRESS.value}
             ]
-            docs.sort(key=lambda d: (
-                -_priority_rank(d.get("priority")),
-                _ts_to_float(d.get("updated_at", d.get("created_at", 0))),
-            ))
-            docs = docs[:limit]
-        return [Task.model_validate(d) for d in docs]
+            docs.sort(key=lambda d: _ts_to_float(d.get("updated_at", d.get("created_at", 0))))
+            docs = docs[:window]
+        docs.sort(key=lambda d: (
+            -_priority_rank(d.get("priority")),
+            _ts_to_float(d.get("updated_at", d.get("created_at", 0))),
+        ))
+        return [Task.model_validate(d) for d in docs[:limit]]
 
     async def list_blocked(self, *, limit: int = 50) -> list[Task]:
         """Return BLOCKED tasks that are candidates for auto-retry."""
