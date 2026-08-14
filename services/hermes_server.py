@@ -137,6 +137,18 @@ async def run_task(
     )
 
     t0 = time.monotonic()
+    # This Hermes server IS a sanctioned autonomous execution endpoint — it exists
+    # solely to run the internal agent for the HermesAdapter. It reaches the
+    # adapter over an HTTP hop (the adapter POSTs to this in-process server on
+    # :8100), and a ContextVar does not cross that boundary: the orchestrator
+    # ``_BYPASS`` set by the calling coordinator lives in the caller's context,
+    # not in this request handler's. Without re-establishing it here, every task
+    # routed through the Hermes runtime hits AgentRunner.run()'s orchestrator-mode
+    # block and fails 100% of the time. Set it locally around the execute() call,
+    # exactly as the other sanctioned callers (tasks/service.py, ceo_dispatcher,
+    # direct_chat) do, and always reset it in ``finally`` so it never leaks.
+    from services import workflow_orchestrator as _wo
+    _bypass_token = _wo._BYPASS.set(True)
     try:
         result = await InternalAgentAdapter().execute(spec)
     except Exception as exc:  # noqa: BLE001 — surface as a failed task, never 500-crash
@@ -149,6 +161,8 @@ async def run_task(
             "artifacts": [],
             "elapsed_ms": int((time.monotonic() - t0) * 1000),
         }
+    finally:
+        _wo._BYPASS.reset(_bypass_token)
 
     return {
         "task_id": task_id,

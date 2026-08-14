@@ -2516,7 +2516,18 @@ async def _ensure_tasks_source_id_unique_index() -> None:
     except Exception as exc:
         log.debug("pre-index task dedup pass failed (non-fatal): %s", exc)
     try:
-        await get_db().tasks.create_index("source_id", unique=True, sparse=True)
+        # A partial index — not sparse — is required here. A sparse unique index
+        # still indexes documents whose ``source_id`` is present-but-null, so the
+        # many tasks written with an explicit ``source_id: null`` all collide on
+        # the null key and the build fails outright (E11000 dup key {source_id:
+        # null}). ``partialFilterExpression`` restricts the index to documents
+        # whose ``source_id`` is an actual string, so nulls are excluded entirely
+        # and uniqueness is still enforced on real source ids.
+        await get_db().tasks.create_index(
+            "source_id",
+            unique=True,
+            partialFilterExpression={"source_id": {"$type": "string"}},
+        )
     except Exception as exc:
         log.warning(
             "tasks.source_id unique index build failed (likely pre-existing "
@@ -7709,7 +7720,7 @@ async def _autonomy_bg_cycle():
             except Exception as exc:
                 dispatch_status["error"] = str(exc)[:200]
         _autonomy_dispatch_cache = dispatch_status
-        _autonomy_bg_last_run = time.time()
+        _autonomy_bg_last_run = _time.time()
     except Exception as exc:
         log.warning("Autonomy background cycle error: %s", exc)
 

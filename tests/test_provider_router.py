@@ -175,7 +175,9 @@ async def test_provider_router_records_failure_on_failed_provider(monkeypatch):
     failures: list[str] = []
     successes: list[str] = []
 
-    def _stub_record_failure(provider):
+    def _stub_record_failure(provider, status_code=None):
+        # Mirrors the real WatchdogState.record_failure signature: the router now
+        # threads the failing HTTP status through so the cause is logged.
         failures.append(provider)
         return None  # never trigger failover in this test
     def _stub_record_success(provider):

@@ -49,15 +49,42 @@ UNKNOWN_AGENT_ID = "agent:unknown"
 SYSTEM_OWNER = "system"
 
 
-def slugify_agent(name: str | None) -> str:
+def _coerce_text(value: Any) -> str:
+    """Best-effort text from a loosely-typed context value. Never raises.
+
+    Identity is derived from whatever the caller happens to hold in
+    ``spec.context``, and callers are not uniform: ``runtimes/routing.py`` passes
+    ``context.get("agent_name") or context.get("agent")``, and ``context["agent"]``
+    is sometimes a full agent-profile *dict*, not a name string. Every derivation
+    site here then calls ``.strip()``, which raises ``AttributeError`` on a dict —
+    the governance seam catches it and fails *open*, so a mis-typed context value
+    silently disables policy enforcement for that dispatch. Coercing to text here
+    keeps the module's promised totality: a dict yields its best name field, any
+    other non-string yields ``str(value)``, and ``None``/empty yield ``""``.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        for key in ("name", "agent_name", "display_name", "id", "slug"):
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate
+        return ""
+    return str(value)
+
+
+def slugify_agent(name: Any = None) -> str:
     """Return the stable ``agent:<slug>`` id for a human agent name.
 
     Deterministic and total: any input yields a usable id, because an agent
     that cannot be named must still be governable. Unnamed callers collapse
     to :data:`UNKNOWN_AGENT_ID`, which the default policy group treats as
-    least-privileged.
+    least-privileged. Non-string inputs (e.g. an agent-profile dict) are coerced
+    to text rather than raising — see :func:`_coerce_text`.
     """
-    slug = _SLUG_STRIP_RE.sub("-", (name or "").strip().lower()).strip("-")
+    slug = _SLUG_STRIP_RE.sub("-", _coerce_text(name).strip().lower()).strip("-")
     return f"agent:{slug}" if slug else UNKNOWN_AGENT_ID
 
 
@@ -158,14 +185,14 @@ def resolve_identity(
     engine falls back to ``default`` when no such group exists.
     """
     agent_id = slugify_agent(agent_name)
-    resolved_owner = (owner or "").strip() or SYSTEM_OWNER
+    resolved_owner = _coerce_text(owner).strip() or SYSTEM_OWNER
     known = {k: v for k, v in context.items() if k in AgentIdentity.__dataclass_fields__}
     return AgentIdentity(
         agent_id=agent_id,
-        display_name=(agent_name or "").strip() or "unknown",
+        display_name=_coerce_text(agent_name).strip() or "unknown",
         owner=resolved_owner,
         roles=tuple(roles or ()),
-        policy_group=(policy_group or "").strip() or agent_id,
+        policy_group=_coerce_text(policy_group).strip() or agent_id,
         session_id=session_id or new_session_id(),
         **known,
     )

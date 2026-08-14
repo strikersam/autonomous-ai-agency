@@ -30,6 +30,29 @@ _DEFAULT_MAX_FAILURES = int(os.environ.get("BRAIN_WATCHDOG_MAX_FAILURES", "3"))
 from packages.ai import brain_config as _bcs  # noqa: E402
 
 
+def _classify_failure_cause(status_code: int | None) -> str:
+    """Human-readable cause for a provider failure HTTP status.
+
+    Turns a bare status into the operator's next action, so a failure log tells
+    a dead key apart from a transient limit at a glance. Returns ``""`` when the
+    status is unknown, so the log degrades to the historical "failure #N" line
+    rather than inventing a cause.
+    """
+    if status_code is None:
+        return ""
+    if status_code in (401, 403):
+        return f"auth failed (HTTP {status_code}) — check/rotate the API key"
+    if status_code == 402:
+        return f"payment required (HTTP {status_code}) — free quota exhausted"
+    if status_code in (429, 419):
+        return f"rate limited (HTTP {status_code}) — transient, backs off"
+    if status_code == 404:
+        return f"model not found (HTTP {status_code}) — check the model id"
+    if status_code >= 500:
+        return f"provider server error (HTTP {status_code}) — transient"
+    return f"HTTP {status_code}"
+
+
 def _is_provider_actually_available(provider: str) -> bool:
     """Check if a provider is actually available (not just has a key).
 
@@ -90,13 +113,22 @@ class BrainWatchdog:
                      provider, self._failure_counts[provider])
         self._failure_counts[provider] = 0
 
-    def record_failure(self, provider: str) -> str | None:
-        """Record a provider failure. Returns the new provider if failover triggered."""
+    def record_failure(self, provider: str, status_code: int | None = None) -> str | None:
+        """Record a provider failure. Returns the new provider if failover triggered.
+
+        ``status_code`` is the HTTP status of the failing call when the caller
+        knows it. It is logged as a human-readable cause so the failure log can
+        answer "is this key dead or just rate-limited?" — the two need opposite
+        responses (rotate the key vs wait it out), and "failure #N" alone can
+        tell them apart for no one.
+        """
         provider = self._normalize_provider(provider)
         count = self._failure_counts.get(provider, 0) + 1
         self._failure_counts[provider] = count
-        log.warning("Brain watchdog: %s failure #%d (threshold=%d)",
-                    provider, count, self.max_failures)
+        cause = _classify_failure_cause(status_code)
+        log.warning("Brain watchdog: %s failure #%d (threshold=%d)%s",
+                    provider, count, self.max_failures,
+                    f" — {cause}" if cause else "")
 
         if count >= self.max_failures:
             return self._trigger_failover(provider)
