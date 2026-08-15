@@ -245,6 +245,16 @@ class AuditLog:
         self._lock = threading.Lock()
         self._sinks: list[Callable[[AuditEvent], None]] = []
         self._counters: dict[str, int] = {}
+        # All-time accumulators. The ring buffer only holds the most recent N
+        # events, so aggregating over it silently undercounts once the buffer
+        # wraps — a summary that labels a windowed sum "total_cost_usd" is stale
+        # the moment the (N+1)th event lands. These are updated at record() time
+        # so the summary reports true totals independent of the buffer window.
+        self._total_recorded = 0
+        self._total_blocked = 0
+        self._total_cost_usd = 0.0
+        self._total_tokens = 0
+        self._by_agent_total: dict[str, int] = {}
 
     def add_sink(self, sink: Callable[[AuditEvent], None]) -> None:
         with self._lock:
@@ -259,6 +269,15 @@ class AuditLog:
                 self._bump(f"surface.{event.surface}")
                 if event.result_status:
                     self._bump(f"status.{event.result_status}")
+                # All-time accumulators — survive ring-buffer eviction.
+                self._total_recorded += 1
+                if event.decision in ("deny", "require_approval"):
+                    self._total_blocked += 1
+                self._total_cost_usd += event.cost_usd or 0.0
+                self._total_tokens += event.total_tokens or 0
+                self._by_agent_total[event.agent_id] = (
+                    self._by_agent_total.get(event.agent_id, 0) + 1
+                )
                 sinks = list(self._sinks)
             audit_log.info("%s", event.to_json())
             for sink in sinks:
@@ -310,22 +329,29 @@ class AuditLog:
         ``would_block`` is the number that decides whether ``enforce`` mode is
         safe to turn on: it counts decisions that blocked, or that *would*
         have blocked had the engine been enforcing.
+
+        The ``total_*``/``would_block``/``by_agent`` figures are **all-time**
+        accumulators, not sums over the bounded ring buffer — the buffer only
+        keeps the most recent ``capacity`` events, so aggregating over it would
+        silently undercount once it wraps. ``buffered_events`` reports how many
+        events the in-memory window currently holds (for the recent-events view),
+        while ``total_recorded`` is the true all-time count.
         """
         with self._lock:
-            events = list(self._events)
             counters = dict(self._counters)
-        blocked = sum(1 for e in events if e.decision in ("deny", "require_approval"))
-        cost = sum(e.cost_usd for e in events)
-        tokens = sum(e.total_tokens for e in events)
-        by_agent: dict[str, int] = {}
-        for event in events:
-            by_agent[event.agent_id] = by_agent.get(event.agent_id, 0) + 1
+            buffered = len(self._events)
+            total_recorded = self._total_recorded
+            total_blocked = self._total_blocked
+            total_cost = self._total_cost_usd
+            total_tokens = self._total_tokens
+            by_agent = dict(self._by_agent_total)
         return {
-            "buffered_events": len(events),
+            "buffered_events": buffered,
+            "total_recorded": total_recorded,
             "capacity": self._events.maxlen,
-            "would_block": blocked,
-            "total_cost_usd": round(cost, 6),
-            "total_tokens": tokens,
+            "would_block": total_blocked,
+            "total_cost_usd": round(total_cost, 6),
+            "total_tokens": total_tokens,
             "by_agent": by_agent,
             "counters": counters,
         }
@@ -334,6 +360,11 @@ class AuditLog:
         with self._lock:
             self._events.clear()
             self._counters.clear()
+            self._total_recorded = 0
+            self._total_blocked = 0
+            self._total_cost_usd = 0.0
+            self._total_tokens = 0
+            self._by_agent_total.clear()
 
 
 _AUDIT_LOG: AuditLog | None = None

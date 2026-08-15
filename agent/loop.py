@@ -827,7 +827,12 @@ class AgentRunner:
                 from agent.lessons import record_step_failures
                 record_step_failures(plan.goal, step_results)
             except Exception:
-                pass
+                # The learning loop persists failure causes so the next run's
+                # planner avoids them — a broken lessons store means the same
+                # mistake recurs forever, silently. WARNING (not a bare pass or a
+                # DEBUG line dropped at prod's INFO threshold) so the breakage is
+                # visible, while still never failing the run it is learning from.
+                log.warning("Recording step failures for the learning loop failed (non-fatal)", exc_info=True)
 
             # ── Continual Harness: promote a lesson seen more than once into a
             # standing instruction the next planner reads (agent/harness_spec.py).
@@ -944,8 +949,10 @@ class AgentRunner:
             _lessons = recent_lessons_block()
             if _lessons and messages and messages[0].get("role") == "system":
                 messages[0]["content"] = f"{messages[0]['content']}\n\n{_lessons}"
-        except Exception:
-            pass
+        except Exception as exc:
+            # Best-effort planner enrichment: proceed without the lessons block
+            # rather than fail planning, but do not swallow silently.
+            log.debug("Lessons-block injection failed (non-fatal): %s", exc)
         # ── Microagents: OpenHands-style keyword-triggered repo knowledge
         # (.openhands/microagents/*.md) injected when the instruction matches
         # a trigger (agent/microagents.py).
@@ -954,8 +961,10 @@ class AgentRunner:
             _knowledge = microagents_block(instruction, root=self.tools.root)
             if _knowledge and messages and messages[0].get("role") == "system":
                 messages[0]["content"] = f"{messages[0]['content']}\n\n{_knowledge}"
-        except Exception:
-            pass
+        except Exception as exc:
+            # Best-effort repo-knowledge injection: proceed without it rather than
+            # fail planning, but surface the failure instead of swallowing it.
+            log.debug("Microagents-block injection failed (non-fatal): %s", exc)
         planner_decision = get_router().route(
             requested_model=requested_model,
             messages=messages,
@@ -1969,7 +1978,11 @@ class AgentRunner:
 
                     return out_text
                 except Exception as exc:
-                    log.debug("Anthropic Opus call failed (falling back to Ollama): %s", exc)
+                    # A *configured* premium provider silently degrading to Ollama
+                    # is operationally significant; at DEBUG it was invisible in
+                    # production (log threshold starts at INFO), so quality
+                    # regressions from a dead Opus key went unnoticed.
+                    log.warning("Anthropic Opus call failed — falling back to Ollama: %s", exc)
 
             # Bedrock fallback: used when only AWS credentials are set (no ANTHROPIC_API_KEY)
             if _paid_allowed and (not explicit_provider_configured) and (not anthropic_key) and target_is_opus:
@@ -2028,7 +2041,9 @@ class AgentRunner:
                                 pass
                         return out_text
                     except Exception as exc:
-                        log.debug("Bedrock Opus call failed (falling back to Ollama): %s", exc)
+                        # See the Anthropic branch above: a configured premium
+                        # provider degrading to Ollama must be visible in prod.
+                        log.warning("Bedrock Opus call failed — falling back to Ollama: %s", exc)
         except Exception:  # nosec B110 -- KPI tracking is best-effort
             # Any unexpected error should not break the normal Ollama path
             pass

@@ -886,38 +886,42 @@ async def test_handle_execute_does_not_count_unexpected_exceptions(monkeypatch):
 
 # ── FeatureMatrix promotion regression tests (#P1) ───────────────────────────
 
-def test_multi_agent_swarm_promoted_to_beta():
-    """multi_agent_swarm is BETA + enabled (was DISABLED pre-fix).
+def test_multi_agent_swarm_promoted_to_stable():
+    """multi_agent_swarm is STABLE + enabled (was BETA, DISABLED before that).
 
-    The CEO dispatcher (services/ceo_dispatcher.py) now wires MultiAgentSwarm
-    into the golden path as the RuntimeManager-unavailable fallback, so the
-    original "not wired to golden path, no CEO dedupe" gap is closed.
+    The CEO dispatcher (services/ceo_dispatcher.py) wires MultiAgentSwarm into
+    the golden path as the RuntimeManager-unavailable fallback, with per-subtask
+    cross-verification and a durable CEO ledger for supervision/retry — the
+    original "not wired to golden path, no CEO dedupe" gap is closed and the path
+    is test-covered, so the feature is no longer flagged beta.
     """
     from features.matrix import FeatureMaturity, get_feature_matrix, reset_feature_matrix
     reset_feature_matrix()
     entry = get_feature_matrix().get("multi_agent_swarm")
     assert entry is not None, "multi_agent_swarm must be in the matrix"
-    assert entry.maturity == FeatureMaturity.BETA, (
-        f"multi_agent_swarm should be BETA, got {entry.maturity}"
+    assert entry.maturity == FeatureMaturity.STABLE, (
+        f"multi_agent_swarm should be STABLE, got {entry.maturity}"
     )
     assert entry.enabled is True
     # Note must mention the CEO dispatcher as the wiring
     assert "CEO" in entry.notes, "notes must reference the CEO dispatcher wiring"
 
 
-def test_sidecar_runtimes_promoted_to_beta():
-    """sidecar_runtimes is BETA + enabled (was DISABLED pre-fix).
+def test_sidecar_runtimes_promoted_to_stable():
+    """sidecar_runtimes (external agent runtimes) is STABLE + enabled (was BETA,
+    DISABLED before that).
 
-    The CEO dispatcher now calls RuntimeManager.wake_all_sleeping_runtimes()
+    The CEO dispatcher calls RuntimeManager.wake_all_sleeping_runtimes()
     (parallel probes) before every dispatch, so the original "no health
-    guarantee" gap is closed — liveness is verified per request.
+    guarantee" gap is closed — liveness is verified per request and covered by
+    the runtime test suites — so the feature is no longer flagged beta.
     """
     from features.matrix import FeatureMaturity, get_feature_matrix, reset_feature_matrix
     reset_feature_matrix()
     entry = get_feature_matrix().get("sidecar_runtimes")
     assert entry is not None
-    assert entry.maturity == FeatureMaturity.BETA, (
-        f"sidecar_runtimes should be BETA, got {entry.maturity}"
+    assert entry.maturity == FeatureMaturity.STABLE, (
+        f"sidecar_runtimes should be STABLE, got {entry.maturity}"
     )
     assert entry.enabled is True
     # Note must reference the health-check wiring
