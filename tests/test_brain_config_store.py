@@ -30,6 +30,7 @@ from packages.ai.brain_config import (
     default_brain_config,
     get_brain_config,
     invalidate_brain_config_cache,
+    resolve_agent_generation_sync,
     resolve_role_model_sync,
     set_brain_config,
 )
@@ -196,6 +197,78 @@ def test_patch_merges_partial_update(monkeypatch):
     assert applied.planner_model == "qwen-3-coder-480b"
     assert applied.verifier_model == "llama-3.3-70b"
     assert applied.judge_model == "llama-3.3-70b"
+
+
+# ── Agent generation params (max_tokens + request_timeout_sec) ───────────────
+
+
+def test_generation_defaults_when_no_config(monkeypatch):
+    """Cold cache + no env → safe defaults (4096 tokens, 120s)."""
+    import packages.ai.brain_config as mod
+    monkeypatch.setattr(mod, "_store", None)
+    for v in ("AGENT_MAX_OUTPUT_TOKENS", "AGENT_REQUEST_TIMEOUT_SEC"):
+        monkeypatch.delenv(v, raising=False)
+    assert resolve_agent_generation_sync() == (4096, 120)
+
+
+def test_generation_reads_env_on_cold_cache(monkeypatch):
+    import packages.ai.brain_config as mod
+    monkeypatch.setattr(mod, "_store", None)
+    monkeypatch.setenv("AGENT_MAX_OUTPUT_TOKENS", "2048")
+    monkeypatch.setenv("AGENT_REQUEST_TIMEOUT_SEC", "90")
+    assert resolve_agent_generation_sync() == (2048, 90)
+
+
+def test_generation_env_is_clamped(monkeypatch):
+    import packages.ai.brain_config as mod
+    monkeypatch.setattr(mod, "_store", None)
+    monkeypatch.setenv("AGENT_MAX_OUTPUT_TOKENS", "999999")  # over cap → 32768
+    monkeypatch.setenv("AGENT_REQUEST_TIMEOUT_SEC", "5")     # under floor → 15
+    assert resolve_agent_generation_sync() == (32768, 15)
+
+
+def test_generation_prefers_fresh_brainconfig_cache(monkeypatch):
+    """A fresh BrainConfig cache wins over env — the UI value takes effect."""
+    import time as _t
+    import packages.ai.brain_config as mod
+    store = BrainConfigStore()
+    store._cache = BrainConfig(max_tokens=8000, request_timeout_sec=300)
+    store._cache_at = _t.monotonic()
+    monkeypatch.setattr(mod, "_store", store)
+    monkeypatch.setenv("AGENT_MAX_OUTPUT_TOKENS", "2048")  # must be ignored
+    assert resolve_agent_generation_sync() == (8000, 300)
+
+
+def test_patch_round_trips_request_timeout_sec(monkeypatch):
+    """The new UI field persists through a PATCH and is served on the next get."""
+    existing_doc = {
+        "_id": "brain_config",
+        "primary_provider": "cerebras",
+        "planner_model": "qwen-3-coder-480b",
+        "executor_model": "qwen-3-coder-480b",
+        "verifier_model": "llama-3.3-70b",
+        "judge_model": "llama-3.3-70b",
+        "max_tokens": 4096,
+    }
+    captured = {}
+
+    class _FakeCollection:
+        async def find_one(self, q):
+            return captured.get("doc", existing_doc)
+
+        async def update_one(self, q, update, upsert=False):
+            captured["doc"] = dict(update["$set"])
+            captured["doc"]["_id"] = q["_id"]
+            return SimpleNamespace(matched_count=1, upserted_id=None)
+
+    db = MagicMock()
+    db.app_settings = _FakeCollection()
+    with mock_patch("backend.server.get_db", return_value=db):
+        applied = asyncio.run(
+            set_brain_config(BrainConfigPatch(request_timeout_sec=240), actor="a@x.com")
+        )
+    assert applied.request_timeout_sec == 240
+    assert applied.max_tokens == 4096  # untouched
 
 
 # ── Cache invalidation ──────────────────────────────────────────────────────

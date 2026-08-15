@@ -266,6 +266,48 @@ def test_agent_runner_surfaces_structured_planner_failure(tmp_path: Path):
         )
 
 
+def test_chat_text_uses_resolved_max_tokens_and_timeout(tmp_path: Path, monkeypatch):
+    """The agent LLM call must use the BrainConfig budget, not a hardcoded 16384.
+
+    Regression for the production ``planning: TimeoutError``: a slow reasoning
+    model given a 16384-token budget could run the planner past the failover
+    deadline. ``_chat_text`` now resolves ``max_tokens`` + ``request_timeout_sec``
+    from BrainConfig and passes them through to ``failover_chat_completion``.
+    """
+    from types import SimpleNamespace
+    import packages.ai.failover_client as fc
+    import packages.ai.brain_config as bcfg
+
+    # Force the resolver to a known value via env on a cold cache.
+    monkeypatch.setattr(bcfg, "_store", None)
+    monkeypatch.setenv("AGENT_MAX_OUTPUT_TOKENS", "3072")
+    monkeypatch.setenv("AGENT_REQUEST_TIMEOUT_SEC", "45")
+
+    captured = {}
+
+    async def fake_failover(payload, *, timeout_sec):
+        captured["payload"] = payload
+        captured["timeout_sec"] = timeout_sec
+        return SimpleNamespace(
+            text='{"ok": true}', model=payload["model"],
+            prompt_tokens=1, completion_tokens=1, latency_ms=5,
+        )
+
+    monkeypatch.setattr(fc, "failover_chat_completion", fake_failover)
+
+    root = tmp_path / "repo"
+    root.mkdir()
+    # A non-ollama base so _chat_text takes the OpenAI-compatible failover path
+    # (the branch that sets max_tokens), not the Ollama options branch.
+    runner = AgentRunner(ollama_base="https://integrate.api.nvidia.com", workspace_root=root)
+
+    out = asyncio.run(runner._chat_text("meta/llama-3.3-70b-instruct", [{"role": "user", "content": "hi"}]))
+
+    assert out == '{"ok": true}'
+    assert captured["payload"]["max_tokens"] == 3072   # resolved, not 16384
+    assert captured["timeout_sec"] == 45.0             # resolved timeout passed through
+
+
 def test_planning_timeout_names_its_cause(tmp_path: Path):
     """Regression: a planning timeout must not surface as an empty "planning: ".
 
