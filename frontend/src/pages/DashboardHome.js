@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getStats, getActivity, healthCheck } from '../api';
+import { getStats, getActivity, healthCheck, getTaskCounts, listTasks } from '../api';
 import {
   BookOpen, MessageSquare, Upload, Activity, ArrowUpRight, Clock,
   Layers, Key, BarChart3, Box, CheckCircle, AlertCircle
 } from 'lucide-react';
+import AgentTaskStatus from '../components/AgentTaskStatus.jsx';
 
 const categoryDot = {
   chat: 'var(--role-power-user)',
@@ -77,6 +78,8 @@ function HealthBadge({ label, ok }) {
 export default function DashboardHome() {
   const [stats, setStats] = useState(null);
   const [activity, setActivity] = useState([]);
+  const [taskCounts, setTaskCounts] = useState({});
+  const [tasks, setTasks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const nav = useNavigate();
@@ -86,9 +89,11 @@ export default function DashboardHome() {
       setLoading(true);
       setError(null);
       // Use allSettled so a single failing endpoint never tanks the whole dashboard.
-      const [statsResult, activityResult] = await Promise.allSettled([
+      const [statsResult, activityResult, countsResult, tasksResult] = await Promise.allSettled([
         getStats(),
         getActivity(),
+        getTaskCounts(),
+        listTasks({ limit: 6 }),
         // healthCheck is fire-and-forget — we don't block rendering on it
         healthCheck().catch(() => null),
       ]);
@@ -107,6 +112,20 @@ export default function DashboardHome() {
       } else {
         partialFailure = true;
         console.warn('Dashboard: activity endpoint failed', activityResult.reason);
+      }
+
+      // Task board (counts + recent rows) is best-effort — a failure here only
+      // hides the Agent Tasks section, it must not banner the whole dashboard.
+      if (countsResult.status === 'fulfilled') {
+        setTaskCounts(countsResult.value?.data?.counts ?? {});
+      } else {
+        console.warn('Dashboard: task counts endpoint failed', countsResult.reason);
+      }
+
+      if (tasksResult.status === 'fulfilled') {
+        setTasks(tasksResult.value?.data?.tasks ?? []);
+      } else {
+        console.warn('Dashboard: tasks endpoint failed', tasksResult.reason);
       }
 
       if (partialFailure) {
@@ -206,6 +225,17 @@ export default function DashboardHome() {
           value={stats?.api_keys ?? 0} 
           accent="var(--warning)" 
           onClick={() => nav('/admin')} 
+        />
+      </div>
+
+      {/* Agent Tasks — durable task board summary + recent rows */}
+      <div className="mb-6">
+        <AgentTaskStatus
+          counts={taskCounts}
+          tasks={tasks}
+          loading={loading}
+          onViewAll={() => nav('/tasks')}
+          onSelectTask={() => nav('/tasks')}
         />
       </div>
 
