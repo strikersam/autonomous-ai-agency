@@ -112,3 +112,62 @@ async def test_reject_execution_blocks(store, workflow):
     assert task.execution_approved is False
     assert task.status is TaskStatus.BLOCKED
     assert "not now" in (task.blocked_reason or "")
+
+
+@pytest.mark.asyncio
+async def test_outward_facing_task_is_auto_gated(store, monkeypatch):
+    # An outward-facing autonomous task (opens a PR) never sets requires_approval,
+    # so it must be promoted at dispatch and parked for the Telegram prompt.
+    monkeypatch.setenv("AGENCY_GATE_OUTWARD_FACING", "true")
+    rm = _RecordingRuntimeManager()
+    task = Task(
+        owner_id="o@x.com",
+        title="Fix issue #42",
+        task_type="issue_intake",       # commits + PR → outward-facing
+        requires_approval=False,
+        pending_agent_run=True,
+    )
+    await store.create(task)
+
+    updated = await _coordinator(store, rm).execute(task.task_id)
+
+    assert rm.calls == 0, "outward-facing task must NOT run before approval"
+    assert updated.requires_approval is True     # promoted by the dispatcher
+    assert updated.pending_agent_run is False     # parked at the gate
+
+
+@pytest.mark.asyncio
+async def test_internal_task_is_not_auto_gated(store, monkeypatch):
+    # An internal task (research/scheduling) stays fully autonomous.
+    monkeypatch.setenv("AGENCY_GATE_OUTWARD_FACING", "true")
+    rm = _RecordingRuntimeManager()
+    task = Task(
+        owner_id="o@x.com",
+        title="Scan trends",
+        task_type="trend_scoping",       # internal → not gated
+        requires_approval=False,
+        pending_agent_run=True,
+    )
+    await store.create(task)
+
+    await _coordinator(store, rm).execute(task.task_id)
+
+    assert rm.calls == 1, "internal task must reach the runtime without a prompt"
+
+
+@pytest.mark.asyncio
+async def test_outward_facing_gate_respects_disable_flag(store, monkeypatch):
+    monkeypatch.setenv("AGENCY_GATE_OUTWARD_FACING", "false")
+    rm = _RecordingRuntimeManager()
+    task = Task(
+        owner_id="o@x.com",
+        title="Fix issue #42",
+        task_type="issue_intake",
+        requires_approval=False,
+        pending_agent_run=True,
+    )
+    await store.create(task)
+
+    await _coordinator(store, rm).execute(task.task_id)
+
+    assert rm.calls == 1, "with the gate disabled, outward-facing tasks stay autonomous"
