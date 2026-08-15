@@ -764,6 +764,13 @@ class BrainConfig(BaseModel):
     verifier_model: str = Field(default=SAFE_DEFAULT_MODEL, min_length=1, max_length=200)
     judge_model: str = Field(default=SAFE_DEFAULT_MODEL, min_length=1, max_length=200)
     max_tokens: int = Field(default=4096, ge=256, le=32768)
+    # Per-request LLM timeout for agent-loop calls (planner/executor/verifier),
+    # in seconds. UI-configurable so an operator who picks a slower/larger model
+    # can give it room, or tighten it to fail over to a faster provider sooner.
+    # The agent loop reads this via ``resolve_agent_generation_sync`` and passes
+    # it to ``failover_chat_completion`` — a planner call that previously hung the
+    # full 16384-token budget on a slow reasoning model is bounded here.
+    request_timeout_sec: int = Field(default=120, ge=15, le=600)
     # UI-configurable Ollama base URL (a tunnel URL when the brain runs on a
     # local/remote Ollama). Empty → fall back to OLLAMA_BASE env / localhost.
     # Lets the operator point the brain at their own GPU from the Brain card
@@ -838,6 +845,7 @@ class BrainConfigPatch(BaseModel):
     verifier_model: str | None = Field(default=None, min_length=1, max_length=200)
     judge_model: str | None = Field(default=None, min_length=1, max_length=200)
     max_tokens: int | None = Field(default=None, ge=256, le=32768)
+    request_timeout_sec: int | None = Field(default=None, ge=15, le=600)
     # Empty string is allowed (clears the override → fall back to env/localhost);
     # min_length is therefore 0, unlike the model fields.
     ollama_base_url: str | None = Field(default=None, max_length=300)
@@ -1242,6 +1250,63 @@ def resolve_role_model_sync(role: str, requested: str | None = None) -> str:
 
     # 4. Safe default.
     return SAFE_DEFAULT_MODEL
+
+
+_DEFAULT_AGENT_MAX_TOKENS = 4096
+_DEFAULT_AGENT_TIMEOUT_SEC = 120
+
+
+def resolve_agent_generation_sync() -> tuple[int, int]:
+    """Return ``(max_output_tokens, request_timeout_sec)`` for an agent LLM call.
+
+    Same cache-first, never-blocking contract as :func:`resolve_role_model_sync`:
+    the hot agent loop calls this on every planner/executor/verifier request, so
+    it reads the process-wide BrainConfig cache when fresh and otherwise falls
+    back to env then a safe default rather than awaiting the DB.
+
+    Precedence per value (highest to lowest):
+      1. BrainConfig cache (``max_tokens`` / ``request_timeout_sec``) if fresh
+      2. Env (``AGENT_MAX_OUTPUT_TOKENS`` / ``AGENT_REQUEST_TIMEOUT_SEC``)
+      3. Safe default (4096 tokens / 120s)
+
+    Both values are the fix for the production ``planning: TimeoutError``: the
+    loop previously hardcoded a 16384-token budget, so a slow reasoning model
+    could spend minutes generating thinking tokens and blow the failover budget.
+    Capping the budget (and making the timeout tunable from the Brain card)
+    bounds it. Never raises.
+    """
+    max_tokens = _DEFAULT_AGENT_MAX_TOKENS
+    timeout = _DEFAULT_AGENT_TIMEOUT_SEC
+
+    # 1. BrainConfig cache (if fresh).
+    try:
+        if _store is not None and _store._cache is not None:
+            if (time.monotonic() - _store._cache_at) < _CACHE_TTL_SECONDS:
+                mt = getattr(_store._cache, "max_tokens", None)
+                if isinstance(mt, int) and mt > 0:
+                    max_tokens = mt
+                ts = getattr(_store._cache, "request_timeout_sec", None)
+                if isinstance(ts, int) and ts > 0:
+                    timeout = ts
+                return max_tokens, timeout
+    except Exception:  # noqa: BLE001 — defensive; never block the loop
+        pass
+
+    # 2. Env fallbacks (kept working so nothing regresses on a cold cache).
+    try:
+        v = (os.environ.get("AGENT_MAX_OUTPUT_TOKENS") or "").strip()
+        if v:
+            max_tokens = max(256, min(int(v), 32768))
+    except (TypeError, ValueError):
+        pass
+    try:
+        v = (os.environ.get("AGENT_REQUEST_TIMEOUT_SEC") or "").strip()
+        if v:
+            timeout = max(15, min(int(v), 600))
+    except (TypeError, ValueError):
+        pass
+
+    return max_tokens, timeout
 
 
 async def resolve_role_model(role: str, requested: str | None = None) -> str:

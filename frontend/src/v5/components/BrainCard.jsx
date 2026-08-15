@@ -116,7 +116,8 @@ export default function BrainCard() {
         executor_model:   data.config.executor_model,
         verifier_model:   data.config.verifier_model,
         judge_model:      data.config.judge_model,
-        max_tokens:       data.config.max_tokens,
+        max_tokens:          data.config.max_tokens,
+        request_timeout_sec: data.config.request_timeout_sec,
         ollama_base_url:  data.config.ollama_base_url || '',
       });
     } catch (e) {
@@ -186,6 +187,7 @@ export default function BrainCard() {
     if (draft.verifier_model   !== config.verifier_model)   patch.verifier_model   = draft.verifier_model;
     if (draft.judge_model      !== config.judge_model)      patch.judge_model      = draft.judge_model;
     if (draft.max_tokens       !== config.max_tokens)       patch.max_tokens       = draft.max_tokens;
+    if (draft.request_timeout_sec !== config.request_timeout_sec) patch.request_timeout_sec = draft.request_timeout_sec;
     if ((draft.ollama_base_url || '') !== (config.ollama_base_url || '')) patch.ollama_base_url = draft.ollama_base_url || '';
     if (Object.keys(patch).length === 0) {
       setApplyError('No changes to apply.');
@@ -313,6 +315,38 @@ export default function BrainCard() {
               </div>
             );
           })}
+        </div>
+
+        {/* Generation limits — bound planner cost/latency (fixes planning timeouts) */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+          <div style={styles.roleRow}>
+            <div style={{ minWidth: 70 }}>
+              <div style={styles.roleLabel}>Max tokens</div>
+            </div>
+            <input
+              type="number"
+              min={256}
+              max={32768}
+              value={draft?.max_tokens ?? ''}
+              onChange={(e) => updateDraft('max_tokens', Number(e.target.value) || 0)}
+              placeholder="4096"
+              style={styles.input}
+            />
+          </div>
+          <div style={styles.roleRow}>
+            <div style={{ minWidth: 70 }}>
+              <div style={styles.roleLabel}>Timeout (s)</div>
+            </div>
+            <input
+              type="number"
+              min={15}
+              max={600}
+              value={draft?.request_timeout_sec ?? ''}
+              onChange={(e) => updateDraft('request_timeout_sec', Number(e.target.value) || 0)}
+              placeholder="120"
+              style={styles.input}
+            />
+          </div>
         </div>
 
         {/* Apply / status */}

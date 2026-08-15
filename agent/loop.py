@@ -1781,6 +1781,19 @@ class AgentRunner:
         """
         payload: dict[str, Any] = {"model": model, "messages": messages, "stream": False}
 
+        # Resolve the output-token budget and per-request timeout from the
+        # UI-editable BrainConfig (cache-first, env fallback, safe default). The
+        # loop previously hardcoded a 16384-token budget, so a slow reasoning
+        # model could spend minutes generating thinking tokens and blow the
+        # failover budget — the production ``planning: TimeoutError``. Bounding
+        # the budget (default 4096) and making both tunable from the Brain card
+        # is the fix. Never raises.
+        try:
+            from packages.ai.brain_config import resolve_agent_generation_sync
+            _agent_max_tokens, _agent_timeout_sec = resolve_agent_generation_sync()
+        except Exception:  # noqa: BLE001 — never block the loop on config
+            _agent_max_tokens, _agent_timeout_sec = 4096, 120
+
         # Context pruning: enforce token budgets before sending to the LLM
         messages = self.pruner.prune(messages)
         payload["messages"] = messages
@@ -1832,9 +1845,12 @@ class AgentRunner:
             if self.keep_alive:
                 payload["keep_alive"] = self.keep_alive
         else:
-            # NVIDIA NIM / OpenAI-compatible: add max_tokens (required by NIM)
+            # NVIDIA NIM / OpenAI-compatible: add max_tokens (required by NIM).
+            # Uses the BrainConfig-resolved budget (default 4096) rather than a
+            # hardcoded 16384 so a slow reasoning model can't run the planner
+            # past the failover deadline. Tunable from the Brain card.
             if "max_tokens" not in payload:
-                payload["max_tokens"] = 16384
+                payload["max_tokens"] = _agent_max_tokens
         from packages.ai.router import is_anthropic_base_url
 
         provider_is_anthropic = (
@@ -2139,7 +2155,7 @@ class AgentRunner:
         )
 
         try:
-            fo = await failover_chat_completion(payload)
+            fo = await failover_chat_completion(payload, timeout_sec=float(_agent_timeout_sec))
         except BrainFailoverExhausted as exc:
             raise RuntimeError(str(exc)) from exc
 

@@ -75,10 +75,12 @@ See [docs/claude-code-setup.md](claude-code-setup.md) for full Claude Code setup
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AGENT_PLANNER_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | Model used for task planning (breaks task into ≤5 steps, returns JSON). Reasoning models work best. |
-| `AGENT_EXECUTOR_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | Model used for code writing and file manipulation. Coding-specialist models recommended. |
+| `AGENT_PLANNER_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | Model used for task planning (breaks task into ≤5 steps, returns JSON). **On a memory-constrained free tier a heavy *reasoning* planner is the cause of the `planning: TimeoutError` failure loop** — it spends its whole token budget on thinking tokens and blows the failover deadline. Prefer a fast dense/non-reasoning model here (e.g. `meta/llama-3.3-70b-instruct` on NVIDIA, or `qwen-3-coder-480b` on Cerebras). Also settable from the Brain card without a redeploy. |
+| `AGENT_EXECUTOR_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | Model used for code writing and file manipulation. Coding-specialist models recommended; a fast dense model avoids the same reasoning-token latency as the planner. Also settable from the Brain card. |
 | `AGENT_VERIFIER_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | Model used to validate each code change (returns pass/fail JSON). |
 | `AGENT_JUDGE_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | Final release-gate judge model (verdict / security / correctness). |
+| `AGENT_MAX_OUTPUT_TOKENS` | `4096` | Output-token budget for agent-loop LLM calls (planner/executor/verifier). Replaces a hardcoded 16384: a reasoning model given 16384 tokens could run the planner for minutes and time out. Also settable from the Brain card as **Max tokens**; the UI/DB value wins over this env. Raise it if large file writes get truncated. |
+| `AGENT_REQUEST_TIMEOUT_SEC` | `120` | Per-request timeout (seconds) for agent-loop LLM calls, passed to the failover client. Also settable from the Brain card as **Timeout (s)**; the UI/DB value wins. Lower it to fail over to a faster provider sooner, or raise it for a deliberately slow/large model. |
 | `AGENT_WORKSPACE_ROOT` | (repo root) | Absolute path to the workspace the agent operates on. Defaults to the directory containing `proxy.py`. |
 
 ---
