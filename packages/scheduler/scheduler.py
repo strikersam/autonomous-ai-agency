@@ -510,23 +510,36 @@ class AgentScheduler:
         except Exception as exc:
             log.warning("Scheduler persist failed for %s: %s", job.job_id, exc)
 
-    async def _expire_run_once_orphan(
-        self, job_id: str, name: str, *, cron: str
-    ) -> bool:
-        """Durably remove one unfired run-once row and its in-memory mirror.
+    def _deregister_and_forget(self, job_id: str) -> None:
+        """Drop a job from in-memory state and APScheduler (mirrors ``delete()``).
+
+        Popping ``self._jobs`` keeps ``list()`` in step with what was removed,
+        and deregistering from APScheduler (when it was registered in this
+        process, e.g. via ``hydrate()``) stops the row lingering as a scheduled
+        no-op until it fires or the process restarts.
+        """
+        self._jobs.pop(job_id, None)
+        if self._aps:
+            try:
+                self._aps.remove_job(job_id)
+            except Exception:
+                pass
+
+    async def _remove_job(self, job_id: str, *, reason: str = "") -> bool:
+        """Durably remove one job, then drop its in-memory + APScheduler mirrors.
+
+        The shared removal sequence behind every ``force_cleanup()`` branch
+        except the two run-once expiries — those go through
+        ``_expire_run_once_orphan()`` so the delete can be made conditional on
+        the row still being unfired (#1208).
 
         Returns True only once the durable delete actually succeeds. A failed
-        delete must not be reported as an expiry: the row is still live in
-        the store and would reappear on the next hydration, and popping it
-        out of ``self._jobs`` anyway would desync in-memory state from what's
-        actually persisted. Logged at ERROR (not swallowed) so a persistent
-        removal failure is visible instead of silently inflating the
-        ``expired`` count while the backlog stays exactly as large.
-
-        Also deregisters the job from APScheduler if it was registered in
-        this process (e.g. via ``hydrate()``) — mirrors ``delete()``, so a
-        row this same process knows about doesn't linger as a scheduled
-        no-op until it fires or the process restarts.
+        delete must not be reported as a removal: the row is still live in the
+        store and would reappear on the next hydration, and popping it out of
+        ``self._jobs`` anyway would desync in-memory state from what's actually
+        persisted. Logged at ERROR (not swallowed) so a persistent removal
+        failure is visible instead of silently keeping the backlog counters at
+        zero.
         """
         try:
             remove_result = self._store.remove(job_id)
@@ -534,17 +547,54 @@ class AgentScheduler:
                 await remove_result
         except Exception:
             log.exception(
-                "force_cleanup: could not remove orphaned run-once job "
-                "name=%r job_id=%s cron=%r", name, job_id, cron,
+                "force_cleanup: could not remove job job_id=%s%s",
+                job_id, f" ({reason})" if reason else "",
             )
             return False
-        self._jobs.pop(job_id, None)
-        if self._aps:
-            try:
-                self._aps.remove_job(job_id)
-            except Exception:
-                pass
+        self._deregister_and_forget(job_id)
         return True
+
+    async def _expire_run_once_orphan(
+        self, job_id: str, name: str, *, cron: str
+    ) -> bool:
+        """Durably remove one **unfired** run-once row and its in-memory mirror.
+
+        Prefers the store's conditional delete (``delete_if_unfired_run_once``)
+        so a concurrent ``_fire()`` that has already incremented ``run_count``
+        between ``force_cleanup()``'s snapshot read and this delete wins the
+        race — the row is left for the already-fired rule instead of being
+        deleted mid-flight and miscounted as expired (#1208). Stores that
+        predate the conditional method fall back to an unconditional remove
+        (the prior behaviour).
+
+        Returns True only once a row was actually removed. A False means either
+        the delete failed (durable-store error, logged at ERROR) or the row was
+        no longer an unfired run-once — it fired first, or is already gone — and
+        in every case the caller must not count it as expired.
+
+        Also deregisters the job from APScheduler if it was registered in this
+        process, mirroring ``delete()``.
+        """
+        conditional = getattr(self._store, "delete_if_unfired_run_once", None)
+        if conditional is not None:
+            try:
+                result = conditional(job_id)
+                deleted = (await result) if inspect.isawaitable(result) else result
+            except Exception:
+                log.exception(
+                    "force_cleanup: conditional delete failed for orphaned "
+                    "run-once job name=%r job_id=%s cron=%r", name, job_id, cron,
+                )
+                return False
+            if not deleted:
+                # _fire() incremented run_count first (or the row is already
+                # gone) — leave it; the already-fired rule owns it now.
+                return False
+            self._deregister_and_forget(job_id)
+            return True
+        return await self._remove_job(
+            job_id, reason=f"orphaned run-once name={name!r} cron={cron!r}"
+        )
 
     async def force_cleanup(self) -> dict[str, int]:
         """Force-dedup and clean stale schedules from both the durable store
@@ -622,60 +672,39 @@ class AgentScheduler:
                         summary["expired"] += 1
                     continue
                 # A run-once job that has not fired within a day is dead by
-                # definition, so age it out.
+                # definition, so age it out. Shares the conditional-delete
+                # helper with the every-minute path above so a job that starts
+                # firing between this snapshot and the delete is left for the
+                # already-fired rule rather than removed mid-flight (#1208).
                 if (
                     "run-once" in tags
                     and run_count == 0
                     and _age_seconds(doc.get("created_at")) > _run_once_max_age_sec()
                 ):
-                    try:
-                        remove_result = self._store.remove(job_id)
-                        if inspect.isawaitable(remove_result):
-                            await remove_result
-                    except Exception:
-                        pass
-                    self._jobs.pop(job_id, None)
-                    summary["expired"] += 1
+                    if await self._expire_run_once_orphan(job_id, name, cron=cron):
+                        summary["expired"] += 1
                     continue
                 # Remove stale run-once jobs that already fired — from
                 # both the durable store and in-memory state.
                 if "run-once" in tags and run_count > 0:
-                    try:
-                        remove_result = self._store.remove(job_id)
-                        if inspect.isawaitable(remove_result):
-                            await remove_result
-                    except Exception:
-                        pass
-                    self._jobs.pop(job_id, None)
-                    summary["deleted"] += 1
+                    if await self._remove_job(job_id, reason="fired run-once"):
+                        summary["deleted"] += 1
                     continue
                 # Also remove agency tasks that have retried 10+ times — these
                 # are stuck tasks (e.g. NVIDIA 410 Gone) that keep re-queuing
                 # and multiplying the schedule count. After 10 retries, the
                 # task is permanently stuck and should be removed.
                 if run_count > 10 and "agency" in tags:
-                    try:
-                        remove_result = self._store.remove(job_id)
-                        if inspect.isawaitable(remove_result):
-                            await remove_result
-                    except Exception:
-                        pass
-                    self._jobs.pop(job_id, None)
-                    summary["deleted"] += 1
-                    log.info("Force-cleanup: removed stuck agency task name=%r (run_count=%d)", name, run_count)
+                    if await self._remove_job(job_id, reason="stuck agency task"):
+                        summary["deleted"] += 1
+                        log.info("Force-cleanup: removed stuck agency task name=%r (run_count=%d)", name, run_count)
                     continue
                 # Name dedup — delete duplicates from store and memory.
                 # The first-seen job stays; subsequent duplicates are removed.
                 if name in seen_names:
-                    try:
-                        remove_result = self._store.remove(job_id)
-                        if inspect.isawaitable(remove_result):
-                            await remove_result
-                    except Exception:
-                        pass
-                    self._jobs.pop(job_id, None)
-                    summary["deduped"] += 1
-                    log.info("Force-cleanup: deduplicated schedule name=%r (job_id=%s)", name, job_id)
+                    if await self._remove_job(job_id, reason="duplicate name"):
+                        summary["deduped"] += 1
+                        log.info("Force-cleanup: deduplicated schedule name=%r (job_id=%s)", name, job_id)
                     continue
                 seen_names.add(name)
             log.info("Force-cleanup: total=%d deleted=%d deduped=%d expired=%d",

@@ -122,7 +122,18 @@ class AnthropicProvider(LLMProvider):
         if system_parts:
             payload["system"] = self._build_system(system_parts)
         if request.tools:
-            payload["tools"] = [self._convert_tool(t) for t in request.tools]
+            converted_tools = [self._convert_tool(t) for t in request.tools]
+            # Prompt-cache the tool list (C6): mark the last tool with
+            # cache_control so Anthropic caches everything up to and including
+            # the tool definitions.  This saves ~50–80% of tool-list tokens on
+            # every subsequent call in the same session, at negligible overhead.
+            # Guarded by the same prompt_caching flag that controls system
+            # caching, so operators can disable it via ANTHROPIC_PROMPT_CACHING=off.
+            if self.config.prompt_caching and converted_tools:
+                last = dict(converted_tools[-1])
+                last["cache_control"] = {"type": "ephemeral"}
+                converted_tools = converted_tools[:-1] + [last]
+            payload["tools"] = converted_tools
             if request.tool_choice is not None:
                 payload["tool_choice"] = self._convert_tool_choice(request.tool_choice)
 

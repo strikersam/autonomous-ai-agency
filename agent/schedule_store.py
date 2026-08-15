@@ -221,6 +221,70 @@ class ScheduleStore:
                 return
         self._mem.pop(job_id, None)
 
+    def delete_if_unfired_run_once(self, job_id: str) -> bool:
+        """Atomically delete a run-once row only while it is still unfired.
+
+        Closes the ``force_cleanup()``-vs-``_fire()`` race (#1208): the cleanup
+        sweep reads a snapshot where ``run_count == 0`` and then deletes, but a
+        concurrent ``_fire()`` — APScheduler runs it on a background thread —
+        can increment ``run_count`` in between. Re-checking the condition at
+        delete time (atomically: on Mongo via the delete filter, on SQLite and
+        in memory under the same ``self._lock`` that ``upsert`` takes) means a
+        row that has begun firing wins the race and is left for the
+        already-fired rule instead of being deleted mid-flight and miscounted.
+
+        Returns True only when a row was actually deleted — it was a run-once
+        job with ``run_count == 0``. Returns False when the row already fired,
+        is gone, is not run-once, or the delete could not be performed; the
+        caller must not count a False as an expiry.
+        """
+        def _is_unfired_run_once(doc: dict[str, Any]) -> bool:
+            return doc.get("run_count", 0) == 0 and "run-once" in (doc.get("tags") or [])
+
+        if self._mode == "mongo":
+            try:
+                result = self._collection.delete_one(
+                    {
+                        "job_id": job_id,
+                        "tags": "run-once",
+                        "$or": [{"run_count": 0}, {"run_count": {"$exists": False}}],
+                    }
+                )
+                return result.deleted_count > 0
+            except Exception as exc:
+                log.warning(
+                    "ScheduleStore.delete_if_unfired_run_once(%s) failed: %s", job_id, exc
+                )
+                return False
+        if self._mode == "sqlite":
+            try:
+                with self._lock:
+                    cur = self._sqlite.execute(
+                        f"SELECT doc FROM {_TBL} WHERE job_id = ?",  # nosec B608 — _TBL is a constant
+                        (job_id,),
+                    )
+                    row = cur.fetchone()
+                    if row is None or not _is_unfired_run_once(json.loads(row[0])):
+                        return False
+                    self._sqlite.execute(
+                        f"DELETE FROM {_TBL} WHERE job_id = ?",  # nosec B608 — _TBL is a constant
+                        (job_id,),
+                    )
+                    self._sqlite.commit()
+                return True
+            except Exception as exc:
+                log.warning(
+                    "ScheduleStore.delete_if_unfired_run_once(%s) sqlite failed: %s",
+                    job_id, exc,
+                )
+                return False
+        with self._lock:
+            doc = self._mem.get(job_id)
+            if doc is None or not _is_unfired_run_once(doc):
+                return False
+            self._mem.pop(job_id, None)
+            return True
+
 
 def _json_default(obj: Any) -> Any:
     """Fallback JSON encoder for schedule docs (datetimes, sets, etc.)."""
