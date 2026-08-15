@@ -168,3 +168,31 @@ class TestTaskStore:
             await store.create(t)
         result = await store.list_all()
         assert len(result) == 2
+
+    @pytest.mark.asyncio
+    async def test_list_excludes_heavy_fields_when_include_log_false(self, store):
+        # Regression for the Task Board timeout: the heavy append-only fields
+        # (execution_log, workflow_history) must be dropped from list views so a
+        # backlog of long-lived tasks is not fetched and deserialized in full.
+        t = Task(owner_id="u1", title="Chatty")
+        for i in range(50):
+            t.add_log(f"entry {i}")
+        t.workflow_history = [{"phase": "plan"}, {"phase": "execute"}]
+        await store.create(t)
+
+        # Default (include_log=True) still carries the full log through.
+        full = (await store.list_for_user("u1"))[0]
+        assert len(full.execution_log) == 50
+        assert len(full.workflow_history) == 2
+
+        # List view drops them (validated back to the model defaults: empty).
+        light = (await store.list_for_user("u1", include_log=False))[0]
+        assert light.execution_log == []
+        assert light.workflow_history == []
+        light_all = (await store.list_all(include_log=False))[0]
+        assert light_all.execution_log == []
+        assert light_all.workflow_history == []
+
+        # The projection must not mutate the stored document — a later full read
+        # still sees the log (guards the in-memory copy-vs-mutate path).
+        assert len((await store.get(t.task_id)).execution_log) == 50

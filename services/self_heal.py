@@ -32,6 +32,24 @@ log = logging.getLogger("qwen-proxy")
 
 _HEAL_INTERVAL_SEC = int(os.environ.get("SELF_HEAL_INTERVAL_SEC", "300"))  # 5 min
 _STUCK_TASK_TIMEOUT_SEC = int(os.environ.get("STUCK_TASK_TIMEOUT_SEC", "1800"))  # 30 min
+# Default age a task may sit BLOCKED before the loop retires it to FAILED. A task
+# that has already exhausted its dispatch-retry budget and gone BLOCKED almost
+# always keeps failing the same way (the dominant live case is
+# "planning: TimeoutError" on an auto-generated CEO task that will never plan on
+# the free tier). Leaving it BLOCKED lets it be resurrected and re-run five more
+# doomed dispatch attempts on every process restart, which is what grew the live
+# board past 160 tasks and made it slow. 6h default — long enough that a genuine
+# transient outage (brain down, provider cooldown) recovers and the task is
+# retried first, short enough that dead tasks don't accumulate for days. Read at
+# call time (via BLOCKED_TASK_RETIRE_SEC) so it is tunable without a restart.
+_BLOCKED_RETIRE_AGE_DEFAULT = 21600  # 6h
+
+
+def _blocked_retire_age_sec() -> int:
+    try:
+        return int(os.environ.get("BLOCKED_TASK_RETIRE_SEC", str(_BLOCKED_RETIRE_AGE_DEFAULT)))
+    except (TypeError, ValueError):
+        return _BLOCKED_RETIRE_AGE_DEFAULT
 
 _heal_task: asyncio.Task | None = None
 
@@ -64,6 +82,20 @@ async def run_self_heal_cycle() -> dict[str, Any]:
     except Exception as exc:
         summary["stuck_tasks"] = {"error": str(exc)[:200]}
         log.warning("self_heal: stuck_tasks failed: %s", exc)
+
+    # 3b. Retire chronically-blocked tasks
+    try:
+        summary["blocked_backlog"] = await _heal_blocked_backlog()
+    except Exception as exc:
+        summary["blocked_backlog"] = {"error": str(exc)[:200]}
+        log.warning("self_heal: blocked_backlog failed: %s", exc)
+
+    # 3c. Purge aged terminal tasks (keeps the board tidy)
+    try:
+        summary["purge_backlog"] = await _heal_purge_backlog()
+    except Exception as exc:
+        summary["purge_backlog"] = {"error": str(exc)[:200]}
+        log.warning("self_heal: purge_backlog failed: %s", exc)
 
     # 4. Telegram webhook clear (best-effort)
     try:
@@ -276,6 +308,136 @@ async def _heal_stuck_tasks() -> dict[str, int]:
     if moved > 0:
         log.info("self_heal: moved %d stuck tasks from IN_PROGRESS to TODO", moved)
     return {"moved": moved, "total_scanned": len(all_tasks)}
+
+
+async def _heal_blocked_backlog() -> dict[str, int]:
+    """Retire chronically-blocked tasks to FAILED so they stop churning.
+
+    A task lands in BLOCKED only after it has already burned its full
+    dispatch-retry budget (``_DISPATCH_RETRY_LIMIT`` attempts). On the free tier
+    the dominant reason is a planning timeout on an auto-generated CEO task that
+    will never plan — so re-running it wastes the single dispatch worker and the
+    task piles up on the board. This pass moves BLOCKED tasks older than
+    ``_BLOCKED_RETIRE_AGE_SEC`` to FAILED and pins ``auto_retry_count`` at the
+    reconciler's cap, so the FAILED-reconciler pass will NOT resurrect them.
+
+    FAILED is terminal-but-reopenable: a human can still retry or delete the
+    task from the board, but the autonomous loop stops spending CPU on work that
+    cannot succeed. Never deletes anything — the record is preserved.
+    """
+    from tasks.store import get_task_store, _ts_to_float
+    from tasks.models import TaskStatus
+
+    store = get_task_store()
+    # Scan light (no execution_log) — the board-sized fetch stays cheap. The few
+    # tasks we actually retire are re-fetched in full below, because store.update
+    # does a whole-document replace_one and a log-less Task would wipe the log.
+    candidates = await store.list_all(limit=10_000, include_log=False)
+
+    # Match the reconciler's cap so a retired task is above it and never re-queued.
+    cap = int(os.environ.get("TASK_AUTO_RETRY_MAX", "5"))
+    retire_age = _blocked_retire_age_sec()
+    now = time.time()
+    retired = 0
+    blocked_total = 0
+    for c in candidates:
+        if c.status != TaskStatus.BLOCKED:
+            continue
+        blocked_total += 1
+        age = now - (_ts_to_float(c.updated_at) or 0.0)
+        if age < retire_age:
+            continue
+        t = await store.get(c.task_id)  # full task — preserves execution_log on replace
+        if t is None or t.status != TaskStatus.BLOCKED:
+            continue  # raced with another writer — skip
+        t.status = TaskStatus.FAILED
+        t.pending_agent_run = False
+        t.auto_retry_count = max(int(t.auto_retry_count or 0), cap)
+        t.error_message = t.blocked_reason or t.error_message
+        t.add_log(
+            f"Self-heal: retired to FAILED after {int(age)}s BLOCKED "
+            f"(exhausted dispatch retries; will not be auto-resurrected)",
+            level="warning",
+            event_type="self_heal",
+            actor="system:self_heal",
+            task_status=TaskStatus.FAILED,
+        )
+        try:
+            await store.update(t)
+            retired += 1
+        except Exception:  # nosec B110 -- best-effort; a failed update just retries next cycle
+            pass
+
+    if retired > 0:
+        log.info(
+            "self_heal: retired %d chronically-blocked task(s) to FAILED (of %d blocked)",
+            retired, blocked_total,
+        )
+    return {"retired": retired, "blocked_total": blocked_total, "total_scanned": len(candidates)}
+
+
+def _purge_enabled() -> bool:
+    return os.environ.get("SELF_HEAL_PURGE_ENABLED", "true").strip().lower() in (
+        "true", "1", "yes", "on",
+    )
+
+
+def _purge_days() -> int:
+    try:
+        return max(1, int(os.environ.get("SELF_HEAL_PURGE_DAYS", "3")))
+    except (TypeError, ValueError):
+        return 3
+
+
+async def _heal_purge_backlog() -> dict[str, int]:
+    """Delete aged terminal (done/failed) tasks so the board stays tidy.
+
+    The board's load time is already independent of task count (the list
+    endpoints project the heavy fields out at the query), so this is about
+    hygiene, not latency: an unbounded history of dead autonomous tasks is noise
+    a human has to scroll past. Deletes DONE/FAILED tasks whose last update is
+    older than ``SELF_HEAL_PURGE_DAYS`` (default 3). Blocked tasks are handled
+    first by the retirement pass (BLOCKED -> FAILED at 6h), so they age into this
+    purge terminally rather than being deleted while still churning.
+
+    Destructive by design (the operator opted in) but conservative: nothing newer
+    than the cutoff is touched, and only terminal statuses are eligible, so no
+    in-flight or retryable work can be removed. Off by default-safe via
+    ``SELF_HEAL_PURGE_ENABLED=false``.
+    """
+    if not _purge_enabled():
+        return {"deleted": 0, "action": "disabled"}
+
+    from tasks.store import get_task_store, _ts_to_float
+    from tasks.models import TaskStatus
+
+    store = get_task_store()
+    candidates = await store.list_all(limit=10_000, include_log=False)
+
+    terminal = {TaskStatus.DONE.value, TaskStatus.FAILED.value}
+    cutoff = time.time() - _purge_days() * 86400
+    deleted = 0
+    for t in candidates:
+        status = t.status.value if hasattr(t.status, "value") else str(t.status)
+        if status not in terminal:
+            continue
+        ts = _ts_to_float(t.updated_at) or _ts_to_float(t.created_at) or 0.0
+        if ts and ts < cutoff:
+            try:
+                await store.delete(t.task_id)
+                deleted += 1
+            except Exception:  # nosec B110 -- best-effort; retries next cycle
+                pass
+
+    if deleted:
+        # Drop cached list pages so the freed board is reflected immediately.
+        try:
+            from tasks.api import _invalidate_task_caches
+            _invalidate_task_caches()
+        except Exception:  # nosec B110 -- cache invalidation is best-effort
+            pass
+        log.info("self_heal: purged %d aged terminal task(s) (>%dd)", deleted, _purge_days())
+    return {"deleted": deleted, "cutoff_days": _purge_days(), "total_scanned": len(candidates)}
 
 
 async def _heal_telegram() -> dict[str, Any]:

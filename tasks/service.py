@@ -502,6 +502,51 @@ _BRAIN_DEFER_LIMIT = 12     # max brain-unavailable deferrals before blocking �
                             # we keep the task queued a little longer than a runtime
                             # outage before parking it as BLOCKED.
 
+# Outward-facing gate (charter Gate Matrix). A human asked to approve/decline
+# outward-facing autonomous work in Telegram before it runs — but autonomous CEO
+# tasks never set requires_approval, so the pre-execution gate below never fired
+# for them. These are the task_types and tags whose work leaves the repo (commits
+# + PR, deploy, release, external write), so the dispatcher promotes them to
+# requires_approval before the first run when AGENCY_GATE_OUTWARD_FACING is on.
+# Internal work (research, self-heal, scheduling, review) is not in the set and
+# stays fully autonomous.
+_OUTWARD_FACING_TASK_TYPES = frozenset({
+    "issue", "issue_intake", "portfolio_initiative", "quick_note",
+    "repository_change", "release", "deploy", "feature", "bug_fix", "refactor",
+    "runtime_change",
+})
+_OUTWARD_FACING_TAGS = frozenset({
+    "code-change", "external-write", "pr-opened", "deploy", "release", "irreversible",
+})
+
+
+def _gate_outward_facing_enabled() -> bool:
+    """Whether outward-facing autonomous tasks are auto-promoted to requires_approval.
+
+    Read at call time so it is tunable without a restart. Default on — the human
+    who wired the Telegram gate wants the prompt; flip to false for hands-off
+    autonomy where only the merge alert matters.
+    """
+    return os.environ.get("AGENCY_GATE_OUTWARD_FACING", "true").strip().lower() in (
+        "true", "1", "yes", "on",
+    )
+
+
+def _is_outward_facing(task: Task) -> bool:
+    """True when a task's work leaves the repo (commits/PR, deploy, release, …).
+
+    Total and side-effect-free: an unknown task_type with no matching tag is
+    treated as internal, so a misclassification can only ever *fail open to
+    autonomy* (run without a prompt), never silently gate everything.
+    """
+    if (task.task_type or "").strip().lower() in _OUTWARD_FACING_TASK_TYPES:
+        return True
+    for tag in (task.tags or []):
+        t = str(tag).strip().lower()
+        if t in _OUTWARD_FACING_TAGS or t.startswith("risk:"):
+            return True
+    return False
+
 
 async def _brain_is_configured() -> bool:
     """Best-effort, fail-open check that *some* usable LLM brain is configured.
@@ -636,6 +681,29 @@ class TaskExecutionCoordinator:
         if not task.pending_agent_run:
             await self._release_task(task_id)
             return task
+
+        # ── Outward-facing auto-gate ──
+        # An autonomous CEO task never sets requires_approval, so the human-facing
+        # gate below never fired for the work that actually leaves the repo
+        # (commits + PR, deploy, release). When AGENCY_GATE_OUTWARD_FACING is on,
+        # promote such a task to requires_approval on its first dispatch so it
+        # parks at the gate and sends the Telegram Approve/Reject prompt. A task a
+        # human already approved (execution_approved) is left alone.
+        if (
+            not task.requires_approval
+            and not task.execution_approved
+            and _gate_outward_facing_enabled()
+            and _is_outward_facing(task)
+        ):
+            task.requires_approval = True
+            task.add_log(
+                "Auto-gated: outward-facing task promoted to requires_approval "
+                "(awaiting human approval before the agent runs).",
+                event_type="approval_gate_promoted",
+                actor="system:dispatcher",
+                task_status=task.status,
+                metadata={"reason": "outward_facing"},
+            )
 
         # ── Pre-execution approval gate (Autonomy Charter Gate Matrix) ──
         # A risky/outward-facing task (requires_approval) must NEVER run before a
