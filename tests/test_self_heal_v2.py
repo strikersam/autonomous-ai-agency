@@ -235,6 +235,53 @@ async def test_blocked_backlog_retires_old_blocked(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_purge_backlog_deletes_only_aged_terminal(monkeypatch):
+    """Purge removes aged DONE/FAILED tasks, and nothing else."""
+    monkeypatch.setenv("SELF_HEAL_PURGE_ENABLED", "true")
+    monkeypatch.setenv("SELF_HEAL_PURGE_DAYS", "3")
+    from tasks.store import TaskStore
+    from tasks.models import Task, TaskStatus
+    from services.self_heal import _heal_purge_backlog
+
+    store = TaskStore()
+    old = time.time() - 5 * 86400   # 5 days ago
+    recent = time.time() - 3600     # 1 hour ago
+
+    old_done = Task(owner_id="u1", title="old done", status=TaskStatus.DONE)
+    old_done.updated_at = old
+    old_failed = Task(owner_id="u1", title="old failed", status=TaskStatus.FAILED)
+    old_failed.updated_at = old
+    recent_failed = Task(owner_id="u1", title="recent failed", status=TaskStatus.FAILED)
+    recent_failed.updated_at = recent
+    old_todo = Task(owner_id="u1", title="old todo", status=TaskStatus.TODO)
+    old_todo.updated_at = old
+    for t in (old_done, old_failed, recent_failed, old_todo):
+        await store.create(t)
+
+    import tasks.store as ts
+    original_get = ts.get_task_store
+    ts.get_task_store = lambda: store
+    try:
+        result = await _heal_purge_backlog()
+        assert result["deleted"] == 2                       # both aged terminals
+        assert await store.get(old_done.task_id) is None
+        assert await store.get(old_failed.task_id) is None
+        assert await store.get(recent_failed.task_id) is not None   # too fresh
+        assert await store.get(old_todo.task_id) is not None        # not terminal
+    finally:
+        ts.get_task_store = original_get
+
+
+@pytest.mark.asyncio
+async def test_purge_backlog_respects_disable_flag(monkeypatch):
+    monkeypatch.setenv("SELF_HEAL_PURGE_ENABLED", "false")
+    from services.self_heal import _heal_purge_backlog
+    result = await _heal_purge_backlog()
+    assert result["deleted"] == 0
+    assert result["action"] == "disabled"
+
+
+@pytest.mark.asyncio
 async def test_telegram_no_token():
     """Self-heal skips Telegram when no token is set."""
     from services.self_heal import _heal_telegram

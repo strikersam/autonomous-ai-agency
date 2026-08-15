@@ -90,6 +90,13 @@ async def run_self_heal_cycle() -> dict[str, Any]:
         summary["blocked_backlog"] = {"error": str(exc)[:200]}
         log.warning("self_heal: blocked_backlog failed: %s", exc)
 
+    # 3c. Purge aged terminal tasks (keeps the board tidy)
+    try:
+        summary["purge_backlog"] = await _heal_purge_backlog()
+    except Exception as exc:
+        summary["purge_backlog"] = {"error": str(exc)[:200]}
+        log.warning("self_heal: purge_backlog failed: %s", exc)
+
     # 4. Telegram webhook clear (best-effort)
     try:
         summary["telegram"] = await _heal_telegram()
@@ -367,6 +374,70 @@ async def _heal_blocked_backlog() -> dict[str, int]:
             retired, blocked_total,
         )
     return {"retired": retired, "blocked_total": blocked_total, "total_scanned": len(candidates)}
+
+
+def _purge_enabled() -> bool:
+    return os.environ.get("SELF_HEAL_PURGE_ENABLED", "true").strip().lower() in (
+        "true", "1", "yes", "on",
+    )
+
+
+def _purge_days() -> int:
+    try:
+        return max(1, int(os.environ.get("SELF_HEAL_PURGE_DAYS", "3")))
+    except (TypeError, ValueError):
+        return 3
+
+
+async def _heal_purge_backlog() -> dict[str, int]:
+    """Delete aged terminal (done/failed) tasks so the board stays tidy.
+
+    The board's load time is already independent of task count (the list
+    endpoints project the heavy fields out at the query), so this is about
+    hygiene, not latency: an unbounded history of dead autonomous tasks is noise
+    a human has to scroll past. Deletes DONE/FAILED tasks whose last update is
+    older than ``SELF_HEAL_PURGE_DAYS`` (default 3). Blocked tasks are handled
+    first by the retirement pass (BLOCKED -> FAILED at 6h), so they age into this
+    purge terminally rather than being deleted while still churning.
+
+    Destructive by design (the operator opted in) but conservative: nothing newer
+    than the cutoff is touched, and only terminal statuses are eligible, so no
+    in-flight or retryable work can be removed. Off by default-safe via
+    ``SELF_HEAL_PURGE_ENABLED=false``.
+    """
+    if not _purge_enabled():
+        return {"deleted": 0, "action": "disabled"}
+
+    from tasks.store import get_task_store, _ts_to_float
+    from tasks.models import TaskStatus
+
+    store = get_task_store()
+    candidates = await store.list_all(limit=10_000, include_log=False)
+
+    terminal = {TaskStatus.DONE.value, TaskStatus.FAILED.value}
+    cutoff = time.time() - _purge_days() * 86400
+    deleted = 0
+    for t in candidates:
+        status = t.status.value if hasattr(t.status, "value") else str(t.status)
+        if status not in terminal:
+            continue
+        ts = _ts_to_float(t.updated_at) or _ts_to_float(t.created_at) or 0.0
+        if ts and ts < cutoff:
+            try:
+                await store.delete(t.task_id)
+                deleted += 1
+            except Exception:  # nosec B110 -- best-effort; retries next cycle
+                pass
+
+    if deleted:
+        # Drop cached list pages so the freed board is reflected immediately.
+        try:
+            from tasks.api import _invalidate_task_caches
+            _invalidate_task_caches()
+        except Exception:  # nosec B110 -- cache invalidation is best-effort
+            pass
+        log.info("self_heal: purged %d aged terminal task(s) (>%dd)", deleted, _purge_days())
+    return {"deleted": deleted, "cutoff_days": _purge_days(), "total_scanned": len(candidates)}
 
 
 async def _heal_telegram() -> dict[str, Any]:
