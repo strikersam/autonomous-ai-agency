@@ -197,3 +197,53 @@ class TestEnvOverrides:
         monkeypatch.setattr(ct, "_COST_TABLE", ct._build_cost_table())
         # Just ensure no crash; unknown model returns 0
         assert ct.cost_for_tokens("bad-format-no-equals", 1000, 100) == 0.0
+
+
+# ── Claude Opus model coverage ────────────────────────────────────────────────
+# brain_config.py uses claude-opus-5 as the planner/judge in the "anthropic"
+# and "aerolink" presets; opus-4-7/4-6 appear in the preferred-model list.
+# All three were absent from _DEFAULT_COST_TABLE, so every opus-5 call was
+# tracked at $0 — hiding real spend from operators.
+
+
+class TestClaudeOpusModelCoverage:
+    """Verify all Opus models referenced by brain_config are priced."""
+
+    OPUS_MODELS = [
+        "claude-opus-5",
+        "claude-opus-4-8",
+        "claude-opus-4-7",
+        "claude-opus-4-6",
+    ]
+
+    def test_opus5_input_cost(self):
+        cost = ct.cost_for_tokens("claude-opus-5", 1_000_000, 0)
+        assert cost == pytest.approx(15.0)
+
+    def test_opus5_output_cost(self):
+        cost = ct.cost_for_tokens("claude-opus-5", 0, 1_000_000)
+        assert cost == pytest.approx(75.0)
+
+    def test_opus47_has_same_tier_as_opus48(self):
+        cost_47 = ct.cost_for_tokens("claude-opus-4-7", 1_000_000, 1_000_000)
+        cost_48 = ct.cost_for_tokens("claude-opus-4-8", 1_000_000, 1_000_000)
+        assert cost_47 == pytest.approx(cost_48)
+
+    def test_opus46_has_same_tier_as_opus48(self):
+        cost_46 = ct.cost_for_tokens("claude-opus-4-6", 1_000_000, 1_000_000)
+        cost_48 = ct.cost_for_tokens("claude-opus-4-8", 1_000_000, 1_000_000)
+        assert cost_46 == pytest.approx(cost_48)
+
+    def test_all_opus_models_nonzero(self):
+        for model in self.OPUS_MODELS:
+            cost = ct.cost_for_tokens(model, 1_000_000, 0)
+            assert cost > 0.0, f"{model} should have non-zero input cost"
+
+    def test_haiku45_short_alias_priced(self):
+        cost = ct.cost_for_tokens("claude-haiku-4-5", 1_000_000, 0)
+        assert cost == pytest.approx(0.8)
+
+    def test_haiku45_versioned_and_alias_match(self):
+        versioned = ct.cost_for_tokens("claude-haiku-4-5-20251001", 1_000_000, 1_000_000)
+        alias = ct.cost_for_tokens("claude-haiku-4-5", 1_000_000, 1_000_000)
+        assert versioned == pytest.approx(alias)
