@@ -53,13 +53,17 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "moonshotai/kimi-k2-instruct": (0.0, 0.0),
     # Qwen3 32B on Groq — strong coder, free tier (Aug 2026).
     "qwen-qwq-32b": (0.0, 0.0),
-    # --- Anthropic (paid) — Claude Sonnet 5 / Sonnet 4.x / Opus 4.x ---
+    # --- Anthropic (paid) — Claude 5 family + Sonnet 4.x / Opus 4.x ---
+    "claude-opus-5": (15.0, 75.0),         # Opus 5 — most capable; planner/judge role
     "claude-sonnet-5": (3.0, 15.0),        # GA July 2026, 1M context, adaptive thinking
     "claude-sonnet-5-20260501": (3.0, 15.0),
     "claude-fable-5": (3.0, 15.0),
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-opus-4-8": (15.0, 75.0),
+    "claude-opus-4-7": (15.0, 75.0),       # Opus 4.7 — same pricing tier as 4.8
+    "claude-opus-4-6": (15.0, 75.0),       # Opus 4.6 — same pricing tier as 4.8
     "claude-haiku-4-5-20251001": (0.8, 4.0),
+    "claude-haiku-4-5": (0.8, 4.0),        # short alias used in some callers
     "claude-3-5-sonnet-20241022": (3.0, 15.0),
     "claude-3-5-haiku-20241022": (0.8, 4.0),
     # --- OpenAI (paid) — GPT-5.6 family (GA July 9 2026) + legacy ---
