@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
@@ -11,7 +12,7 @@ import re
 import secrets
 import sys
 import uuid
-from collections import deque
+from collections import deque, OrderedDict
 from contextlib import asynccontextmanager
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
@@ -126,30 +127,35 @@ def clear_error_log_buffer() -> None:
 
 _ensure_error_log_capture()
 
-def _scheduler_on_fire(job) -> None:
-    """Called by APScheduler when a cron fires. Dispatches to the orchestrator."""
-    import asyncio
+async def _scheduler_on_fire(job) -> None:
+    """Called by APScheduler when a cron fires. Dispatches to the orchestrator.
+
+    This is deliberately a coroutine, *not* a sync callback that manages its own
+    loop. APScheduler's ``BackgroundScheduler`` fires ``on_fire`` from a worker
+    thread, where the old ``asyncio.get_event_loop()`` path was doubly broken:
+    it is deprecated on 3.10+ (there is no current loop in a worker thread, so a
+    throwaway one is created), and ``run_until_complete`` then ran the
+    orchestrator on that throwaway loop — a different loop from the one the
+    Motor/aiosqlite clients are bound to, which hangs on the first DB await.
+
+    Returning a coroutine hands control back to ``AgentScheduler._run_job``,
+    which already dispatches awaitable callbacks onto the attached FastAPI main
+    loop via ``run_coroutine_threadsafe`` (see packages/scheduler/scheduler.py
+    and its regression test test_scheduler_attach_main_loop_and_fire_from_thread).
+    """
     from services.workflow_orchestrator import get_workflow_orchestrator, ExecutionRequest
-    async def _dispatch():
-        try:
-            orch = get_workflow_orchestrator()
-            req = ExecutionRequest(
-                request=job.instruction,
-                auto_approve=True,
-                user_id="scheduler",
-            )
-            run = await orch.execute(req)
-            log.info("Scheduler fired job %s → run %s", job.job_id, run.run_id)
-        except Exception as exc:
-            log.error("Scheduler on_fire failed for %s: %s", job.job_id, exc)
+
     try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
-            asyncio.ensure_future(_dispatch())
-        else:
-            loop.run_until_complete(_dispatch())
+        orch = get_workflow_orchestrator()
+        req = ExecutionRequest(
+            request=job.instruction,
+            auto_approve=True,
+            user_id="scheduler",
+        )
+        run = await orch.execute(req)
+        log.info("Scheduler fired job %s → run %s", job.job_id, run.run_id)
     except Exception as exc:
-        log.error("Scheduler on_fire loop error: %s", exc)
+        log.error("Scheduler on_fire failed for %s: %s", job.job_id, exc)
 
 SCHEDULER = AgentScheduler(on_fire=_scheduler_on_fire)
 set_scheduler(SCHEDULER)
@@ -159,7 +165,6 @@ DB_NAME = os.environ.get("DB_NAME", "llm_wiki_dashboard")
 # Shorter timeout prevents 30-second hangs when MongoDB is unavailable (e.g. in CI / tests).
 # Override via MONGO_SELECTION_TIMEOUT_MS env var; default is 2 000 ms.
 MONGO_SELECTION_TIMEOUT_MS = int(os.environ.get("MONGO_SELECTION_TIMEOUT_MS", "2000"))
-JWT_SECRET = os.environ.get("JWT_SECRET", secrets.token_hex(32))
 JWT_ALGORITHM = "HS256"
 ADMIN_EMAIL = os.environ.get("V3_ADMIN_EMAIL") or os.environ.get(
     "ADMIN_EMAIL", "admin@llmrelay.local"
@@ -170,13 +175,55 @@ if not ADMIN_PASSWORD:
         "ADMIN_PASSWORD must be set in the Render environment variables. "
         "Set ADMIN_PASSWORD (or V3_ADMIN_PASSWORD) and restart the server."
     )
+
+
+def _resolve_jwt_secret(
+    explicit: Optional[str],
+    *,
+    admin_password: str,
+    testing: bool,
+) -> str:
+    """Resolve the JWT signing secret, with a *stable* fallback.
+
+    Bug fix: the previous ``os.environ.get("JWT_SECRET", secrets.token_hex(32))``
+    minted a fresh random key on every process start whenever ``JWT_SECRET`` was
+    unset. That silently invalidated every access/refresh token — and therefore
+    every logged-in session — on the next restart, which on Render's free tier
+    happens routinely (cold starts). When no explicit secret is configured we now
+    derive a deterministic key from ``ADMIN_PASSWORD`` (a required, restart-stable
+    credential) so tokens survive restarts. A throwaway random key is used only
+    under ``TESTING``, where cross-restart validity is irrelevant.
+    """
+    if explicit:
+        return explicit
+    if testing:
+        return secrets.token_hex(32)
+    log.warning(
+        "JWT_SECRET is not set — deriving a stable signing key from ADMIN_PASSWORD "
+        "so sessions survive restarts. Set JWT_SECRET explicitly to decouple token "
+        "validity from the admin password."
+    )
+    return hashlib.sha256(b"jwt-secret:v1:" + admin_password.encode("utf-8")).hexdigest()
+
+
+JWT_SECRET = _resolve_jwt_secret(
+    os.environ.get("JWT_SECRET"),
+    admin_password=ADMIN_PASSWORD,
+    testing=str(os.environ.get("TESTING", "")).strip().lower() in ("1", "true", "yes"),
+)
 OLLAMA_BASE = (
     os.environ.get("OLLAMA_BASE_URL")
     or os.environ.get("OLLAMA_BASE")
     or "http://localhost:11434"
 )
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3-coder:30b")
-_LIMITED_CHAT_SESSIONS: dict[str, dict[str, object]] = {}
+# In-memory fallback for chat sessions when MongoDB is unavailable ("limited
+# mode"). This is a long-lived process, so an unbounded dict here is a memory
+# leak — every anonymous/limited-mode chat session lingers forever. Cap it as an
+# LRU: the least-recently-touched session is evicted once the store is full.
+# Override the cap via LIMITED_CHAT_SESSIONS_MAX (0 disables the cap).
+_LIMITED_CHAT_SESSIONS_MAX = int(os.environ.get("LIMITED_CHAT_SESSIONS_MAX", "500"))
+_LIMITED_CHAT_SESSIONS: "OrderedDict[str, dict[str, object]]" = OrderedDict()
 # Aggregate wall-clock budget for an entire chat Agent-Mode run (plan +
 # execute + verify). Caps a hung provider so the chat job fails cleanly
 # instead of sitting at phase "planning" forever. Configurable via env.
@@ -218,11 +265,19 @@ def _get_limited_chat_session(session_id: str, user_id: str) -> Optional[Dict[st
     session = _LIMITED_CHAT_SESSIONS.get(session_id)
     if not session or session.get("user_id") != user_id:
         return None
+    # LRU touch: reading a session marks it most-recently-used so it is not the
+    # next one evicted.
+    _LIMITED_CHAT_SESSIONS.move_to_end(session_id)
     return deepcopy(session)
 
 
 def _save_limited_chat_session(session_id: str, session: dict[str, object]) -> None:
     _LIMITED_CHAT_SESSIONS[session_id] = deepcopy(session)
+    _LIMITED_CHAT_SESSIONS.move_to_end(session_id)
+    # Evict least-recently-used sessions once over the cap (0 = unbounded).
+    if _LIMITED_CHAT_SESSIONS_MAX > 0:
+        while len(_LIMITED_CHAT_SESSIONS) > _LIMITED_CHAT_SESSIONS_MAX:
+            _LIMITED_CHAT_SESSIONS.popitem(last=False)
 
 
 def _delete_limited_chat_session(session_id: str, user_id: str) -> bool:
@@ -818,20 +873,47 @@ def _build_auto_skill_guidance(content: str) -> tuple[str, list[dict[str, str]]]
     return "\n".join(lines), skills
 
 
+def _in_container() -> bool:
+    """Return True when running inside a container runtime.
+
+    ``/.dockerenv`` alone missed Podman, containerd, and other OCI runtimes,
+    which do not create that file — under Podman the localhost rewrite below
+    never fired and Ollama calls hit the container instead of the host. Cover
+    the common signals: Docker's marker file, Podman's ``/run/.containerenv``,
+    the ``container`` env var Podman/systemd-nspawn set, Kubernetes' injected
+    service host, an explicit ``IN_DOCKER`` override, and container/orchestrator
+    markers in the cgroup hierarchy.
+    """
+    if os.environ.get("IN_DOCKER", "").strip().lower() in ("1", "true", "yes"):
+        return True
+    if os.environ.get("container", "").strip():  # Podman / systemd-nspawn set this
+        return True
+    if os.environ.get("KUBERNETES_SERVICE_HOST"):
+        return True
+    if Path("/.dockerenv").exists() or Path("/run/.containerenv").exists():
+        return True
+    for cgroup_path in ("/proc/1/cgroup", "/proc/self/cgroup"):
+        try:
+            text = Path(cgroup_path).read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if any(m in text for m in ("docker", "podman", "containerd", "kubepods", "/lxc/")):
+            return True
+    return False
+
+
 def _resolve_ollama_url(url: Optional[str]) -> str:
-    """Swap localhost → `ollama` when running inside Docker.
+    """Swap localhost → `ollama` when running inside a container.
 
     Inside a container, 127.0.0.1/localhost refers to the container itself,
     not the host running Ollama. Compose usually exposes Ollama at the
     service name "ollama"; respect an explicit override via OLLAMA_HOST_IN_DOCKER.
+    Container detection covers Docker, Podman, and other OCI runtimes
+    (see :func:`_in_container`).
     """
     if not url:
         return url or "http://localhost:11434"
-    # Detect Docker: presence of /.dockerenv is the canonical signal.
-    in_docker = Path("/.dockerenv").exists() or os.environ.get(
-        "IN_DOCKER", ""
-    ).lower() in ("1", "true", "yes")
-    if not in_docker:
+    if not _in_container():
         return url
     host_alias = os.environ.get("OLLAMA_HOST_IN_DOCKER", "ollama").strip() or "ollama"
     # Only rewrite the host portion, not the whole URL.

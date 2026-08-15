@@ -368,13 +368,13 @@ _CANONICAL_FEATURES: list[dict[str, Any]] = [
     {
         "feature_id": "sidecar_runtimes",
         "display_name": "Sidecar Runtimes (Hermes/OpenCode/Goose)",
-        "maturity": FeatureMaturity.BETA,
+        "maturity": FeatureMaturity.STABLE,
         "enabled": True,
-        "default_availability": FeatureMaturity.BETA,
+        "default_availability": FeatureMaturity.STABLE,
         "key_dependencies": ["Sidecar process running", "RuntimeManager.wake_all_sleeping_runtimes()"],
         "config_flags": ["CEO_WAKE_COOLDOWN_SEC"],
         "admin_visible": True,
-        "notes": "PROMOTED from DISABLED \u2014 health guarantee is now real. Every CEO delegation calls RuntimeManager.wake_all_sleeping_runtimes() (parallel probes, see runtimes/manager.py) before dispatch; sleeping sidecars are either woken or marked as 'still_sleeping' in the wake summary, and the CEO routes around the down runtimes via RuntimeManager's fallback chain. CEO rate-limits the wake probe to CEO_WAKE_COOLDOWN_SEC (default 30s) so it doesn't pay the cost on every request. Sidecar liveness is therefore visible to every agent run, not guessed. Set FEATURE_SIDECAR_RUNTIMES=experimental to suppress this gate for hand-rolled deployments.",
+        "notes": "STABLE (promoted from BETA 2026-08-15). External agent runtimes have a real health guarantee: every CEO delegation calls RuntimeManager.wake_all_sleeping_runtimes() (parallel probes, see runtimes/manager.py) before dispatch; sleeping sidecars are either woken or marked 'still_sleeping' in the wake summary, and the CEO routes around down runtimes via RuntimeManager's fallback chain. The wake probe is rate-limited to CEO_WAKE_COOLDOWN_SEC (default 30s). Liveness is verified per run rather than guessed, health/decision state is exposed via the /runtimes API, and the path is covered by tests/test_runtimes.py, tests/test_prime_agent_runtime.py, and tests/test_runtime_governance.py. Set FEATURE_SIDECAR_RUNTIMES=beta to re-flag it as beta for a hand-rolled deployment.",
     },
     {
         "feature_id": "telegram_bot",
@@ -401,13 +401,13 @@ _CANONICAL_FEATURES: list[dict[str, Any]] = [
     {
         "feature_id": "multi_agent_swarm",
         "display_name": "Multi-Agent / Swarm",
-        "maturity": FeatureMaturity.BETA,
+        "maturity": FeatureMaturity.STABLE,
         "enabled": True,
-        "default_availability": FeatureMaturity.BETA,
+        "default_availability": FeatureMaturity.STABLE,
         "key_dependencies": ["CEO dispatcher (services/ceo_dispatcher.py)"],
         "config_flags": ["CEO_FANOUT_COMPLEXITY", "CEO_MAX_CONCURRENT", "QN_ATOMIC_CLAIM"],
         "admin_visible": True,
-        "notes": "PROMOTED from DISABLED \u2014 wired into the golden path via the CEO dispatcher (services/ceo_dispatcher.py:CEODispatcher.delegate). For medium/high complexity tasks the WorkflowOrchestrator EXECUTE phase calls CEO, which fans out across N specialists routed through RuntimeManager to their ROLE_RUNTIME_PREFERENCE runtime (scout\u2192internal_agent, dev\u2192claude_code, etc.). MultiAgentSwarm is the best-effort fallback when RuntimeManager is unavailable. CEO fallback observability counters exposed via services.workflow_orchestrator.get_ceo_fallback_stats(). Set CEO_FANOUT_COMPLEXITY=high to restrict fan-out to the hardest requests. Re-enable explicitly with FEATURE_MULTI_AGENT_SWARM=stable if you want to surface it as production-ready.",
+        "notes": "STABLE (promoted from BETA 2026-08-15). Wired into the golden path via the CEO dispatcher (services/ceo_dispatcher.py:CEODispatcher.delegate). For medium/high complexity tasks the WorkflowOrchestrator EXECUTE phase calls CEO, which fans out across N specialists routed through RuntimeManager to their ROLE_RUNTIME_PREFERENCE runtime (scout\u2192internal_agent, dev\u2192claude_code, etc.), with per-subtask cross-verification and a durable CEO ledger (services/ceo_ledger.py) for supervision/retry. MultiAgentSwarm is the best-effort fallback when RuntimeManager is unavailable; fallback observability counters are exposed via services.workflow_orchestrator.get_ceo_fallback_stats(). Covered by tests/test_ceo_dispatcher.py, tests/test_multi_agent_swarm.py, tests/test_swarm_concurrency.py, and tests/test_ceo_cross_verify.py. Set CEO_FANOUT_COMPLEXITY=high to restrict fan-out to the hardest requests, or FEATURE_MULTI_AGENT_SWARM=beta to re-flag it as beta.",
     },
     {
         "feature_id": "openclaw_integration",

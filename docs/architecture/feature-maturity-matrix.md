@@ -26,6 +26,8 @@
 - Local runtime (internal_agent)
 - Local-first model routing
 - Multi-agent orchestration (CEO → single specialist; Golden-Path plan→execute→verify→judge)
+- Multi-agent / deep swarm (multi-specialist fan-out) — **promoted from beta 2026-08-15**. Wired into the golden path via `services/ceo_dispatcher.py:CEODispatcher.delegate`; the `WorkflowOrchestrator` EXECUTE phase fans the CEO out across N specialists for medium/high-complexity tasks, with per-subtask cross-verification and a durable CEO ledger (`services/ceo_ledger.py`) for supervision/retry. Covered by `tests/test_ceo_dispatcher.py`, `tests/test_multi_agent_swarm.py`, `tests/test_swarm_concurrency.py`, `tests/test_ceo_cross_verify.py`.
+- Agent runtimes / sidecars (Hermes/OpenCode/Goose) — **promoted from beta 2026-08-15**. Hermes ships deployed by default (`agency-hermes` on Render) and is the default runtime for `code_generation` tasks; `RuntimeManager.wake_all_sleeping_runtimes()` gives every CEO delegation a real, rate-limited health check before dispatch, with automatic fallback to `internal_agent` if a sidecar stays down. OpenCode/Goose remain optional and are absent on the default cloud deploy. Covered by `tests/test_runtimes.py`, `tests/test_prime_agent_runtime.py`, `tests/test_runtime_governance.py`.
 
 > **Note on the Telegram bot:** it is a production-quality implementation (service manager, inbound routing, approval gates, `/diag`, full test suite) but was **demoted to disabled** per issue #467 Section I pending an isolation/gating review — `telegram_bot` = `disabled` in `features/matrix.py`. Re-enable with `TELEGRAM_BOT_TOKEN` + `FEATURE_TELEGRAM_BOT=experimental`.
 
@@ -33,8 +35,6 @@
 
 - Runtime readiness diagnostics
 - Policies & governance
-- Sidecar runtimes (Hermes/OpenCode/Goose) — **promoted from disabled**. Hermes ships deployed by default (`agency-hermes` on Render) and is the default runtime for `code_generation` tasks; `RuntimeManager.wake_all_sleeping_runtimes()` gives every CEO delegation a real, rate-limited health check before dispatch, with automatic fallback to `internal_agent` if a sidecar stays down. OpenCode/Goose remain optional and are absent on the default cloud deploy.
-- Multi-agent / deep swarm (multi-specialist hand-off chains) — **promoted from disabled**. Wired into the golden path via `services/ceo_dispatcher.py:CEODispatcher.delegate`; the `WorkflowOrchestrator` EXECUTE phase fans the CEO out across N specialists for medium/high-complexity tasks.
 
 ## Experimental
 
