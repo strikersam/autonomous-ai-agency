@@ -47,6 +47,7 @@ Complete reference for every environment variable in `.env`. Copy `.env.example`
 | `PROXY_DEFAULT_SYSTEM_PROMPT_FILE` | `templates/codex_local_ide_system_prompt.txt` | Path to system prompt file (relative to repo root). |
 | `PROXY_STRIP_THINK_TAGS` | `true` | Remove `<think>...</think>` blocks from model responses. Recommended for DeepSeek-R1 and other reasoning models. |
 | `PROXY_DEFAULT_MAX_TOKENS` | `8192` | Fallback `max_tokens` applied when the client does not send one. **Must be ≥ 4096 for Claude Code.** The old default of 1200 truncates code generation responses. |
+| `PROXY_CONTEXT_PRUNING_ENABLED` | `true` | Automatically trim long `/v1/chat/completions` message histories (>80k tokens) before forwarding. Uses the 3-phase `ContextPruner`: strip `<think>` tags → per-role backward-walk → XML-wrap evicted history. Set to `false` for raw pass-through. |
 
 ---
 
