@@ -4655,6 +4655,13 @@ class PRMergeRequest(BaseModel):
     # Optional: merge method override ('squash' | 'merge' | 'rebase').
     # Defaults to 'squash' (matches auto-merge.yml convention).
     merge_method: str | None = Field(default=None, pattern=r"^(squash|merge|rebase)$")
+    # When true, enable GitHub auto-merge instead of merging immediately: GitHub
+    # rebases the PR if it is behind and lands it once required checks pass
+    # (using the repo's merge queue if one is configured). This is what
+    # serialises the agent-PR stream and dissolves the recurring CHANGELOG.md
+    # conflict without a human resolving anything. Falls back to an immediate
+    # merge when the PR is already mergeable and auto-merge cannot be enabled.
+    auto_merge: bool = Field(default=False)
 
 
 @app.post("/admin/api/prs/{number}/merge")
@@ -4719,6 +4726,69 @@ async def merge_pr_route(
 
     if pr_data.get("draft"):
         raise HTTPException(status_code=422, detail=f"PR #{number} is a draft — refusing to merge.")
+
+    # ── Auto-merge path (opt-in) ─────────────────────────────────────────────
+    # Enable GitHub auto-merge instead of merging now: GitHub rebases the PR if
+    # it is behind and lands it once required checks pass. This is what lets the
+    # Telegram approval gate serialise the agent-PR stream (the recurring
+    # CHANGELOG.md conflict resolves itself in the queue). Falls back to an
+    # immediate merge when the PR is already mergeable and auto-merge can't be
+    # enabled (GitHub rejects enabling it on an already-clean PR).
+    if body.auto_merge:
+        head_sha_am = pr_data.get("head", {}).get("sha", "")
+        if body.expected_sha and body.expected_sha != head_sha_am:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"PR #{number} head SHA is {head_sha_am[:8]}, "
+                    f"but expected_sha was {body.expected_sha[:8]}. "
+                    "Refusing to enable auto-merge on a commit you didn't review."
+                ),
+            )
+        node_id = pr_data.get("node_id")
+        method_am = (body.merge_method or "squash").upper()
+        gql = {
+            "query": (
+                "mutation($id:ID!,$m:PullRequestMergeMethod!){"
+                "enablePullRequestAutoMerge(input:{pullRequestId:$id,mergeMethod:$m})"
+                "{pullRequest{number}}}"
+            ),
+            "variables": {"id": node_id, "m": method_am},
+        }
+        gql_req = _urllib_request.Request(
+            "https://api.github.com/graphql",
+            data=json.dumps(gql).encode(),
+            method="POST",
+            headers=headers,
+        )
+        try:
+            with _urllib_request.urlopen(gql_req, timeout=30) as resp:
+                gql_data = json.loads(resp.read().decode())
+        except _urllib_error.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"GitHub GraphQL error: HTTP {exc.code}")
+        errs = gql_data.get("errors") or []
+        if not errs:
+            log.info("PR #%s auto-merge enabled (method=%s, actor=service:telegram)", number, method_am)
+            return {
+                "status": "auto_merge_enabled",
+                "number": number,
+                "head_sha": head_sha_am,
+                "merge_method": method_am.lower(),
+            }
+        msg = "; ".join(str(e.get("message", "")) for e in errs)
+        # "Clean status" / "not in the correct state" → the PR is already
+        # mergeable and green, so fall through to an immediate merge below.
+        if "clean status" not in msg.lower() and "correct state" not in msg.lower():
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Could not enable auto-merge for PR #{number}: {msg[:200]}. "
+                    "Ensure 'Allow auto-merge' is on in the repo settings, or retry "
+                    "with auto_merge=false to merge immediately."
+                ),
+            )
+        # else: fall through to the immediate-merge guards below.
+
     if pr_data.get("mergeable_state") not in ("clean", "unstable"):
         # 'dirty' / 'blocked' / 'behind' / 'unknown' all refuse — the operator
         # needs to resolve conflicts or wait for CI before retrying.

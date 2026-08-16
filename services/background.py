@@ -50,6 +50,7 @@ _ceo_supervisor_task: "asyncio.Task | None" = None
 _render_ops_task: "asyncio.Task | None" = None
 
 _memory_guard_task: "asyncio.Task | None" = None
+_pr_approval_gate_task: "asyncio.Task | None" = None
 # Module-level handle to the one-shot boot refresh of the remote skill registries.
 _skill_refresh_task: "asyncio.Task | None" = None
 # Module-level handle to the in-process Hermes sidecar (idempotency + shutdown).
@@ -594,6 +595,30 @@ def _start_autonomy_loops(scheduler: "AgentScheduler") -> list:
             log.info("Memory guard disabled (MEMORY_GUARD_ENABLED=false)")
     except Exception as exc:  # noqa: BLE001
         log.warning("Memory guard could not start: %s", exc)
+
+    # ── PR approval gate (opt-in) ────────────────────────────────────────────
+    # Sweeps for green open PRs and posts a one-tap Telegram Approve→auto-merge
+    # card for each. Off by default — enable with PR_APPROVAL_GATE_ENABLED=true
+    # (needs GH_PAT + TELEGRAM_BOT_TOKEN + a chat id). Fail-soft: never crashes
+    # the loop or spams (dedup keyed on PR head SHA).
+    try:
+        from services.pr_approval_gate import gate_enabled, pr_approval_gate_loop
+        if gate_enabled():
+            try:
+                running = asyncio.get_running_loop()
+            except RuntimeError:
+                running = None
+            global _pr_approval_gate_task
+            if running is not None and (_pr_approval_gate_task is None or _pr_approval_gate_task.done()):
+                _pr_approval_gate_task = running.create_task(pr_approval_gate_loop())
+                tasks.append(_pr_approval_gate_task)
+                log.info("PR approval gate started (PR_APPROVAL_GATE_ENABLED=true)")
+            elif running is None:
+                log.info("PR approval gate not started (no running event loop)")
+        else:
+            log.info("PR approval gate disabled (PR_APPROVAL_GATE_ENABLED=false)")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("PR approval gate could not start: %s", exc)
 
     return tasks
 

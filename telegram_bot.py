@@ -549,6 +549,76 @@ async def cmd_merge(user_id: int, pr_number_str: str) -> str:
         return f"/merge failed: {exc}"
 
 
+async def _process_pr_callback(
+    bot_token: str,
+    callback_id: str,
+    chat_id: int,
+    message_id: int,
+    action: str,
+    arg: str | None,
+) -> None:
+    """Handle the green-PR approval card buttons (pr_merge / pr_reject).
+
+    ``pr_merge`` enables GitHub auto-merge via the service-token-gated backend
+    endpoint (the PR lands when checks pass, rebasing if behind); ``pr_reject``
+    dismisses the card without touching the PR. The caller (``_process_callback``)
+    has already enforced admin-only, so no re-check here.
+    """
+    try:
+        pr_number = int(arg or "")
+    except (TypeError, ValueError):
+        await _answer_callback(bot_token, callback_id, "Bad PR number.")
+        return
+
+    if action == "pr_reject":
+        await _answer_callback(bot_token, callback_id, "Dismissed.")
+        await _edit_message(bot_token, chat_id, message_id, f"❌ PR #{pr_number} approval dismissed.")
+        return
+
+    if action != "pr_merge":
+        await _answer_callback(bot_token, callback_id)
+        return
+
+    if not SERVICE_TOKEN:
+        await _answer_callback(bot_token, callback_id, "SERVICE_TOKEN not set.")
+        return
+
+    await _answer_callback(bot_token, callback_id, "Enabling auto-merge…")
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            r = await client.post(
+                f"{PROXY_BASE_URL}/admin/api/prs/{pr_number}/merge",
+                json={"auto_merge": True, "merge_method": "squash"},
+                headers=_service_token_headers(),
+            )
+        if r.status_code in (401, 503):
+            await _edit_message(bot_token, chat_id, message_id,
+                                f"❌ PR #{pr_number}: service token not accepted by the backend.")
+            return
+        if r.status_code == 404:
+            await _edit_message(bot_token, chat_id, message_id, f"❌ PR #{pr_number} not found.")
+            return
+        if r.status_code == 422:
+            detail = r.json().get("detail", "")
+            await _edit_message(bot_token, chat_id, message_id,
+                                f"❌ PR #{pr_number}: {detail}")
+            return
+        r.raise_for_status()
+        data = r.json()
+    except Exception as exc:
+        await _edit_message(bot_token, chat_id, message_id, f"PR #{pr_number} merge failed: {exc}")
+        return
+
+    if data.get("status") == "auto_merge_enabled":
+        await _edit_message(bot_token, chat_id, message_id,
+                            f"✅ Auto-merge enabled for PR #{pr_number} (squash) — "
+                            "it will land when checks pass.")
+    else:
+        merge_sha = (data.get("merge_sha") or data.get("sha") or "")[:8]
+        await _edit_message(bot_token, chat_id, message_id,
+                            f"✅ Merged PR #{pr_number} (sha=`{merge_sha}`, actor=`service:telegram`)")
+
+
 async def cmd_keylist(user_id: int) -> str:
     if not _is_admin(user_id):
         return "Permission denied. Admin only."
@@ -926,6 +996,10 @@ async def _process_callback(bot_token: str, callback: dict) -> None:
 
     if action.startswith("task_"):
         await _process_task_callback(bot_token, callback_id, chat_id, message_id, action, arg)
+        return
+
+    if action.startswith("pr_"):
+        await _process_pr_callback(bot_token, callback_id, chat_id, message_id, action, arg)
         return
 
     state = _freebuff_state.get(user_id)
