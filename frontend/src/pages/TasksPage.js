@@ -48,6 +48,7 @@ const COLS = [
   { id: 'blocked',     label: 'BLOCKED',     color: '#EF4444' },
   { id: 'done',        label: 'DONE',        color: '#10B981' },
   { id: 'failed',      label: 'FAILED',      color: '#7C3AED' },
+  { id: 'wont_do',     label: "WON'T DO",    color: '#64748B' },
 ];
 
 const PRIORITY_DOT = {
@@ -65,7 +66,7 @@ function PriorityDot({ priority }) {
 function StatusDot({ status }) {
   const colors = {
     todo: '#6E6E80', in_progress: '#10B981', in_review: '#F59E0B',
-    blocked: '#EF4444', done: '#3B82F6', failed: '#7C3AED',
+    blocked: '#EF4444', done: '#3B82F6', failed: '#7C3AED', wont_do: '#64748B',
   };
   return <div className="w-2 h-2 rounded-full shrink-0" style={{ background: colors[status] || '#6E6E80' }} />;
 }
@@ -129,7 +130,7 @@ function TaskCard({ task, isSelected, onClick }) {
 // ── Task detail panel ──────────────────────────────────────────────────────────
 
 function TaskDetailPanel({ task, onClose, onStatusChange, onRetry, onEscalate, onComment, onRunNow }) {
-  const STATUSES = ['todo', 'in_progress', 'in_review', 'blocked', 'done', 'failed'];
+  const STATUSES = ['todo', 'in_progress', 'in_review', 'blocked', 'done', 'failed', 'wont_do'];
   const [actionLoading, setActionLoading] = useState('');
   const [commentBody, setCommentBody] = useState('');
 

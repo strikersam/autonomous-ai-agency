@@ -112,5 +112,67 @@ async def test_rejecting_removes_task_from_awaiting_list(task_store):
     )
 
     assert resp.status_code == 200
-    assert resp.json()["task"]["status"] == "blocked"
+    assert resp.json()["task"]["status"] == "wont_do"  # human decline, not a failure
     assert client.get("/api/tasks/awaiting-approval").json()["tasks"] == []
+
+
+@pytest.mark.asyncio
+async def test_retry_blocked_requeues_all_blocked(task_store, monkeypatch):
+    monkeypatch.setattr(tasks_api, "_queue_task_execution", lambda *a, **k: None)
+    for i in range(3):
+        await task_store.create(Task(
+            owner_id="o@x.com", title=f"blocked {i}", status=TaskStatus.BLOCKED,
+            blocked_reason="No runtime available", pending_agent_run=False,
+        ))
+    # A non-blocked task must be left alone.
+    await task_store.create(Task(owner_id="o@x.com", title="done", status=TaskStatus.DONE))
+
+    resp = _client("user", "o@x.com").post("/api/tasks/retry-blocked")
+
+    assert resp.status_code == 200
+    assert resp.json()["retried"] == 3
+    remaining_blocked = [t for t in await task_store.list_for_user("o@x.com")
+                         if t.status is TaskStatus.BLOCKED]
+    assert remaining_blocked == []
+
+
+@pytest.mark.asyncio
+async def test_comment_reengages_task_for_the_agent(task_store, monkeypatch):
+    # A top-level comment on ANY status re-opens + re-queues the task so the
+    # agent reads and acts on it — including on a terminal task.
+    queued: list[str] = []
+    monkeypatch.setattr(tasks_api, "_queue_task_execution",
+                        lambda bg, req, tid: queued.append(tid))
+    done = Task(owner_id="o@x.com", title="finished thing", status=TaskStatus.DONE)
+    await task_store.create(done)
+    client = _client("user", "o@x.com")
+
+    resp = client.post(f"/api/tasks/{done.task_id}/comments", json={"body": "actually, also handle X"})
+
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["queued"] is True
+    assert body["task"]["status"] in ("in_progress", "todo")
+    assert body["task"]["pending_agent_run"] is True
+    assert queued == [done.task_id]
+
+
+@pytest.mark.asyncio
+async def test_threaded_reply_does_not_reengage(task_store, monkeypatch):
+    queued: list[str] = []
+    monkeypatch.setattr(tasks_api, "_queue_task_execution",
+                        lambda bg, req, tid: queued.append(tid))
+    done = Task(owner_id="o@x.com", title="finished", status=TaskStatus.DONE)
+    from tasks.models import TaskComment
+    parent = TaskComment(author="o@x.com", body="root")
+    done.comments.append(parent)
+    await task_store.create(done)
+    client = _client("user", "o@x.com")
+
+    resp = client.post(f"/api/tasks/{done.task_id}/comments",
+                       json={"body": "just discussing", "reply_to": parent.comment_id})
+
+    assert resp.status_code == 201
+    assert resp.json()["queued"] is False
+    assert queued == []                       # a reply is discussion, no re-run
+    assert (await task_store.get(done.task_id)).status is TaskStatus.DONE

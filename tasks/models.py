@@ -19,6 +19,7 @@ class TaskStatus(str, Enum):
     NEEDS_CLARIFICATION  = "needs_clarification"
     DONE                 = "done"
     FAILED               = "failed"
+    WONT_DO              = "wont_do"   # human declined the work (terminal, reopenable)
 
 
 class TaskPriority(str, Enum):

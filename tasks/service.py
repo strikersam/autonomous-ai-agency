@@ -33,13 +33,18 @@ def _get_workflow_engine() -> WorkflowEngine:
     return _get_workflow_engine._instance
 
 
+# WONT_DO is a terminal "human declined this work" state (a rejected task must
+# NOT read as failed/blocked, which imply the system tried and couldn't). It is
+# reachable from any state a human can decline from, and — like DONE/FAILED — is
+# reopenable via Retry.
 ALLOWED_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
-    TaskStatus.TODO: {TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED, TaskStatus.FAILED},
-    TaskStatus.IN_PROGRESS: {TaskStatus.IN_REVIEW, TaskStatus.BLOCKED, TaskStatus.DONE, TaskStatus.FAILED},
-    TaskStatus.IN_REVIEW: {TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED, TaskStatus.DONE},
-    TaskStatus.BLOCKED: {TaskStatus.IN_PROGRESS, TaskStatus.FAILED},
-    TaskStatus.FAILED: {TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED},
+    TaskStatus.TODO: {TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED, TaskStatus.FAILED, TaskStatus.WONT_DO},
+    TaskStatus.IN_PROGRESS: {TaskStatus.IN_REVIEW, TaskStatus.BLOCKED, TaskStatus.DONE, TaskStatus.FAILED, TaskStatus.WONT_DO},
+    TaskStatus.IN_REVIEW: {TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED, TaskStatus.DONE, TaskStatus.WONT_DO},
+    TaskStatus.BLOCKED: {TaskStatus.IN_PROGRESS, TaskStatus.FAILED, TaskStatus.WONT_DO},
+    TaskStatus.FAILED: {TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED, TaskStatus.WONT_DO},
     TaskStatus.DONE: {TaskStatus.IN_PROGRESS},
+    TaskStatus.WONT_DO: {TaskStatus.TODO, TaskStatus.IN_PROGRESS},
     # A task awaiting human input can be re-opened, re-queued, or terminated.
     # Without this key, any transition from NEEDS_CLARIFICATION raised
     # "Cannot transition…" → a 400 on the Retry button.
@@ -49,6 +54,7 @@ ALLOWED_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
         TaskStatus.BLOCKED,
         TaskStatus.FAILED,
         TaskStatus.DONE,
+        TaskStatus.WONT_DO,
     },
 }
 
@@ -131,10 +137,10 @@ class TaskWorkflowService:
             if status is TaskStatus.IN_PROGRESS and task.started_at is None:
                 task.started_at = time.time()
             task.pending_agent_run = True if pending_agent_run is None else pending_agent_run
-        elif status in {TaskStatus.IN_REVIEW, TaskStatus.BLOCKED, TaskStatus.DONE, TaskStatus.FAILED}:
+        elif status in {TaskStatus.IN_REVIEW, TaskStatus.BLOCKED, TaskStatus.DONE, TaskStatus.FAILED, TaskStatus.WONT_DO}:
             task.pending_agent_run = bool(pending_agent_run) if pending_agent_run is not None else False
 
-        if status is TaskStatus.DONE and task.completed_at is None:
+        if status in {TaskStatus.DONE, TaskStatus.WONT_DO} and task.completed_at is None:
             task.completed_at = time.time()
         if status in {TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED, TaskStatus.IN_REVIEW, TaskStatus.FAILED}:
             if status is not TaskStatus.DONE:
@@ -257,9 +263,13 @@ class TaskWorkflowService:
 
         A ``requires_approval`` task is parked by the dispatcher before it runs
         (charter Gate Matrix). Approve → set ``execution_approved`` and re-queue
-        for execution; reject → BLOCKED with a reason (re-openable). This is the
-        gate that stops risky/outward-facing work from running unattended; it is
-        distinct from ``record_approval`` (which signs off COMPLETED work).
+        for execution; reject → WONT_DO (a human declined the work — terminal but
+        reopenable via Retry). Rejection deliberately does NOT go to BLOCKED or
+        FAILED: those mean the system tried and couldn't, and would be swept by
+        the auto-retry reconciler and the blocked-backlog retirement, so a
+        declined task would churn or be mislabelled as a failure. This gate stops
+        risky/outward-facing work from running unattended; it is distinct from
+        ``record_approval`` (which signs off COMPLETED work).
         """
         if approved:
             task.execution_approved = True
@@ -271,12 +281,12 @@ class TaskWorkflowService:
                 pending_agent_run=True,
             )
         else:
+            task.execution_approved = False
             self.transition(
                 task,
-                TaskStatus.BLOCKED,
+                TaskStatus.WONT_DO,
                 actor=actor,
-                blocked_reason=f"Execution rejected by {actor}: {reason or 'no reason given'}",
-                message=f"Execution rejected by {actor}",
+                message=f"Execution rejected by {actor}: {reason or 'no reason given'}",
             )
         task.add_log(
             f"Pre-execution gate {'approved' if approved else 'rejected'} by {actor}",

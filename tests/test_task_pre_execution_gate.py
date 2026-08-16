@@ -103,15 +103,20 @@ async def test_approved_task_passes_the_gate(store):
 
 
 @pytest.mark.asyncio
-async def test_reject_execution_blocks(store, workflow):
+async def test_reject_execution_moves_to_wont_do(store, workflow):
     task = Task(owner_id="o@x.com", title="Deploy", requires_approval=True, pending_agent_run=True)
     await store.create(task)
 
     workflow.approve_execution(task, actor="boss@x.com", approved=False, reason="not now")
 
+    # Rejection is a human decision, not a system failure — terminal WONT_DO,
+    # never BLOCKED/FAILED (which the auto-retry + backlog machinery would sweep).
     assert task.execution_approved is False
-    assert task.status is TaskStatus.BLOCKED
-    assert "not now" in (task.blocked_reason or "")
+    assert task.status is TaskStatus.WONT_DO
+    assert task.pending_agent_run is False
+    # WONT_DO is reopenable via Retry.
+    workflow.retry(task, actor="boss@x.com")
+    assert task.status in {TaskStatus.TODO, TaskStatus.IN_PROGRESS}
 
 
 @pytest.mark.asyncio

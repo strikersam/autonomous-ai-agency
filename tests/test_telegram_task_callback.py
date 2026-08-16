@@ -76,7 +76,7 @@ async def test_approve_button_approves_and_requeues(store, recorder):
 
 
 @pytest.mark.asyncio
-async def test_reject_button_blocks_task(store, recorder):
+async def test_reject_button_moves_task_to_wont_do(store, recorder):
     task = await _parked_task(store)
 
     await telegram_bot._process_task_callback(
@@ -84,9 +84,15 @@ async def test_reject_button_blocks_task(store, recorder):
     )
 
     updated = await store.get(task.task_id)
+    # Reject is a human decision → terminal WONT_DO, not BLOCKED/FAILED.
     assert updated.execution_approved is False
-    assert updated.status is TaskStatus.BLOCKED
-    assert "Rejected via Telegram" in (updated.blocked_reason or "")
+    assert updated.status is TaskStatus.WONT_DO
+    assert updated.pending_agent_run is False
+    # The reason is preserved in the decision log entry.
+    assert any(
+        "Rejected via Telegram" in (e.message or "")
+        for e in updated.execution_log
+    )
     assert recorder.answers == ["Rejected ❌"]
 
 

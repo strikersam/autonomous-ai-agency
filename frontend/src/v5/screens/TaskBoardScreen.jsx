@@ -14,6 +14,7 @@ const LIFECYCLE_STAGES = [
   { id: 'needs_clarification', label: 'Needs Clarification', color: '#b57bee', desc: 'Awaiting context' },
   { id: 'done',                label: 'Done',               color: '#46d9a4', desc: 'Completed' },
   { id: 'failed',              label: 'Failed',             color: '#ff6b7d', desc: 'Error / retry' },
+  { id: 'wont_do',             label: "Won't Do",           color: '#8b93a7', desc: 'Human declined' },
 ];
 
 const HEALTH_COLORS = { on_track: '#46d9a4', at_risk: '#ffbd66', off_track: '#ff6b7d', complete: '#6e7786' };
@@ -308,6 +309,19 @@ function TaskBoardScreen() {
     fetchAll();
   };
 
+  const [retryingBlocked, setRetryingBlocked] = React.useState(false);
+  const blockedCount = rawTasks.filter(t => t.status === 'blocked').length;
+  const handleRetryBlocked = async () => {
+    setActionError(''); setRetryingBlocked(true);
+    try {
+      await api.retryBlockedTasks();
+    } catch (e) {
+      setActionError(api.fmtErr?.(e?.response?.data?.detail) || e?.message || 'Could not retry blocked tasks.');
+    }
+    setRetryingBlocked(false);
+    fetchAll();
+  };
+
   const handleCreateSprint = async () => {
     if (!newSprintName.trim()) return;
     setCreatingSprint(true);
@@ -381,6 +395,14 @@ function TaskBoardScreen() {
                 background: 'rgba(181,123,238,0.12)', border: '1px solid rgba(181,123,238,0.28)',
                 color: '#b57bee', transition: 'all 0.15s ease',
               }}>New Sprint +</button>
+            )}
+            {blockedCount > 0 && (
+              <button onClick={handleRetryBlocked} disabled={retryingBlocked} style={{
+                padding: '5px 14px', borderRadius: 999, fontSize: 11, fontWeight: 700,
+                cursor: retryingBlocked ? 'default' : 'pointer', opacity: retryingBlocked ? 0.6 : 1,
+                background: 'rgba(255,189,102,0.12)', border: '1px solid rgba(255,189,102,0.30)',
+                color: '#ffbd66', transition: 'all 0.15s ease',
+              }}>{retryingBlocked ? 'Retrying…' : `↻ Retry all blocked (${blockedCount})`}</button>
             )}
             <button onClick={() => { setShowNewTask(true); setCreateError(''); }} style={{
               padding: '5px 14px', borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: 'pointer',
