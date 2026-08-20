@@ -136,6 +136,16 @@ available — because a dashboard that overstates containment is worse than none
 
 Guide, gap analysis, and threat model: [docs/governance/](docs/governance/README.md).
 
+## What's New (2026-08-16)
+
+**Claude Sonnet 5 and Opus 5 routing.** Both Anthropic GA models are now registered in the model router. `claude-sonnet-5` brings a 1M-token context window with adaptive (extended) thinking; `claude-opus-5` is the new flagship for planning and reasoning. Any OpenAI-compat client that sets `"model": "claude-sonnet-5"` or `"model": "claude-opus-5"` now routes correctly through the proxy instead of falling back to the heuristic default.
+
+**`reasoning_budget` shorthand.** Clients calling `/v1/chat/completions` can now pass `"reasoning_budget": "low"|"medium"|"high"|"max"` alongside their request. The proxy maps it to the appropriate `thinking_token_budget` value (512 → 2048 → 8192 → 32768) before forwarding — so you control reasoning depth and token spend on any supported model (DeepSeek-R1, Qwen3, Nemotron, Claude 3.7+) with a single readable field, without learning each provider's raw parameter.
+
+**Chat-path context pruning.** The 3-phase context pruner that has been protecting the agent loop for months is now also active on direct `/v1/chat/completions` requests. Conversations that grow past ~80k tokens are automatically trimmed (think-tag stripping → per-role backward walk → XML wrapping of older turns) before being forwarded — no more context-limit errors on long multi-turn sessions. Disable with `PROXY_CONTEXT_PRUNING_ENABLED=false` if you prefer raw pass-through.
+
+---
+
 ## What's New (2026-07-24)
 
 **Structured output strict mode + refusal handling.** The OpenAI `json_schema` + `strict: true` pattern is now the preferred way to request schema-conformant JSON from any model (replacing the legacy `json_object` mode). The proxy translates strict-mode requests into a tighter system-prompt constraint for Anthropic and other providers that don't natively support it, and detects model refusals (`choices[0].message.refusal`) so callers get a clear error instead of empty/garbled JSON.
