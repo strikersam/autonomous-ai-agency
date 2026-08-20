@@ -3,6 +3,9 @@
      move the gate to root. -->
 
 ## [Unreleased]
+### Fixed - `tests/test_autonomous_agency_e2e.py` — Resolved test failure by updating datetime usage to timezone-aware datetime.now(timezone.utc) and ensuring proper mocking of MongoDB connection failures in BackgroundAgent retry tests.
+### Fixed - `tests/test_autonomous_agency_e2e.py` — Updated datetime.utcnow() to timezone-aware datetime.now(timezone.utc) to resolve deprecation warnings in test setup.
+### Fixed - `tests/test_autonomous_agency_e2e.py` — Updated `datetime.utcnow()` to timezone-aware `datetime.now(timezone.utc)` to resolve deprecation warning in BackgroundAgent retry tests.
 
 ### Added
 

@@ -13,7 +13,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 from dataclasses import dataclass, field
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -29,7 +29,7 @@ class FakeTask:
     progress_message: str = ""
     last_heartbeat_at: Optional[str] = None
     retry_count: int = 0
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
 class TestBackgroundAgentRetryLogic:
@@ -71,7 +71,7 @@ class TestBackgroundAgentRetryLogic:
             task_id="retry-test",
             kind="manual",
             payload={"instruction": "test task"},
-            created_at=datetime.utcnow().isoformat(),
+            created_at=datetime.now(timezone.utc).isoformat(),
             max_retries=2,
         )
 
