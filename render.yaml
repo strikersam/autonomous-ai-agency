@@ -372,8 +372,14 @@ services:
       # sidecar's public URL is not used by the backend at all.
       - key: RENDER_MCP_URL
         value: "http://agency-render-mcp:10000/mcp"
+      # The Render workspace (owner) ID. Upstream deprecated implicit
+      # session-scoped workspace selection, so RenderOps must pass workspaceId
+      # on every resource call — without it service discovery fails with
+      # "no workspace selected" and the self-healing loop stays dark. This is an
+      # account identifier, not a secret, so it is tracked here (rather than
+      # sync:false) to keep the ops loop working across IaC redeploys.
       - key: RENDER_WORKSPACE_ID
-        sync: false
+        value: "tea-d7car44p3tds739qdrs0"
       - key: RENDER_SERVICE_IDS
         sync: false
       - key: RENDER_OPS_ENABLED
