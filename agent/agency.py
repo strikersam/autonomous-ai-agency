@@ -165,7 +165,12 @@ def _build_quick_note_instruction(issue: dict) -> str:
     )
 
 _REPO_ROOT = Path(__file__).parent.parent
-TICK_INTERVAL_MINUTES = int(os.environ.get("AGENCY_TICK_MINUTES", "5"))
+# Default raised 5 → 15: the CEO tick is the biggest driver of LLM call volume
+# (assess + materialise tasks that then plan). A 5-minute cadence self-inflicts
+# free-tier provider serialization behind the `planning: TimeoutError` failures.
+# Adjustable from Platform Controls (AGENCY_TICK_MINUTES); lower it once paid
+# capacity is available.
+TICK_INTERVAL_MINUTES = int(os.environ.get("AGENCY_TICK_MINUTES", "15"))
 PROXY_BASE_URL = os.environ.get("AGENCY_PROXY_URL", "http://localhost:8000")
 CEO_MODEL = os.environ.get("AGENCY_CEO_MODEL", "qwen3-coder:14b")
 
