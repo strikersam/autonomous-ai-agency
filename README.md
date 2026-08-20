@@ -42,7 +42,7 @@ Most "autonomous agent" projects show you a demo video. Here are artifacts inste
 
 | Proof | What it shows |
 |---|---|
-| [**This repo is maintained by its own agents**](proof/agent-built.md) | **184 of the 642 merged pull requests** in this repository were opened by the agent fleet — self-healing systems, provider failover, CI hardening, releases. Not a demo: the public commit history, verifiable with one GitHub search. |
+| [**This repo is maintained by its own agents**](proof/agent-built.md) | **279 of the 829 merged pull requests** in this repository were opened by the agent fleet — self-healing systems, provider failover, CI hardening, releases. Not a demo: the public commit history, verifiable with one GitHub search. |
 | [**Real audit output**](proof/audits/) | The SEO/GEO/AIO audit engine run against this project's own site — findings, scores, and the agent delegation plan, committed unedited (yes, including our own imperfect score). |
 | [**24-hour live sandbox**](https://autonomous-ai-agency.strikersam.workers.dev/) | Onboard any site, watch specialists get provisioned, talk to the CEO agent. The environment resets every 24 hours. No signup wall, nothing to uninstall. |
 
@@ -313,7 +313,7 @@ MIT — see [LICENSE](LICENSE)
 
 ## Contributing
 
-Issues and PRs are welcome. [**CONTRIBUTING.md**](CONTRIBUTING.md) covers dev setup, coding standards, and the PR checklist; [**SECURITY.md**](SECURITY.md) covers vulnerability disclosure. Since [most merged PRs here are agent-authored](proof/agent-built.md), the fastest way to see the expected quality bar is to read a few recent ones.
+Issues and PRs are welcome. [**CONTRIBUTING.md**](CONTRIBUTING.md) covers dev setup, coding standards, and the PR checklist; [**SECURITY.md**](SECURITY.md) covers vulnerability disclosure. Since [roughly a third of merged PRs here are agent-authored](proof/agent-built.md), the fastest way to see the expected quality bar is to read a few recent ones.
 
 If you'd rather point an agent at a specific gap than write the fix yourself, [open an issue](https://github.com/strikersam/autonomous-ai-agency/issues/new) describing it — the fleet's own inbound-issue triage may pick it up.
 
