@@ -47,6 +47,7 @@ Complete reference for every environment variable in `.env`. Copy `.env.example`
 | `PROXY_DEFAULT_SYSTEM_PROMPT_FILE` | `templates/codex_local_ide_system_prompt.txt` | Path to system prompt file (relative to repo root). |
 | `PROXY_STRIP_THINK_TAGS` | `true` | Remove `<think>...</think>` blocks from model responses. Recommended for DeepSeek-R1 and other reasoning models. |
 | `PROXY_DEFAULT_MAX_TOKENS` | `8192` | Fallback `max_tokens` applied when the client does not send one. **Must be ≥ 4096 for Claude Code.** The old default of 1200 truncates code generation responses. |
+| `PROXY_CONTEXT_PRUNING_ENABLED` | `true` | Automatically trim long `/v1/chat/completions` message histories (>80k tokens) before forwarding. Uses the 3-phase `ContextPruner`: strip `<think>` tags → per-role backward-walk → XML-wrap evicted history. Set to `false` for raw pass-through. |
 
 ---
 
@@ -434,6 +435,7 @@ to `internal_agent`. Full runbook: [`runbooks/prime-agent.md`](runbooks/prime-ag
 | `PRIME_AGENT_MAX_TURNS` | (unset) | `--autonomous-max-turns`, when the build supports it |
 | `PRIME_AGENT_TRUST_WORKSPACE` | `false` | `true` loads workspace-local extensions, skills, and `AGENTS.md`/`CLAUDE.md` |
 | `AGENCY_PROXY_URL` | `http://localhost:8000` | Base URL serving `/v1/chat/completions` (`proxy.py`) |
+| `AGENCY_TICK_MINUTES` | `15` | How often the CEO loop assesses state and creates work — the single biggest driver of LLM call volume (each tick can materialise tasks that then plan). Default raised 5 → 15: on a rate-limited/slow free-tier brain a fast cadence self-inflicts the provider serialization behind `planning: TimeoutError`. Adjustable from **Platform Controls → Autonomy** (call-volume throttle); lower it once you have paid capacity. Takes effect on the next restart. |
 | `PROXY_API_KEY` | (unset) | **Secret.** Bearer token the extension sends to that proxy |
 
 The CLI has no base-URL variable of its own, so `PRIME_AGENT_EXTENSION` is what

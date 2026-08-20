@@ -47,7 +47,7 @@ gTTS>=2.5.0
 # THIS file (not root requirements.txt), so langfuse MUST be here — without it,
 # get_langfuse_client() logs "langfuse package not installed" and no traces
 # are emitted, even when LANGFUSE_PUBLIC_KEY/SECRET_KEY are set on Render.
-langfuse>=4.14.3,<5
+langfuse>=4.14.4,<5
 
 # ── Runtime deps that shipped code imports directly ──────────────────────────
 # Same failure mode as the scanner/langfuse entries above: Dockerfile.backend
@@ -58,7 +58,7 @@ langfuse>=4.14.3,<5
 # Anthropic SDK — agent/loop.py imports it for the native Messages API path.
 # Without it the import raises, the loop silently falls through to the
 # OpenAI-compatible failover, and paid Claude calls degrade.
-anthropic>=0.120.2
+anthropic>=0.122.0
 
 # E2B Firecracker micro-VM sandbox — services/e2b_config.is_e2b_sdk_importable().
 # Without it the Providers screen reports "e2b OFFLINE / SDK not installed"

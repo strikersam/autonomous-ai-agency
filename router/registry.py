@@ -463,6 +463,71 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         cost_tier=1,
         tags=["bedrock", "claude", "claude4", "fast"],
     ),
+    # ── Anthropic API — Claude 5 standard family ──────────────────────────────
+    # Opus 5: flagship most-capable model, GA August 2026. Replaces Opus 4.x as
+    # the highest-quality option for planning, reasoning, and complex tasks.
+    "claude-opus-5": ModelCapability(
+        name="claude-opus-5",
+        strengths=[
+            "reasoning",
+            "analysis",
+            "planning",
+            "math",
+            "complex_tasks",
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "conversation",
+            "data_analysis",
+        ],
+        context_window=200000,
+        type="reasoning",
+        cost_tier=3,
+        tags=["anthropic", "claude", "claude5", "flagship"],
+    ),
+    # Sonnet 5: best balance of intelligence and speed, GA July 2026.
+    # 1M-token context window with adaptive thinking (extended reasoning on demand).
+    "claude-sonnet-5": ModelCapability(
+        name="claude-sonnet-5",
+        strengths=[
+            "reasoning",
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "conversation",
+            "analysis",
+            "data_analysis",
+            "complex_tasks",
+        ],
+        context_window=1048576,
+        type="reasoning",
+        cost_tier=2,
+        tags=["anthropic", "claude", "claude5", "long_context", "adaptive_thinking"],
+    ),
+    # Dated alias pinned to the May 2026 checkpoint.
+    "claude-sonnet-5-20260501": ModelCapability(
+        name="claude-sonnet-5-20260501",
+        strengths=[
+            "reasoning",
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "conversation",
+            "analysis",
+            "data_analysis",
+            "complex_tasks",
+        ],
+        context_window=1048576,
+        type="reasoning",
+        cost_tier=2,
+        tags=["anthropic", "claude", "claude5", "long_context", "adaptive_thinking", "pinned"],
+    ),
     # ── Anthropic API — Claude 5 family (Mythos-class tier, above Opus) ──────
     # Fable 5: most intelligent generally available model; standard safeguards.
     # NOTE: suspended under US export-control directive as of 2026-06-12.
