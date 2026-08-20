@@ -18,13 +18,26 @@ import pytest
 
 
 def _stub_heavy_imports() -> None:
-    """Stub out modules that require full stack deps to allow unit-testing pure logic."""
-    for mod in ("langfuse_obs", "langfuse", "pymongo"):
+    """Stub out modules that require full stack deps to allow unit-testing pure logic.
+
+    Only stubs a module when it isn't already imported. ``langfuse_obs`` is real
+    and already in ``sys.modules`` in the full test suite (many modules import it
+    eagerly) — mutating its ``emit_chat_observation``/``ObservationType`` in that
+    case would replace the real function with a ``MagicMock`` for the rest of the
+    pytest session (module-level code runs once at collection, with no teardown),
+    corrupting `inspect.signature()` for every later test that imports the real
+    thing (e.g. ``tests/test_vision_routing.py``). Scoping the stub to only the
+    not-yet-imported case keeps this file's standalone-import safety without that
+    cross-test pollution.
+    """
+    for mod in ("langfuse", "pymongo"):
         if mod not in sys.modules:
             sys.modules[mod] = types.ModuleType(mod)
-    # langfuse_obs.emit_chat_observation must be callable
-    sys.modules["langfuse_obs"].emit_chat_observation = MagicMock()
-    sys.modules["langfuse_obs"].ObservationType = MagicMock()
+    if "langfuse_obs" not in sys.modules:
+        stub = types.ModuleType("langfuse_obs")
+        stub.emit_chat_observation = MagicMock()  # type: ignore[attr-defined]
+        stub.ObservationType = MagicMock()  # type: ignore[attr-defined]
+        sys.modules["langfuse_obs"] = stub
 
 
 _stub_heavy_imports()
