@@ -781,3 +781,71 @@ def test_mythos_5_alias_routes():
     decision = _router().route(requested_model="claude-mythos-5")
     assert decision.resolved_model == "deepseek-r1:671b"
     assert decision.selection_source == "model_map"
+
+
+# ── Claude 5 Opus / Sonnet / Haiku 4.5 routing (2026-08) ────────────────────
+
+def test_claude_opus_5_in_registry():
+    from router.registry import get_registry
+    reg = get_registry()
+    assert "claude-opus-5" in reg
+    cap = reg["claude-opus-5"]
+    assert cap.type == "reasoning"
+    assert cap.cost_tier == 3
+    assert "flagship" in cap.tags
+    assert "claude5" in cap.tags
+    assert "planning" in cap.strengths
+    assert "math" in cap.strengths
+
+
+def test_claude_sonnet_5_in_registry():
+    from router.registry import get_registry
+    reg = get_registry()
+    assert "claude-sonnet-5" in reg
+    cap = reg["claude-sonnet-5"]
+    assert cap.type == "coder"
+    assert cap.cost_tier == 2
+    assert "anthropic" in cap.tags
+    assert "claude5" in cap.tags
+    assert cap.context_window == 1048576
+
+
+def test_claude_haiku_45_in_registry():
+    from router.registry import get_registry
+    reg = get_registry()
+    assert "claude-haiku-4-5" in reg
+    cap = reg["claude-haiku-4-5"]
+    assert cap.type == "coder"
+    assert cap.cost_tier == 1
+    assert "fast" in cap.tags
+    assert "fast_response" in cap.strengths
+
+
+def test_claude_haiku_45_versioned_in_registry():
+    from router.registry import get_registry
+    reg = get_registry()
+    assert "claude-haiku-4-5-20251001" in reg
+    cap = reg["claude-haiku-4-5-20251001"]
+    assert cap.type == "coder"
+    assert cap.cost_tier == 1
+
+
+def test_claude_opus_5_alias_routes():
+    decision = _router().route(requested_model="claude-opus-5")
+    assert decision.resolved_model == "deepseek-r1:671b"
+    assert decision.selection_source == "model_map"
+
+
+def test_claude_sonnet_5_alias_routes():
+    decision = _router().route(requested_model="claude-sonnet-5")
+    assert decision.selection_source == "model_map"
+
+
+def test_claude_haiku_45_alias_routes():
+    decision = _router().route(requested_model="claude-haiku-4-5")
+    assert decision.selection_source == "model_map"
+
+
+def test_claude_haiku_45_versioned_alias_routes():
+    decision = _router().route(requested_model="claude-haiku-4-5-20251001")
+    assert decision.selection_source == "model_map"

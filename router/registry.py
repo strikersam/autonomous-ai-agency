@@ -332,6 +332,67 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         cost_tier=1,
         tags=["lightweight", "fast", "installed"],
     ),
+    # ── Anthropic API — Claude 5 family (direct API) ───────────────────────────
+    # Opus 5: most capable Claude 5 model (supersedes Opus 4.x family).
+    # Uses output_config.effort rather than extended thinking.
+    "claude-opus-5": ModelCapability(
+        name="claude-opus-5",
+        strengths=[
+            "reasoning",
+            "analysis",
+            "planning",
+            "complex_tasks",
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "conversation",
+            "data_analysis",
+            "math",
+        ],
+        context_window=200000,
+        type="reasoning",
+        cost_tier=3,
+        tags=["anthropic", "claude", "claude5", "flagship"],
+    ),
+    # Sonnet 5: best balance of intelligence and speed in Claude 5 family.
+    # 1M token context window; adaptive thinking (no legacy thinking budget).
+    "claude-sonnet-5": ModelCapability(
+        name="claude-sonnet-5",
+        strengths=[
+            "code_generation",
+            "code_debugging",
+            "code_review",
+            "tool_use",
+            "long_context",
+            "conversation",
+            "analysis",
+            "data_analysis",
+            "reasoning",
+        ],
+        context_window=1048576,
+        type="coder",
+        cost_tier=2,
+        tags=["anthropic", "claude", "claude5"],
+    ),
+    # Haiku 4.5: fastest/most compact model in the Claude 4.x range.
+    "claude-haiku-4-5": ModelCapability(
+        name="claude-haiku-4-5",
+        strengths=["fast_response", "conversation", "code_generation", "tool_use"],
+        context_window=200000,
+        type="coder",
+        cost_tier=1,
+        tags=["anthropic", "claude", "claude4", "fast"],
+    ),
+    "claude-haiku-4-5-20251001": ModelCapability(
+        name="claude-haiku-4-5-20251001",
+        strengths=["fast_response", "conversation", "code_generation", "tool_use"],
+        context_window=200000,
+        type="coder",
+        cost_tier=1,
+        tags=["anthropic", "claude", "claude4", "fast"],
+    ),
     # ── Anthropic API — Claude 4 family (direct API) ───────────────────────────
     # Opus 4.8: latest Opus; adds effort parameter + faster output.
     "claude-opus-4-8": ModelCapability(
