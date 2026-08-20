@@ -99,6 +99,17 @@ def test_number_defaults_parse_and_sit_inside_their_bounds():
             assert value <= control.maximum, control.key
 
 
+def test_agency_tick_minutes_throttle_exists():
+    """The call-volume throttle is present, numeric, and defaults to the calmer
+    free-tier cadence (agency.py reads AGENCY_TICK_MINUTES with the same default)."""
+    import agent.agency as agency
+    spec = get_control("AGENCY_TICK_MINUTES")
+    assert spec is not None and spec.kind == KIND_NUMBER
+    assert spec.group == "autonomy"
+    assert int(spec.default) == 15
+    assert agency.TICK_INTERVAL_MINUTES == int(spec.default) or "AGENCY_TICK_MINUTES" in os.environ
+
+
 def test_no_secret_is_exposed_as_a_control():
     """Secrets stay environment-only per the repository constitution."""
     banned = ("_API_KEY", "_TOKEN", "_SECRET", "PASSWORD", "_KEY_ID")
