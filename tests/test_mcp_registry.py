@@ -145,7 +145,8 @@ class TestStatusMeasurement:
         assert len(rows) == len(list_specs())
         for row in rows:
             assert row["status"] in {
-                "connected", "error", "idle", "unconfigured", "unavailable"
+                "connected", "available", "error", "idle",
+                "unconfigured", "unavailable",
             }
 
     @pytest.mark.asyncio
@@ -171,19 +172,21 @@ class TestStdioServersAreHonest:
         assert "stdio" in github["reason"].lower()
 
     @pytest.mark.asyncio
-    async def test_stdio_server_is_unavailable_not_error(self, monkeypatch):
+    async def test_stdio_server_is_available_not_error(self, monkeypatch):
         """Regression: github rendered red, sending operators after a non-bug.
 
         The registry's own docstring said a stdio server must not "read as a
         fault", but _status_for mapped every unreachable server to 'error'
         regardless — so a correctly-configured GitHub entry showed up on the
-        dashboard as broken.
+        dashboard as broken. github is configured and its capability is served
+        by agent/github_tools.py, so it must report the green 'available'
+        state, never 'error' and not the muted 'unavailable' either.
         """
         monkeypatch.setattr(mcp_registry.settings, "gh_pat", "tok", raising=False)
         rows = await status_all()
         github = next(r for r in rows if r["id"] == "github")
-        assert github["status"] == "unavailable", (
-            "a server the backend cannot dial is not an error"
+        assert github["status"] == "available", (
+            "github is configured and served by the backend — a usable, green state"
         )
 
     @pytest.mark.asyncio
@@ -195,7 +198,18 @@ class TestStdioServersAreHonest:
         assert row["status"] == "error"
 
     @pytest.mark.asyncio
-    async def test_undialable_server_reports_unavailable(self):
+    async def test_undialable_backend_served_server_reports_available(self):
+        """An undialable server whose capability is served here is green."""
+        async def _probe():
+            return False, 0, "not dialable from here"
+        row = await _status_for(
+            _spec(dialable=False, served_by_backend=True, probe=_probe)
+        )
+        assert row["status"] == "available"
+
+    @pytest.mark.asyncio
+    async def test_undialable_server_with_no_alternate_path_is_unavailable(self):
+        """Without a backend path, an undialable server stays muted, not green."""
         async def _probe():
             return False, 0, "not dialable from here"
         row = await _status_for(_spec(dialable=False, probe=_probe))
@@ -207,6 +221,13 @@ class TestStdioServersAreHonest:
         assert specs["render"].dialable is True
         assert specs["playwright"].dialable is True
         assert specs["github"].dialable is False
+
+    def test_github_capability_is_served_by_the_backend(self):
+        """github is undialable but usable — its capability is served here."""
+        specs = {s.server_id: s for s in mcp_registry._specs()}
+        assert specs["github"].served_by_backend is True
+        # A default HTTP server makes no such claim.
+        assert specs["render"].served_by_backend is False
 
 
 class TestReasonsAreActionable:
@@ -221,6 +242,11 @@ class TestReasonsAreActionable:
         """Red is reserved for real faults."""
         src = (REPO_ROOT / "frontend/src/v5/screens/ProvidersScreen.jsx").read_text()
         assert "unavailable:'var(--text-muted)'" in src
+
+    def test_frontend_colours_available_green(self):
+        """A backend-served server reads as healthy, not as a warning."""
+        src = (REPO_ROOT / "frontend/src/v5/screens/ProvidersScreen.jsx").read_text()
+        assert "available:'#46d9a4'" in src
 
 
 # ── the screen this backs ─────────────────────────────────────────────────────
