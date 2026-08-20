@@ -423,11 +423,14 @@ function MCPTab() {
   const [newCmd,   setNewCmd]   = React.useState('');
   const [newDesc,  setNewDesc]  = React.useState('');
 
-  // Only 'error' is red. 'unconfigured' is amber (an operator can act on it),
-  // and 'unavailable' is muted — a server the backend structurally cannot dial
-  // is not broken, and colouring it red sends people hunting for a fault.
+  // Only 'error' is red. 'unconfigured' is amber (an operator can act on it).
+  // 'available' is green: the server is configured and its capability is served
+  // another way (github through the backend's github_tools), even though the
+  // backend cannot dial the stdio process — that is a working state, not a
+  // fault. 'unavailable' stays muted for the same not-a-fault reason. Colouring
+  // either red sends people hunting for a break that isn't there.
   const statusColor = {
-    connected:'#46d9a4', error:'#ff6b7d',
+    connected:'#46d9a4', available:'#46d9a4', error:'#ff6b7d',
     unconfigured:'#ffbd66', unavailable:'var(--text-muted)',
     idle:'var(--text-muted)',
   };
@@ -522,8 +525,11 @@ function MCPTab() {
       <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
         {(servers || []).map(srv => {
           const sc = statusColor[srv.status] || 'var(--text-muted)';
+          // 'available' is a healthy state (configured, capability served
+          // elsewhere), so it gets the same green card treatment as 'connected'.
+          const healthy = srv.status === 'connected' || srv.status === 'available';
           return (
-            <div key={srv.id} style={{ padding:'12px 14px', borderRadius:14, border:`1px solid ${srv.status==='connected'?'rgba(70,217,164,0.18)':srv.status==='error'?'rgba(255,107,125,0.18)':'rgba(255,255,255,0.08)'}`, background:srv.status==='connected'?'rgba(70,217,164,0.04)':srv.status==='error'?'rgba(255,107,125,0.04)':'rgba(255,255,255,0.025)' }}>
+            <div key={srv.id} style={{ padding:'12px 14px', borderRadius:14, border:`1px solid ${healthy?'rgba(70,217,164,0.18)':srv.status==='error'?'rgba(255,107,125,0.18)':'rgba(255,255,255,0.08)'}`, background:healthy?'rgba(70,217,164,0.04)':srv.status==='error'?'rgba(255,107,125,0.04)':'rgba(255,255,255,0.025)' }}>
               <div style={{ display:'flex', alignItems:'flex-start', gap:9, marginBottom:5 }}>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3, flexWrap:'wrap' }}>
