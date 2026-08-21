@@ -38,6 +38,7 @@
 | 11 | SEO audit: browser-use fetch (Akamai bypass), honest revenue model, demoable UI tab + downloads | `IN_PROGRESS` | `claude/cool-davinci-494siy` | services/seo_fetch.py (httpx/Playwright/auto-escalate), diminishing-returns revenue curve, CompanyScreen SEO tab + CSV/JSON/MD downloads; 13 new fetch tests. Live Akamai bypass needs Playwright browsers in deploy | 2026-06-13 |
 | 27 | Adversarial autonomy-paths audit + hardening | `IN_PROGRESS` | #694 | 2 `agent/`-local fixes (self-heal re-dispatch stranding; broken Hermes dispatch) + 3 tests. Deferred orchestrator-zone findings → Bug Log #9-#12. | 2026-06-19 |
 | 32 | Move heavy voice deps out of the web image → standalone Dockerfile.voice (slim web image, fast cold starts) | `IN_PROGRESS` | `claude/sam-voice-livekit-xjow4g` (PR #935 pending) | Dockerfile.backend no longer installs requirements-livekit (~600MB); new Dockerfile.voice (slim+libgomp1, backend deps, CMD worker start); docs/render.yaml/tests updated | 2026-07-03 |
+| 33 | Daily automation 2026-08-21: Claude 5 YAML catalog + workspace-id observability | `DONE` | `claude/nifty-pasteur-4zlcyu` | claude-sonnet-5/opus-5/haiku-4-5-20251001 added to models.yaml; default promoted to sonnet-5; anthropic-workspace-id header captured; 20 tests; changelogs updated | 2026-08-21 |
 
 ---
 
