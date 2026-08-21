@@ -834,3 +834,41 @@ def test_opus_5_alias_routes():
     decision = _router().route(requested_model="claude-opus-5")
     assert decision.resolved_model == "deepseek-r1:671b"
     assert decision.selection_source == "model_map"
+
+
+# ── Claude Haiku 4.5 ──────────────────────────────────────────────────────────
+
+def test_haiku_4_5_in_registry():
+    from router.registry import get_registry
+    reg = get_registry()
+    assert "claude-haiku-4-5" in reg
+    cap = reg["claude-haiku-4-5"]
+    assert cap.type == "coder"
+    assert cap.cost_tier == 1
+    assert "fast" in cap.tags
+    assert "fast_response" in cap.strengths
+
+
+def test_haiku_4_5_dated_alias_in_registry():
+    from router.registry import get_registry
+    reg = get_registry()
+    assert "claude-haiku-4-5-20251001" in reg
+    cap = reg["claude-haiku-4-5-20251001"]
+    assert cap.type == "coder"
+    assert cap.cost_tier == 1
+    assert "pinned" in cap.tags
+
+
+def test_haiku_4_5_in_model_map():
+    from router.model_router import _BUILTIN_MODEL_MAP
+    assert "claude-haiku-4-5" in _BUILTIN_MODEL_MAP
+
+
+def test_haiku_4_5_alias_routes():
+    decision = _router().route(requested_model="claude-haiku-4-5")
+    assert decision.selection_source == "model_map"
+
+
+def test_haiku_4_5_dated_alias_routes():
+    decision = _router().route(requested_model="claude-haiku-4-5-20251001")
+    assert decision.selection_source == "model_map"

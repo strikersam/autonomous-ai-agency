@@ -164,6 +164,7 @@ def _build_builtin_model_map() -> dict[str, str]:
         # Claude 4.6 family
         "claude-opus-4-6": _heavy,
         "claude-sonnet-4-6": _coder,
+        "claude-haiku-4-5": _fast,
         "claude-haiku-4-5-20251001": _fast,
         # Claude 4.5 family
         "claude-opus-4-5": _heavy,
