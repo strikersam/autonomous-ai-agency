@@ -136,6 +136,14 @@ available — because a dashboard that overstates containment is worse than none
 
 Guide, gap analysis, and threat model: [docs/governance/](docs/governance/README.md).
 
+## What's New (2026-08-21)
+
+**Claude 5 family in the YAML model catalog.** `claude-sonnet-5`, `claude-sonnet-5-20260501`, `claude-opus-5`, and `claude-haiku-4-5-20251001` are now declared in `config/llm/models.yaml`, the catalog that drives capability filtering, context-window checks, and per-token cost tracking for every routed request. Sonnet 5's 1M-token context window and introductory pricing ($2/$10 per MTok — cheaper than Sonnet 4.6's $3/$15) are now visible to the YAML-driven code paths. The Anthropic provider default is promoted from `claude-sonnet-4-6` to `claude-sonnet-5`; new deployments that set only `ANTHROPIC_API_KEY` now route to Sonnet 5 automatically.
+
+**`anthropic-workspace-id` observability.** The Anthropic provider now captures the `anthropic-workspace-id` response header and surfaces it in `LLMResponse.raw["_anthropic_workspace_id"]`. Multi-workspace deployments can see which workspace is serving each call; Langfuse and other observability consumers that read `raw` pick it up automatically.
+
+---
+
 ## What's New (2026-08-16)
 
 **Claude Sonnet 5 and Opus 5 routing.** Both Anthropic GA models are now registered in the model router. `claude-sonnet-5` brings a 1M-token context window with adaptive (extended) thinking; `claude-opus-5` is the new flagship for planning and reasoning. Any OpenAI-compat client that sets `"model": "claude-sonnet-5"` or `"model": "claude-opus-5"` now routes correctly through the proxy instead of falling back to the heuristic default.

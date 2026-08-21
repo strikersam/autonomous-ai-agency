@@ -225,6 +225,6 @@ providers:
     tier: premium
     priority: 64
     max_concurrency: 4
-    default_model: ${ANTHROPIC_DEFAULT_MODEL:-claude-sonnet-4-6}
+    default_model: ${ANTHROPIC_DEFAULT_MODEL:-claude-sonnet-5}
     prompt_caching: ${ANTHROPIC_PROMPT_CACHING:-true}
     thinking_budget: ${ANTHROPIC_THINKING_BUDGET:-0}

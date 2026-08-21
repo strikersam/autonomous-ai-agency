@@ -351,9 +351,19 @@ class AnthropicProvider(LLMProvider):
             if isinstance(error, TransientError):
                 error.retry_after = retry_after_seconds(response.headers)
             raise error
-        return self._parse(response.json(), model=model, latency_ms=latency_ms)
+        workspace_id = response.headers.get("anthropic-workspace-id")
+        if workspace_id:
+            log.debug("anthropic workspace-id: %s", workspace_id)
+        return self._parse(response.json(), model=model, latency_ms=latency_ms, workspace_id=workspace_id)
 
-    def _parse(self, data: dict[str, Any], *, model: str, latency_ms: int) -> LLMResponse:
+    def _parse(
+        self,
+        data: dict[str, Any],
+        *,
+        model: str,
+        latency_ms: int,
+        workspace_id: str | None = None,
+    ) -> LLMResponse:
         text_parts: list[str] = []
         tool_calls: list[ToolCall] = []
         for index, block in enumerate(data.get("content") or []):
@@ -375,6 +385,9 @@ class AnthropicProvider(LLMProvider):
             completion_tokens=int(raw_usage.get("output_tokens") or 0),
             cached_tokens=int(raw_usage.get("cache_read_input_tokens") or 0),
         )
+        raw = {**data}
+        if workspace_id:
+            raw["_anthropic_workspace_id"] = workspace_id
         return LLMResponse(
             text="".join(text_parts),
             model=str(data.get("model") or model),
@@ -384,7 +397,7 @@ class AnthropicProvider(LLMProvider):
             finish_reason=data.get("stop_reason"),
             latency_ms=latency_ms,
             cost_usd=self.cost(model, usage),
-            raw=data,
+            raw=raw,
         )
 
     async def stream(  # type: ignore[override]
