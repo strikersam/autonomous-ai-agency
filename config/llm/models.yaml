@@ -246,3 +246,76 @@ models:
     priority: 66
     speed_tier: fast
     aliases: [claude-haiku, haiku]
+
+  # Dated alias pinned to the October 2025 Haiku 4.5 checkpoint.
+  claude-haiku-4-5-20251001:
+    provider: anthropic
+    display_name: Claude Haiku 4.5 (2025-10-01)
+    context_window: 200000
+    max_output_tokens: 16000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 1.0
+    output_cost_per_1m: 5.0
+    priority: 67
+    speed_tier: fast
+
+  # ── Anthropic — Claude 5 family ───────────────────────────────────────────
+  # Sonnet 5: best balance of intelligence and speed in Claude 5.
+  # 1M-token context, adaptive thinking, introductory pricing $2/$10 per MTok.
+  # GA July 2026; introductory pricing kept through September 2026.
+  claude-sonnet-5:
+    provider: anthropic
+    display_name: Claude Sonnet 5
+    context_window: 1048576
+    max_output_tokens: 64000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 2.0
+    output_cost_per_1m: 10.0
+    priority: 63
+    speed_tier: medium
+    aliases: [sonnet5]
+
+  # Dated alias pinned to the May 2026 Sonnet 5 checkpoint.
+  claude-sonnet-5-20260501:
+    provider: anthropic
+    display_name: Claude Sonnet 5 (2026-05-01)
+    context_window: 1048576
+    max_output_tokens: 64000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 2.0
+    output_cost_per_1m: 10.0
+    priority: 63
+    speed_tier: medium
+
+  # Opus 5: flagship, most capable Claude model (2026).
+  claude-opus-5:
+    provider: anthropic
+    display_name: Claude Opus 5
+    context_window: 200000
+    max_output_tokens: 32000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 15.0
+    output_cost_per_1m: 75.0
+    priority: 62
+    speed_tier: slow
+    aliases: [opus5]
