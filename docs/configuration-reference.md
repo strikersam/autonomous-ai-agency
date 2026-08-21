@@ -250,6 +250,33 @@ The `agency-render-mcp` service itself takes no secrets: in HTTP mode it reads
 the Render token per-request from the caller's `Authorization` header, so the
 only key involved is the backend's.
 
+## Browser automation for agents
+
+Gives agents a real browser (the `browse_page` tool) so they can read
+JavaScript-rendered pages and verify a deployed UI, not just fetch raw HTML.
+Zero-key internet reading (`fetch_url`, `web_search`, `fetch_rss`,
+`youtube_transcript`) is always on and needs none of this — these variables only
+add the interactive browser.
+
+**Browserbase is the low-RAM path and the recommended one.** With a Browserbase
+key set, the browser runs in Browserbase's cloud and the backend only connects to
+it over CDP, so this process never launches a local Chromium (~400MB resident) and
+does not need the browser binaries in its image. Without a key it falls back to a
+local headless Chromium, which does.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BROWSER_AUTOMATION_ENABLED` | `false` | Master switch for the `browse_page` agent tool. Off by default. Also a Platform Control. |
+| `BROWSERBASE_API_KEY` | (empty) | Browserbase API key. When set, agents use the remote cloud browser (no local Chromium). Secret — env-only, never committed. |
+| `BROWSERBASE_PROJECT_ID` | (empty) | Optional Browserbase project ID, appended to the CDP connect URL. |
+| `PLAYWRIGHT_MCP_URL` | (empty) | Optional external Playwright MCP server (`npx @playwright/mcp --port <n>`). Set this instead of Browserbase to route browser tools through an MCP server. |
+
+On **Providers → MCP**, the `playwright` row reflects this: a reachable
+`PLAYWRIGHT_MCP_URL` shows `connected`; otherwise an enabled Browserbase setup
+shows a green `available` (browser served in-process); with neither it stays
+`unconfigured` with a reason naming both fixes. `SEO_BROWSER_BACKEND` (see Feature
+Flags) selects the same two backends for the SEO crawler independently.
+
 ### Memory management
 
 Not Render-MCP related — these tune the backend process allocator and the

@@ -156,13 +156,67 @@ def _render_configured() -> tuple[bool, str]:
 def _playwright_configured() -> tuple[bool, str]:
     # Name the fix, not just the missing variable — an operator reading this
     # row wants to know what to do next, and "X is not set" leaves them to
-    # go and find that out somewhere else.
+    # go and find that out somewhere else. Two ways to a working browser: the
+    # low-RAM Browserbase path (recommended) or an external Playwright MCP.
     if not settings.playwright_mcp_url:
         return False, (
-            "PLAYWRIGHT_MCP_URL is not set — run `npx @playwright/mcp@latest "
-            "--port 8931` somewhere reachable and set it to that /mcp URL"
+            "No browser configured — set BROWSER_AUTOMATION_ENABLED=true with a "
+            "BROWSERBASE_API_KEY for the low-RAM cloud browser (recommended), or "
+            "run `npx @playwright/mcp@latest --port 8931` somewhere reachable and "
+            "set PLAYWRIGHT_MCP_URL to that /mcp URL"
         )
     return True, ""
+
+
+def _playwright_spec() -> MCPServerSpec:
+    """Build the browser-automation row from live settings.
+
+    Three shapes, in priority order, so the dashboard tells the truth about
+    how agents get a browser right now:
+
+      1. ``PLAYWRIGHT_MCP_URL`` set → dial that external Playwright MCP server
+         (green ``connected`` / red ``error``).
+      2. else Browserbase configured + enabled → agents get a real browser
+         in-process via ``agent/browser.py`` (low-RAM remote CDP). Undialable
+         but genuinely served, so a green ``available``.
+      3. else → ``unconfigured``, with a reason that names both fixes.
+    """
+    description = (
+        "Drive a real browser: navigate, click, fill forms, and read the "
+        "rendered page. Lets agents verify a deployed UI actually works and "
+        "read JavaScript-rendered pages the plain fetch cannot."
+    )
+    if settings.playwright_mcp_url:
+        return MCPServerSpec(
+            server_id="playwright", name="playwright", description=description,
+            category="browser", transport="http",
+            command=settings.playwright_mcp_url,
+            requires=("PLAYWRIGHT_MCP_URL",),
+            is_configured=lambda: (True, ""),
+            probe=lambda: _probe_http(settings.playwright_mcp_url, None),
+        )
+    if settings.browser_automation_enabled and settings.browserbase_configured:
+        return MCPServerSpec(
+            server_id="playwright", name="playwright", description=description,
+            category="browser", transport="in-process",
+            command="agent/browser.py → Browserbase (remote CDP)",
+            requires=(),
+            is_configured=lambda: (True, ""),
+            dialable=False,
+            served_by_backend=True,
+            probe=_not_dialable(
+                "browser served in-process by agent/browser.py via Browserbase "
+                "(remote, low-RAM) — no external Playwright MCP server needed"
+            ),
+        )
+    return MCPServerSpec(
+        server_id="playwright", name="playwright", description=description,
+        category="browser", transport="http",
+        command="(PLAYWRIGHT_MCP_URL unset)",
+        requires=("PLAYWRIGHT_MCP_URL",),
+        is_configured=_playwright_configured,
+        probe=lambda: _probe_http(settings.playwright_mcp_url, None),
+    )
 
 
 def _internal_configured() -> tuple[bool, str]:
@@ -209,21 +263,7 @@ def _specs() -> list[MCPServerSpec]:
             is_configured=_render_configured,
             probe=_probe_render,
         ),
-        MCPServerSpec(
-            server_id="playwright",
-            name="playwright",
-            description=(
-                "Drive a real browser: navigate, click, fill forms, and read the "
-                "accessibility tree. Lets agents verify a deployed UI actually "
-                "works instead of inferring it from the diff."
-            ),
-            category="browser",
-            transport="http",
-            command=settings.playwright_mcp_url or "(PLAYWRIGHT_MCP_URL unset)",
-            requires=("PLAYWRIGHT_MCP_URL",),
-            is_configured=_playwright_configured,
-            probe=lambda: _probe_http(settings.playwright_mcp_url, None),
-        ),
+        _playwright_spec(),
         MCPServerSpec(
             server_id="github",
             name="github",

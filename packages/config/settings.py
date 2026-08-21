@@ -241,6 +241,20 @@ class Settings:
         # declared-but-absent server would just report unreachable forever.
         self.playwright_mcp_url: str = os.environ.get("PLAYWRIGHT_MCP_URL", "").rstrip("/")
 
+        # ── Browser automation for agents (agent/browser.py) ────────────────
+        # A real browser lets agents click, fill forms, and read JS-rendered
+        # pages that the plain fetch_url path cannot. Browserbase is the
+        # low-RAM path: the browser runs in Browserbase's cloud and this
+        # process only connects to it over CDP, so it never launches a local
+        # Chromium (~400MB resident). With no Browserbase key set, the session
+        # falls back to a local headless Chromium, which needs the browser
+        # binaries in the image (`playwright install chromium`).
+        self.browser_automation_enabled_raw: str = os.environ.get(
+            "BROWSER_AUTOMATION_ENABLED", "false"
+        ).lower()
+        self.browserbase_api_key: str = os.environ.get("BROWSERBASE_API_KEY", "")
+        self.browserbase_project_id: str = os.environ.get("BROWSERBASE_PROJECT_ID", "")
+
         # ── Operational-incident tracker (agent/operational_incidents.py) ────
         # Operational failures (timeouts, "all runtimes failed", rate limits)
         # never become code-fix tasks — an LLM editing source cannot fix a
@@ -350,6 +364,31 @@ class Settings:
     def is_render_mcp_write_allowed(self) -> bool:
         """When True, mutating Render MCP tools may be called. Default False."""
         return self.render_mcp_allow_writes in {"1", "true", "yes", "on"}
+
+    @property
+    def browser_automation_enabled(self) -> bool:
+        """When True, agents may drive a real browser (agent/browser.py)."""
+        return self.browser_automation_enabled_raw in {"1", "true", "yes", "on"}
+
+    @property
+    def browserbase_configured(self) -> bool:
+        """True when a Browserbase key is present — the low-RAM remote path."""
+        return bool(self.browserbase_api_key)
+
+    @property
+    def browserbase_connect_url(self) -> str:
+        """CDP websocket endpoint for Browserbase, or '' when unconfigured.
+
+        Carries the API key as a query parameter, so this value is a secret:
+        never log it. Callers pass it straight to
+        ``chromium.connect_over_cdp`` and nowhere else.
+        """
+        if not self.browserbase_api_key:
+            return ""
+        url = f"wss://connect.browserbase.com?apiKey={self.browserbase_api_key}"
+        if self.browserbase_project_id:
+            url += f"&projectId={self.browserbase_project_id}"
+        return url
 
     @property
     def ollama_reasoning_effort_value(self) -> str:

@@ -230,6 +230,40 @@ class TestStdioServersAreHonest:
         assert specs["render"].served_by_backend is False
 
 
+class TestPlaywrightBrowserBackends:
+    """The playwright row must tell the truth about how agents get a browser:
+    an external MCP server, the low-RAM in-process Browserbase path, or nothing."""
+
+    @pytest.mark.asyncio
+    async def test_external_playwright_mcp_url_is_dialed(self, monkeypatch):
+        monkeypatch.setattr(mcp_registry.settings, "playwright_mcp_url", "https://pw.test/mcp", raising=False)
+        spec = next(s for s in mcp_registry._specs() if s.server_id == "playwright")
+        assert spec.transport == "http"
+        assert spec.dialable is True
+        assert spec.command == "https://pw.test/mcp"
+
+    @pytest.mark.asyncio
+    async def test_browserbase_makes_the_row_available_green(self, monkeypatch):
+        """No external server, but Browserbase gives agents a real browser
+        in-process — a working green state, not unconfigured."""
+        monkeypatch.setattr(mcp_registry.settings, "playwright_mcp_url", "", raising=False)
+        monkeypatch.setattr(type(mcp_registry.settings), "browser_automation_enabled", property(lambda self: True))
+        monkeypatch.setattr(type(mcp_registry.settings), "browserbase_configured", property(lambda self: True))
+        row = await _status_for(next(s for s in mcp_registry._specs() if s.server_id == "playwright"))
+        assert row["status"] == "available"
+        assert "browserbase" in row["reason"].lower()
+
+    @pytest.mark.asyncio
+    async def test_no_browser_configured_is_unconfigured_with_both_fixes(self, monkeypatch):
+        monkeypatch.setattr(mcp_registry.settings, "playwright_mcp_url", "", raising=False)
+        monkeypatch.setattr(type(mcp_registry.settings), "browser_automation_enabled", property(lambda self: False))
+        monkeypatch.setattr(type(mcp_registry.settings), "browserbase_configured", property(lambda self: False))
+        row = await _status_for(next(s for s in mcp_registry._specs() if s.server_id == "playwright"))
+        assert row["status"] == "unconfigured"
+        assert "BROWSERBASE_API_KEY" in row["reason"]
+        assert "@playwright/mcp" in row["reason"]
+
+
 class TestReasonsAreActionable:
     def test_playwright_reason_names_the_fix(self, monkeypatch):
         """'X is not set' leaves the operator to go find out what to do."""

@@ -999,7 +999,11 @@ _INTEGRATIONS: tuple[ControlSpec, ...] = (
         "Browser automation",
         "integrations",
         "false",
-        "Let agents drive a real browser. Needs Playwright or a remote browser service.",
+        "Let agents drive a real browser (browse_page) to read JavaScript-rendered "
+        "pages and verify deployed UIs. Low-RAM path: set BROWSERBASE_API_KEY "
+        "(env-only) and the browser runs in Browserbase's cloud — this process "
+        "never launches a local Chromium. Without a key it falls back to a local "
+        "headless Chromium, which needs the browser binaries in the image.",
         risk=RISK_MEDIUM,
     ),
     ControlSpec(

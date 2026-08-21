@@ -4,24 +4,38 @@ Controls a real browser via Playwright so the agent can interact with
 dynamic web pages: click buttons, fill forms, take screenshots, and read
 rendered content — not just fetch raw HTML.
 
-Requires: ``pip install playwright && playwright install chromium``
+Two backends, chosen automatically:
 
-When Playwright is not installed the session runs in *stub mode*: all
-actions return a failure result with a clear installation hint rather than
-raising an exception.
+  * **Browserbase (remote, low-RAM)** — when ``BROWSERBASE_API_KEY`` is set,
+    the browser runs in Browserbase's cloud and this process only connects to
+    it over CDP. No local Chromium is launched, so the backend never pays the
+    ~400MB resident cost of a browser and does not need the browser binaries
+    installed in its image. This is the default whenever a key is present.
+  * **Local Chromium** — the fallback when there is no Browserbase key. Needs
+    ``pip install playwright && playwright install chromium`` in the image.
+
+Gated by ``BROWSER_AUTOMATION_ENABLED``. When disabled, or when Playwright is
+not importable, the session runs in *stub mode*: every action returns a failed
+result with a clear hint rather than raising.
+
+Navigation targets are LLM-chosen (classic SSRF surface), so every URL is
+screened with ``agent.web_reach.unsafe_target_reason`` before the browser is
+pointed at it — rule 14.
 """
 from __future__ import annotations
 
-import os
 import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from packages.config import settings
+
 log = logging.getLogger("qwen-browser")
 
 _INSTALL_HINT = (
-    "Playwright is not installed. "
-    "Run: pip install playwright && playwright install chromium"
+    "Browser automation is unavailable. Set BROWSER_AUTOMATION_ENABLED=true and "
+    "either provide BROWSERBASE_API_KEY (remote, low-RAM) or install a local "
+    "browser (pip install playwright && playwright install chromium)."
 )
 
 
@@ -72,29 +86,40 @@ class BrowserSession:
         self._page: Any = None
         self._browser: Any = None
         self._pw: Any = None
-        self._available = self._check_playwright()
+        self._remote: bool = settings.browserbase_configured
+        self._available = self._check_available()
 
     # ------------------------------------------------------------------
     # Capability check
     # ------------------------------------------------------------------
 
-    def _check_playwright(self) -> bool:
-        if not _env_true("BROWSER_AUTOMATION_ENABLED"):
+    def _check_available(self) -> bool:
+        if not settings.browser_automation_enabled:
             log.info(
                 "Browser automation disabled (set BROWSER_AUTOMATION_ENABLED=true to enable)"
             )
             return False
         try:
-            import playwright  # noqa: F401
-            return True
-        except ImportError:
-            log.info("playwright not installed — BrowserSession running in stub mode")
+            import importlib.util
+
+            if importlib.util.find_spec("playwright") is None:
+                log.info("playwright not installed — BrowserSession running in stub mode")
+                return False
+        except Exception:  # noqa: BLE001 - detection must never raise
             return False
+        return True
 
     @property
     def available(self) -> bool:
-        """True if Playwright is installed and ready to use."""
+        """True if browser automation is enabled and Playwright is importable."""
         return self._available
+
+    @property
+    def backend(self) -> str:
+        """Which backend a start() would use: 'browserbase', 'local', or 'stub'."""
+        if not self._available:
+            return "stub"
+        return "browserbase" if self._remote else "local"
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -105,16 +130,32 @@ class BrowserSession:
             log.warning(_INSTALL_HINT)
             return
         from playwright.async_api import async_playwright  # type: ignore[import]
+
         self._pw = await async_playwright().start()
-        self._browser = await self._pw.chromium.launch(headless=headless)
+        if self._remote:
+            # Connect to the cloud browser over CDP — no local Chromium, so no
+            # ~400MB resident browser in this process. The connect URL carries
+            # the API key, so it is never logged.
+            self._browser = await self._pw.chromium.connect_over_cdp(
+                settings.browserbase_connect_url
+            )
+            log.info("Browser session started (Browserbase remote browser)")
+        else:
+            self._browser = await self._pw.chromium.launch(
+                headless=headless,
+                args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+            )
+            log.info("Browser session started (local Chromium, headless=%s)", headless)
         self._page = await self._browser.new_page()
-        log.info("Browser session started (headless=%s)", headless)
 
     async def stop(self) -> None:
-        if self._browser:
-            await self._browser.close()
-        if self._pw:
-            await self._pw.stop()
+        try:
+            if self._browser:
+                await self._browser.close()
+            if self._pw:
+                await self._pw.stop()
+        except Exception as exc:  # noqa: BLE001 - teardown is best-effort
+            log.warning("Browser session teardown error: %s", exc)
         self._page = self._browser = self._pw = None
 
     # ------------------------------------------------------------------
@@ -124,8 +165,19 @@ class BrowserSession:
     async def navigate(self, url: str) -> BrowserAction:
         if not self._page:
             return BrowserAction("navigate", {"url": url}, _not_started(), False)
+        # Rule 14: an LLM-chosen URL is an SSRF target — screen it before the
+        # browser is pointed at it, and re-check where a redirect landed.
+        reason = _unsafe_reason(url)
+        if reason:
+            return BrowserAction("navigate", {"url": url}, f"blocked: {reason}", False)
         try:
             await self._page.goto(url)
+            final = self._page.url
+            landed = _unsafe_reason(final)
+            if landed:
+                return BrowserAction(
+                    "navigate", {"url": url}, f"blocked after redirect: {landed}", False
+                )
             title = await self._page.title()
             return BrowserAction("navigate", {"url": url}, f"Navigated to: {title}")
         except Exception as exc:
@@ -181,10 +233,58 @@ class BrowserSession:
             return None
 
 
+# ── stateless helper for the agent capability tool ─────────────────────────────
+
+
+async def browse_page(url: str, *, text_limit: int = 4000) -> dict[str, Any]:
+    """Open *url* in a real browser, return its rendered text, and close.
+
+    Fail-soft: always returns a dict the model can read — never raises. Uses the
+    Browserbase remote browser when configured (no local Chromium), else a local
+    headless one. The SSRF screen in :meth:`BrowserSession.navigate` still runs.
+    """
+    session = BrowserSession()
+    if not session.available:
+        return {"ok": False, "url": url, "error": _INSTALL_HINT, "backend": "stub"}
+    backend = session.backend
+    try:
+        await session.start()
+        nav = await session.navigate(url)
+        if not nav.success:
+            return {"ok": False, "url": url, "error": nav.result, "backend": backend}
+        state = await session.get_state()
+        if state is None:
+            return {"ok": False, "url": url, "error": "could not read page state", "backend": backend}
+        text = state.content_preview
+        try:
+            full = await session._page.evaluate("document.body?.innerText || ''")  # noqa: SLF001
+            text = str(full)[:text_limit]
+        except Exception:  # noqa: BLE001 - preview is an acceptable fallback
+            pass
+        return {
+            "ok": True,
+            "url": state.url,
+            "title": state.title,
+            "text": text,
+            "backend": backend,
+        }
+    except Exception as exc:  # noqa: BLE001 - a tool must never break the loop
+        log.warning("browse_page failed for %s: %s", url, exc)
+        return {"ok": False, "url": url, "error": str(exc), "backend": backend}
+    finally:
+        await session.stop()
+
+
 def _not_started() -> str:
     return "Browser not started. Call await session.start() first."
 
 
-def _env_true(name: str) -> bool:
-    value = os.getenv(name, "")
-    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+def _unsafe_reason(url: str) -> str | None:
+    """Screen a URL for SSRF. Fails closed — if the guard cannot be imported
+    the URL is treated as unsafe, because a browser that skips the SSRF check
+    is exactly the hole rule 14 exists to close."""
+    try:
+        from agent.web_reach import unsafe_target_reason
+    except Exception as exc:  # noqa: BLE001 - fail closed, never open
+        return f"URL safety check unavailable ({exc})"
+    return unsafe_target_reason(url)
