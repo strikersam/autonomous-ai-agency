@@ -528,6 +528,28 @@ _DEFAULT_REGISTRY: dict[str, ModelCapability] = {
         cost_tier=2,
         tags=["anthropic", "claude", "claude5", "long_context", "adaptive_thinking", "pinned"],
     ),
+    # ── Anthropic API — Claude Haiku 4.5 (fast/compact) ───────────────────────
+    # Referenced in packages/ai/brain_config.py presets and the cost tracker,
+    # and already routed via _build_builtin_model_map, but had no capability
+    # profile here — meaning the router couldn't do capability-based selection
+    # or fallback for it.
+    "claude-haiku-4-5": ModelCapability(
+        name="claude-haiku-4-5",
+        strengths=["fast_response", "conversation", "code_generation", "tool_use"],
+        context_window=200000,
+        type="coder",
+        cost_tier=1,
+        tags=["anthropic", "claude", "claude4", "fast"],
+    ),
+    # Dated alias pinned to the October 2025 checkpoint.
+    "claude-haiku-4-5-20251001": ModelCapability(
+        name="claude-haiku-4-5-20251001",
+        strengths=["fast_response", "conversation", "code_generation", "tool_use"],
+        context_window=200000,
+        type="coder",
+        cost_tier=1,
+        tags=["anthropic", "claude", "claude4", "fast", "pinned"],
+    ),
     # ── Anthropic API — Claude 5 family (Mythos-class tier, above Opus) ──────
     # Fable 5: most intelligent generally available model; standard safeguards.
     # NOTE: suspended under US export-control directive as of 2026-06-12.
