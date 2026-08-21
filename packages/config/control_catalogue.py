@@ -516,6 +516,22 @@ _AUTONOMY: tuple[ControlSpec, ...] = (
         ),
         risk=RISK_MEDIUM,
     ),
+    _number(
+        "AGENCY_TICK_MINUTES",
+        "CEO cycle interval (minutes)",
+        "autonomy",
+        "15",
+        "How often the CEO loop assesses state and creates work — the single "
+        "biggest driver of LLM call volume. Each tick runs an assessment and can "
+        "materialise tasks, each of which then plans (more calls). On a free-tier "
+        "brain (rate-limited / slow), a fast 5-minute cadence self-inflicts the "
+        "provider serialization behind the `planning: TimeoutError` failures — "
+        "raise this to make the agency calmer and let each call get through. "
+        "Recommended 15+ on the free tier; lower it once you have paid capacity. "
+        "Takes effect on the next restart.",
+        minimum=1,
+        maximum=1440,
+    ),
     _toggle("AGENCY_IMPROVEMENT_ENABLED", "Improvement loop", "autonomy", "true", "Continuous self-improvement engine."),
     _toggle("AGENCY_SELF_HEAL_ENABLED", "Self-healing loop", "autonomy", "true", "Diagnose and fix detected failures."),
     _toggle("AGENCY_LOG_MONITOR_ENABLED", "Log monitor loop", "autonomy", "true", "Watch logs and file work from them."),

@@ -1905,27 +1905,54 @@ async def lifespan(app_: "FastAPI"):
             known_good_providers = {"nvidia", "cerebras", "groq", "colibri"}
             provider = str(cfg.primary_provider)
 
-            # Old model ids that should be migrated
+            # Dead model ids that must be migrated off (removed from the provider).
             old_models = {"meta/llama-3.3-70b-instruct", "llama-3.3-70b-instruct", "gemma-4"}
+            # Reasoning-heavy models that blow the planner/executor failover
+            # deadline on the free tier: they spend the token budget on thinking
+            # tokens and take >120s to answer, so every autonomous task fails at
+            # "planning: TimeoutError" and blocks. The latency-critical roles
+            # (planner + executor) must run a fast NON-reasoning model; the
+            # verifier/judge are less latency-sensitive and keep the reasoning one.
+            slow_planner_models = {
+                "z-ai/glm-5.2", "z-ai/glm-5.1",
+                "nvidia/llama-3.3-nemotron-super-49b-v1",
+                "nvidia/llama-3.1-nemotron-70b-instruct",
+                "deepseek-ai/deepseek-r1",
+            }
+            fast_agent_model = "meta/llama-4-maverick-17b-128e-instruct"  # fast MoE, JSON-clean
+            standard_model = "z-ai/glm-5.2"                              # capable default for verify/judge
 
-            needs_reset = False
-            if provider not in known_good_providers:
-                needs_reset = True
-            if any(getattr(cfg, f, "") in old_models for f in ("planner_model", "executor_model", "verifier_model", "judge_model")):
-                needs_reset = True
+            needs_reset = provider not in known_good_providers or any(
+                getattr(cfg, f, "") in old_models
+                for f in ("planner_model", "executor_model", "verifier_model", "judge_model")
+            )
 
             if needs_reset:
                 patch = BrainConfigPatch(
                     primary_provider="nvidia",
-                    planner_model="z-ai/glm-5.2",
-                    executor_model="z-ai/glm-5.2",
-                    verifier_model="z-ai/glm-5.2",
-                    judge_model="z-ai/glm-5.2",
+                    planner_model=fast_agent_model,
+                    executor_model=fast_agent_model,
+                    verifier_model=standard_model,
+                    judge_model=standard_model,
                 )
                 await store.set_brain_config(patch, actor="startup_migration_safe_default")
                 log.warning(
-                    "Startup migration: reset brain config from provider=%s models=%s → nvidia/z-ai/glm-5.2",
-                    provider, [cfg.planner_model, cfg.executor_model],
+                    "Startup migration: reset brain config from provider=%s models=%s → nvidia (planner/executor=%s)",
+                    provider, [cfg.planner_model, cfg.executor_model], fast_agent_model,
+                )
+            elif cfg.planner_model in slow_planner_models or cfg.executor_model in slow_planner_models:
+                # Provider + models are otherwise fine — only fast-path the two
+                # latency-critical roles so we don't disturb a deliberate
+                # verifier/judge choice.
+                patch = BrainConfigPatch(
+                    planner_model=fast_agent_model,
+                    executor_model=fast_agent_model,
+                )
+                await store.set_brain_config(patch, actor="startup_migration_fast_planner")
+                log.warning(
+                    "Startup migration: moved planner/executor off slow reasoning model "
+                    "(%s/%s) → %s to stop planning timeouts",
+                    cfg.planner_model, cfg.executor_model, fast_agent_model,
                 )
         except Exception as exc:
             log.warning("Brain config safe-default migration failed (non-fatal): %s", exc)
@@ -4655,6 +4682,13 @@ class PRMergeRequest(BaseModel):
     # Optional: merge method override ('squash' | 'merge' | 'rebase').
     # Defaults to 'squash' (matches auto-merge.yml convention).
     merge_method: str | None = Field(default=None, pattern=r"^(squash|merge|rebase)$")
+    # When true, enable GitHub auto-merge instead of merging immediately: GitHub
+    # rebases the PR if it is behind and lands it once required checks pass
+    # (using the repo's merge queue if one is configured). This is what
+    # serialises the agent-PR stream and dissolves the recurring CHANGELOG.md
+    # conflict without a human resolving anything. Falls back to an immediate
+    # merge when the PR is already mergeable and auto-merge cannot be enabled.
+    auto_merge: bool = Field(default=False)
 
 
 @app.post("/admin/api/prs/{number}/merge")
@@ -4719,6 +4753,69 @@ async def merge_pr_route(
 
     if pr_data.get("draft"):
         raise HTTPException(status_code=422, detail=f"PR #{number} is a draft — refusing to merge.")
+
+    # ── Auto-merge path (opt-in) ─────────────────────────────────────────────
+    # Enable GitHub auto-merge instead of merging now: GitHub rebases the PR if
+    # it is behind and lands it once required checks pass. This is what lets the
+    # Telegram approval gate serialise the agent-PR stream (the recurring
+    # CHANGELOG.md conflict resolves itself in the queue). Falls back to an
+    # immediate merge when the PR is already mergeable and auto-merge can't be
+    # enabled (GitHub rejects enabling it on an already-clean PR).
+    if body.auto_merge:
+        head_sha_am = pr_data.get("head", {}).get("sha", "")
+        if body.expected_sha and body.expected_sha != head_sha_am:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"PR #{number} head SHA is {head_sha_am[:8]}, "
+                    f"but expected_sha was {body.expected_sha[:8]}. "
+                    "Refusing to enable auto-merge on a commit you didn't review."
+                ),
+            )
+        node_id = pr_data.get("node_id")
+        method_am = (body.merge_method or "squash").upper()
+        gql = {
+            "query": (
+                "mutation($id:ID!,$m:PullRequestMergeMethod!){"
+                "enablePullRequestAutoMerge(input:{pullRequestId:$id,mergeMethod:$m})"
+                "{pullRequest{number}}}"
+            ),
+            "variables": {"id": node_id, "m": method_am},
+        }
+        gql_req = _urllib_request.Request(
+            "https://api.github.com/graphql",
+            data=json.dumps(gql).encode(),
+            method="POST",
+            headers=headers,
+        )
+        try:
+            with _urllib_request.urlopen(gql_req, timeout=30) as resp:
+                gql_data = json.loads(resp.read().decode())
+        except _urllib_error.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"GitHub GraphQL error: HTTP {exc.code}")
+        errs = gql_data.get("errors") or []
+        if not errs:
+            log.info("PR #%s auto-merge enabled (method=%s, actor=service:telegram)", number, method_am)
+            return {
+                "status": "auto_merge_enabled",
+                "number": number,
+                "head_sha": head_sha_am,
+                "merge_method": method_am.lower(),
+            }
+        msg = "; ".join(str(e.get("message", "")) for e in errs)
+        # "Clean status" / "not in the correct state" → the PR is already
+        # mergeable and green, so fall through to an immediate merge below.
+        if "clean status" not in msg.lower() and "correct state" not in msg.lower():
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Could not enable auto-merge for PR #{number}: {msg[:200]}. "
+                    "Ensure 'Allow auto-merge' is on in the repo settings, or retry "
+                    "with auto_merge=false to merge immediately."
+                ),
+            )
+        # else: fall through to the immediate-merge guards below.
+
     if pr_data.get("mergeable_state") not in ("clean", "unstable"):
         # 'dirty' / 'blocked' / 'behind' / 'unknown' all refuse — the operator
         # needs to resolve conflicts or wait for CI before retrying.

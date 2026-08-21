@@ -63,9 +63,13 @@ class MCPServerSpec:
     requires: tuple[str, ...] = ()      # env/setting names an operator must set
     # False for servers the backend structurally cannot dial (stdio ones live
     # in a coding session, not in this process). Their "not reachable" is a
-    # property of the transport, not a fault, so it must not render as an
-    # error — an operator seeing red goes looking for a break that isn't there.
+    # property of the transport, not a fault, so it must not render as an error.
     dialable: bool = True
+    # True when an undialable server's capability is still served to agents by
+    # another path in this process (github → agent/github_tools.py). Such a
+    # server is genuinely usable, so it reports "available" (green) rather than
+    # the muted "unavailable" a server with no alternate path would get.
+    served_by_backend: bool = False
     # Returns (configured, reason). Kept a callable so it reads live settings
     # rather than whatever they were at import time.
     is_configured: Callable[[], tuple[bool, str]] = lambda: (True, "")
@@ -129,9 +133,10 @@ def _not_dialable(reason: str) -> Callable[[], Any]:
 
     These servers are real and useful — a stdio one runs inside a coding
     session via `.mcp.json` — but the long-lived backend is not a subprocess
-    host. Pair this with ``dialable=False`` so the row renders as
-    ``unavailable`` with the reason, rather than as a red error an operator
-    would waste time investigating.
+    host. Pair this with ``dialable=False`` (and ``served_by_backend=True`` when
+    the capability is reached another way) so the row renders with the reason —
+    green ``available`` or muted ``unavailable`` — rather than as a red error an
+    operator would waste time investigating.
     """
     async def _probe() -> tuple[bool, int, str]:
         return False, 0, reason
@@ -235,6 +240,7 @@ def _specs() -> list[MCPServerSpec]:
                 (True, "") if settings.gh_pat else (False, "GH_PAT is not set")
             ),
             dialable=False,
+            served_by_backend=True,
             probe=_not_dialable(
                 "stdio transport — used by coding sessions via .mcp.json. The "
                 "backend reaches GitHub through agent/github_tools.py instead, "
@@ -280,10 +286,17 @@ async def _status_for(spec: MCPServerSpec) -> dict[str, Any]:
 
     if reachable:
         entry["status"] = "connected"
+    elif not spec.dialable:
+        # Configured, but the backend structurally cannot dial it (a stdio
+        # server lives in a coding session, not in this long-lived process).
+        # If its capability is served another way — github through
+        # agent/github_tools.py — that is a working state, so report
+        # "available" (green). Otherwise it is genuinely out of reach here:
+        # "unavailable" (muted), still not a red fault.
+        entry["status"] = "available" if spec.served_by_backend else "unavailable"
     else:
-        # A server that cannot be dialled from here is "unavailable", not
-        # "error". Only a server we expected to reach and could not is a fault.
-        entry["status"] = "error" if spec.dialable else "unavailable"
+        # A server we expected to reach and could not is the only real fault.
+        entry["status"] = "error"
     entry["tools"] = tool_count
     entry["reason"] = probe_reason
     return entry

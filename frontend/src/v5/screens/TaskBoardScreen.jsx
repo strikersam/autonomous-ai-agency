@@ -14,6 +14,7 @@ const LIFECYCLE_STAGES = [
   { id: 'needs_clarification', label: 'Needs Clarification', color: '#b57bee', desc: 'Awaiting context' },
   { id: 'done',                label: 'Done',               color: '#46d9a4', desc: 'Completed' },
   { id: 'failed',              label: 'Failed',             color: '#ff6b7d', desc: 'Error / retry' },
+  { id: 'wont_do',             label: "Won't Do",           color: '#8b93a7', desc: 'Human declined' },
 ];
 
 const HEALTH_COLORS = { on_track: '#46d9a4', at_risk: '#ffbd66', off_track: '#ff6b7d', complete: '#6e7786' };
@@ -59,6 +60,95 @@ function StageColumn({ stage, tasks, onApprove, onRetry, onCardClick }) {
       {tasks.length === 0 && (
         <div style={{ padding: '16px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.015)', border: '1px dashed rgba(255,255,255,0.07)', fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', fontFamily: 'var(--font-mono)' }}>
           Empty
+        </div>
+      )}
+    </div>
+  );
+}
+
+// A card in the "To be approved" lane: leave a comment (guidance carried into
+// the run) or approve for the task to be picked up. Replaces the old approval
+// banner table, which was slow to scan and act on.
+function GateCard({ task, busy, onApprove, onReject, onComment, onCardClick }) {
+  const [note, setNote] = React.useState('');
+  const [sending, setSending] = React.useState(false);
+  const send = async () => {
+    const body = note.trim();
+    if (!body || sending) return;
+    setSending(true);
+    await onComment(task.task_id, body);
+    setSending(false);
+    setNote('');
+  };
+  const GATE = '#ffbd66';
+  return (
+    <div style={{
+      borderRadius: 14, border: `1px solid ${GATE}33`, background: `${GATE}0a`,
+      padding: '12px 14px', animation: 'fadeSlideUp 0.3s ease-out',
+    }}>
+      <div onClick={() => onCardClick && onCardClick(task.task_id)}
+        style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', lineHeight: 1.5, cursor: 'pointer', marginBottom: 4 }}>
+        {task.title}
+      </div>
+      <div style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', marginBottom: 10, wordBreak: 'break-all' }}>
+        {task.task_id} · {task.owner_id}
+      </div>
+      <textarea
+        value={note}
+        onChange={e => setNote(e.target.value)}
+        placeholder="Leave a comment / guidance (optional)…"
+        rows={2}
+        onClick={e => e.stopPropagation()}
+        style={{ width: '100%', boxSizing: 'border-box', padding: '7px 9px', borderRadius: 9, fontSize: 11,
+          background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: '#fff',
+          outline: 'none', resize: 'vertical', fontFamily: 'var(--font-main)', marginBottom: 8 }}
+      />
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <button disabled={busy} onClick={() => onApprove(task.task_id)} style={{
+          flex: 1, minWidth: 90, padding: '6px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700,
+          cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1,
+          background: 'rgba(70,217,164,0.14)', border: '1px solid rgba(70,217,164,0.30)', color: '#46d9a4',
+        }}>{busy ? '…' : '✓ Approve'}</button>
+        {note.trim() && (
+          <button disabled={sending} onClick={send} style={{
+            padding: '6px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700,
+            cursor: sending ? 'default' : 'pointer', opacity: sending ? 0.6 : 1,
+            background: 'rgba(93,162,255,0.12)', border: '1px solid rgba(93,162,255,0.30)', color: '#7cb0ff',
+          }}>{sending ? '…' : '💬 Comment'}</button>
+        )}
+        <button disabled={busy} onClick={() => onReject(task.task_id)} style={{
+          padding: '6px 10px', borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: busy ? 'default' : 'pointer',
+          background: 'rgba(255,107,125,0.08)', border: '1px solid rgba(255,107,125,0.22)', color: '#ff6b7d',
+        }}>✕</button>
+      </div>
+    </div>
+  );
+}
+
+function GateColumn({ tasks, pendingGate, onApprove, onReject, onComment, onCardClick }) {
+  const GATE = '#ffbd66';
+  return (
+    <div style={{
+      minWidth: 'clamp(180px, 82vw, 240px)', maxWidth: 280, flexShrink: 0,
+      display: 'flex', flexDirection: 'column', gap: 8,
+    }}>
+      <div style={{ padding: '8px 12px', borderRadius: 10, background: `${GATE}12`, border: `1px solid ${GATE}30` }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: GATE, display: 'inline-block', flexShrink: 0 }}/>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#fff' }}>To be approved</span>
+          </div>
+          <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.06)', padding: '1px 6px', borderRadius: 999 }}>{tasks.length}</span>
+        </div>
+        <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 3, fontFamily: 'var(--font-mono)', letterSpacing: '0.08em' }}>Approve or comment to run</div>
+      </div>
+      {tasks.map(task => (
+        <GateCard key={task.task_id} task={task} busy={pendingGate === task.task_id}
+          onApprove={onApprove} onReject={onReject} onComment={onComment} onCardClick={onCardClick}/>
+      ))}
+      {tasks.length === 0 && (
+        <div style={{ padding: '16px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.015)', border: '1px dashed rgba(255,255,255,0.07)', fontSize: 11, color: 'var(--text-muted)', textAlign: 'center', fontFamily: 'var(--font-mono)' }}>
+          Nothing to approve
         </div>
       )}
     </div>
@@ -297,6 +387,16 @@ function TaskBoardScreen() {
     fetchAll();
   };
 
+  const handleGateComment = async (taskId, body) => {
+    setActionError('');
+    try {
+      await api.addTaskComment(taskId, { body });
+    } catch (e) {
+      setActionError(api.fmtErr?.(e?.response?.data?.detail) || e?.message || 'Could not post the comment.');
+    }
+    fetchAll();
+  };
+
   const handleRetry = async (taskId) => {
     setActionError(''); setPendingRetry(taskId);
     try {
@@ -305,6 +405,19 @@ function TaskBoardScreen() {
       setActionError(api.fmtErr?.(e?.response?.data?.detail) || e?.message || 'Could not retry task.');
     }
     setPendingRetry(null);
+    fetchAll();
+  };
+
+  const [retryingBlocked, setRetryingBlocked] = React.useState(false);
+  const blockedCount = rawTasks.filter(t => t.status === 'blocked').length;
+  const handleRetryBlocked = async () => {
+    setActionError(''); setRetryingBlocked(true);
+    try {
+      await api.retryBlockedTasks();
+    } catch (e) {
+      setActionError(api.fmtErr?.(e?.response?.data?.detail) || e?.message || 'Could not retry blocked tasks.');
+    }
+    setRetryingBlocked(false);
     fetchAll();
   };
 
@@ -382,6 +495,14 @@ function TaskBoardScreen() {
                 color: '#b57bee', transition: 'all 0.15s ease',
               }}>New Sprint +</button>
             )}
+            {blockedCount > 0 && (
+              <button onClick={handleRetryBlocked} disabled={retryingBlocked} style={{
+                padding: '5px 14px', borderRadius: 999, fontSize: 11, fontWeight: 700,
+                cursor: retryingBlocked ? 'default' : 'pointer', opacity: retryingBlocked ? 0.6 : 1,
+                background: 'rgba(255,189,102,0.12)', border: '1px solid rgba(255,189,102,0.30)',
+                color: '#ffbd66', transition: 'all 0.15s ease',
+              }}>{retryingBlocked ? 'Retrying…' : `↻ Retry all blocked (${blockedCount})`}</button>
+            )}
             <button onClick={() => { setShowNewTask(true); setCreateError(''); }} style={{
               padding: '5px 14px', borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: 'pointer',
               background: 'rgba(70,217,164,0.12)', border: '1px solid rgba(70,217,164,0.28)',
@@ -402,31 +523,6 @@ function TaskBoardScreen() {
         )}
         {loading && (
           <div style={{ marginBottom: 10, fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Loading tasks…</div>
-        )}
-        {gatedTasks.length > 0 && (
-          <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 12, background: 'rgba(255,189,102,0.06)', border: '1px solid rgba(255,189,102,0.22)' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#ffbd66', letterSpacing: '0.12em', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', marginBottom: 8 }}>
-              ⏸ Awaiting approval before execution ({gatedTasks.length})
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {gatedTasks.map(t => (
-                <div key={t.task_id} style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                  <div style={{ flex: 1, minWidth: 200 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: '#fff', cursor: 'pointer' }} onClick={() => setSelectedTaskId(t.task_id)}>{t.title}</span>
-                    <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginLeft: 8 }}>{t.task_id} · {t.owner_id}</span>
-                  </div>
-                  <button disabled={pendingGate === t.task_id} onClick={() => handleGateDecision(t.task_id, true)} style={{
-                    padding: '4px 12px', borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                    background: 'rgba(70,217,164,0.12)', border: '1px solid rgba(70,217,164,0.28)', color: '#46d9a4',
-                  }}>{pendingGate === t.task_id ? '…' : '✓ Approve'}</button>
-                  <button disabled={pendingGate === t.task_id} onClick={() => handleGateDecision(t.task_id, false)} style={{
-                    padding: '4px 12px', borderRadius: 999, fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                    background: 'rgba(255,107,125,0.10)', border: '1px solid rgba(255,107,125,0.25)', color: '#ff6b7d',
-                  }}>✕ Reject</button>
-                </div>
-              ))}
-            </div>
-          </div>
         )}
       </div>
 
@@ -528,7 +624,17 @@ function TaskBoardScreen() {
       {/* Board / Sprint view */}
       {viewMode === 'board' ? (
         <div style={{ flex: 1, overflowX: 'auto', overflowY: 'auto', padding: '14px 20px 32px', display: 'flex', gap: 14 }} className="scrollbar-hide task-board-columns">
-          {!loading && !error && rawTasks.length === 0 ? (
+          {gatedTasks.length > 0 && (
+            <GateColumn
+              tasks={gatedTasks}
+              pendingGate={pendingGate}
+              onApprove={(id) => handleGateDecision(id, true)}
+              onReject={(id) => handleGateDecision(id, false)}
+              onComment={handleGateComment}
+              onCardClick={setSelectedTaskId}
+            />
+          )}
+          {!loading && !error && rawTasks.length === 0 && gatedTasks.length === 0 ? (
             <div style={{ margin: 'auto', padding: '48px 32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.8 }}>
               <div style={{ fontSize: 32, marginBottom: 12 }}>📋</div>
               <div style={{ fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 6 }}>No tasks yet</div>

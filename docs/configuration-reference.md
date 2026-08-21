@@ -47,6 +47,7 @@ Complete reference for every environment variable in `.env`. Copy `.env.example`
 | `PROXY_DEFAULT_SYSTEM_PROMPT_FILE` | `templates/codex_local_ide_system_prompt.txt` | Path to system prompt file (relative to repo root). |
 | `PROXY_STRIP_THINK_TAGS` | `true` | Remove `<think>...</think>` blocks from model responses. Recommended for DeepSeek-R1 and other reasoning models. |
 | `PROXY_DEFAULT_MAX_TOKENS` | `8192` | Fallback `max_tokens` applied when the client does not send one. **Must be ≥ 4096 for Claude Code.** The old default of 1200 truncates code generation responses. |
+| `PROXY_CONTEXT_PRUNING_ENABLED` | `true` | Automatically trim long `/v1/chat/completions` message histories (>80k tokens) before forwarding. Uses the 3-phase `ContextPruner`: strip `<think>` tags → per-role backward-walk → XML-wrap evicted history. Set to `false` for raw pass-through. |
 
 ---
 
@@ -265,6 +266,9 @@ the 512MB free-instance OOM ceiling.
 | `SELF_HEAL_PURGE_ENABLED` | `true` | Whether the self-heal loop deletes aged terminal (done/failed) tasks to keep the Task Board tidy. Set `false` to keep full task history. |
 | `SELF_HEAL_PURGE_DAYS` | `3` | Age (days) past which a DONE/FAILED task is purged. Only terminal statuses are eligible and nothing newer than the cutoff is touched, so in-flight or retryable work is never removed. |
 | `AGENCY_GATE_OUTWARD_FACING` | `true` | Promote outward-facing autonomous tasks (those that commit + open a PR, deploy, or release) to `requires_approval` at dispatch, so they park and send a Telegram Approve/Reject prompt before running. Internal tasks (research, self-heal, scheduling) stay fully autonomous. Set `false` for hands-off autonomy where only the merge alert matters. |
+| `PR_APPROVAL_GATE_ENABLED` | `false` | In-process sweep (`services/pr_approval_gate.py`) that finds every open, non-draft PR whose CI has gone green and posts a one-tap **✅ Approve & merge / ❌ Dismiss** Telegram card. Approve enables GitHub **auto-merge** (squash) via the service-token endpoint, so GitHub rebases-if-behind and lands the PR when checks pass — serialising the agent-PR stream so the recurring `CHANGELOG.md` conflict resolves itself. Needs `GH_PAT`, `TELEGRAM_BOT_TOKEN`, and a chat id. Fail-soft; deduped on PR head SHA. Requires **Allow auto-merge** enabled in the repo settings. |
+| `PR_APPROVAL_GATE_INTERVAL_SEC` | `300` | How often the PR approval sweep runs, in seconds (floored to 60). |
+| `PR_APPROVAL_GATE_CHAT_ID` | (falls back to `TELEGRAM_ADMIN_CHAT_ID` / `TELEGRAM_CHAT_ID`) | Telegram chat the approval cards are sent to. |
 
 ### Operational-incident tracker
 
@@ -431,6 +435,7 @@ to `internal_agent`. Full runbook: [`runbooks/prime-agent.md`](runbooks/prime-ag
 | `PRIME_AGENT_MAX_TURNS` | (unset) | `--autonomous-max-turns`, when the build supports it |
 | `PRIME_AGENT_TRUST_WORKSPACE` | `false` | `true` loads workspace-local extensions, skills, and `AGENTS.md`/`CLAUDE.md` |
 | `AGENCY_PROXY_URL` | `http://localhost:8000` | Base URL serving `/v1/chat/completions` (`proxy.py`) |
+| `AGENCY_TICK_MINUTES` | `15` | How often the CEO loop assesses state and creates work — the single biggest driver of LLM call volume (each tick can materialise tasks that then plan). Default raised 5 → 15: on a rate-limited/slow free-tier brain a fast cadence self-inflicts the provider serialization behind `planning: TimeoutError`. Adjustable from **Platform Controls → Autonomy** (call-volume throttle); lower it once you have paid capacity. Takes effect on the next restart. |
 | `PROXY_API_KEY` | (unset) | **Secret.** Bearer token the extension sends to that proxy |
 
 The CLI has no base-URL variable of its own, so `PRIME_AGENT_EXTENSION` is what

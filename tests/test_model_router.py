@@ -781,3 +781,56 @@ def test_mythos_5_alias_routes():
     decision = _router().route(requested_model="claude-mythos-5")
     assert decision.resolved_model == "deepseek-r1:671b"
     assert decision.selection_source == "model_map"
+
+
+# ── Claude 5 standard family (Opus 5, Sonnet 5) ──────────────────────────────
+
+def test_opus_5_in_registry():
+    from router.registry import get_registry
+    reg = get_registry()
+    assert "claude-opus-5" in reg
+    cap = reg["claude-opus-5"]
+    assert cap.type == "reasoning"
+    assert cap.cost_tier == 3
+    assert "anthropic" in cap.tags
+    assert "claude5" in cap.tags
+    assert "flagship" in cap.tags
+    assert "reasoning" in cap.strengths
+    assert "planning" in cap.strengths
+
+
+def test_sonnet_5_in_registry():
+    from router.registry import get_registry
+    reg = get_registry()
+    assert "claude-sonnet-5" in reg
+    cap = reg["claude-sonnet-5"]
+    assert cap.type == "reasoning"
+    assert cap.cost_tier == 2
+    assert "anthropic" in cap.tags
+    assert "claude5" in cap.tags
+    assert "long_context" in cap.tags
+    assert cap.context_window == 1048576
+    assert "code_generation" in cap.strengths
+
+
+def test_sonnet_5_dated_alias_in_registry():
+    from router.registry import get_registry
+    reg = get_registry()
+    assert "claude-sonnet-5-20260501" in reg
+    cap = reg["claude-sonnet-5-20260501"]
+    assert cap.type == "reasoning"
+    assert cap.cost_tier == 2
+    assert "pinned" in cap.tags
+    assert cap.context_window == 1048576
+
+
+def test_sonnet_5_alias_routes():
+    decision = _router().route(requested_model="claude-sonnet-5")
+    assert decision.resolved_model == "deepseek-r1:671b"
+    assert decision.selection_source == "model_map"
+
+
+def test_opus_5_alias_routes():
+    decision = _router().route(requested_model="claude-opus-5")
+    assert decision.resolved_model == "deepseek-r1:671b"
+    assert decision.selection_source == "model_map"

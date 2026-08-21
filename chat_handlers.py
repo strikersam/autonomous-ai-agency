@@ -15,6 +15,7 @@ import httpx
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
+from agent.context_pruner import ContextPruner
 from langfuse_obs import emit_chat_observation
 from router import get_router
 from router.health import invalidate_cache as _invalidate_health_cache
@@ -90,6 +91,23 @@ try:
 except ValueError:
     _DEFAULT_MAX_TOKENS = 0
 
+_CONTEXT_PRUNING_ENABLED = os.environ.get("PROXY_CONTEXT_PRUNING_ENABLED", "true").strip().lower() in (
+    "1",
+    "true",
+    "yes",
+)
+
+# Shared pruner instance — thread-safe (read-only internal state after init).
+_context_pruner: ContextPruner | None = ContextPruner() if _CONTEXT_PRUNING_ENABLED else None
+
+# reasoning_budget label → thinking_token_budget value
+_REASONING_BUDGET_MAP: dict[str, int] = {
+    "low": 512,
+    "medium": 2048,
+    "high": 8192,
+    "max": 32768,
+}
+
 
 def _load_default_system_prompt() -> str:
     global _CACHED_DEFAULT_SYSTEM_PROMPT
@@ -135,6 +153,35 @@ def _apply_chat_defaults(payload: dict[str, Any]) -> dict[str, Any]:
     copied = dict(payload)
     copied["max_tokens"] = _DEFAULT_MAX_TOKENS
     return copied
+
+
+def _apply_reasoning_budget(payload: dict[str, Any]) -> dict[str, Any]:
+    """Map the non-standard ``reasoning_budget`` field to ``thinking_token_budget``.
+
+    Clients can send ``reasoning_budget: "low"|"medium"|"high"|"max"`` to control
+    reasoning depth on models that support extended thinking (DeepSeek-R1, Qwen3,
+    Nemotron, Claude 3.7+).  The field is stripped from the forwarded payload and
+    replaced with the OpenAI/vLLM-compatible ``thinking_token_budget`` integer.
+
+    If ``thinking_token_budget`` is already present it is left unchanged.
+    """
+    budget_label = payload.get("reasoning_budget")
+    if not isinstance(budget_label, str):
+        return payload
+
+    copied = {k: v for k, v in payload.items() if k != "reasoning_budget"}
+    if "thinking_token_budget" not in copied:
+        token_budget = _REASONING_BUDGET_MAP.get(budget_label.lower(), _REASONING_BUDGET_MAP["medium"])
+        copied["thinking_token_budget"] = token_budget
+        log.debug("reasoning_budget=%r mapped to thinking_token_budget=%d", budget_label, token_budget)
+    return copied
+
+
+def _prune_chat_messages(messages: list[dict[str, Any]] | None) -> list[dict[str, Any]] | None:
+    """Run context pruner on the message list when pruning is enabled."""
+    if not _CONTEXT_PRUNING_ENABLED or _context_pruner is None or not isinstance(messages, list):
+        return messages
+    return _context_pruner.prune(messages)
 
 
 def _strip_think_blocks(text: str) -> str:
@@ -272,7 +319,14 @@ async def handle_openai_chat_completions(
 
     payload = _inject_default_system_prompt(payload)
     payload = _apply_chat_defaults(payload)
+    payload = _apply_reasoning_budget(payload)
     messages = payload.get("messages")
+    # Prune long message histories before forwarding to avoid context-limit errors.
+    pruned = _prune_chat_messages(messages)
+    if pruned is not messages:
+        payload = dict(payload)
+        payload["messages"] = pruned
+        messages = pruned
     stream = bool(payload.get("stream", False))
     exact_output = _extract_exact_output(messages)
 

@@ -454,16 +454,44 @@ async def delete_task(task_id: str, request: Request, user: Any = Depends(_curre
 
 
 @task_router.post("/{task_id}/comments", status_code=201)
-async def add_comment(task_id: str, body: CommentAddRequest, request: Request, user: Any = Depends(_current_user)) -> dict[str, Any]:
+async def add_comment(
+    task_id: str,
+    body: CommentAddRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user: Any = Depends(_current_user),
+) -> dict[str, Any]:
+    """Add a human comment — and act on it.
+
+    A comment on a task is an instruction: the agent should read it and do what
+    it says (including a requested status change), from ANY status. So a top-level
+    comment (not a threaded reply) re-opens the task and re-queues it — the body
+    is carried into the agent's conversation context and it runs again. A reply to
+    an existing comment is treated as discussion and does NOT re-trigger a run, so
+    threaded back-and-forth doesn't spam executions. This endpoint is human-only
+    (session auth), so the agent's own log/comments never loop back through here.
+    """
     task, store, actor = await _load_task(request, task_id, user)
     workflow = _get_workflow(request)
+    reengage = not body.reply_to  # a threaded reply is discussion, not a new instruction
     try:
-        comment = workflow.add_comment(task, author=actor, body=body.body, reply_to=body.reply_to)
+        if reengage:
+            # follow_up appends the comment AND re-opens/re-queues from any state.
+            workflow.follow_up(task, actor=actor, message=body.body)
+            comment = task.comments[-1] if task.comments else None
+        else:
+            comment = workflow.add_comment(task, author=actor, body=body.body, reply_to=body.reply_to)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="Internal server error") from exc
     await store.update(task)
     _invalidate_task_caches(user_id=_user_id(user))
-    return {"comment": comment.model_dump(), "task": task.as_dict()}
+    if reengage:
+        _queue_task_execution(background_tasks, request, task.task_id)
+    return {
+        "comment": comment.model_dump() if comment else None,
+        "task": task.as_dict(),
+        "queued": reengage,
+    }
 
 
 @task_router.post("/{task_id}/approve")
@@ -496,7 +524,9 @@ async def approve_execution(
     """Decide a task's **pre-execution** approval gate (Autonomy Charter Gate Matrix).
 
     ``requires_approval`` tasks are parked by the dispatcher before they run.
-    Approving here re-queues the task for execution; rejecting blocks it.
+    Approving here re-queues the task for execution; rejecting moves it to the
+    terminal ``wont_do`` status (a human declined the work — reopenable via Retry,
+    and not swept by the auto-retry/blocked-backlog machinery the way FAILED/BLOCKED are).
     """
     task, store, actor = await _load_task(request, task_id, user)
     workflow = _get_workflow(request)
@@ -522,6 +552,37 @@ async def retry_task(task_id: str, request: Request, user: Any = Depends(_curren
     await store.update(task)
     _invalidate_task_caches(user_id=_user_id(user))
     return {"task": task.as_dict()}
+
+
+@task_router.post("/retry-blocked", summary="Re-queue every BLOCKED task at once")
+async def retry_blocked_tasks(request: Request, user: Any = Depends(_current_user)) -> dict[str, Any]:
+    """Bulk-retry: move every BLOCKED task back into the queue in one call.
+
+    A blocked task is one that exhausted its dispatch-retry budget (usually a
+    transient provider/brain outage). After the cause is fixed, clearing the
+    blocked column one card at a time is tedious — this re-arms them all. Scoped
+    to the caller's own tasks; an admin also re-queues the shared autonomous
+    (``system``) queue. Never touches ``wont_do`` (a human decision) or terminal
+    ``failed`` tasks — only ``blocked``.
+    """
+    store = _get_store(request)
+    if _is_admin(user):
+        blocked = await store.list_all(status=TaskStatus.BLOCKED, limit=10_000, include_log=True)
+    else:
+        blocked = await store.list_for_user(_user_id(user), status=TaskStatus.BLOCKED, limit=10_000)
+    workflow = _get_workflow(request)
+    actor = _user_id(user) or "user"
+    retried = 0
+    for task in blocked:
+        try:
+            workflow.retry(task, actor=actor)
+            await store.update(task)
+            retried += 1
+        except Exception:  # nosec B110 — one bad task must not abort the batch
+            continue
+    if retried:
+        _invalidate_task_caches(user_id=_user_id(user))
+    return {"retried": retried, "scanned": len(blocked)}
 
 
 @task_router.post("/{task_id}/follow-up")
