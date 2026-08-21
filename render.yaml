@@ -393,15 +393,30 @@ services:
         value: "false"
 
       # ================================================================
-      # PLAYWRIGHT MCP — browser automation, so an agent can verify a
-      # deployed UI actually works instead of inferring it from the diff.
+      # BROWSER AUTOMATION FOR AGENTS — the browse_page tool, so an agent
+      # can read JavaScript-rendered pages and verify a deployed UI instead
+      # of inferring it from the diff.
       #
-      # Unset by default and therefore reported as "unconfigured" on the
-      # Providers -> MCP screen rather than silently missing. Point it at a
-      # reachable `npx @playwright/mcp --port <n>` to enable. Chromium is
-      # heavy for a 512MB free dyno, so run it as its own service or off-box
-      # rather than beside the backend.
+      # Browserbase is the LOW-RAM path and the one this deployment uses: the
+      # browser runs in Browserbase's cloud and the backend only connects over
+      # CDP, so a 512MB free dyno never launches a local Chromium (~400MB) and
+      # needs no browser binaries in its image. BROWSER_AUTOMATION_ENABLED is
+      # the master switch (tracked here so it survives IaC redeploys — a value,
+      # not a secret); BROWSERBASE_API_KEY is the secret that makes the row go
+      # green and is dashboard-managed. BROWSERBASE_PROJECT_ID is optional.
       # ================================================================
+      - key: BROWSER_AUTOMATION_ENABLED
+        value: "true"
+      - key: BROWSERBASE_API_KEY
+        sync: false
+      - key: BROWSERBASE_PROJECT_ID
+        sync: false
+
+      # Optional external Playwright MCP server instead of the in-process
+      # Browserbase browser. Unset by default → the Providers -> MCP row
+      # falls back to the Browserbase "available" state above. Point it at a
+      # reachable `npx @playwright/mcp --port <n>` to route browser tools
+      # through an MCP server instead.
       - key: PLAYWRIGHT_MCP_URL
         sync: false
 

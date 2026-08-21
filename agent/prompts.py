@@ -108,6 +108,8 @@ def build_tool_prompt(
                 "- youtube_transcript(url): Fetch a YouTube video's spoken transcript/captions\n"
                 "- web_search(query, limit=8): Search the public web, returns titles + URLs\n"
                 "- fetch_rss(url, limit=10): Fetch and parse an RSS/Atom feed\n"
+                "- browse_page(url): Open a URL in a REAL browser and read its rendered text\n"
+                "  (after JavaScript runs). Use when fetch_url returns an empty/app-shell page.\n"
                 "GITHUB API:\n"
                 "- github_get_issue(repo_name, issue_number)\n"
                 "- github_comment_on_issue(repo_name, issue_number, body)\n"

@@ -325,6 +325,32 @@ def test_capability_registry_exposes_web_reach_tools() -> None:
     assert {t.name for t in web_tools} >= {"fetch_url", "youtube_transcript", "web_search", "fetch_rss"}
 
 
+def test_capability_registry_exposes_browse_page_tool() -> None:
+    """The interactive-browser capability must be discoverable, or agents can
+    never reach a real browser even when one is configured (rule 19)."""
+    from agent.capability_registry import _register_browser_tools
+
+    registry = ToolRegistry()
+    _register_browser_tools(registry)
+
+    tool = registry.get("browse_page")
+    assert tool is not None
+    assert "browser" in tool.capabilities
+    assert {t.name for t in registry.find_by_capability("browser")} == {"browse_page"}
+
+
+def test_build_tool_prompt_advertises_browse_page() -> None:
+    """Registration is silent — the Executor only calls tools listed in the
+    prompt, so browse_page must appear there too (rule 19)."""
+    from agent.prompts import build_tool_prompt
+
+    messages = build_tool_prompt(
+        goal="inspect", step={"description": "look"}, observations=[], remaining_calls=5
+    )
+    text = " ".join(m["content"] for m in messages)
+    assert "browse_page" in text
+
+
 def test_capability_registry_fetch_url_tool_is_callable(monkeypatch: pytest.MonkeyPatch) -> None:
     registry = ToolRegistry()
     _register_web_reach_tools(registry)

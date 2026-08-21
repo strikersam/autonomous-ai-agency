@@ -392,6 +392,7 @@ def _register_builtin_tools(registry: ToolRegistry, workspace_root: str | None =
     ws = WorkspaceTools(workspace_root or os.environ.get("AGENT_WORKSPACE_ROOT", "."))
 
     _register_web_reach_tools(registry)
+    _register_browser_tools(registry)
 
     @registry.agent_tool(
         name="read_file",
@@ -514,6 +515,37 @@ def _register_builtin_tools(registry: ToolRegistry, workspace_root: str | None =
     )
     def _finish_tool(reason: str) -> str:
         return reason
+
+
+def _register_browser_tools(registry: ToolRegistry) -> None:
+    """Register the interactive-browser capability (agent/browser.py).
+
+    Unlike ``fetch_url`` (raw HTML), this drives a real browser, so it reads
+    JavaScript-rendered pages and gets past client-side rendering. It uses the
+    Browserbase cloud browser when configured (no local Chromium — low RAM),
+    and is a no-op stub returning a clear hint when browser automation is off.
+    """
+    from agent.browser import browse_page
+
+    @registry.agent_tool(
+        name="browse_page",
+        description=(
+            "Open a URL in a REAL browser and return the page's rendered text "
+            "(after JavaScript runs). Use this when fetch_url returns an empty "
+            "or app-shell page, or when the content is behind client-side "
+            "rendering. Returns {ok, url, title, text, backend}."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "The URL to open"},
+            },
+            "required": ["url"],
+        },
+        capabilities=["web", "browser", "read", "research"],
+    )
+    async def _browse_page_tool(url: str) -> dict:
+        return await browse_page(url)
 
 
 def _register_web_reach_tools(registry: ToolRegistry) -> None:
