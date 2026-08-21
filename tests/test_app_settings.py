@@ -12,14 +12,28 @@ import pytest
 
 @pytest.fixture
 def sqlite_store(tmp_path, monkeypatch):
-    """Point db.get_store() at an isolated temp SQLite DB."""
+    """Point db.get_store() at an isolated temp SQLite DB.
+
+    Patches ``packages.storage.sqlite._SQLITE_DB_PATH`` directly via
+    ``monkeypatch.setattr`` rather than ``importlib.reload`` — a reload
+    mutates the module object cached in ``sys.modules`` permanently, so
+    the path it re-read from ``SQLITE_DB_PATH`` at reload time leaked into
+    every later test's fresh ``SQLiteStore()`` for the rest of the pytest
+    session (module reloads aren't undone by monkeypatch teardown, unlike
+    ``setattr``/``setenv``). That leak was the root cause of the
+    order-dependent ``test_auth_me_regression`` failure: whichever test
+    using this fixture ran last left its now-deleted tmp dir as the
+    effective DB path for every subsequent SQLite-backed test.
+    """
     monkeypatch.setenv("STORAGE_BACKEND", "sqlite")
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "settings.db"))
 
     import db
     import packages.storage.sqlite as sqlite_store_mod
 
-    importlib.reload(sqlite_store_mod)  # re-read SQLITE_DB_PATH
+    monkeypatch.setattr(
+        sqlite_store_mod, "_SQLITE_DB_PATH", str(tmp_path / "settings.db")
+    )
     db.reset_store()
 
     import app_settings

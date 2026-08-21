@@ -513,3 +513,16 @@ loops:
     self_heal: false
     gate: none
     purpose: LLM-judge recent agent session traces for recurring friction, registering clusters as improvement issues; opt-in via SESSION_RETRO_ENABLED.
+
+  - id: agent-built-proof-refresh
+    name: Refresh Agent-Built Proof
+    pattern: changelog-drafter
+    level: L3
+    trigger: schedule
+    cadence: monthly (1st, 06:00 UTC)
+    runs_per_day: 0.033
+    cost: low
+    source: .github/workflows/agent-built-proof-refresh.yml
+    self_heal: true
+    gate: none
+    purpose: Re-run the live GitHub search queries proof/agent-built.md cites and open a PR only when the merged-PR counts have drifted from what's committed.
