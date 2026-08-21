@@ -1,0 +1,81 @@
+name: Refresh Agent-Built Proof
+
+# Monthly root-cause fix for proof/agent-built.md going stale: re-run the
+# three GitHub search queries the proof cites (is:pr is:merged, + head:claude/,
+# + head:codex/) via scripts/refresh_agent_built_proof.py and open a PR only
+# when the live counts have actually drifted from what's committed.
+
+on:
+  schedule:
+    - cron: '0 6 1 * *'   # 06:00 UTC on the 1st of each month
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: refresh-agent-built-proof
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    name: Re-query merged-PR counts & refresh proof docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+
+      - name: Run refresh script
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+        run: python3 scripts/refresh_agent_built_proof.py
+
+      - name: Check whether the docs changed
+        id: diff
+        run: |
+          if git diff --quiet -- proof/agent-built.md proof/README.md README.md; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open PR with the refreshed numbers
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="chore/refresh-agent-built-proof-$(date +%Y%m%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add proof/agent-built.md proof/README.md README.md
+          git commit -m "chore: refresh agent-built proof numbers"
+          git push origin "$BRANCH"
+
+          gh label create "automated" --color "ededed" \
+            --description "Opened by a scheduled workflow" 2>/dev/null || true
+
+          gh pr create \
+            --title "chore: refresh agent-built proof numbers" \
+            --label "automated" \
+            --body "$(cat <<'BODYEOF'
+          Automated monthly refresh. `scripts/refresh_agent_built_proof.py`
+          re-ran the three GitHub search queries `proof/agent-built.md` cites
+          (`is:pr is:merged`, `+ head:claude/`, `+ head:codex/`) and found the
+          committed counts had drifted from the live results, so it rewrote
+          the table, the "As of" date, and the "N of M merged PRs (X%)"
+          sentence in `proof/agent-built.md`, plus the matching mention in
+          `proof/README.md` and `README.md`. Methodology and caveats are
+          untouched — only the numbers moved.
+
+          This PR only exists because the numbers drifted; most months this
+          workflow runs and finds nothing to open.
+          BODYEOF
+          )"
