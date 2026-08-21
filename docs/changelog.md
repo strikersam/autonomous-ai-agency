@@ -3,6 +3,7 @@
      move the gate to root. -->
 
 ## [Unreleased]
+### Fixed - `test_auth_me_regression.py` — Configure storage backend for testing to resolve MongoDB connection errors.
 
 ### Added
 
