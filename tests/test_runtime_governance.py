@@ -184,6 +184,49 @@ async def test_observe_mode_lets_the_adapter_run():
     assert adapter.executed == ["task_1"]
 
 
+# ── Budget applies to runtime dispatch too (bypass regression) ───────────────
+
+
+def test_an_exhausted_budget_blocks_a_runtime_dispatch_in_enforce():
+    """The session budget must gate runtime dispatch, not only in-process tools.
+
+    Otherwise an agent that has spent its in-process budget could keep working
+    simply by handing the task to a runtime adapter — the exact bypass that
+    kept this capability at BETA.
+    """
+    from packages.governance.enforcement import GovernanceGate, reset_gate
+
+    reset_gate(GovernanceGate())
+    try:
+        _engine("enforce", groups={"default": {"limits": {"max_tool_calls": 2}}})
+        adapter = StubAdapter()
+        spec = _spec(context={"agent_name": "runner"})
+
+        assert _governance_check(spec, adapter, _decision(adapter)) is None  # 1st: under cap
+        blocked = _governance_check(spec, adapter, _decision(adapter))       # 2nd: at cap
+        assert isinstance(blocked, TaskResult) and blocked.success is False
+        assert blocked.metadata["governance_rule_id"] == "budget.session.exhausted"
+    finally:
+        reset_gate(None)
+
+
+def test_budget_exhaustion_does_not_block_a_dispatch_in_observe():
+    """Same Golden Rule guarantee: observe records, it does not stop."""
+    from packages.governance.enforcement import GovernanceGate, reset_gate
+
+    reset_gate(GovernanceGate())
+    try:
+        _engine("observe", groups={"default": {"limits": {"max_tool_calls": 1}}})
+        adapter = StubAdapter()
+        spec = _spec(context={"agent_name": "runner"})
+
+        _governance_check(spec, adapter, _decision(adapter))  # tool_calls -> 1 (at cap)
+        # In observe the over-cap dispatch is allowed through (would-block only).
+        assert _governance_check(spec, adapter, _decision(adapter)) is None
+    finally:
+        reset_gate(None)
+
+
 # ── Policy expressiveness ────────────────────────────────────────────────────
 
 

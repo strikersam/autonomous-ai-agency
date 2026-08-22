@@ -473,6 +473,48 @@ class GovernanceGate:
         except Exception as exc:  # noqa: BLE001
             log.warning("Governance result recording failed for %r: %s", tool, exc)
 
+    def charge(
+        self,
+        identity: Any,
+        *,
+        cost_usd: float = 0.0,
+        tokens: int = 0,
+        retries: int = 0,
+        depth: int | None = None,
+    ) -> str | None:
+        """Charge consumption that happens outside a :meth:`guard` call.
+
+        Three budget dimensions are only known apart from a guarded tool call:
+        LLM token spend and its dollar cost land after a model returns, and
+        sub-agent nesting ``depth`` is set at spawn time. Without a way to
+        charge them, ``max_tokens``, ``max_cost_usd`` and ``max_depth`` would
+        be ceilings that can never be reached — worse than no ceiling, because
+        they advertise a control that never acts.
+
+        Charges onto the same per-session budget :meth:`guard` reads, so the
+        *next* guarded action sees the new totals and blocks. Returns the first
+        exhausted-limit reason, or ``None``. Never raises — metering a path
+        must not be able to take that path down.
+        """
+        try:
+            engine = get_policy_engine()
+            session_id = str(getattr(identity, "session_id", "") or "anonymous")
+            budget = self._budgets.get(session_id, engine.limits_for(identity))
+            if cost_usd:
+                budget.cost_usd += max(0.0, float(cost_usd))
+            if tokens:
+                budget.tokens += max(0, int(tokens))
+            if retries:
+                budget.retries += max(0, int(retries))
+            if depth is not None:
+                # A high-water mark, not a running sum: a chain three levels
+                # deep is depth 3 however it got there. max() keeps the deepest.
+                budget.depth = max(budget.depth, int(depth))
+            return budget.check()
+        except Exception as exc:  # noqa: BLE001 - metering must not break execution
+            log.debug("Budget charge failed (%s); dimension not metered", exc)
+            return None
+
     @staticmethod
     def _audit(
         identity: Any,

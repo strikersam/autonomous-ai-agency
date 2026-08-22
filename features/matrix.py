@@ -298,13 +298,49 @@ _CANONICAL_FEATURES: list[dict[str, Any]] = [
     {
         "feature_id": "policies_governance",
         "display_name": "Policies & Governance",
+        "maturity": FeatureMaturity.STABLE,
+        "enabled": True,
+        "default_availability": FeatureMaturity.STABLE,
+        "key_dependencies": [],
+        "config_flags": ["GOVERNANCE_ENABLED", "GOVERNANCE_MODE", "GOVERNANCE_APPROVAL_TTL_S"],
+        "admin_visible": True,
+        "notes": (
+            "STABLE (promoted from BETA 2026-08-22). The policy engine now enforces on every "
+            "execution path, not only in-process tool calls: AgentRunner._dispatch_tool guards each "
+            "tool (including run_command, file writes, execute_skill and spawn_subagent), and runtime "
+            "dispatch (RuntimeManager -> RuntimeRoutingPolicyEngine) passes through the same policy + "
+            "session budget before any adapter runs, so work handed to a runtime cannot route around a "
+            "restriction. Every allow and every block writes an audit record (packages/governance/audit.py) "
+            "tagged with the acting identity. Six session budget ceilings are wired and each fires "
+            "independently: max_tool_calls, max_cost_usd, max_tokens, max_retries, max_depth and "
+            "max_duration_s (LLM cost/tokens charged from agent/loop.py, sub-agent nesting charged at "
+            "spawn on Surface.AGENT). Approvals fail closed: a TTL-expired request denies by default and a "
+            "restart expires everything pending. Mode is honoured everywhere — observe (the shipped "
+            "default) logs would-blocks without changing behaviour, enforce blocks — so turning this on is "
+            "an operator decision, not a code change. Covered by tests/test_governance_enforcement.py, "
+            "tests/test_runtime_governance.py, tests/test_governance_policy.py and the STABLE-claim guard "
+            "in tests/test_feature_matrix.py. The policy-authoring UI is tracked separately as "
+            "policy_authoring_ui (BETA): rules are edited in config/agent_policy.yaml under git review, "
+            "not from the dashboard. Set GOVERNANCE_MODE=observe (default) to audit before enforcing, or "
+            "FEATURE_POLICIES_GOVERNANCE=beta to re-flag it."
+        ),
+    },
+    {
+        "feature_id": "policy_authoring_ui",
+        "display_name": "Policy Authoring UI",
         "maturity": FeatureMaturity.BETA,
         "enabled": True,
         "default_availability": FeatureMaturity.BETA,
-        "key_dependencies": [],
+        "key_dependencies": ["policies_governance"],
         "config_flags": [],
         "admin_visible": True,
-        "notes": "Approval gates, RBAC, admin controls.",
+        "notes": (
+            "BETA. The governance dashboard shows posture, pending approvals, the audit trail and a "
+            "read-only policy simulator, but it cannot edit policy: rules live in config/agent_policy.yaml "
+            "and change through git review only (there is no write endpoint by design). The engine that "
+            "enforces those rules is STABLE (policies_governance); in-product authoring is the beta part, "
+            "called out here rather than hidden as a caveat on the stable entry."
+        ),
     },
     # ── Experimental → DISABLED (Section I demotions per issue #467) ────────
     # These features are demoted to DISABLED pending proper re-engineering:

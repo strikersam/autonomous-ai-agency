@@ -19,6 +19,7 @@ Admin-configurable controls:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from dataclasses import dataclass, field
@@ -52,9 +53,21 @@ def _governance_identity(spec: "TaskSpec", runtime: "RuntimeAdapter") -> Any:
     from packages.governance.identity import resolve_identity
 
     context = spec.context or {}
+    # session_id must be STABLE across a task's dispatch attempts (primary and
+    # every fallback), or the per-session budget never accumulates and the
+    # ceilings can never bite on the runtime path. Prefer a session threaded
+    # through the task context; otherwise anchor deterministically on the task
+    # id so one task's dispatches share one budget. resolve_identity would
+    # otherwise mint a fresh random session per call.
+    session_id = context.get("session_id") or context.get("session")
+    if not session_id and spec.task_id:
+        session_id = "sess_task_" + hashlib.sha256(
+            str(spec.task_id).encode("utf-8")
+        ).hexdigest()[:16]
     return resolve_identity(
         agent_name=context.get("agent_name") or context.get("agent"),
         owner=context.get("agent_owner") or context.get("user_email"),
+        session_id=session_id or None,
         task_id=spec.task_id,
         repo=spec.repo_url,
         runtime=runtime.RUNTIME_ID,
@@ -138,20 +151,59 @@ def _governance_check(
         if not governance_enabled():
             return None
 
-        from packages.governance.policy import Decision, Surface, get_policy_engine
-
-        identity = _governance_identity(spec, runtime)
-        verdict = get_policy_engine().evaluate(
-            Surface.RUNTIME, runtime.RUNTIME_ID, identity
+        from packages.governance.enforcement import get_gate
+        from packages.governance.policy import (
+            Decision,
+            Mode,
+            PolicyDecision,
+            Surface,
+            get_policy_engine,
         )
-        blocked = verdict.effective is Decision.DENY
+
+        engine = get_policy_engine()
+        identity = _governance_identity(spec, runtime)
+        verdict = engine.evaluate(Surface.RUNTIME, runtime.RUNTIME_ID, identity)
+
+        # Budget: a runtime dispatch consumes session budget like any guarded
+        # tool call, so the six ceilings apply to work handed to a runtime too —
+        # otherwise an agent could evade an exhausted in-process budget just by
+        # dispatching the same work to an adapter. Count the dispatch, then
+        # check; both count and check share the one budget the AgentRunner path
+        # reads, keyed by the same session.
+        gate = get_gate()
+        session_id = str(getattr(identity, "session_id", "") or "anonymous")
+        budget = gate.budgets.get(session_id, engine.limits_for(identity))
+        budget.tool_calls += 1
+        budget.per_tool_calls[runtime.RUNTIME_ID] = (
+            budget.per_tool_calls.get(runtime.RUNTIME_ID, 0) + 1
+        )
+        exhausted = budget.check()
+
+        policy_deny = verdict.effective is Decision.DENY
+        # Budget denial respects the mode exactly as policy does: observe records
+        # a would-block without stopping the dispatch, enforce stops it.
+        budget_deny = bool(exhausted) and engine.mode is Mode.ENFORCE
+
+        if budget_deny and not policy_deny:
+            # Record the budget verdict (not the policy ALLOW) so the audit row
+            # and the returned reason name what actually blocked.
+            verdict = PolicyDecision(
+                decision=Decision.DENY, surface=Surface.RUNTIME,
+                action=runtime.RUNTIME_ID,
+                reason=f"session budget exhausted: {exhausted}",
+                rule_id="budget.session.exhausted",
+                mode=engine.mode, group=verdict.group,
+            )
+
+        blocked = policy_deny or budget_deny
         _audit_dispatch(identity, spec, runtime, verdict, blocked)
 
         if not blocked:
             return None
 
         log.warning(
-            "Runtime dispatch blocked by policy: %s -> %s (%s)",
+            "Runtime dispatch blocked by %s: %s -> %s (%s)",
+            "budget" if (budget_deny and not policy_deny) else "policy",
             identity.agent_id, runtime.RUNTIME_ID, verdict.rule_id,
         )
         decision.reason += f"; blocked by governance ({verdict.rule_id})"

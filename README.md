@@ -121,7 +121,7 @@ and adapted to this platform's topology.
 | Control | What it does | Where |
 |---|---|---|
 | **Agent identity** | Every action carries a stable agent id, an owner, a policy group, and a per-run session — so "who did this?" has an answer. | [`packages/governance/identity.py`](packages/governance/identity.py) |
-| **Policy engine** | Declarative rules over 13 surfaces (tools, filesystem, network, credentials, shell, GitHub, Docker, database, MCP, browser, memory, providers, runtime). Organisation baseline rules cannot be loosened by a group. | [`config/agent_policy.yaml`](config/agent_policy.yaml) |
+| **Policy engine** | Declarative rules over 14 surfaces (tools, filesystem, network, credentials, shell, GitHub, Docker, database, MCP, browser, memory, providers, runtime, sub-agent spawn). Organisation baseline rules cannot be loosened by a group. | [`config/agent_policy.yaml`](config/agent_policy.yaml) |
 | **Cost ceilings** | Six enforced per-session limits — tool calls, spend, tokens, duration, recursion depth, retries. A policy file cannot stop a runaway loop; a counter can. | [`packages/governance/enforcement.py`](packages/governance/enforcement.py) |
 | **Approval gates** | High-risk actions (merge, delete, deploy, container build) hold for a human. TTL-bounded, and expiry **denies**. | [`packages/governance/approvals.py`](packages/governance/approvals.py) |
 | **Audit trail** | Who / what / when / why / where / cost — 20 fields, secrets redacted *before* storage, SIEM-shippable as one-line JSON. | [`packages/governance/audit.py`](packages/governance/audit.py) |
@@ -133,6 +133,16 @@ blocked until an operator deliberately switches to enforcement, after watching
 what the rules *would* have caught. `GET /api/governance/status` reports what is
 actually in force — including `isolation: none` when no sandbox backend is
 available — because a dashboard that overstates containment is worse than none.
+
+Enforcement covers **every execution path**, not only in-process tool calls:
+work an agent hands to a runtime adapter passes through the same policy and the
+same session budget before the adapter runs, so a restriction cannot be routed
+around by dispatching instead of running locally. This layer graduated to
+**stable** on 2026-08-22: the six ceilings and expiry-denies above are now
+enforced on all paths and covered by tests that fail CI if the claim stops
+being true. The policy-authoring UI is tracked separately as beta — rules are
+edited in [`config/agent_policy.yaml`](config/agent_policy.yaml) under git
+review, not from the dashboard.
 
 Guide, gap analysis, and threat model: [docs/governance/](docs/governance/README.md).
 
