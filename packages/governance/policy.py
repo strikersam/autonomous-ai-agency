@@ -86,6 +86,10 @@ class Surface(str, Enum):
     # executor* — a research agent has no business dispatching to a runtime
     # whose whole purpose is editing and committing code.
     RUNTIME = "runtime"
+    # Spawning a child agent. Governs recursive delegation — the surface the
+    # max_depth budget ceiling is charged against, so a runaway spawn chain is
+    # a governance verdict, not only a hard-coded cap.
+    AGENT = "agent"
 
 
 class Decision(str, Enum):
