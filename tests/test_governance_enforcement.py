@@ -536,3 +536,97 @@ def test_per_tool_caps_do_not_interfere_across_sessions():
     sess_a.per_tool_calls["web_search"] = 1
     assert sess_a.check_tool("web_search") is not None
     assert sess_b.check_tool("web_search") is None
+
+
+# ── All six ceilings fire independently (STABLE bar) ─────────────────────────
+
+
+@pytest.mark.parametrize(
+    "limit_key,attr,ceiling",
+    [
+        ("max_tool_calls", "tool_calls", 5),
+        ("max_cost_usd", "cost_usd", 5.0),
+        ("max_tokens", "tokens", 5),
+        ("max_retries", "retries", 5),
+        ("max_depth", "depth", 5),
+    ],
+)
+def test_each_session_ceiling_fires_on_its_own_dimension(limit_key, attr, ceiling):
+    """Every counting ceiling must fire from its own counter alone.
+
+    A ceiling that can only be reached as a side effect of another dimension
+    is not an independent control. Each is set in isolation here; the graduation
+    to STABLE rests on all six being real.
+    """
+    from packages.governance.enforcement import SessionBudget
+
+    budget = SessionBudget(session_id="s", limits={limit_key: ceiling})
+    setattr(budget, attr, ceiling)  # at the ceiling — check() uses >=
+    reason = budget.check()
+    assert reason and limit_key in reason, f"{limit_key} did not fire from its own counter"
+
+    # A different session with the same dimension untouched must not fire.
+    clean = SessionBudget(session_id="s2", limits={limit_key: ceiling})
+    assert clean.check() is None
+
+
+def test_duration_ceiling_fires_from_elapsed_time():
+    """The sixth ceiling, max_duration_s, is time-based, not a counter."""
+    import time
+
+    from packages.governance.enforcement import SessionBudget
+
+    budget = SessionBudget(session_id="s", limits={"max_duration_s": 10})
+    budget.started_at = time.monotonic() - 20  # 20s elapsed against a 10s ceiling
+    assert "max_duration_s" in (budget.check() or "")
+
+
+async def test_charge_feeds_tokens_so_max_tokens_can_be_reached():
+    """LLM token spend charged onto the budget blocks the next guarded action."""
+    _engine("enforce", groups={"default": {"limits": {"max_tokens": 100}}})
+    gate = GovernanceGate()
+    identity = resolve_identity(agent_name="spender")
+    assert (await gate.guard(identity, "read_file", {})).allowed is True
+    gate.charge(identity, tokens=150)
+    blocked = await gate.guard(identity, "read_file", {})
+    assert blocked.allowed is False
+    assert "max_tokens" in blocked.decision.reason
+
+
+async def test_charge_feeds_cost_so_max_cost_can_be_reached():
+    _engine("enforce", groups={"default": {"limits": {"max_cost_usd": 1.0}}})
+    gate = GovernanceGate()
+    identity = resolve_identity(agent_name="spender")
+    gate.charge(identity, cost_usd=1.50, tokens=0)
+    assert (await gate.guard(identity, "read_file", {})).allowed is False
+
+
+async def test_charge_depth_is_a_high_water_mark_not_a_sum():
+    """Depth is the deepest reached, not the total charged."""
+    _engine("enforce", groups={"default": {"limits": {"max_depth": 3}}})
+    gate = GovernanceGate()
+    identity = resolve_identity(agent_name="nester")
+    gate.charge(identity, depth=2)
+    gate.charge(identity, depth=1)  # shallower — must not lower the mark
+    session_id = str(identity.session_id)
+    budget = {b["session_id"]: b for b in gate.budgets.all()}[session_id]
+    assert budget["depth"] == 2
+    gate.charge(identity, depth=3)  # reaches the ceiling
+    assert (await gate.guard(identity, "read_file", {})).allowed is False
+
+
+def test_restart_expires_all_pending_approvals():
+    """A restart must not resurrect a pending approval — fail-closed by design.
+
+    The store is in-process, so a new process (modelled by a fresh store) has
+    no pending requests. Anything an agent was blocked on is simply gone, which
+    is the denying outcome, not an allowing one.
+    """
+    from packages.governance import approvals as approvals_module
+
+    store = approvals_module.get_approval_store()
+    store.create(agent_id="a", surface="tool", action="deploy", reason="r", rule_id="r", ttl_s=300)
+    assert len(store.pending()) == 1
+
+    approvals_module.reset_approval_store(None)  # a restart brings up a clean store
+    assert approvals_module.get_approval_store().pending() == []

@@ -321,3 +321,80 @@ class TestSingleton:
         # async_agent_jobs is already DISABLED; verify no warning is returned.
         warning = matrix.maturity_warning("async_agent_jobs")
         assert warning is None
+
+
+# ---------------------------------------------------------------------------
+# policies_governance STABLE claim — kept honest by CI
+# ---------------------------------------------------------------------------
+
+
+class TestPoliciesGovernanceStableClaim:
+    """`policies_governance` may be STABLE only while enforcement is real.
+
+    The same shape as tests/test_specialist_skill_matrix.py: a claim in the
+    matrix that CI keeps true. STABLE here means enforcement runs on every
+    execution path, is audited, and has six working budget ceilings — so if the
+    flag is flipped without the wiring, or the wiring is later removed while the
+    flag stays STABLE, one of these fails and the graduation stops being a
+    silent lie.
+    """
+
+    def test_policies_governance_is_stable(self) -> None:
+        matrix = FeatureMatrix()
+        entry = matrix.get("policies_governance")
+        assert entry is not None, "policies_governance missing from the matrix"
+        assert entry.maturity == FeatureMaturity.STABLE, (
+            "policies_governance is STABLE only when enforcement is real on every "
+            "execution path — see TestPoliciesGovernanceStableClaim"
+        )
+        assert entry.default_availability == FeatureMaturity.STABLE
+
+    def test_all_six_budget_ceilings_are_enforced(self) -> None:
+        """Each documented ceiling must fire from its own counter alone."""
+        import time
+
+        from packages.governance.enforcement import SessionBudget
+
+        counters = {
+            "max_tool_calls": ("tool_calls", 1),
+            "max_cost_usd": ("cost_usd", 1.0),
+            "max_tokens": ("tokens", 1),
+            "max_retries": ("retries", 1),
+            "max_depth": ("depth", 1),
+        }
+        for key, (attr, ceiling) in counters.items():
+            budget = SessionBudget(session_id="s", limits={key: ceiling})
+            setattr(budget, attr, ceiling)
+            assert key in (budget.check() or ""), f"{key} ceiling is not enforced"
+
+        duration = SessionBudget(session_id="s", limits={"max_duration_s": 1})
+        duration.started_at = time.monotonic() - 5
+        assert "max_duration_s" in (duration.check() or ""), "duration ceiling not enforced"
+
+    def test_the_budget_charge_path_exists(self) -> None:
+        """LLM cost/tokens and spawn depth must be chargeable onto the budget —
+        the wiring that makes max_tokens / max_cost_usd / max_depth reachable."""
+        from packages.governance.enforcement import GovernanceGate
+
+        assert callable(getattr(GovernanceGate, "charge", None)), (
+            "GovernanceGate.charge() is what feeds tokens/cost/depth; without it "
+            "three ceilings can never be reached"
+        )
+
+    def test_agent_surface_exists_for_spawn_depth(self) -> None:
+        from packages.governance.policy import Surface
+
+        assert Surface.AGENT.value == "agent"
+
+    def test_runtime_dispatch_shares_the_session_budget(self) -> None:
+        """The runtime-dispatch seam must consult the same gate budget, so work
+        handed to a runtime cannot evade an exhausted in-process budget."""
+        import inspect
+
+        from runtimes import routing
+
+        src = inspect.getsource(routing._governance_check)
+        assert "get_gate" in src and "budget" in src, (
+            "runtime dispatch must enforce the session budget (see PR "
+            "feat/governance-enforcement-ga step 2)"
+        )
