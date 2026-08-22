@@ -27,10 +27,24 @@ def test_api_redirects_respect_public_and_backend_paths() -> None:
     assert "window.location.href = getPublicPath('/login')" in api
 
 
-def test_settings_oauth_origin_uses_current_backend_configuration() -> None:
-    settings = _read("frontend/src/pages/SettingsPage.js")
-    assert "function getBackendOrigin()" in settings
-    assert "const backendOrigin = getBackendOrigin();" in settings
+def test_oauth_origin_uses_current_backend_configuration() -> None:
+    """OAuth must originate from the operator-configured backend, never a hardcoded
+    origin.
+
+    The legacy ``SettingsPage.getBackendOrigin()`` helper was removed in the v5
+    information-architecture redesign (the whole legacy ``pages/`` tree was
+    retired). The backend origin is now resolved centrally in ``api.js``
+    (``localStorage 'backend_url'`` then env then same-origin) and every request
+    is dispatched through the shared axios instance that inherits it, so the
+    GitHub OAuth start rides the same operator-configured origin. This guard
+    keeps that single source of truth in place.
+    """
+    api = _read("frontend/src/api.js")
+    # Backend origin is operator-configurable, with a default fallback.
+    assert "localStorage.getItem('backend_url')" in api
+    assert "function getDefaultBackendUrl()" in api
+    # OAuth start rides the shared API instance, so it targets the resolved backend.
+    assert "API.post('/api/github/oauth/start'" in api
 
 
 # ── Setup Wizard checkbox visibility regression guards ──────────────────────
