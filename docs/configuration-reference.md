@@ -84,6 +84,23 @@ See [docs/claude-code-setup.md](claude-code-setup.md) for full Claude Code setup
 | `AGENT_REQUEST_TIMEOUT_SEC` | `120` | Per-request timeout (seconds) for agent-loop LLM calls, passed to the failover client. Also settable from the Brain card as **Timeout (s)**; the UI/DB value wins. Lower it to fail over to a faster provider sooner, or raise it for a deliberately slow/large model. |
 | `AGENT_WORKSPACE_ROOT` | (repo root) | Absolute path to the workspace the agent operates on. Defaults to the directory containing `proxy.py`. |
 
+### TokenIn — free frontier gateway
+
+[tokenin.my.id](https://tokenin.my.id/dashboard/models) is a free, OpenAI-compatible
+gateway fronting a rotating pool of frontier models (GPT-5.6, Claude Opus 4.8, Gemini
+3.5 Flash, GLM 5.3, DeepSeek V4 Pro, Grok 4.6, Kimi K3, MiniMax M3, Qwen 3.8 Max,
+Mimo V2.5). Every model is `$0` with a small per-model RPM cap (2–7 req/min), so it is
+classified as a **free-tier** provider — the brain uses it before any paid escalation,
+and on a per-model `429` the failover chain rotates to the next model in
+`config/models.yaml`. Model ids carry the provider's own `myt/` prefix.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TOKENIN_API_KEY` | (unset) | **Secret, env-only.** Bearer key for the TokenIn gateway. Presence of this key adds TokenIn to the provider chain (priority 22, free tier). |
+| `TOKENIN_BASE_URL` | `https://tokenin.my.id/v1` | Base URL override. The router appends `/chat/completions`. |
+| `TOKENIN_MODEL` | `myt/glm-5.3-free` | Default model for the `router.from_env` path when no model is requested. Role presets and the full failover list live in `config/models.yaml`. |
+| `TOKENIN_KEY_ROTATION` | `false` | Opt-in per-key rotation across `TOKENIN_API_KEY`, `_2`, `_3`… (see `<PROVIDER>_KEY_ROTATION` below). |
+
 ---
 
 ## Workspace Isolation

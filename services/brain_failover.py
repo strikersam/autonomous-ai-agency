@@ -556,6 +556,33 @@ _PROVIDER_REGISTRY: list[dict[str, Any]] = [
         "cooldown": 90.0,  # NVIDIA rate limits are ~40 req/min — 90s cooldown
     },
     {
+        # tokenin.my.id — free OpenAI-compatible gateway fronting a rotating pool
+        # of frontier models. Keep this list in sync with config/models.yaml and
+        # packages/ai/brain_config.PROVIDER_CANDIDATES["tokenin"].
+        "id": "tokenin",
+        "name": "TokenIn (free frontier gateway)",
+        "tier": "free",
+        "key_env": "TOKENIN_API_KEY",
+        "base_url_env": "TOKENIN_BASE_URL",
+        "default_base_url": "https://tokenin.my.id/v1",
+        "default_model": "myt/glm-5.3-free",
+        "models": [
+            "myt/glm-5.3-free",
+            "myt/deepseek-v4-pro-free",
+            "myt/MiniMax-M3-free",
+            "myt/mimo-v2.5-free",
+            "myt/qwen3.8-max-free",
+            "myt/kimi-k3-free",
+            "myt/gemini-3.5-flash-free",
+            "myt/grok-4.6-free",
+            "myt/gpt-5.6-sol-free",
+            "myt/claude-opus-4-8-free",
+        ],
+        # Per-model caps are low (2–7 req/min); cool a spent model briefly so the
+        # rotation moves on rather than parking the whole gateway.
+        "cooldown": 45.0,
+    },
+    {
         "id": "groq",
         "name": "Groq",
         "tier": "free",
@@ -784,6 +811,15 @@ _MODEL_ALIASES: dict[str, dict[str, str]] = {
         "aerolink": "claude-sonnet-5",
         "openrouter": "anthropic/claude-sonnet-5",
         "anthropic": "claude-sonnet-5",
+    },
+    # Claude Opus 4.8 cross-provider alias — lets a request for the bare model id
+    # rotate onto tokenin's free opus (myt/claude-opus-4-8-free) as well as the
+    # paid Claude gateways.
+    "claude-opus-4-8": {
+        "tokenin": "myt/claude-opus-4-8-free",
+        "aerolink": "claude-opus-4-8",
+        "anthropic": "claude-opus-4-8",
+        "openrouter": "anthropic/claude-opus-4-8",
     },
 }
 
