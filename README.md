@@ -136,6 +136,12 @@ available — because a dashboard that overstates containment is worse than none
 
 Guide, gap analysis, and threat model: [docs/governance/](docs/governance/README.md).
 
+## What's New (2026-08-22)
+
+**Accurate Anthropic cost attribution for prompt caching and extended thinking.** Three token-accounting gaps are closed: (1) cache *write* tokens (`cache_creation_input_tokens`, billed at 1.25× the base input rate) are now tracked in `Usage` and included in cost estimates — they were previously invisible, causing every prompt-cached request to under-report its cost. (2) Streaming responses now capture actual prompt token counts from the `message_start` event; before this fix, every streamed completion reported 0 prompt tokens and therefore $0 cost. (3) Thinking tokens (adaptive/extended thinking on Claude 5 / Claude 3.7) are now tracked separately and billed at the output rate. The `cost_tracker` `get_stats()` response exposes `cache_creation_tokens` and `thinking_tokens` per model so operators can see the full picture.
+
+---
+
 ## What's New (2026-08-21)
 
 **Claude 5 family in the YAML model catalog.** `claude-sonnet-5`, `claude-sonnet-5-20260501`, `claude-opus-5`, and `claude-haiku-4-5-20251001` are now declared in `config/llm/models.yaml`, the catalog that drives capability filtering, context-window checks, and per-token cost tracking for every routed request. Sonnet 5's 1M-token context window and introductory pricing ($2/$10 per MTok — cheaper than Sonnet 4.6's $3/$15) are now visible to the YAML-driven code paths. The Anthropic provider default is promoted from `claude-sonnet-4-6` to `claude-sonnet-5`; new deployments that set only `ANTHROPIC_API_KEY` now route to Sonnet 5 automatically.

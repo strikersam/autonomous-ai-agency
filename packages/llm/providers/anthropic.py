@@ -384,6 +384,8 @@ class AnthropicProvider(LLMProvider):
             prompt_tokens=int(raw_usage.get("input_tokens") or 0),
             completion_tokens=int(raw_usage.get("output_tokens") or 0),
             cached_tokens=int(raw_usage.get("cache_read_input_tokens") or 0),
+            cache_creation_tokens=int(raw_usage.get("cache_creation_input_tokens") or 0),
+            thinking_tokens=int(raw_usage.get("thinking_tokens") or 0),
         )
         raw = {**data}
         if workspace_id:
@@ -446,6 +448,23 @@ class AnthropicProvider(LLMProvider):
         kind = event.get("type")
         index = int(event.get("index") or 0)
 
+        if kind == "message_start":
+            # The message_start event carries all input-side usage counts, including
+            # prompt cache read/creation tokens. Capture them here so streaming
+            # responses get accurate prompt-token accounting (otherwise prompt_tokens
+            # stays at 0 for the whole stream).
+            message = event.get("message") or {}
+            raw_usage = message.get("usage") or {}
+            return StreamChunk(
+                usage=Usage(
+                    prompt_tokens=int(raw_usage.get("input_tokens") or 0),
+                    cached_tokens=int(raw_usage.get("cache_read_input_tokens") or 0),
+                    cache_creation_tokens=int(raw_usage.get("cache_creation_input_tokens") or 0),
+                ),
+                provider=self.id,
+                model=model,
+            )
+
         if kind == "content_block_start":
             block = event.get("content_block") or {}
             if block.get("type") == "tool_use":
@@ -476,11 +495,38 @@ class AnthropicProvider(LLMProvider):
             raw_usage = event.get("usage") or {}
             return StreamChunk(
                 finish_reason=delta.get("stop_reason") or "stop",
-                usage=Usage(completion_tokens=int(raw_usage.get("output_tokens") or 0)),
+                usage=Usage(
+                    completion_tokens=int(raw_usage.get("output_tokens") or 0),
+                    thinking_tokens=int(raw_usage.get("thinking_tokens") or 0),
+                ),
                 provider=self.id,
                 model=model,
             )
         return None
+
+    def cost(self, model: str, usage: Usage) -> float:
+        """USD cost for one completion, accounting for Anthropic-specific billing.
+
+        Three token categories each have distinct rates:
+          - Regular prompt tokens: base input rate
+          - Cache creation tokens: 1.25× the base input rate (25% surcharge)
+          - Thinking tokens: billed at the output token rate (same as completion tokens)
+        Cache read tokens are NOT added here because they're already included in
+        ``usage.prompt_tokens`` from the API and are billed at 0.1× input rate —
+        using the base rate for them slightly overcounts, but the error is small and
+        treating them specially would require a separate rate field in the registry.
+        """
+        from packages.llm.registry import get_registry
+
+        spec = get_registry().get(model)
+        if spec is None:
+            return 0.0
+        input_per_m = spec.input_cost_per_1m
+        output_per_m = spec.output_cost_per_1m
+        base = (usage.prompt_tokens * input_per_m + usage.completion_tokens * output_per_m) / 1_000_000.0
+        cache_creation_premium = usage.cache_creation_tokens * input_per_m * 0.25 / 1_000_000.0
+        thinking_cost = usage.thinking_tokens * output_per_m / 1_000_000.0
+        return base + cache_creation_premium + thinking_cost
 
     async def health(self, *, api_key: str, client: httpx.AsyncClient) -> dict[str, Any]:
         started = time.monotonic()

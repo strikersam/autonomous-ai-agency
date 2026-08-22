@@ -123,12 +123,22 @@ _COST_TABLE: dict[str, tuple[float, float]] = _build_cost_table()
 
 
 def cost_for_tokens(
-    model: str, prompt_tokens: int, completion_tokens: int
+    model: str,
+    prompt_tokens: int,
+    completion_tokens: int,
+    *,
+    cache_creation_tokens: int = 0,
+    thinking_tokens: int = 0,
 ) -> float:
-    """Return the USD cost for (prompt_tokens, completion_tokens) on *model*.
+    """Return the USD cost for a completion on *model*.
 
-    Returns 0.0 for unknown / free-tier models.  Calculation:
-      cost = (prompt_tokens * input_$/M + completion_tokens * output_$/M) / 1_000_000
+    Returns 0.0 for unknown / free-tier models.  Three token categories:
+      - ``prompt_tokens``: regular input tokens, billed at the base input rate.
+      - ``cache_creation_tokens``: Anthropic prompt-cache write tokens, billed at
+        1.25× the input rate (25% surcharge on top of the base).
+      - ``completion_tokens``: output tokens, billed at the output rate.
+      - ``thinking_tokens``: extended/adaptive thinking tokens (Anthropic), billed
+        at the same output rate as ``completion_tokens``.
     """
     costs = _COST_TABLE.get(model)
     if costs is None:
@@ -141,7 +151,10 @@ def cost_for_tokens(
     if costs is None:
         return 0.0
     input_per_m, output_per_m = costs
-    return (prompt_tokens * input_per_m + completion_tokens * output_per_m) / 1_000_000.0
+    base = (prompt_tokens * input_per_m + completion_tokens * output_per_m) / 1_000_000.0
+    cache_creation_premium = cache_creation_tokens * input_per_m * 0.25 / 1_000_000.0
+    thinking_cost = thinking_tokens * output_per_m / 1_000_000.0
+    return base + cache_creation_premium + thinking_cost
 
 
 # ── Aggregate store ───────────────────────────────────────────────────────────
@@ -152,6 +165,8 @@ _stats: dict[str, dict[str, Any]] = defaultdict(
         "calls": 0,
         "prompt_tokens": 0,
         "completion_tokens": 0,
+        "cache_creation_tokens": 0,
+        "thinking_tokens": 0,
         "total_tokens": 0,
         "estimated_cost_usd": 0.0,
         "providers": set(),
@@ -174,6 +189,8 @@ def record_usage(
     provider_id: str = "",
     prompt_tokens: int = 0,
     completion_tokens: int = 0,
+    cache_creation_tokens: int = 0,
+    thinking_tokens: int = 0,
     tag: str = "untagged",
 ) -> None:
     """Record token usage for *model* (fire-and-forget, never raises).
@@ -181,14 +198,23 @@ def record_usage(
     ``tag`` is a coarse task-category label (see router/classifier.py's
     ``classify_task()``) used to break down spend by kind of work, not just
     by model — callers that don't have a category default to "untagged".
+
+    ``cache_creation_tokens``: Anthropic prompt-cache write tokens (25% surcharge).
+    ``thinking_tokens``: extended/adaptive thinking tokens (billed at output rate).
     """
     global _total_calls, _total_cost_usd
     try:
-        cost = cost_for_tokens(model, prompt_tokens, completion_tokens)
+        cost = cost_for_tokens(
+            model, prompt_tokens, completion_tokens,
+            cache_creation_tokens=cache_creation_tokens,
+            thinking_tokens=thinking_tokens,
+        )
         entry = _stats[model]
         entry["calls"] += 1
         entry["prompt_tokens"] += prompt_tokens
         entry["completion_tokens"] += completion_tokens
+        entry["cache_creation_tokens"] += cache_creation_tokens
+        entry["thinking_tokens"] += thinking_tokens
         entry["total_tokens"] += prompt_tokens + completion_tokens
         entry["estimated_cost_usd"] += cost
         if provider_id:
@@ -211,6 +237,8 @@ def get_stats() -> dict[str, Any]:
             "calls": entry["calls"],
             "prompt_tokens": entry["prompt_tokens"],
             "completion_tokens": entry["completion_tokens"],
+            "cache_creation_tokens": entry.get("cache_creation_tokens", 0),
+            "thinking_tokens": entry.get("thinking_tokens", 0),
             "total_tokens": entry["total_tokens"],
             "estimated_cost_usd": round(entry["estimated_cost_usd"], 6),
             "providers": sorted(entry["providers"]),
