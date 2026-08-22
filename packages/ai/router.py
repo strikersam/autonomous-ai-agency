@@ -448,6 +448,9 @@ _COMMERCIAL_PROVIDER_IDS = {
 _FREE_CLOUD_PROVIDER_IDS = {
     "huggingface-serverless",
     "huggingface",
+    # tokenin.my.id — free frontier gateway (opus/gpt/gemini/glm/deepseek/…);
+    # classified FREE so the routing policy uses it before any paid escalation.
+    "tokenin",
     "deepseek",
     "groq",
     "groq-cloud",
@@ -490,6 +493,7 @@ _KNOWN_COMMERCIAL_HOSTS = (
 _KNOWN_FREE_HOSTS = (
     "huggingface.co",
     "hf.space",
+    "tokenin.my.id",
     "deepseek.com",
     "api.groq.com",
     "dashscope.aliyuncs.com",
@@ -698,6 +702,24 @@ class ProviderRouter:
                         or "meta/llama-3.3-70b-instruct"
                     ),
                     priority=-10,  # before everything else
+                )
+            )
+
+        # ── tokenin.my.id — free OpenAI-compatible frontier gateway ──
+        tokenin_key = (os.environ.get("TOKENIN_API_KEY") or "").strip()
+        if tokenin_key:
+            tokenin_base = (
+                os.environ.get("TOKENIN_BASE_URL") or "https://tokenin.my.id/v1"
+            ).rstrip("/")
+            providers.append(
+                ProviderConfig(
+                    provider_id="tokenin",
+                    type="openai-compatible",
+                    base_url=tokenin_base,
+                    api_key=tokenin_key,
+                    default_model=os.environ.get("TOKENIN_MODEL")
+                    or "myt/glm-5.3-free",
+                    priority=22,
                 )
             )
 
