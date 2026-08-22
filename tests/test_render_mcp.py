@@ -692,10 +692,15 @@ class TestBackendWiring:
     def test_ops_enabled_in_production(self):
         assert _env(_service("local-llm-server"))["RENDER_OPS_ENABLED"]["value"] == "true"
 
-    def test_poll_interval_keeps_the_free_sidecar_warm(self):
-        """A free service sleeps at ~15m idle; polling must stay under that."""
+    def test_ops_poll_interval_is_throttled_for_egress(self):
+        """RenderOps polling is deliberately throttled to cut outbound egress on
+        the free tier (PR #1321: 10m -> 30m). The free sidecar is now allowed to
+        sleep between polls — warmth is intentionally traded for staying under
+        Render's free 5GB/mo bandwidth cap — so the interval no longer has to sit
+        below the ~15m sleep threshold. It still must be a sane, positive value
+        (a missing/zero/absurd interval would be a real misconfiguration)."""
         interval = int(_env(_service("local-llm-server"))["RENDER_OPS_INTERVAL_SECONDS"]["value"])
-        assert interval < 900
+        assert 0 < interval <= 3600
 
     def test_writes_stay_disabled_in_production(self):
         assert _env(_service("local-llm-server"))["RENDER_MCP_ALLOW_WRITES"]["value"] == "false"
