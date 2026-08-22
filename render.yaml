@@ -384,13 +384,33 @@ services:
         sync: false
       - key: RENDER_OPS_ENABLED
         value: "true"
-      # 600s, not 900s: a free-plan service sleeps after ~15 minutes idle, so a
-      # 15-minute poll would land on a cold start almost every tick. Ten
-      # minutes keeps the sidecar warm and still costs 144 ticks/day.
+      # 1800s (30m): every RenderOps tick pulls logs + metrics over the network,
+      # which is service-initiated egress. On the free 5GB/mo bandwidth cap that
+      # adds up, so the poll is throttled from 10m to 30m — self-healing reacts a
+      # little slower in exchange for ~3x less ops-loop egress.
       - key: RENDER_OPS_INTERVAL_SECONDS
-        value: "600"
+        value: "1800"
       - key: RENDER_MCP_ALLOW_WRITES
         value: "false"
+
+      # ================================================================
+      # EGRESS THROTTLES — keep service-initiated bandwidth under the free
+      # 5GB/mo cap. Every background loop that makes outbound calls (LLM, DB,
+      # Render API) is bandwidth; the two 30s heartbeat loops dominated it.
+      # These slow the loops without disabling any capability — the agency
+      # still supervises, heals, and assesses, just less often. Raise the
+      # cadence back down once on a plan with more included bandwidth.
+      # ================================================================
+      - key: SUPERVISOR_INTERVAL_SEC          # ceo-supervisor: 30s -> 5m
+        value: "300"
+      - key: BG_AGENT_HEARTBEAT_INTERVAL_SEC  # background-agent heartbeat: 30s -> 5m
+        value: "300"
+      - key: AGENCY_TICK_MINUTES              # CEO agency cycle: 15m -> 30m
+        value: "30"
+      - key: SELF_HEAL_INTERVAL_SEC           # self-heal sweep: 5m -> 15m
+        value: "900"
+      - key: HEAL_SWEEP_INTERVAL_SEC          # heal re-dispatch sweep: 5m -> 15m
+        value: "900"
 
       # ================================================================
       # BROWSER AUTOMATION FOR AGENTS — the browse_page tool, so an agent
