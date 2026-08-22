@@ -4,8 +4,8 @@ import { MemoryRouter } from 'react-router-dom';
 import App from '../App';
 
 jest.mock('../pages/AuthCallback', () => () => <div>Auth callback</div>);
-jest.mock('../pages/DashboardLayout', () => () => <div>Dashboard</div>);
 jest.mock('../pages/SetupWizardPage', () => () => <div>Setup wizard</div>);
+jest.mock('../v5/V5App', () => () => <div>V5 shell</div>);
 
 jest.mock('../AuthContext', () => ({
   AuthProvider: ({ children }) => <>{children}</>,

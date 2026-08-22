@@ -39,6 +39,7 @@
 | 27 | Adversarial autonomy-paths audit + hardening | `IN_PROGRESS` | #694 | 2 `agent/`-local fixes (self-heal re-dispatch stranding; broken Hermes dispatch) + 3 tests. Deferred orchestrator-zone findings → Bug Log #9-#12. | 2026-06-19 |
 | 32 | Move heavy voice deps out of the web image → standalone Dockerfile.voice (slim web image, fast cold starts) | `IN_PROGRESS` | `claude/sam-voice-livekit-xjow4g` (PR #935 pending) | Dockerfile.backend no longer installs requirements-livekit (~600MB); new Dockerfile.voice (slim+libgomp1, backend deps, CMD worker start); docs/render.yaml/tests updated | 2026-07-03 |
 | 33 | Daily automation 2026-08-21: Claude 5 YAML catalog + workspace-id observability | `DONE` | `claude/nifty-pasteur-4zlcyu` | claude-sonnet-5/opus-5/haiku-4-5-20251001 added to models.yaml; default promoted to sonnet-5; anthropic-workspace-id header captured; 20 tests; changelogs updated | 2026-08-21 |
+| 34 | Frontend UX redesign: 20→6 IA, retire legacy UI, unify tokens | `DONE` | `claude/agency-ui-ux-redesign-yjvb85` | Design canvas (Artifact) + implemented: 6 goal-based hubs w/ back-compat alias map for old /v5/* deep links; legacy /legacy dashboard + 21 pages + 6 dead components removed (~23k LOC); tokens unified to index.css (Tailwind Outfit→Manrope fix); new StatusPill/Spinner/HubTabs primitives; 22 suites/152 tests green, build green. Provider cards kept (load-bearing, folded behind disclosure) — broad pill migration deferred | 2026-08-22 |
 
 ---
 

@@ -4,37 +4,28 @@ import { useAuth } from '../AuthContext';
 import EphemeralBanner from './screens/EphemeralBanner';
 
 
-// nav.jsx — Autonomous AI Agency navigation (clean, all screens)
+// Six destinations, organised around what the user is doing. The former
+// 20-item sidebar mirrored the backend (WORKSPACE/AGENCY/INFRASTRUCTURE/…);
+// everything it listed still exists, as tabs inside these hubs — see the
+// ALIASES map in V5App.jsx for the old-id → new-destination mapping.
 
 const NAV_ITEMS = [
-  { id:'chat',       label:'Chat',       icon:'MessageSquare',  desc:'Unified assistant',      section:'WORKSPACE' },
-  { id:'dashboard',  label:'Dashboard',  icon:'LayoutDashboard',desc:'System overview',         section:'WORKSPACE' },
-  { id:'tasks',      label:'Tasks',      icon:'CheckSquare',    desc:'Job lifecycle board',     section:'WORKSPACE' },
-  { id:'agents',     label:'Agents',     icon:'Bot',            desc:'Autonomous agency team',  section:'AGENCY' },
-  { id:'schedules',  label:'Schedules',  icon:'Calendar',       desc:'Autopilot jobs',          section:'AGENCY' },
-  { id:'skills',      label:'Skills',      icon:'Zap',          desc:'Agentic commerce skills',  section:'AGENCY' },
-  { id:'portfolio',   label:'Portfolio',   icon:'Target',       desc:'WSJF roadmap & sprints',   section:'AGENCY' },
-  { id:'intelligence',label:'Intelligence',icon:'TrendingUp',   desc:'Competitor & trend intel', section:'AGENCY' },
-  { id:'knowledge',  label:'Knowledge',  icon:'BookOpen',       desc:'Docs, sources, activity', section:'AGENCY' },
-  { id:'providers',  label:'Providers',  icon:'Layers',         desc:'Models, Ollama, MCP',     section:'INFRASTRUCTURE', adminOnly:true },
-  { id:'loops',      label:'Loops',      icon:'RefreshCw',      desc:'Autonomous loop fleet',   section:'INFRASTRUCTURE' },
-  { id:'logs',       label:'Logs',       icon:'Activity',       desc:'Traces & observability',  section:'INFRASTRUCTURE' },
-  { id:'github',     label:'GitHub',     icon:'GitBranch',      desc:'Token, repos & PRs',      section:'INFRASTRUCTURE' },
-  { id:'company',    label:'Company',    icon:'Building2',      desc:'Operating context',       section:'CONTEXT' },
-  { id:'onboarding', label:'Onboarding', icon:'Sparkles',       desc:'Company setup wizard',    section:'CONTEXT' },
-  { id:'governance', label:'Governance', icon:'ShieldCheck',    desc:'Policy, approvals, audit', section:'SYSTEM', adminOnly:true },
-  { id:'doctor',     label:'Doctor',     icon:'Stethoscope',    desc:'Diagnostics',             section:'SYSTEM' },
-  { id:'admin',      label:'Admin',      icon:'Shield',         desc:'Users & access',          section:'SYSTEM', adminOnly:true },
-  { id:'controls',   label:'Controls',   icon:'Sliders',        desc:'Feature switches & options', section:'SYSTEM', adminOnly:true },
-  { id:'sam',        label:'SAM',        icon:'Mic',            desc:'Voice command & control',  section:'SYSTEM' },
+  { id:'home',      label:'Home',      icon:'Home',          desc:'What happened & what needs you', section:'MAIN' },
+  { id:'assistant', label:'Assistant', icon:'MessageSquare', desc:'Talk or type to your team',      section:'MAIN' },
+  { id:'work',      label:'Work',      icon:'CheckSquare',   desc:'Now, automated & planned',       section:'MAIN' },
+  { id:'company',   label:'Company',   icon:'Building2',     desc:'Your business, systems & team',  section:'MAIN' },
+  { id:'insights',  label:'Insights',  icon:'TrendingUp',    desc:'Activity, market & site health', section:'MAIN' },
+  { id:'settings',  label:'Settings',  icon:'Sliders',       desc:'Infrastructure & admin',         section:'SYSTEM' },
 ];
 
-const MOBILE_PRIMARY = ['dashboard', 'chat', 'sam', 'doctor'];
-const MOBILE_MORE    = ['agents', 'tasks', 'schedules', 'skills', 'portfolio', 'intelligence', 'knowledge', 'providers', 'loops', 'github', 'logs', 'company', 'onboarding', 'admin', 'controls'];
+// All five everyday destinations fit the bottom bar — no "More" sheet hiding
+// 15 screens behind a second tap. Settings stays reachable via the top-bar menu.
+const MOBILE_PRIMARY = ['home', 'assistant', 'work', 'company', 'insights'];
 
 function Icon({ name, size=18, style={} }) {
   const s = size;
   const paths = {
+    Home:            <><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></>,
     MessageSquare:   <><rect x="3" y="3" width="18" height="16" rx="3"/><path d="M8 20v-4"/><path d="M3 19l5-3h9"/></>,
     LayoutDashboard: <><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></>,
     CheckSquare:     <><path d="m9 11 3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></>,
@@ -110,7 +101,11 @@ function SidebarNav({ activeScreen, onNavigate, onClose, agentRunning, isAdmin, 
           if (!items.length) return null;
           return (
             <div key={section} style={{ marginBottom:2 }}>
-              <div style={{ padding:'10px 18px 4px', fontSize:11, fontFamily:'var(--font-mono)', letterSpacing:'0.14em', textTransform:'uppercase', color:'var(--text-muted)', fontWeight:700 }}>{section}</div>
+              {/* The everyday destinations need no group label — a divider
+                  separates them from the technical Settings entry. */}
+              {section === 'SYSTEM'
+                ? <div style={{ height:1, background:'rgba(255,255,255,0.06)', margin:'12px 18px' }}/>
+                : null}
               {items.map(item => {
                 const active = activeScreen === item.id;
                 return (
@@ -159,78 +154,22 @@ function SidebarNav({ activeScreen, onNavigate, onClose, agentRunning, isAdmin, 
   );
 }
 
-function MobileMoreSheet({ activeScreen, onNavigate, onClose, isAdmin }) {
-  const moreItems = NAV_ITEMS.filter(n => MOBILE_MORE.includes(n.id) && (!n.adminOnly || isAdmin));
-  return (
-    <>
-      <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:55, background:'rgba(0,0,0,0.55)', backdropFilter:'blur(4px)' }}/>
-      <div style={{ position:'fixed', bottom:0, left:0, right:0, zIndex:60, background:'rgba(10,12,16,0.98)', borderTop:'1px solid rgba(255,255,255,0.10)', borderRadius:'20px 20px 0 0', padding:'14px 16px', paddingBottom:'calc(env(safe-area-inset-bottom,0px) + 16px)', animation:'fadeSlideUp 0.2s ease-out' }}>
-        <div style={{ display:'flex', justifyContent:'center', marginBottom:12 }}>
-          <div style={{ width:36, height:4, borderRadius:999, background:'rgba(255,255,255,0.15)' }}/>
-        </div>
-        <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase', marginBottom:12 }}>More screens</div>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
-          {moreItems.map(item => {
-            const active = activeScreen === item.id;
-            return (
-              <button key={item.id} onClick={() => { onNavigate(item.id); onClose(); }} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 14px', borderRadius:14, background:active?'rgba(93,162,255,0.10)':'rgba(255,255,255,0.04)', border:`1px solid ${active?'rgba(93,162,255,0.22)':'rgba(255,255,255,0.08)'}`, cursor:'pointer', textAlign:'left', transition:'all 0.15s ease' }}>
-                <div style={{ width:36, height:36, borderRadius:10, background:active?'rgba(93,162,255,0.15)':'rgba(255,255,255,0.06)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                  <Icon name={item.icon} size={18} style={{ color:active?'var(--accent)':'var(--text-muted)' }}/>
-                </div>
-                <div style={{ minWidth:0 }}>
-                  <div style={{ fontSize:14, fontWeight:600, color:active?'#fff':'var(--text-secondary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.label}</div>
-                  <div style={{ fontSize:11, color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', marginTop:2 }}>{item.desc}</div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-    </>
-  );
-}
-
-function MobileBottomNav({ activeScreen, onNavigate, isAdmin }) {
-  const [moreOpen, setMoreOpen] = React.useState(false);
+function MobileBottomNav({ activeScreen, onNavigate }) {
   const primaryItems = NAV_ITEMS.filter(n => MOBILE_PRIMARY.includes(n.id));
   return (
-    <>
-      {moreOpen && <MobileMoreSheet activeScreen={activeScreen} onNavigate={id=>{ onNavigate(id); setMoreOpen(false); }} onClose={()=>setMoreOpen(false)} isAdmin={isAdmin}/>}
-      <nav style={{ position:'fixed', bottom:0, left:0, right:0, zIndex:50, background:'rgba(8,10,14,0.96)', backdropFilter:'blur(20px)', borderTop:'1px solid var(--border)', paddingBottom:'max(env(safe-area-inset-bottom,0px), 10px)', paddingTop:6 }}>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(6,1fr)', gap:0, padding:'0 4px' }}>
-          {primaryItems.slice(0,2).map(item => {
-            const active = activeScreen === item.id;
-            return (
-              <button key={item.id} onClick={()=>onNavigate(item.id)} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4, padding:'8px 2px 6px', minHeight:60, border:'none', background:active?'rgba(93,162,255,0.10)':'transparent', borderRadius:12, cursor:'pointer', transition:'all 0.15s' }}>
-                <Icon name={item.icon} size={22} style={{ color:active?'var(--accent)':'var(--text-muted)' }}/>
-                <span style={{ fontSize:11, fontWeight:600, color:active?'var(--accent)':'var(--text-muted)' }}>{item.label}</span>
-              </button>
-            );
-          })}
-          {/* Chat FAB */}
-          <button onClick={()=>onNavigate('chat')} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4, padding:'0 2px 6px', minHeight:60, border:'none', background:'transparent', cursor:'pointer', marginTop:-12 }}>
-            <div style={{ width:50, height:50, borderRadius:'50%', background:activeScreen==='chat'?'var(--accent-hover)':'var(--accent)', boxShadow:'0 4px 20px rgba(93,162,255,0.40)', display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.15s' }}>
-              <Icon name="MessageSquare" size={22} style={{ color:'#06111f' }}/>
-            </div>
-            <span style={{ fontSize:11, fontWeight:600, color:activeScreen==='chat'?'var(--accent)':'var(--text-muted)' }}>Chat</span>
-          </button>
-          {primaryItems.slice(2).map(item => {
-            const active = activeScreen === item.id;
-            return (
-              <button key={item.id} onClick={()=>onNavigate(item.id)} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4, padding:'8px 2px 6px', minHeight:60, border:'none', background:active?'rgba(93,162,255,0.10)':'transparent', borderRadius:12, cursor:'pointer', transition:'all 0.15s' }}>
-                <Icon name={item.icon} size={22} style={{ color:active?'var(--accent)':'var(--text-muted)' }}/>
-                <span style={{ fontSize:11, fontWeight:600, color:active?'var(--accent)':'var(--text-muted)' }}>{item.label}</span>
-              </button>
-            );
-          })}
-          {/* More */}
-          <button onClick={()=>setMoreOpen(true)} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4, padding:'8px 2px 6px', minHeight:60, border:'none', background:MOBILE_MORE.includes(activeScreen)?'rgba(93,162,255,0.10)':'transparent', borderRadius:12, cursor:'pointer', transition:'all 0.15s' }}>
-            <Icon name="MoreHorizontal" size={22} style={{ color:MOBILE_MORE.includes(activeScreen)?'var(--accent)':'var(--text-muted)' }}/>
-            <span style={{ fontSize:11, fontWeight:600, color:MOBILE_MORE.includes(activeScreen)?'var(--accent)':'var(--text-muted)' }}>More</span>
-          </button>
-        </div>
-      </nav>
-    </>
+    <nav style={{ position:'fixed', bottom:0, left:0, right:0, zIndex:50, background:'rgba(8,10,14,0.96)', backdropFilter:'blur(20px)', borderTop:'1px solid var(--border)', paddingBottom:'max(env(safe-area-inset-bottom,0px), 10px)', paddingTop:6 }}>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:0, padding:'0 4px' }}>
+        {primaryItems.map(item => {
+          const active = activeScreen === item.id;
+          return (
+            <button key={item.id} onClick={()=>onNavigate(item.id)} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4, padding:'8px 2px 6px', minHeight:60, border:'none', background:active?'rgba(93,162,255,0.10)':'transparent', borderRadius:12, cursor:'pointer', transition:'all 0.15s' }}>
+              <Icon name={item.icon} size={22} style={{ color:active?'var(--accent)':'var(--text-muted)' }}/>
+              <span style={{ fontSize:11, fontWeight:600, color:active?'var(--accent)':'var(--text-muted)' }}>{item.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
 
