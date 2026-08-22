@@ -411,6 +411,18 @@ services:
         value: "900"
       - key: HEAL_SWEEP_INTERVAL_SEC          # heal re-dispatch sweep: 5m -> 15m
         value: "900"
+      # trend-watcher scans 13 external sources on every poll — pure outbound
+      # egress and non-critical. Hourly -> daily cuts that traffic ~24x while
+      # still refreshing trends once a day.
+      - key: TREND_WATCH_POLL_SEC              # 3600s (1h) -> 86400s (1d)
+        value: "86400"
+      # Keep the LLM response/prompt caches on (they default on, but pin them
+      # here): a cache hit is a request the backend never sends out, so caching
+      # directly reduces service-initiated egress on repeated calls.
+      - key: RESPONSE_CACHE_ENABLED
+        value: "true"
+      - key: PROMPT_CACHE_ENABLED
+        value: "true"
 
       # ================================================================
       # BROWSER AUTOMATION FOR AGENTS — the browse_page tool, so an agent
