@@ -1,7 +1,7 @@
 """tests/test_unit5_ui_provider_surface.py — UNIT 5 regression tests.
 
 Verifies that:
-  1. ``_brain_provider_status()`` returns ALL 15 providers from the
+  1. ``_brain_provider_status()`` returns ALL providers from the
      ``BrainProvider`` Literal (not just the original 4).
   2. Each provider entry has the new fields: ``display_name``, ``tier``,
      ``candidates`` (in addition to the existing ``key_present``,
@@ -31,7 +31,7 @@ from packages.ai.brain_config import all_provider_ids
 BRAINCARD_PATH = Path(__file__).resolve().parent.parent / "frontend" / "src" / "v5" / "components" / "BrainCard.jsx"
 
 
-# ── 1. Backend returns all 15 providers ────────────────────────────────────
+# ── 1. Backend returns all providers ───────────────────────────────────────
 
 
 def test_brain_provider_status_returns_all_literal_providers(app_client):
@@ -49,7 +49,7 @@ def test_brain_provider_status_returns_all_literal_providers(app_client):
     actual_ids = {p["provider_id"] for p in body["providers"]}
     expected_ids = set(all_provider_ids())
     assert actual_ids == expected_ids
-    assert len(actual_ids) == 15
+    assert len(actual_ids) == 16
 
 
 def test_brain_provider_status_includes_previously_filtered_providers(app_client):
@@ -133,7 +133,7 @@ def test_brain_card_jsx_uses_provider_label_helper():
     assert "function providerLabel(p)" in src
     # The dropdown uses providerLabel(p), not PROVIDER_LABELS[p.provider_id].
     assert "providerLabel(p)" in src
-    # The fallback map has all 15 providers (so a slow server response
+    # The fallback map has every provider (so a slow server response
     # doesn't show a bare provider_id in the dropdown).
     fallback_match = re.search(
         r"const PROVIDER_LABEL_FALLBACK = \{([^}]+)\}",

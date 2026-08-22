@@ -53,6 +53,7 @@ safe_default:
 # available with NVIDIA_API_KEY. ollama stays in the chain for local dev.
 recommended_priority:
   - nvidia
+  - tokenin
   - cerebras
   - groq
   - ollama
@@ -78,6 +79,36 @@ providers:
       - meta/llama-3.3-70b-instruct
       - nvidia/llama-3.1-nemotron-70b-instruct
       - deepseek-ai/deepseek-r1
+
+  # tokenin.my.id — free OpenAI-compatible gateway fronting a rotating pool of
+  # frontier models (GPT-5.6, Claude Opus 4.8, Gemini 3.5 Flash, GLM 5.3,
+  # DeepSeek V4 Pro, Grok 4.6, Kimi K3, MiniMax M3, Qwen 3.8 Max, Mimo V2.5).
+  # Every model is $0 with a small per-model RPM cap (2–7 req/min), so the
+  # candidate list below is the rotation: on a 429 the failover layer walks to
+  # the next model, and the higher-RPM models lead. The `myt/` prefix and exact
+  # casing are the provider's own model ids (from the dashboard's copy field).
+  tokenin:
+    display_name: TokenIn (free frontier gateway)
+    tier: free
+    key_env: TOKENIN_API_KEY
+    base_url_env: TOKENIN_BASE_URL
+    default_base_url: https://tokenin.my.id/v1
+    role_presets:
+      planner:   myt/deepseek-v4-pro-free
+      executor:  myt/glm-5.3-free
+      verifier:  myt/glm-5.3-free
+      judge:     myt/deepseek-v4-pro-free
+    candidates:
+      - myt/glm-5.3-free
+      - myt/deepseek-v4-pro-free
+      - myt/MiniMax-M3-free
+      - myt/mimo-v2.5-free
+      - myt/qwen3.8-max-free
+      - myt/kimi-k3-free
+      - myt/gemini-3.5-flash-free
+      - myt/grok-4.6-free
+      - myt/gpt-5.6-sol-free
+      - myt/claude-opus-4-8-free
 
   cerebras:
     display_name: Cerebras (fast, free tier)

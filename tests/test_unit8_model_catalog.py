@@ -5,7 +5,7 @@ Verifies that:
   2. ``is_catalog_enabled()`` returns True by default, False when the
      env var is set to a non-``true`` value.
   3. ``ModelCatalogStore._build_in_memory()`` builds a complete catalog
-     with all 15 providers, the safe default, and the recommended
+     with all 16 providers, the safe default, and the recommended
      priority list.
   4. Each catalog provider entry has the expected fields
      (display_name, tier, key_env, candidates, etc.).
@@ -56,7 +56,7 @@ from packages.ai.model_catalog import (
 
 @pytest.fixture(autouse=True)
 def _base_catalog_only(monkeypatch):
-    """Pin the catalog to its UNIT 8 baseline of 15 providers.
+    """Pin the catalog to its UNIT 8 baseline of 16 providers.
 
     ``FREELLM_CATALOG_INCLUDE_ROUTER`` widens the mirrored document with the
     router's own providers, and production now sets it. The counts asserted
@@ -126,12 +126,12 @@ def test_is_catalog_enabled_other_values_are_false(monkeypatch):
 # ── 3. _build_in_memory builds a complete catalog ──────────────────────────
 
 
-def test_build_in_memory_returns_catalog_with_all_15_providers():
+def test_build_in_memory_returns_catalog_with_all_16_providers():
     """The catalog mirror includes every provider from the BrainProvider Literal."""
     store = ModelCatalogStore()
     mirror = store._build_in_memory()
     assert isinstance(mirror, CatalogMirror)
-    assert len(mirror.providers) == 15
+    assert len(mirror.providers) == 16
     actual_ids = {p.provider_id for p in mirror.providers}
     assert actual_ids == set(all_provider_ids())
 
@@ -304,7 +304,7 @@ def test_get_catalog_models_returns_catalog_when_flag_on(app_client, monkeypatch
     assert body["enabled"] is True
     catalog = body["catalog"]
     assert catalog["catalog_version"] == 1
-    assert len(catalog["providers"]) == 15
+    assert len(catalog["providers"]) == 16
     assert catalog["safe_default"]["provider"] == "nvidia"
     assert catalog["safe_default"]["model"] == "z-ai/glm-5.2"
 
@@ -352,7 +352,7 @@ def test_sync_catalog_rebuilds_when_flag_on(app_client, monkeypatch):
     assert body["ok"] is True
     assert body["enabled"] is True
     catalog = body["catalog"]
-    assert len(catalog["providers"]) == 15
+    assert len(catalog["providers"]) == 16
     assert catalog["mirrored_at"]
 
 
@@ -377,7 +377,7 @@ def test_get_catalog_never_raises_on_storage_error(monkeypatch):
     import asyncio
     catalog = asyncio.run(store.get_catalog())
     assert isinstance(catalog, CatalogMirror)
-    assert len(catalog.providers) == 15
+    assert len(catalog.providers) == 16
 
 
 def test_sync_catalog_never_raises_on_storage_error(monkeypatch):
@@ -391,7 +391,7 @@ def test_sync_catalog_never_raises_on_storage_error(monkeypatch):
     import asyncio
     catalog = asyncio.run(store.sync_catalog(actor="test"))
     assert isinstance(catalog, CatalogMirror)
-    assert len(catalog.providers) == 15
+    assert len(catalog.providers) == 16
 
 
 # ── 12. Advisory-only — doesn't affect routing ────────────────────────────
@@ -408,7 +408,7 @@ def test_catalog_mirror_does_not_affect_resolve_component_model(monkeypatch):
     # Build a mirror and persist it (best-effort).
     store = ModelCatalogStore()
     mirror = store._build_in_memory()
-    # The mirror has all 15 providers. resolve_component_model should
+    # The mirror has all 16 providers. resolve_component_model should
     # still return the catalog preset, NOT consult the mirror.
     m = resolve_component_model("test", "planner", provider="nvidia")
     assert m == PROVIDER_PRESETS["nvidia"]["planner"]
