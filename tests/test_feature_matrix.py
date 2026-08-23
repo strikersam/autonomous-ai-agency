@@ -398,3 +398,65 @@ class TestPoliciesGovernanceStableClaim:
             "runtime dispatch must enforce the session budget (see PR "
             "feat/governance-enforcement-ga step 2)"
         )
+
+
+class TestPolicyAuthoringUiStableClaim:
+    """`policy_authoring_ui` may be STABLE only while safe in-product authoring is real.
+
+    STABLE here means the dashboard can validate a proposed policy against the
+    real engine and open a PR for it, and that the org baseline cannot be
+    loosened from the dashboard. If the flag is flipped without that wiring, or
+    the baseline guard is later removed while the flag stays STABLE, one of these
+    fails and the graduation stops being a silent lie.
+    """
+
+    def test_policy_authoring_ui_is_stable(self) -> None:
+        matrix = FeatureMatrix()
+        entry = matrix.get("policy_authoring_ui")
+        assert entry is not None, "policy_authoring_ui missing from the matrix"
+        assert entry.maturity == FeatureMaturity.STABLE, (
+            "policy_authoring_ui is STABLE only when the dashboard can validate and "
+            "propose policy edits as a PR — see TestPolicyAuthoringUiStableClaim"
+        )
+        assert entry.default_availability == FeatureMaturity.STABLE
+
+    def test_validate_and_propose_functions_exist(self) -> None:
+        from packages.governance import authoring
+
+        assert callable(getattr(authoring, "validate_policy_text", None))
+        assert callable(getattr(authoring, "propose_policy_change", None))
+
+    def test_baseline_cannot_be_loosened_from_the_dashboard(self) -> None:
+        """The load-bearing safety check: dropping a baseline guardrail is refused."""
+        from packages.governance.authoring import validate_policy_text
+
+        current = (
+            "version: 1\nmode: observe\n"
+            "baseline:\n  filesystem:\n    deny:\n      - .env\n      - '**/*.pem'\n"
+        )
+        loosened = "version: 1\nmode: observe\nbaseline:\n  filesystem:\n    deny:\n      - .env\n"
+        result = validate_policy_text(loosened, current_document=__import__("yaml").safe_load(current))
+        assert not result.ok, "a proposal that drops a baseline deny must be refused"
+        assert any("*.pem" in e for e in result.errors)
+
+    def test_a_valid_tightening_proposal_passes(self) -> None:
+        from packages.governance.authoring import validate_policy_text
+
+        current = "version: 1\nmode: observe\nbaseline:\n  filesystem:\n    deny:\n      - .env\n"
+        tightened = (
+            "version: 1\nmode: observe\n"
+            "baseline:\n  filesystem:\n    deny:\n      - .env\n      - '**/*.pem'\n"
+        )
+        result = validate_policy_text(tightened, current_document=__import__("yaml").safe_load(current))
+        assert result.ok, f"a tightening proposal should validate: {result.errors}"
+
+    def test_propose_endpoint_is_wired(self) -> None:
+        """The router must expose the propose route the STABLE claim depends on."""
+        import inspect
+
+        from backend import governance_router
+
+        src = inspect.getsource(governance_router.build_governance_router)
+        assert "/policy/propose" in src and "/policy/validate" in src, (
+            "the governance router must expose /policy/validate and /policy/propose"
+        )

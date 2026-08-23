@@ -9,8 +9,11 @@ Routes::
 
     GET  /api/governance/status              backend, isolation posture, sandboxes
     GET  /api/governance/policy              the effective policy document
+    GET  /api/governance/policy/raw          the raw policy YAML (for the editor)
     POST /api/governance/policy/reload       re-read the policy file (admin)
     POST /api/governance/policy/simulate     dry-run a decision (admin)
+    POST /api/governance/policy/validate     validate a proposed policy + diff (admin)
+    POST /api/governance/policy/propose      open a PR carrying a proposed policy (admin)
     GET  /api/governance/audit               recent audit events, filterable
     GET  /api/governance/metrics             counters for dashboards/Prometheus
     GET  /api/governance/approvals           pending approvals
@@ -28,12 +31,16 @@ require ``role=admin``. Reads are admin-gated too, because an audit trail
 names repositories, branches, file paths, and agent owners — an inventory of
 what the platform touches is exactly what an attacker wants first.
 
-Two things this API deliberately does **not** expose: secret values (the
-credential surface governs secret *names* only) and a way to edit policy over
-HTTP. Policy is a file in git, reviewed like code; an endpoint that could
-rewrite it would make the audit trail's "who changed the rules" question
-unanswerable, and would hand anyone who compromises an admin session the
-ability to disable the controls silently.
+This API never exposes secret values (the credential surface governs secret
+*names* only) and never rewrites the live policy file over HTTP. In-product
+authoring goes the safe way instead: ``/policy/validate`` checks a proposed
+document against the real engine and the org baseline, and ``/policy/propose``
+opens a pull request carrying it. Policy still reaches production the way every
+other change does — review, CI, merge — so the audit trail's "who changed the
+rules" question stays answerable (the proposer is recorded, and the merge is a
+reviewed git commit), and no compromised admin session can silently disable the
+controls: it can only open a PR that a human must still merge. The baseline
+guardrails can be tightened from the dashboard but never loosened.
 """
 from __future__ import annotations
 
@@ -180,6 +187,110 @@ def build_governance_router(get_current_user: Callable[..., Any]) -> APIRouter:
             "decision": decision.to_dict(),
             "would_block": decision.would_block,
         }
+
+    @router.get("/policy/raw")
+    async def get_policy_raw(user: dict = Depends(get_current_user)) -> dict:
+        """The raw policy YAML the editor loads.
+
+        ``/policy`` returns the compiled document; the authoring editor needs
+        the source file verbatim (comments and all) so an operator edits what
+        they see. Falls back to an empty string when the file is missing — the
+        embedded default is in force and the editor starts from a blank slate.
+        """
+        _require_admin(user)
+        from pathlib import Path
+
+        from packages.config import settings
+
+        path = Path(settings.governance_policy_path)
+        try:
+            text = path.read_text(encoding="utf-8")
+        except FileNotFoundError:
+            text = ""
+        return {"path": str(path), "text": text, "exists": bool(text)}
+
+    @router.post("/policy/validate")
+    async def validate_policy(
+        body: dict = Body(...), user: dict = Depends(get_current_user)
+    ) -> dict:
+        """Validate a proposed policy without applying it, and return a diff.
+
+        Powers the editor's live feedback: parse errors, a document the engine
+        cannot compile, and — the load-bearing check — any loosening of the org
+        baseline are all reported here before the operator opens a PR.
+        """
+        _require_admin(user)
+        from pathlib import Path
+
+        from packages.config import settings
+        from packages.governance.authoring import diff_policy, parse_policy_text, validate_policy_text
+
+        text = body.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise HTTPException(status_code=400, detail="'text' (policy YAML) is required")
+
+        try:
+            current_text = Path(settings.governance_policy_path).read_text(encoding="utf-8")
+        except FileNotFoundError:
+            current_text = ""
+        current_document, _ = parse_policy_text(current_text) if current_text else (None, None)
+
+        result = validate_policy_text(text, current_document=current_document)
+        return {**result.to_dict(), "diff": diff_policy(current_text, text)}
+
+    @router.post("/policy/propose")
+    async def propose_policy(
+        body: dict = Body(...), user: dict = Depends(get_current_user)
+    ) -> dict:
+        """Open a pull request carrying a proposed policy change.
+
+        The live policy file is never written from here. The proposal is
+        validated, committed to a new branch, and turned into a PR that a human
+        reviews and merges — the same path as any other change. Requires a
+        GitHub credential; without one there is no way to open the PR and the
+        route reports that rather than pretending to have queued the change.
+        """
+        _require_admin(user)
+        from packages.config import settings
+        from packages.governance.authoring import propose_policy_change
+
+        text = body.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise HTTPException(status_code=400, detail="'text' (policy YAML) is required")
+        reason = str(body.get("reason") or "").strip()
+
+        if not settings.gh_pat:
+            raise HTTPException(
+                status_code=503,
+                detail="No GitHub credential configured; cannot open a policy proposal PR",
+            )
+
+        from pathlib import Path
+
+        from agent.github_tools import GitHubTools
+
+        try:
+            current_text = Path(settings.governance_policy_path).read_text(encoding="utf-8")
+        except FileNotFoundError:
+            current_text = ""
+
+        actor = str(user.get("email") or user.get("id") or "operator")
+        gh = GitHubTools(token=settings.gh_pat)
+        try:
+            return await propose_policy_change(
+                text,
+                actor=actor,
+                reason=reason,
+                gh=gh,
+                repo=settings.github_repository,
+                current_text=current_text,
+            )
+        except ValueError as exc:
+            # Validation failed — a bad proposal, not a server fault.
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+        except Exception as exc:  # noqa: BLE001 - GitHub API failure, etc.
+            log.exception("Policy proposal PR failed")
+            raise HTTPException(status_code=502, detail="Failed to open policy proposal PR") from None
 
     # ── Audit ────────────────────────────────────────────────────────────
 

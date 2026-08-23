@@ -64,6 +64,26 @@ The `backend/` app powers the separate React control plane and includes routes f
 - platform info and activity
 - GitHub repo, branch, file, and PR flows
 - schedules and legacy scheduler compatibility routes
+- governance: posture, policy, approvals, audit, sandboxes, and session budgets (`/api/governance/*`, admin-only)
+
+### Governance (`/api/governance/*`, admin-only)
+
+Read and operate the governance layer. Every route requires an authenticated
+admin. Policy authoring is propose-only — the live policy file is never written
+over HTTP; a proposed change opens a pull request that a human reviews and merges.
+
+- `GET  /api/governance/status` — mode, policy source/version, sandbox posture
+- `GET  /api/governance/policy` — the effective (compiled) policy document
+- `GET  /api/governance/policy/raw` — the raw `config/agent_policy.yaml` text (for the editor)
+- `POST /api/governance/policy/reload` — re-read the policy file
+- `POST /api/governance/policy/simulate` — dry-run a decision, no action taken
+- `POST /api/governance/policy/validate` — validate a proposed policy + return a diff
+- `POST /api/governance/policy/propose` — open a PR carrying a proposed policy (requires `GH_PAT`)
+- `GET  /api/governance/audit` — recent audit events, filterable
+- `GET  /api/governance/metrics` — counters for dashboards/Prometheus
+- `GET/POST /api/governance/approvals[...]` — pending approvals and approve/deny
+- `GET/POST/DELETE /api/governance/sandboxes[...]` — live sandboxes, reap, destroy
+- `GET  /api/governance/budget[/{session_id}]` — live per-session budgets
 
 This backend is typically used with:
 - `frontend/` on port `3000`
