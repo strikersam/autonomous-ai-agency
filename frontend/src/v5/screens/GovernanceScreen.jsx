@@ -502,6 +502,8 @@ export default function GovernanceScreen() {
 
       {status && <PostureHeader status={status} metrics={metrics} />}
 
+      {status && <PolicyEditor />}
+
       <Approvals approvals={approvals} onResolve={resolve} busyId={busyId} />
 
       {status && <AuditTable events={events} filter={filter} onFilter={setFilter} />}
