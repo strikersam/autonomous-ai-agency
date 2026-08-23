@@ -26,13 +26,23 @@ MCP spec 2025-11-05 §5.6.1 — tool annotations:
     is ``True`` and ``destructiveHint`` is ``False`` — useful when the agent
     wants to explore without side-effects.
 
-MCP spec 2026-07-28 RC — tools/list TTL caching:
+MCP spec 2026-07-28 — stateless protocol, routing headers, and TTL caching:
 
+  - ``initialize()`` now advertises ``protocolVersion: "2026-07-28"``, telling
+    servers this client supports the stateless spec.  Old servers that only
+    know 2024-11-05 still work: the field is informational and servers that
+    don't recognise the version proceed with their own supported feature set.
+  - Every RPC carries an ``Mcp-Method`` header (e.g. ``tools/list``) and, for
+    tool calls, an ``Mcp-Name`` header (e.g. ``clone_repo``). Gateways and
+    load-balancers can route and authorise on these headers without inspecting
+    the body — a key enabler of the stateless design.
   - Servers may include ``ttlMs`` in the ``tools/list`` response to signal
-    that the tool list is stable for that duration.  ``list_tools()`` now
-    caches the result and skips the RPC until the TTL expires, reducing
-    round-trips for stable tool registries.
-  - When the server does not supply ``ttlMs`` a conservative default of
+    that the tool list is stable for that duration.  ``list_tools()`` caches
+    the result and skips the RPC until the TTL expires.  When the server also
+    supplies ``cacheScope: "global"`` the scope is recorded in debug logs; the
+    in-process cache remains per-client-instance regardless (the hint is for
+    external shared caches that sit in front of the server, not for us).
+  - When the server omits ``ttlMs`` a conservative default of
     ``MCP_TOOLS_LIST_DEFAULT_TTL_MS`` (env, default 60 000 ms) is used.
   - Call ``invalidate_tools_cache()`` to force an immediate refresh (e.g.
     after deploying a new tool to the MCP server).
@@ -377,6 +387,19 @@ class MCPClient:
             raise ValueError("SSE stream carried no JSON-RPC response frame")
         return result
 
+    def _routing_headers(self, method: str, params: dict[str, Any] | None) -> dict[str, str]:
+        """Return MCP 2026-07-28 routing headers for gateway-level dispatch.
+
+        ``Mcp-Method`` names the JSON-RPC method so gateways can route and
+        authorise without body inspection.  ``Mcp-Name`` carries the tool name
+        for ``tools/call`` requests, enabling per-tool policy enforcement at
+        the gateway before the payload is decoded.
+        """
+        headers: dict[str, str] = {"Mcp-Method": method}
+        if method == "tools/call" and params and isinstance(params.get("name"), str):
+            headers["Mcp-Name"] = params["name"]
+        return headers
+
     async def _rpc(self, method: str, params: dict[str, Any] | None = None) -> Any:
         if not self.base_url:
             raise MCPUnavailableError(
@@ -393,9 +416,12 @@ class MCPClient:
             "method": method,
             "params": params or {},
         }
+        # MCP 2026-07-28: merge routing headers (Mcp-Method, Mcp-Name) into the
+        # per-request headers so gateways can route on them without body parsing.
+        headers = {**self._headers(), **self._routing_headers(method, params)}
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                resp = await client.post(self.endpoint, json=payload, headers=self._headers())
+                resp = await client.post(self.endpoint, json=payload, headers=headers)
                 resp.raise_for_status()
             self._capture_session(resp)
             body = self._parse_body(resp)
@@ -424,9 +450,11 @@ class MCPClient:
         if not self.base_url:
             return
         payload = {"jsonrpc": "2.0", "method": method, "params": params or {}}
+        # MCP 2026-07-28: notifications also carry Mcp-Method for gateway routing.
+        headers = {**self._headers(), "Mcp-Method": method}
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                resp = await client.post(self.endpoint, json=payload, headers=self._headers())
+                resp = await client.post(self.endpoint, json=payload, headers=headers)
             self._capture_session(resp)
             # A rejected handshake notification leaves the session degraded but
             # the caller proceeding, so the *next* tool call fails for a reason
@@ -443,9 +471,16 @@ class MCPClient:
     # ── public API ───────────────────────────────────────────────────────────
 
     async def initialize(self) -> dict[str, Any]:
-        """Perform MCP handshake. Optional — tools/call works without it."""
+        """Perform MCP handshake. Optional — tools/call works without it.
+
+        Advertises ``protocolVersion: "2026-07-28"`` so servers know this client
+        supports the stateless spec.  Servers that only implement older versions
+        respond with their highest supported version, which is fine — the
+        handshake is advisory and the fields both sides care about are
+        backward-compatible.
+        """
         return await self._rpc("initialize", {
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": "2026-07-28",
             "capabilities": {},
             "clientInfo": {"name": "local-llm-server", "version": "1.0.0"},
         })
@@ -484,9 +519,24 @@ class MCPClient:
         else:
             ttl_sec = _DEFAULT_TOOLS_TTL_MS / 1000.0
 
+        # MCP 2026-07-28: cacheScope hint.  "global" means the tool list is
+        # identical across all server replicas and may be shared by an external
+        # cache layer; "local" (or absent) means it is per-instance only.  We
+        # are a per-instance client, so we cache regardless of scope, but we
+        # surface "global" at DEBUG so operators running a shared proxy know
+        # they could front it with a shared cache and halve round-trips.
+        cache_scope = result.get("cacheScope", "local")
+        if cache_scope == "global":
+            log.debug(
+                "MCP tools-list has global cacheScope — safe to share across server instances"
+            )
+
         self._tools_cache = tools
         self._tools_cache_expires_at = now + ttl_sec
-        log.debug("MCP tools-list cached for %.1fs (%d tools)", ttl_sec, len(tools))
+        log.debug(
+            "MCP tools-list cached for %.1fs (%d tools, scope=%s)",
+            ttl_sec, len(tools), cache_scope,
+        )
         return tools
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> str:

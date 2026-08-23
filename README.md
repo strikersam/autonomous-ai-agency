@@ -146,6 +146,12 @@ review, not from the dashboard.
 
 Guide, gap analysis, and threat model: [docs/governance/](docs/governance/README.md).
 
+## What's New (2026-08-23)
+
+**MCP 2026-07-28 full spec support.** The agent's MCP client now fully implements the 2026-07-28 specification: `initialize()` advertises the new protocol version to servers; every request carries an `Mcp-Method` header (and `Mcp-Name` on tool calls) so MCP gateways and load balancers can route and authorise on headers without parsing the JSON-RPC body; and the `cacheScope` hint from `tools/list` responses is read and logged. Backward-compatible: older servers that only know the 2024-11-05 spec continue to work.
+
+---
+
 ## What's New (2026-08-21)
 
 **Claude 5 family in the YAML model catalog.** `claude-sonnet-5`, `claude-sonnet-5-20260501`, `claude-opus-5`, and `claude-haiku-4-5-20251001` are now declared in `config/llm/models.yaml`, the catalog that drives capability filtering, context-window checks, and per-token cost tracking for every routed request. Sonnet 5's 1M-token context window and introductory pricing ($2/$10 per MTok — cheaper than Sonnet 4.6's $3/$15) are now visible to the YAML-driven code paths. The Anthropic provider default is promoted from `claude-sonnet-4-6` to `claude-sonnet-5`; new deployments that set only `ANTHROPIC_API_KEY` now route to Sonnet 5 automatically.
