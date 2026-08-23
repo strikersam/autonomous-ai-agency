@@ -593,6 +593,13 @@ export const reloadGovernancePolicy = () => API.post('/api/governance/policy/rel
 // Dry-run a decision without performing the action. Shares one implementation
 // with live enforcement, so it cannot disagree with what will actually happen.
 export const simulateGovernancePolicy = (body) => API.post('/api/governance/policy/simulate', body);
+// In-product policy authoring. The editor loads the raw YAML, validates edits
+// against the real engine + org baseline, and proposes changes as a PR — the
+// live policy file is never written from the dashboard.
+export const getGovernancePolicyRaw = ()   => API.get('/api/governance/policy/raw');
+export const validateGovernancePolicy = (text) => API.post('/api/governance/policy/validate', { text });
+export const proposeGovernancePolicy = (text, reason) =>
+  API.post('/api/governance/policy/propose', { text, reason });
 export const getGovernanceMetrics  = ()  => API.get('/api/governance/metrics');
 export const getGovernanceAudit    = (params = {}) => API.get('/api/governance/audit', { params });
 export const getGovernanceApprovals = () => API.get('/api/governance/approvals');

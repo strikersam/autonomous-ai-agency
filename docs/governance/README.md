@@ -113,10 +113,32 @@ tools). All 13 surfaces this platform exposes to agents are modelled:
 
 ## Writing policy
 
-Policy lives in `config/agent_policy.yaml` — a git-reviewed file, not an
-editable API resource. There is deliberately **no HTTP endpoint that writes
-policy**: one would make "who changed the rules" unanswerable and would let
-anyone who steals an admin session silently disable the controls.
+Policy lives in `config/agent_policy.yaml` — a git-reviewed file, not a
+live-editable resource. There is deliberately **no HTTP endpoint that rewrites
+the live policy file**: one would make "who changed the rules" unanswerable and
+would let anyone who steals an admin session silently disable the controls.
+
+Editing still happens in-product, the safe way — *propose, don't write*. The
+**Governance** dashboard has a policy editor that:
+
+1. loads the raw file (`GET /api/governance/policy/raw`),
+2. validates a proposed document against the real `PolicyEngine` and the org
+   baseline (`POST /api/governance/policy/validate`), and
+3. opens a pull request carrying the change (`POST /api/governance/policy/propose`).
+
+The change then reaches production exactly like any other: review, CI, merge.
+"Who changed the rules" stays answerable — the proposer is written to the audit
+trail (`action=governance.policy.propose`) and the merge is a reviewed commit —
+and a compromised admin session can only open a PR a human must still merge, not
+disable a control silently. Proposing requires a GitHub credential (`GH_PAT`);
+without one the propose route says so rather than pretending to queue a change.
+
+**The baseline can be tightened from the dashboard but never loosened.** A
+proposal that removes any `baseline.*.deny` or `baseline.*.require_approval`
+pattern is refused before a branch or PR is created — loosening an org guardrail
+is exactly the "silently disable the controls" move this design prevents, so it
+must go through a hand-authored git change, not the dashboard. Logic lives in
+`packages/governance/authoring.py`.
 
 ### Evaluation order
 
@@ -355,8 +377,11 @@ attacker wants first.
 ```
 GET    /api/governance/status                 backend, isolation, sandboxes
 GET    /api/governance/policy                 effective policy
+GET    /api/governance/policy/raw             raw agent_policy.yaml (for the editor)
 POST   /api/governance/policy/reload          re-read the file, no redeploy
 POST   /api/governance/policy/simulate        dry-run a decision
+POST   /api/governance/policy/validate        validate a proposed policy + diff
+POST   /api/governance/policy/propose         open a PR carrying a proposed policy (needs GH_PAT)
 GET    /api/governance/audit                  ?limit&agent_id&session_id&surface&decision
 GET    /api/governance/metrics                counters, would_block, live budgets
 GET    /api/governance/approvals              pending

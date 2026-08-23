@@ -319,27 +319,36 @@ _CANONICAL_FEATURES: list[dict[str, Any]] = [
             "default) logs would-blocks without changing behaviour, enforce blocks — so turning this on is "
             "an operator decision, not a code change. Covered by tests/test_governance_enforcement.py, "
             "tests/test_runtime_governance.py, tests/test_governance_policy.py and the STABLE-claim guard "
-            "in tests/test_feature_matrix.py. The policy-authoring UI is tracked separately as "
-            "policy_authoring_ui (BETA): rules are edited in config/agent_policy.yaml under git review, "
-            "not from the dashboard. Set GOVERNANCE_MODE=observe (default) to audit before enforcing, or "
-            "FEATURE_POLICIES_GOVERNANCE=beta to re-flag it."
+            "in tests/test_feature_matrix.py. In-product policy authoring is tracked separately as "
+            "policy_authoring_ui (now STABLE): the dashboard validates edits and opens a PR against "
+            "config/agent_policy.yaml, so changes still go through git review. Set GOVERNANCE_MODE=observe "
+            "(default) to audit before enforcing, or FEATURE_POLICIES_GOVERNANCE=beta to re-flag it."
         ),
     },
     {
         "feature_id": "policy_authoring_ui",
         "display_name": "Policy Authoring UI",
-        "maturity": FeatureMaturity.BETA,
+        "maturity": FeatureMaturity.STABLE,
         "enabled": True,
-        "default_availability": FeatureMaturity.BETA,
+        "default_availability": FeatureMaturity.STABLE,
         "key_dependencies": ["policies_governance"],
         "config_flags": [],
         "admin_visible": True,
         "notes": (
-            "BETA. The governance dashboard shows posture, pending approvals, the audit trail and a "
-            "read-only policy simulator, but it cannot edit policy: rules live in config/agent_policy.yaml "
-            "and change through git review only (there is no write endpoint by design). The engine that "
-            "enforces those rules is STABLE (policies_governance); in-product authoring is the beta part, "
-            "called out here rather than hidden as a caveat on the stable entry."
+            "STABLE (promoted from BETA 2026-08-22). The governance dashboard edits policy the safe way: "
+            "the editor loads the raw config/agent_policy.yaml (GET /api/governance/policy/raw), validates "
+            "a proposed document against the real PolicyEngine and the org baseline "
+            "(POST /api/governance/policy/validate), and opens a pull request carrying the change "
+            "(POST /api/governance/policy/propose). The live policy file is never written over HTTP — the "
+            "change reaches production through review, CI and merge like any other, so 'who changed the "
+            "rules' stays answerable (the proposer is audited via packages/governance/audit.py and the "
+            "merge is a reviewed commit) and no compromised admin session can silently disable the "
+            "controls: it can only open a PR a human must still merge. The org baseline "
+            "(baseline.*.deny / require_approval) can be tightened from the dashboard but never loosened — "
+            "a loosening proposal is refused before any PR is opened. Logic lives in "
+            "packages/governance/authoring.py; covered by tests/test_governance_authoring.py and the "
+            "STABLE-claim guard in tests/test_feature_matrix.py. Proposing requires a GitHub credential "
+            "(GH_PAT); without one the propose route reports that rather than pretending to queue a change."
         ),
     },
     # ── Experimental → DISABLED (Section I demotions per issue #467) ────────

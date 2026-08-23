@@ -267,6 +267,152 @@ function AuditTable({ events, filter, onFilter }) {
   );
 }
 
+// ── Policy editor ──────────────────────────────────────────────────────────
+// Loads the raw policy YAML, validates edits against the real engine + org
+// baseline, and proposes changes as a PR. The live file is never written here.
+function PolicyEditor() {
+  const [text, setText]         = React.useState(null);
+  const [original, setOriginal] = React.useState('');
+  const [result, setResult]     = React.useState(null);   // { ok, errors, warnings, diff }
+  const [proposed, setProposed] = React.useState(null);   // { pr_url, branch }
+  const [reason, setReason]     = React.useState('');
+  const [busy, setBusy]         = React.useState(false);
+  const [err, setErr]           = React.useState(null);
+  const [open, setOpen]         = React.useState(false);
+
+  const loadPolicy = React.useCallback(async () => {
+    setErr(null);
+    try {
+      const { data } = await api.getGovernancePolicyRaw();
+      setText(data?.text ?? '');
+      setOriginal(data?.text ?? '');
+    } catch (e) {
+      setErr(e?.response?.data?.detail || e?.message || 'Could not load the policy file.');
+    }
+  }, []);
+
+  React.useEffect(() => { if (open && text === null) loadPolicy(); }, [open, text, loadPolicy]);
+
+  const validate = React.useCallback(async () => {
+    setBusy(true); setErr(null); setProposed(null);
+    try {
+      const { data } = await api.validateGovernancePolicy(text);
+      setResult(data);
+    } catch (e) {
+      setErr(e?.response?.data?.detail || e?.message || 'Validation failed.');
+    } finally { setBusy(false); }
+  }, [text]);
+
+  const propose = React.useCallback(async () => {
+    setBusy(true); setErr(null);
+    try {
+      const { data } = await api.proposeGovernancePolicy(text, reason);
+      setProposed(data);
+      setResult(data?.validation ? { ...data.validation, diff: result?.diff } : result);
+    } catch (e) {
+      setErr(e?.response?.data?.detail || e?.message || 'Could not open the proposal PR.');
+    } finally { setBusy(false); }
+  }, [text, reason, result]);
+
+  const dirty = text !== null && text !== original;
+  const btn = (bg, brd, col) => ({
+    padding: '7px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+    background: bg, border: `1px solid ${brd}`, color: col,
+    cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1,
+  });
+
+  return (
+    <div style={{ marginTop: 22, border: '1px solid var(--border)', borderRadius: 14, overflow: 'hidden' }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: '100%', textAlign: 'left', padding: '14px 18px', background: 'var(--surface-2, rgba(255,255,255,0.02))',
+          border: 'none', borderBottom: open ? '1px solid var(--border)' : 'none', color: 'var(--text)',
+          fontSize: 14, fontWeight: 800, letterSpacing: '-0.01em', cursor: 'pointer',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        }}
+      >
+        <span>Edit policy &amp; propose a change</span>
+        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{open ? '▾' : '▸'}</span>
+      </button>
+
+      {open && (
+        <div style={{ padding: 18 }}>
+          {text === null ? (
+            <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading policy…</div>
+          ) : (
+            <>
+              <textarea
+                value={text}
+                onChange={(e) => { setText(e.target.value); setResult(null); setProposed(null); }}
+                spellCheck={false}
+                style={{
+                  width: '100%', minHeight: 320, fontFamily: 'var(--font-mono)', fontSize: 12.5,
+                  lineHeight: 1.55, padding: 14, borderRadius: 10, resize: 'vertical',
+                  background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)',
+                }}
+              />
+              <input
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="Why this change? (goes in the PR description)"
+                style={{
+                  width: '100%', marginTop: 10, padding: '9px 12px', borderRadius: 8, fontSize: 12.5,
+                  background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)',
+                }}
+              />
+              <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
+                <button onClick={validate} disabled={busy} style={btn('rgba(93,162,255,0.10)', 'rgba(93,162,255,0.30)', 'var(--accent)')}>
+                  {busy ? '…' : 'Validate'}
+                </button>
+                <button
+                  onClick={propose}
+                  disabled={busy || !dirty || (result && !result.ok)}
+                  title={!dirty ? 'No changes to propose' : (result && !result.ok ? 'Fix validation errors first' : 'Open a PR with this policy')}
+                  style={btn('rgba(126,231,135,0.10)', 'rgba(126,231,135,0.30)', '#7ee787')}
+                >
+                  {busy ? '…' : 'Propose changes (opens PR)'}
+                </button>
+                <button onClick={() => { setText(original); setResult(null); setProposed(null); setErr(null); }} disabled={busy || !dirty} style={btn('transparent', 'var(--border)', 'var(--text-muted)')}>
+                  Revert
+                </button>
+              </div>
+
+              {err && (
+                <div style={{ marginTop: 12, padding: 12, borderRadius: 10, border: '1px solid rgba(255,107,125,0.30)', background: 'rgba(255,107,125,0.06)', color: '#ff6b7d', fontSize: 12.5, whiteSpace: 'pre-wrap' }}>{err}</div>
+              )}
+
+              {result && !err && (
+                <div style={{ marginTop: 12, fontSize: 12.5 }}>
+                  <div style={{ fontWeight: 700, color: result.ok ? '#7ee787' : '#ff6b7d' }}>
+                    {result.ok ? '✓ Valid — safe to propose' : '✗ Invalid — fix before proposing'}
+                  </div>
+                  {(result.errors || []).map((e, i) => (
+                    <div key={`e${i}`} style={{ color: '#ff6b7d', marginTop: 4 }}>• {e}</div>
+                  ))}
+                  {(result.warnings || []).map((w, i) => (
+                    <div key={`w${i}`} style={{ color: '#f0b866', marginTop: 4 }}>⚠ {w}</div>
+                  ))}
+                </div>
+              )}
+
+              {proposed?.pr_url && (
+                <div style={{ marginTop: 12, padding: 12, borderRadius: 10, border: '1px solid rgba(126,231,135,0.30)', background: 'rgba(126,231,135,0.06)', color: '#7ee787', fontSize: 12.5 }}>
+                  Pull request opened:{' '}
+                  <a href={proposed.pr_url} target="_blank" rel="noreferrer" style={{ color: '#7ee787', fontWeight: 700 }}>
+                    {proposed.pr_url}
+                  </a>
+                  {' '}— review and merge it to apply.
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function GovernanceScreen() {
   const [status, setStatus]       = React.useState(null);
   const [metrics, setMetrics]     = React.useState(null);
@@ -337,7 +483,8 @@ export default function GovernanceScreen() {
       </div>
       <p style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 18, maxWidth: 720, lineHeight: 1.6 }}>
         Identity, policy, approvals, and the audit trail for every agent action. Policy lives in
-        <code> config/agent_policy.yaml</code> and is reviewed in git — there is no endpoint that edits it.
+        <code> config/agent_policy.yaml</code>. Edit it below and <b>Propose</b> — that validates the change
+        and opens a pull request; it never rewrites the live file, so every change is still reviewed in git.
         Watch <b>would-block</b> until it only counts things you want stopped, then switch the policy to
         <code> enforce</code>.
       </p>
@@ -354,6 +501,8 @@ export default function GovernanceScreen() {
       )}
 
       {status && <PostureHeader status={status} metrics={metrics} />}
+
+      {status && <PolicyEditor />}
 
       <Approvals approvals={approvals} onResolve={resolve} busyId={busyId} />
 
