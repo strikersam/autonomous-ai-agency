@@ -3,6 +3,7 @@
      move the gate to root. -->
 
 ## [Unreleased]
+### Fixed - `tests/conftest.py` — mocked MongoDB in tests to resolve connection timeout failures. Added STORAGE_BACKEND=sqlite to CI test runs to avoid dependency on live databases.
 
 ### Changed
 
@@ -1586,3 +1587,4 @@ Maintenance
 - **Telegram bot error log showed literal `<redacted>` instead of the actual `TELEGRAM_ALLOWED_USER_IDS` value.** The CodeRabbit auto-fix on PR #438 replaced the raw env value with a hardcoded `<redacted>` string, making it impossible to see what value was configured. The error log now shows the actual raw value (Telegram user IDs are public identifiers, not secrets). `_parse_user_ids` also logs rejected tokens at DEBUG level for easier troubleshooting.
 ### Changed
 - `tests/conftest.py`: Added `SKIP_DB_TESTS` guard and `requires_db` marker registration; existing `client` and `wiki_client` fixtures unchanged
+### Fixed - `tests/conftest.py` — mocked MongoDB in tests to resolve connection timeout failures.
