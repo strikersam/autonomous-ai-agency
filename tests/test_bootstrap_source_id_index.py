@@ -14,7 +14,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017")
 os.environ.setdefault("JWT_SECRET", "test-secret-for-tests-only")
-os.environ.setdefault("ADMIN_EMAIL", "admin@test.local")
 os.environ.setdefault("ADMIN_PASSWORD", "test-password-for-tests-only")
 
 with patch("motor.motor_asyncio.AsyncIOMotorClient") as mock_client:

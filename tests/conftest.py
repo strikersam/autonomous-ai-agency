@@ -37,6 +37,17 @@ from pathlib import Path
 if not os.environ.get("ADMIN_PASSWORD"):
     os.environ["ADMIN_PASSWORD"] = "test-" + secrets.token_hex(20)
 
+# ── Single source of truth for the admin identity ────────────────────────────
+# Pin ADMIN_EMAIL for the whole session, for the same reason as the password
+# above: `backend/server.py` resolves it once at import, so anything that
+# changes the env afterwards splits the admin identity in two. A test module
+# doing `os.environ.setdefault("ADMIN_EMAIL", ...)` at import time used to do
+# exactly that — seed_admin() seeded the address the server captured, while
+# every module imported later re-read the env and tried to log in as a
+# different one, yielding a 401 that read like a password failure. conftest
+# imports first, so pinning it here makes any later setdefault a no-op.
+os.environ.setdefault("ADMIN_EMAIL", "admin@llmrelay.local")
+
 # Enable test-only endpoints (e.g. /api/admin/seed) gated behind TESTING=true
 os.environ.setdefault("TESTING", "true")
 

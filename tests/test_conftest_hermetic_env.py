@@ -30,6 +30,45 @@ def test_hermetic_env_var_is_set(var: str, expected: str) -> None:
     )
 
 
+def test_admin_identity_matches_the_server_module() -> None:
+    """The env admin address must be the one ``backend.server`` captured.
+
+    ``backend/server.py`` resolves ``ADMIN_EMAIL`` once at import. If any test
+    module mutates the env afterwards, ``seed_admin()`` seeds one address while
+    tests authenticate as another — a 401 that reads like a password bug.
+    """
+    import backend.server
+
+    assert backend.server.ADMIN_EMAIL == os.environ["ADMIN_EMAIL"], (
+        "Admin identity split: the server seeds "
+        f"{backend.server.ADMIN_EMAIL!r} but the env says "
+        f"{os.environ['ADMIN_EMAIL']!r}"
+    )
+
+
+def test_no_test_module_reassigns_admin_email_at_import() -> None:
+    """Guards the specific landmine: a module-level ADMIN_EMAIL setdefault.
+
+    ``tests/test_activity_feed.py`` set ``ADMIN_EMAIL=admin@test.local`` at
+    import time without ever using it, splitting the admin identity for every
+    module imported after it.
+    """
+    from pathlib import Path
+
+    this_file = Path(__file__).resolve()
+    needle = 'setdefault("ADMIN_EMAIL"'
+    offenders = [
+        path.name
+        for path in sorted(this_file.parent.glob("test_*.py"))
+        if path != this_file and needle in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == [], (
+        "These test modules reassign ADMIN_EMAIL at import and will split the "
+        f"admin identity for every module imported after them: {offenders}. "
+        "conftest.py already pins it for the whole session."
+    )
+
+
 def test_store_is_not_mongo_backed() -> None:
     """The resolved store must never be the Mongo one under test.
 
