@@ -65,6 +65,23 @@ os.environ.setdefault("SELF_BOOTSTRAP_ENABLED", "false")
 # the flag explicitly, so disabling the lifespan auto-start here is safe.
 os.environ.setdefault("RUN_BACKGROUND_IN_WEB", "false")
 
+# ── Hermetic storage: never dial a real MongoDB from the test suite ──────────
+# `db/__init__.py` resolves `STORAGE_BACKEND` with a "mongo" default (correct for
+# production — render.yaml sets it explicitly), but its own module docstring
+# documents sqlite as "the default for dev / CI". Nothing was closing that gap:
+# conftest set every other hermeticity flag and left this one, so any test that
+# reaches the *real* store instead of mocking `get_db()` fell through to
+# mongo and tried localhost:27017. In CI there is no such server, so the call
+# burned its 2 s server-selection timeout and raised
+# ServerSelectionTimeoutError. Only a handful of tests take that path — the
+# `/api/admin/seed` → `seed_admin()` call behind the `backend_jwt` fixture is
+# one — which is why 6235 tests passed while the suite stayed red on one error
+# (issues #1352 / #1354).
+#
+# `setdefault` keeps the escape hatch: a live-Mongo test or a developer running
+# against a real server can still export STORAGE_BACKEND=mongo explicitly.
+os.environ.setdefault("STORAGE_BACKEND", "sqlite")
+
 # ── Now safe to import backend modules that read ADMIN_PASSWORD ──────────────
 
 import pytest

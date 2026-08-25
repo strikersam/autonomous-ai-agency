@@ -44,8 +44,10 @@ jobs:
           python -m pytest --tb=short -q --no-header 2>&1 | tee /tmp/test_output.txt || true
           EXIT=${PIPESTATUS[0]}
           echo "exit_code=${EXIT}" >> "$GITHUB_OUTPUT"
-          # Parse failing test IDs
-          FAILING=$(grep '^FAILED ' /tmp/test_output.txt | awk '{print $2}' | head -10 | tr '\n' ',' | sed 's/,$//')
+          # Parse failing test IDs. The previous '^FAILED ' grep never matched
+          # an ERROR summary line, so a run whose only failure was a fixture or
+          # collection error reported no failing tests at all (issue #1352).
+          FAILING=$(python scripts/parse_pytest_failures.py /tmp/test_output.txt --format csv --max 10)
           echo "failing_tests=${FAILING}" >> "$GITHUB_OUTPUT"
           SUMMARY=$(grep -E 'passed|failed|error' /tmp/test_output.txt | tail -1)
           echo "summary=${SUMMARY}" >> "$GITHUB_OUTPUT"

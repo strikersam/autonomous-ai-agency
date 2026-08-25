@@ -49,8 +49,14 @@ jobs:
           python -m pytest --tb=short -q --no-header 2>&1 | tee /tmp/test_baseline.txt || true
           EXIT=${PIPESTATUS[0]}
           echo "exit_code=${EXIT}" >> "$GITHUB_OUTPUT"
-          # Catch FAILED tests AND ERROR collection/import failures
-          FAILING=$(grep -E '^(FAILED|ERROR) ' /tmp/test_baseline.txt | awk '{print $2}' | head -5 | tr '\n' ',' | sed 's/,$//')
+          # Catch FAILED tests AND ERROR collection/import failures.
+          # Not a grep: pytest renders captured log records as
+          # "LEVEL    logger:file.py:lineno message", so '^(FAILED|ERROR) '
+          # also matched those and emitted bogus IDs such as
+          # 'qwen-proxy:app_settings.py:70'. Every follow-up pytest on one died
+          # with "file or directory not found", so the self-healing agent could
+          # never converge and escalated on every run (issue #1354).
+          FAILING=$(python scripts/parse_pytest_failures.py /tmp/test_baseline.txt --format csv --max 5)
           echo "failing=${FAILING}" >> "$GITHUB_OUTPUT"
 
       - name: Redact secrets from test output
