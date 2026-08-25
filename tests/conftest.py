@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -92,6 +93,21 @@ os.environ.setdefault("RUN_BACKGROUND_IN_WEB", "false")
 # `setdefault` keeps the escape hatch: a live-Mongo test or a developer running
 # against a real server can still export STORAGE_BACKEND=mongo explicitly.
 os.environ.setdefault("STORAGE_BACKEND", "sqlite")
+
+# ── Memory kernel: a fresh directory per test session ────────────────────────
+# `voice/memory_kernel.py` binds `_DATA_DIR` at *import* time:
+#     _DATA_DIR = Path(os.environ.get("MEMORY_KERNEL_DIR", ".data/memory"))
+# so `tmp_kernel`'s `monkeypatch.setenv` only wins when that fixture happens to
+# trigger the module's first import. Under the full suite an earlier test
+# imports it first, the kernel binds to the repo-local `.data/memory`, and
+# stored facts survive between runs: `test_memory_reinforcement` saw
+# reinforcement_count 2 on a fresh checkout and 4 on the next run. CI never hit
+# it (every run is a fresh clone) but a second local `pytest` did — the exact
+# red the pre-push hook blocks on. Pinning a per-session temp dir here beats the
+# import race, since conftest is imported before any test module.
+os.environ.setdefault(
+    "MEMORY_KERNEL_DIR", tempfile.mkdtemp(prefix="memory-kernel-")
+)
 
 # ── Now safe to import backend modules that read ADMIN_PASSWORD ──────────────
 
