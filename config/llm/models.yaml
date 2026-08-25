@@ -197,6 +197,27 @@ models:
     input_cost_per_1m: 0.02
     priority: 60
 
+  # ── Anthropic — Claude 4 Opus family ────────────────────────────────────
+  # Opus 4.8: latest Claude 4 Opus checkpoint. Adds output_config.effort
+  # parameter for per-request thinking depth and faster output vs. 4.7.
+  # Note: adaptive thinking — no extended thinking budget, no temperature.
+  claude-opus-4-8:
+    provider: anthropic
+    display_name: Claude Opus 4.8
+    context_window: 200000
+    max_output_tokens: 32000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 15.0
+    output_cost_per_1m: 75.0
+    priority: 64
+    speed_tier: slow
+    aliases: [opus-4-8]
+
   claude-sonnet-4-6:
     provider: anthropic
     display_name: Claude Sonnet 4.6
@@ -319,3 +340,45 @@ models:
     priority: 62
     speed_tier: slow
     aliases: [opus5]
+
+  # ── Anthropic — Claude 5 Mythos-class (gated) ────────────────────────────
+  # Fable 5: most intelligent generally available Claude 5 model. Suspended
+  # under US export-control directive (2026-06-12); requires
+  # ROUTER_ALLOW_FABLE5=1 — see router/registry.py for the runtime gate.
+  # Adaptive thinking (no temperature, no extended thinking budget).
+  claude-fable-5:
+    provider: anthropic
+    display_name: Claude Fable 5
+    context_window: 200000
+    max_output_tokens: 32000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 30.0
+    output_cost_per_1m: 120.0
+    priority: 61
+    speed_tier: slow
+    aliases: [fable5]
+
+  # Mythos 5: same underlying model as Fable 5 with fewer dual-use safeguards.
+  # Restricted to Anthropic-approved organisations; requires ROUTER_ALLOW_MYTHOS=1.
+  # Adaptive thinking (no temperature, no extended thinking budget).
+  claude-mythos-5:
+    provider: anthropic
+    display_name: Claude Mythos 5
+    context_window: 200000
+    max_output_tokens: 32000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 30.0
+    output_cost_per_1m: 120.0
+    priority: 61
+    speed_tier: slow
+    aliases: [mythos5]
