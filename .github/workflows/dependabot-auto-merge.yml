@@ -120,6 +120,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
           REVIEW_MARKER: "Major version bump"
+          REBASE_MARKER: "@dependabot rebase"
         run: |
           set -u
           PRS=$(gh pr list --repo "$REPO" --state open --author "app/dependabot" \
@@ -159,6 +160,33 @@ jobs:
             # Non-fatal throughout: one bad PR must not abort the sweep.
             if [ "$STATE" = "UNKNOWN" ]; then
               echo "::warning::PR #$n mergeability unresolved after 5 polls — next sweep will retry."
+              echo "::endgroup::"
+              continue
+            fi
+
+            # A conflicted PR is not up to date and never becomes BEHIND, so
+            # without this it falls through to the arming branch: armed on a
+            # conflict, auto-merge waits forever, and the log says only
+            # "update type: patch". Observed live on #1335 and #1336 at 13:59
+            # — every dependency bump edits requirements.txt, so each merge
+            # makes a conflict likelier for whatever is left in the queue.
+            #
+            # Dependabot is the only actor that can fix it: the conflict is in
+            # a file it generates, and it rebases its own PRs on request.
+            if [ "$STATE" = "DIRTY" ]; then
+              LAST=$(gh pr view "$n" --repo "$REPO" --json comments \
+                       --jq '.comments[-1].body // ""' 2>/dev/null || echo "")
+              case "$LAST" in
+                *"$REBASE_MARKER"*)
+                  echo "PR #$n has a merge conflict — rebase already requested, waiting."
+                  ;;
+                *)
+                  echo "PR #$n has a merge conflict — asking Dependabot to rebase."
+                  gh pr comment "$n" --repo "$REPO" --body "$REBASE_MARKER" \
+                    2>/dev/null \
+                    || echo "::warning::PR #$n is conflicted and could not be nudged."
+                  ;;
+              esac
               echo "::endgroup::"
               continue
             fi
