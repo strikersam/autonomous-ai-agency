@@ -8,8 +8,12 @@ on:
   # GH_TOKEN killed the merge step on open, nothing ever retried, and 13 green
   # Dependabot PRs accumulated. The sweep below re-attempts every open
   # Dependabot PR daily so a single bad run can no longer park one permanently.
+  # Hourly, not daily. Branch protection requires an up-to-date branch, so
+  # merging one PR puts every other open one BEHIND again — the backlog drains
+  # at one PR per run no matter how many the sweep touches. At daily that is 14
+  # days to clear a batch Dependabot refills weekly, so it could never catch up.
   schedule:
-    - cron: '0 7 * * *'   # daily at 07:00 UTC
+    - cron: '0 * * * *'
   workflow_dispatch: {}
 
 permissions:
@@ -77,20 +81,30 @@ jobs:
   # above gets one shot per PR: when it failed (empty GH_TOKEN), the PR was
   # stranded with no path back. This sweep is the retry that was missing.
   #
-  # Division of labour with the job above, which matters for rule 40 (a
-  # dependency upgrade with a breaking change needs a human): only that job can
-  # classify an update, because fetch-metadata needs the pull_request payload a
-  # scheduled run does not have. So the sweep never decides that a bump is safe.
-  # It unblocks PRs and lets the event-driven job rule on anything it moves,
-  # and it refuses to arm auto-merge on a PR that job has flagged as major.
+  # It cannot lean on that job for classification. The job is guarded by
+  # `github.actor == 'dependabot[bot]'`, and once this sweep updates a stale
+  # branch with GH_PAT the actor is a real user, so it skips — verified on
+  # PR #1336 (run 32936415712, actor strikersam, conclusion "skipped"). Without
+  # a verdict of its own the sweep would have armed auto-merge on
+  # `anthropic >=0.122.0 -> >=1.0.0` with nothing left in the loop to object.
+  # scripts/classify_dependabot_update.py is that verdict, and is unit-tested
+  # against all 14 of the PRs this sweep was written for.
   sweep-stranded:
     name: Re-attempt stranded Dependabot PRs
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request'
+    timeout-minutes: 15
     permissions:
       contents: write
       pull-requests: write
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+
       - name: Unblock every open Dependabot PR
         env:
           # NOT the GITHUB_TOKEN the job above must use. That job runs on a
@@ -101,12 +115,11 @@ jobs:
           # branches with it, every resulting run came back `action_required`
           # (CI run 32934966004 on PR #1345, against run 32696410024 which had
           # passed on the same branch): the update replaced green checks with
-          # checks awaiting a human click. A real user token avoids that.
+          # checks awaiting a human click. With GH_PAT the same update produced
+          # run 32936354170, actor strikersam, which ran normally.
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          # Written by the "Flag major update for human review" step above. The
-          # two jobs are coupled by this string; a test pins them together.
-          MAJOR_MARKER: "Major version bump"
+          REVIEW_MARKER: "Major version bump"
         run: |
           set -u
           PRS=$(gh pr list --repo "$REPO" --state open --author "app/dependabot" \
@@ -116,6 +129,16 @@ jobs:
             exit 0
           fi
           echo "Open Dependabot PRs: $(echo "$PRS" | tr '\n' ' ')"
+
+          # Only one PR can merge per run: branch protection wants an
+          # up-to-date branch, so the first merge invalidates every other
+          # branch this run just refreshed. Updating all of them would fire two
+          # CI runs each (push + pull_request) and throw away all but one
+          # result. Updating one drains the queue at exactly the same rate for
+          # a fraction of the cost, and self-advances -- an updated branch that
+          # comes back red simply stops being BEHIND, so the next run moves on
+          # to the next one rather than stalling on it.
+          UPDATES_LEFT=1
 
           for n in $PRS; do
             echo "::group::PR #$n"
@@ -142,11 +165,15 @@ jobs:
 
             if [ "$STATE" = "BEHIND" ]; then
               # Branch protection refuses an out-of-date branch, so auto-merge
-              # would sit armed and idle. Updating re-runs CI and fires a
-              # `synchronize` event, which hands classification back to the
-              # event-driven job — so the sweep deliberately stops here rather
-              # than arming a PR it cannot classify.
+              # would sit armed and idle. Updating re-runs CI; the next sweep
+              # arms it once the branch is current and CI has had its say.
+              if [ "$UPDATES_LEFT" -le 0 ]; then
+                echo "PR #$n is BEHIND — deferred to a later run (one update per run)."
+                echo "::endgroup::"
+                continue
+              fi
               echo "PR #$n is BEHIND its base — updating the branch."
+              UPDATES_LEFT=$((UPDATES_LEFT - 1))
               gh pr update-branch "$n" --repo "$REPO" \
                 || gh pr comment "$n" --repo "$REPO" --body "@dependabot rebase" \
                 || echo "::warning::PR #$n is behind and could not be updated."
@@ -154,14 +181,35 @@ jobs:
               continue
             fi
 
-            # Up to date, so no event will fire for it and nothing else will
-            # ever arm it. This is the stranded case the sweep exists for.
-            if gh pr view "$n" --repo "$REPO" --json comments \
-                 --jq '.comments[].body' 2>/dev/null | grep -qF "$MAJOR_MARKER"; then
-              echo "PR #$n is flagged as a major bump — leaving it for human review."
-            else
-              gh pr merge --auto --squash "$n" --repo "$REPO" \
-                || echo "::warning::PR #$n not auto-mergeable yet — leaving open."
+            # Up to date, so nothing else will ever arm this PR. Classify before
+            # doing so: rule 40 reserves a breaking dependency upgrade for a
+            # human, and "unknown" is treated exactly like "major" — a verdict
+            # the classifier could not reach is not one to merge unattended.
+            if ! gh pr view "$n" --repo "$REPO" \
+                   --json headRefName,commits > /tmp/pr-$n.json 2>/dev/null; then
+              echo "::warning::PR #$n metadata unreadable — skipping."
+              echo "::endgroup::"
+              continue
             fi
+            TYPE=$(python scripts/classify_dependabot_update.py "/tmp/pr-$n.json" \
+                     2>/dev/null || echo "unknown")
+            echo "PR #$n update type: $TYPE"
+
+            case "$TYPE" in
+              group|minor|patch)
+                gh pr merge --auto --squash "$n" --repo "$REPO" \
+                  || echo "::warning::PR #$n not auto-mergeable yet — leaving open."
+                ;;
+              *)
+                echo "PR #$n is a '$TYPE' update — leaving it for human review."
+                # Say so once. A daily sweep must not re-comment every morning.
+                if ! gh pr view "$n" --repo "$REPO" --json comments \
+                       --jq '.comments[].body' 2>/dev/null | grep -qF "$REVIEW_MARKER"; then
+                  gh pr comment "$n" --repo "$REPO" --body \
+                    "⚠️ **$REVIEW_MARKER** (\`$TYPE\`) — auto-merge skipped by the recovery sweep. Please review breaking changes before merging." \
+                    2>/dev/null || true
+                fi
+                ;;
+            esac
             echo "::endgroup::"
           done
