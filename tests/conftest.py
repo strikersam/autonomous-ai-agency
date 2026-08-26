@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import tempfile
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -36,6 +37,17 @@ from pathlib import Path
 
 if not os.environ.get("ADMIN_PASSWORD"):
     os.environ["ADMIN_PASSWORD"] = "test-" + secrets.token_hex(20)
+
+# ── Single source of truth for the admin identity ────────────────────────────
+# Pin ADMIN_EMAIL for the whole session, for the same reason as the password
+# above: `backend/server.py` resolves it once at import, so anything that
+# changes the env afterwards splits the admin identity in two. A test module
+# doing `os.environ.setdefault("ADMIN_EMAIL", ...)` at import time used to do
+# exactly that — seed_admin() seeded the address the server captured, while
+# every module imported later re-read the env and tried to log in as a
+# different one, yielding a 401 that read like a password failure. conftest
+# imports first, so pinning it here makes any later setdefault a no-op.
+os.environ.setdefault("ADMIN_EMAIL", "admin@llmrelay.local")
 
 # Enable test-only endpoints (e.g. /api/admin/seed) gated behind TESTING=true
 os.environ.setdefault("TESTING", "true")
@@ -64,6 +76,39 @@ os.environ.setdefault("SELF_BOOTSTRAP_ENABLED", "false")
 # them directly (e.g. test_background_services / test_autonomy_bootstrap) or set
 # the flag explicitly, so disabling the lifespan auto-start here is safe.
 os.environ.setdefault("RUN_BACKGROUND_IN_WEB", "false")
+
+# ── NOTE: STORAGE_BACKEND is deliberately NOT pinned here ────────────────────
+# Pinning it to sqlite looks tempting — `db/__init__.py`'s own docstring calls
+# sqlite "the default for dev / CI" — and it does fix the
+# ServerSelectionTimeoutError that tests hit with no Mongo reachable. But it
+# hangs the suite: routing every test through SQLiteStore leaves an unclosed
+# aiosqlite connection whose `_connection_worker_thread` is non-daemon and
+# blocks on its queue forever, with no atexit handler to reap it. The tests all
+# finish, then the process never exits — locally that is `timeout` killing it;
+# in CI it is a job with no `timeout-minutes` burning up to GitHub's 360-minute
+# ceiling. Measured: master's `Run tests` step is 3m27s, the sqlite-pinned one
+# was still going at 51 minutes.
+#
+# The real defect was never the backend default — it was that
+# `agency-cycle.yml` and `continuous-improvement.yml` ran pytest with no Mongo
+# service while `ci.yml` had one all along, so the autonomous loop saw failures
+# the PR gate never did. Both workflows now declare the same `mongo:7` service,
+# which fixes it where it broke without changing what the suite runs on.
+
+# ── Memory kernel: a fresh directory per test session ────────────────────────
+# `voice/memory_kernel.py` binds `_DATA_DIR` at *import* time:
+#     _DATA_DIR = Path(os.environ.get("MEMORY_KERNEL_DIR", ".data/memory"))
+# so `tmp_kernel`'s `monkeypatch.setenv` only wins when that fixture happens to
+# trigger the module's first import. Under the full suite an earlier test
+# imports it first, the kernel binds to the repo-local `.data/memory`, and
+# stored facts survive between runs: `test_memory_reinforcement` saw
+# reinforcement_count 2 on a fresh checkout and 4 on the next run. CI never hit
+# it (every run is a fresh clone) but a second local `pytest` did — the exact
+# red the pre-push hook blocks on. Pinning a per-session temp dir here beats the
+# import race, since conftest is imported before any test module.
+os.environ.setdefault(
+    "MEMORY_KERNEL_DIR", tempfile.mkdtemp(prefix="memory-kernel-")
+)
 
 # ── Now safe to import backend modules that read ADMIN_PASSWORD ──────────────
 
@@ -343,3 +388,33 @@ def _clear_response_cache():
     rc._cache.clear()
     rc._hits = 0
     rc._misses = 0
+
+
+def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001 - pytest hook signature
+    """Report threads that will stop the interpreter from exiting.
+
+    A suite can pass every test and still hang: a non-daemon thread blocked on
+    a queue keeps the process alive after pytest returns. That is invisible in
+    the test report — locally it looks like a slow run, and in CI the job has
+    no ``timeout-minutes``, so it runs toward GitHub's 360-minute ceiling. It
+    cost a full debugging cycle to find that a ``STORAGE_BACKEND=sqlite`` pin
+    leaked an aiosqlite ``_connection_worker_thread`` this way.
+
+    This prints rather than fails: the tests really did pass, and turning a
+    clean run red here would be its own kind of lie. The banner is enough to
+    make the next occurrence obvious instead of mysterious.
+    """
+    import sys
+    import threading
+
+    lingering = [
+        t for t in threading.enumerate()
+        if not t.daemon and t is not threading.main_thread() and t.is_alive()
+    ]
+    if lingering:
+        print(
+            "\n[conftest] WARNING: %d non-daemon thread(s) still alive; the "
+            "interpreter cannot exit until they finish: %s"
+            % (len(lingering), ", ".join(sorted(t.name for t in lingering))),
+            file=sys.stderr,
+        )

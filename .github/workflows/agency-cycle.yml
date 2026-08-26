@@ -23,6 +23,26 @@ jobs:
       issues: write
       pull-requests: write
 
+    # Same MongoDB service `ci.yml` declares. Without it this job ran pytest
+    # against no database at all: `STORAGE_BACKEND` defaults to "mongo", so any
+    # test reaching the real store (e.g. /api/admin/seed → seed_admin() behind
+    # the backend_jwt fixture) dialled localhost:27017 and raised
+    # ServerSelectionTimeoutError. That single error made every self-heal cycle
+    # see a red suite the PR gate never saw, and escalate to a human each run
+    # (issues #1352 / #1354). Pinning the suite to sqlite instead is NOT an
+    # option — it leaks a non-daemon aiosqlite worker thread that prevents the
+    # interpreter from exiting; see the note in tests/conftest.py.
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' | grep -q 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 15
+
     steps:
       - uses: actions/checkout@v4
         with:
@@ -49,8 +69,14 @@ jobs:
           python -m pytest --tb=short -q --no-header 2>&1 | tee /tmp/test_baseline.txt || true
           EXIT=${PIPESTATUS[0]}
           echo "exit_code=${EXIT}" >> "$GITHUB_OUTPUT"
-          # Catch FAILED tests AND ERROR collection/import failures
-          FAILING=$(grep -E '^(FAILED|ERROR) ' /tmp/test_baseline.txt | awk '{print $2}' | head -5 | tr '\n' ',' | sed 's/,$//')
+          # Catch FAILED tests AND ERROR collection/import failures.
+          # Not a grep: pytest renders captured log records as
+          # "LEVEL    logger:file.py:lineno message", so '^(FAILED|ERROR) '
+          # also matched those and emitted bogus IDs such as
+          # 'qwen-proxy:app_settings.py:70'. Every follow-up pytest on one died
+          # with "file or directory not found", so the self-healing agent could
+          # never converge and escalated on every run (issue #1354).
+          FAILING=$(python scripts/parse_pytest_failures.py /tmp/test_baseline.txt --format csv --max 5)
           echo "failing=${FAILING}" >> "$GITHUB_OUTPUT"
 
       - name: Redact secrets from test output
