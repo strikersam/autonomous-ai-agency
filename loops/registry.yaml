@@ -408,13 +408,30 @@ loops:
     gate: none
     purpose: Keep repo master-only by deleting merged branches (self-cleaning).
 
+  - id: orphaned-pr-sweep
+    name: Orphaned Context PR Sweep
+    pattern: issue-triage
+    level: L3
+    trigger: schedule
+    cadence: daily at 06:00 UTC
+    runs_per_day: 1
+    cost: low
+    source: .github/workflows/orphaned-pr-sweep.yml
+    self_heal: true
+    gate: none
+    purpose: >-
+      Recover draft context PRs whose issue was closed or exhausted, so planned
+      work cannot become unreachable to every workflow (detects + applies fix).
+      Skips exhaustion backed by a recorded analysis, and never touches
+      quick-note:rejected.
+
   - id: dependabot-auto-merge
     name: Dependabot Auto-merge
     pattern: dependency-sweeper
     level: L3
-    trigger: event
-    cadence: on dependabot PR
-    runs_per_day: 0
+    trigger: schedule
+    cadence: on dependabot PR, plus a daily 07:00 UTC recovery sweep
+    runs_per_day: 1
     cost: low
     source: .github/workflows/dependabot-auto-merge.yml
     self_heal: true
