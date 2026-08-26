@@ -412,9 +412,9 @@ loops:
     name: Dependabot Auto-merge
     pattern: dependency-sweeper
     level: L3
-    trigger: event
-    cadence: on dependabot PR
-    runs_per_day: 0
+    trigger: schedule
+    cadence: on dependabot PR, plus a daily 07:00 UTC recovery sweep
+    runs_per_day: 1
     cost: low
     source: .github/workflows/dependabot-auto-merge.yml
     self_heal: true
