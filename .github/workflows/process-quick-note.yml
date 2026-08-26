@@ -780,7 +780,61 @@ jobs:
             --remove-label "retry:${RETRY}" 2>/dev/null || true
 
           if [ "$NEW_RETRY" -ge "$MAX_RETRIES" ]; then
-            # Exhausted — label and leave open for human
+            # ── Analysis gate ────────────────────────────────────────────────
+            # Exhaustion used to be a bare counter: three failures, add the
+            # label, paste 40 lines of log, walk away. Nothing ever asked *why*,
+            # so "the agent could not write the fix" and "the agent was handed a
+            # task that was never fixable" ended up looking identical.
+            #
+            # The second is what kept happening. A parser bug fed this loop
+            # `qwen-proxy:app_settings.py:70` — a captured log record, not a test
+            # — so every pytest on it died with "file or directory not found",
+            # burned three attempts and abandoned the issue. 238 closed issues
+            # carry that shape. The diagnosis was always available: the repo's
+            # own _classify_failure() correctly called the MongoDB outage in
+            # #1360 "no code change can fix it", and the workflow marked it
+            # exhausted anyway.
+            #
+            # Now the label requires a verdict. `exhausted` means real,
+            # collectable tests genuinely resisted the fix. `needs-triage` and
+            # `blocked-infrastructure` mean the obstacle was never the agent's
+            # to clear, so the issue stays retryable instead of being buried.
+            LOG=/tmp/impl_output.txt
+            [ -s "$LOG" ] || LOG=/tmp/test_output.txt
+            ANALYSIS=$(python scripts/analyze_exhaustion.py "$LOG" \
+                         --attempts "$MAX_RETRIES" \
+                         --verdict-file /tmp/exhaustion_verdict.txt 2>/dev/null \
+                       || echo "_(analysis unavailable)_")
+            VERDICT=$(cat /tmp/exhaustion_verdict.txt 2>/dev/null || echo "exhausted")
+            echo "Exhaustion verdict: $VERDICT"
+
+            if [ "$VERDICT" != "exhausted" ]; then
+              # Not the agent's failure — do not spend the label on it.
+              case "$VERDICT" in
+                blocked-infrastructure)
+                  BLOCK_LABEL="blocked:infrastructure"
+                  BLOCK_DESC="External service unavailable — not fixable by a code change" ;;
+                *)
+                  BLOCK_LABEL="needs-triage"
+                  BLOCK_DESC="Input was not a fixable task — needs a human look" ;;
+              esac
+              gh label create "$BLOCK_LABEL" \
+                --repo "$REPO" \
+                --color "fbca04" --description "$BLOCK_DESC" 2>/dev/null || true
+              gh issue edit "$ISSUE" \
+                --repo "$REPO" \
+                --add-label "$BLOCK_LABEL" 2>/dev/null || true
+              gh issue reopen "$ISSUE" --repo "$REPO" 2>/dev/null || true
+              gh issue comment "$ISSUE" \
+                --repo "$REPO" \
+                --body "$(printf '%s\n\n%s\n' \
+                  "$ANALYSIS" \
+                  "Left **open and retryable** — \`quick-note:exhausted\` would claim the agent tried and failed, which is not what the analysis shows. Labelled \`${BLOCK_LABEL}\` instead.")" \
+                2>/dev/null || true
+              exit 0
+            fi
+
+            # Genuinely exhausted — real tests, real code failures.
             gh label create "quick-note:exhausted" \
               --repo "$REPO" \
               --color "b60205" --description "Retries exhausted" 2>/dev/null || true
@@ -791,6 +845,8 @@ jobs:
               --repo "$REPO" \
               --body "$(cat <<MSG
           ❌ Failed after ${MAX_RETRIES} attempts — manual intervention required.
+
+          ${ANALYSIS}
 
           **Failure log (last 40 lines of agent output):**
           \`\`\`

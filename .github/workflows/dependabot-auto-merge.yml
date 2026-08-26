@@ -3,6 +3,14 @@ name: Dependabot Auto-merge
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
+  # The pull_request trigger fires exactly once per PR. Any failure at that
+  # moment strands the PR forever — which is precisely what happened: an empty
+  # GH_TOKEN killed the merge step on open, nothing ever retried, and 13 green
+  # Dependabot PRs accumulated. The sweep below re-attempts every open
+  # Dependabot PR daily so a single bad run can no longer park one permanently.
+  schedule:
+    - cron: '0 7 * * *'   # daily at 07:00 UTC
+  workflow_dispatch: {}
 
 permissions:
   contents: write
@@ -12,7 +20,7 @@ jobs:
   auto-merge:
     name: Auto-merge safe Dependabot updates
     runs-on: ubuntu-latest
-    if: github.actor == 'dependabot[bot]'
+    if: github.event_name == 'pull_request' && github.actor == 'dependabot[bot]'
 
     steps:
       - name: Fetch Dependabot metadata
@@ -26,23 +34,104 @@ jobs:
           # available in every Actions run and has read access to PR metadata.
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # Auto-merge patch and minor version bumps (squash, bypass required checks)
-      # Uses GH_PAT (admin PAT) here because the built-in GITHUB_TOKEN doesn't
-      # have admin bypass for branch protection — only a PAT with repo scope can
-      # merge with --admin to bypass required status checks.
+      # Auto-merge patch and minor version bumps.
+      #
+      # MUST use secrets.GITHUB_TOKEN, not secrets.GH_PAT. GitHub withholds
+      # repository secrets from workflows triggered by dependabot[bot], so
+      # `${{ secrets.GH_PAT }}` expanded to an empty string and every run died
+      # with "gh: To use GitHub CLI in a GitHub Actions workflow, set the
+      # GH_TOKEN environment variable" (exit 4) — while the fetch-metadata step
+      # above succeeded on the very same event, because GITHUB_TOKEN is the
+      # special Actions token rather than a repo secret. That is why all 13 open
+      # Dependabot PRs sat green and unmerged: this job had never once worked.
+      #
+      # GITHUB_TOKEN cannot bypass branch protection, so `--admin` is out;
+      # `--auto` is the right tool anyway — GitHub merges the PR itself once
+      # required checks pass, instead of forcing it through ahead of them. The
+      # job-level `permissions:` block above grants the write scopes it needs.
       - name: Auto-merge patch / minor
         if: |
           steps.meta.outputs.update-type == 'version-update:semver-patch' ||
           steps.meta.outputs.update-type == 'version-update:semver-minor'
-        run: gh pr merge --squash --admin "${{ github.event.pull_request.html_url }}"
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          # Fall back to a direct squash if the repo has "Allow auto-merge"
+          # switched off, in which case --auto is rejected outright.
+          gh pr merge --auto --squash "$PR_URL" \
+            || gh pr merge --squash "$PR_URL"
 
       # Comment on major bumps for human review — don't auto-merge
       - name: Flag major update for human review
         if: steps.meta.outputs.update-type == 'version-update:semver-major'
-        run: |
-          gh pr comment "${{ github.event.pull_request.html_url }}" \
-            --body "⚠️ **Major version bump** — auto-merge skipped. Please review breaking changes before merging."
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          gh pr comment "$PR_URL" \
+            --body "⚠️ **Major version bump** — auto-merge skipped. Please review breaking changes before merging."
+
+  # ── Recovery sweep ─────────────────────────────────────────────────────────
+  # Re-attempts every open Dependabot PR. Exists because the event-driven job
+  # above gets one shot per PR: when it failed (empty GH_TOKEN), the PR was
+  # stranded with no path back. This sweep is the retry that was missing.
+  #
+  # Deliberately does NOT filter on update-type: fetch-metadata needs the PR
+  # event payload, which a scheduled run does not have. Instead it enables
+  # GitHub auto-merge and lets required checks decide — a red or
+  # branch-protected PR simply stays open, so this can never force anything
+  # through. Major bumps still merge only if the repo's own checks allow it,
+  # matching what a maintainer clicking "enable auto-merge" would do.
+  sweep-stranded:
+    name: Re-attempt stranded Dependabot PRs
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Enable auto-merge on every open Dependabot PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -u
+          PRS=$(gh pr list --repo "$REPO" --state open --author "app/dependabot" \
+                  --json number --jq '.[].number')
+          if [ -z "$PRS" ]; then
+            echo "No open Dependabot PRs — nothing to sweep."
+            exit 0
+          fi
+          echo "Open Dependabot PRs: $(echo "$PRS" | tr '\n' ' ')"
+          for n in $PRS; do
+            echo "::group::PR #$n"
+
+            # Non-fatal per PR: one unmergeable PR (conflict, failing check,
+            # major bump awaiting review) must not abort the rest of the sweep.
+            gh pr merge --auto --squash "$n" --repo "$REPO" \
+              || echo "::warning::PR #$n not auto-mergeable yet — leaving open."
+
+            # Enabling auto-merge is necessary but not sufficient for a PR that
+            # has gone stale. Branch protection refuses an out-of-date branch,
+            # so a PR whose base has moved sits with auto-merge armed and never
+            # lands. Every one of the 14 PRs stranded by the empty-GH_TOKEN bug
+            # was in exactly that state (mergeable_state "behind", base pinned to
+            # a commit from 2026-08-23) — the sweep would have looked like it
+            # worked while changing nothing.
+            #
+            # Updating the branch re-runs CI and lets auto-merge complete on its
+            # own. Dependabot would eventually rebase these itself, but only on
+            # its own schedule, which is what let them rot for days.
+            STATE=$(gh pr view "$n" --repo "$REPO" --json mergeStateStatus \
+                      --jq '.mergeStateStatus' 2>/dev/null || echo "UNKNOWN")
+            if [ "$STATE" = "BEHIND" ]; then
+              echo "PR #$n is BEHIND its base — updating the branch."
+              gh pr update-branch "$n" --repo "$REPO" \
+                || gh pr comment "$n" --repo "$REPO" --body "@dependabot rebase" \
+                || echo "::warning::PR #$n is behind and could not be updated."
+            else
+              echo "PR #$n merge state: $STATE"
+            fi
+            echo "::endgroup::"
+          done
