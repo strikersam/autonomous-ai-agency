@@ -8,8 +8,12 @@ on:
   # GH_TOKEN killed the merge step on open, nothing ever retried, and 13 green
   # Dependabot PRs accumulated. The sweep below re-attempts every open
   # Dependabot PR daily so a single bad run can no longer park one permanently.
+  # Hourly, not daily. Branch protection requires an up-to-date branch, so
+  # merging one PR puts every other open one BEHIND again — the backlog drains
+  # at one PR per run no matter how many the sweep touches. At daily that is 14
+  # days to clear a batch Dependabot refills weekly, so it could never catch up.
   schedule:
-    - cron: '0 7 * * *'   # daily at 07:00 UTC
+    - cron: '0 * * * *'
   workflow_dispatch: {}
 
 permissions:
@@ -126,6 +130,16 @@ jobs:
           fi
           echo "Open Dependabot PRs: $(echo "$PRS" | tr '\n' ' ')"
 
+          # Only one PR can merge per run: branch protection wants an
+          # up-to-date branch, so the first merge invalidates every other
+          # branch this run just refreshed. Updating all of them would fire two
+          # CI runs each (push + pull_request) and throw away all but one
+          # result. Updating one drains the queue at exactly the same rate for
+          # a fraction of the cost, and self-advances -- an updated branch that
+          # comes back red simply stops being BEHIND, so the next run moves on
+          # to the next one rather than stalling on it.
+          UPDATES_LEFT=1
+
           for n in $PRS; do
             echo "::group::PR #$n"
 
@@ -153,7 +167,13 @@ jobs:
               # Branch protection refuses an out-of-date branch, so auto-merge
               # would sit armed and idle. Updating re-runs CI; the next sweep
               # arms it once the branch is current and CI has had its say.
+              if [ "$UPDATES_LEFT" -le 0 ]; then
+                echo "PR #$n is BEHIND — deferred to a later run (one update per run)."
+                echo "::endgroup::"
+                continue
+              fi
               echo "PR #$n is BEHIND its base — updating the branch."
+              UPDATES_LEFT=$((UPDATES_LEFT - 1))
               gh pr update-branch "$n" --repo "$REPO" \
                 || gh pr comment "$n" --repo "$REPO" --body "@dependabot rebase" \
                 || echo "::warning::PR #$n is behind and could not be updated."

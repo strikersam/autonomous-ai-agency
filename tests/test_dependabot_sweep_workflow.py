@@ -124,6 +124,47 @@ class TestMajorBumpsStayWithHumans:
         assert "actions/setup-python" in steps
 
 
+class TestBacklogActuallyDrains:
+    """A sweep that cannot keep up with Dependabot is not a fix.
+
+    Branch protection wants an up-to-date branch, so merging one PR puts every
+    other open one back to BEHIND — the backlog drains at exactly one PR per
+    run however many branches the sweep refreshes. Confirmed live: #1346 merged
+    at 06:14 and #1345 was `behind` again immediately after, base pinned to the
+    commit #1346 had just superseded.
+    """
+
+    def test_sweep_runs_hourly(self, workflow: dict) -> None:
+        """Daily could never catch up: ~14 PRs arrive weekly, 7 would drain."""
+        schedules = workflow[True]["schedule"]
+        assert any(s["cron"] == "0 * * * *" for s in schedules), schedules
+
+    def test_sweep_updates_at_most_one_stale_branch_per_run(
+        self, workflow_text: str
+    ) -> None:
+        """Refreshing the rest burns two CI runs each and merges none of them.
+
+        Asserted against the raw file: a yaml round-trip re-escapes the shell
+        quoting, so the dumped job text is the wrong thing to match on.
+        """
+        assert "UPDATES_LEFT=1" in workflow_text
+        assert '[ "$UPDATES_LEFT" -le 0 ]' in workflow_text
+        assert "UPDATES_LEFT - 1" in workflow_text
+
+    def test_registry_matches_the_new_cadence(self) -> None:
+        from pathlib import Path
+
+        registry = yaml.safe_load(
+            (Path(__file__).resolve().parents[1] / "loops/registry.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        entry = next(
+            loop for loop in registry["loops"] if loop["id"] == "dependabot-auto-merge"
+        )
+        assert entry["runs_per_day"] == 24
+
+
 class TestSweepStillCannotForceAnything:
     def test_sweep_never_uses_admin_merge(self, workflow: dict) -> None:
         """--admin bypasses required checks. --auto waits for them."""
