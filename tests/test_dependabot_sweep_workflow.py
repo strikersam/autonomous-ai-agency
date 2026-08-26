@@ -85,25 +85,84 @@ class TestStaleBranchHandling:
 class TestMajorBumpsStayWithHumans:
     """Rule 40: a dependency upgrade with a breaking change needs a human.
 
-    The event-driven job can classify (it has the PR payload fetch-metadata
-    needs); the sweep cannot. So the sweep must not arm auto-merge on a PR the
-    other job has already flagged, and the two halves are coupled by a literal
-    string in a comment body — exactly the kind of coupling that rots silently.
+    The sweep cannot ask ``fetch-metadata`` — that needs a ``pull_request``
+    payload. It also cannot defer to the event-driven job above, which is
+    guarded by ``github.actor == 'dependabot[bot]'`` and therefore *skips* once
+    the sweep updates a branch as a real user (verified on PR #1336: run
+    32936415712, actor ``strikersam``, conclusion ``skipped``). So the verdict
+    has to be one the sweep owns, which is why it shells out to a script that
+    can actually be unit-tested.
     """
-
-    MARKER = "Major version bump"
 
     def test_event_driven_job_flags_majors_rather_than_merging(
         self, workflow: dict
     ) -> None:
         text = _job_text(workflow, "auto-merge")
         assert "version-update:semver-major" in text
-        assert self.MARKER in text
+        assert "Major version bump" in text
 
-    def test_sweep_recognises_the_marker_the_other_job_writes(
+    def test_sweep_classifies_before_arming_auto_merge(self, workflow: dict) -> None:
+        text = _job_text(workflow, "sweep-stranded")
+        assert "classify_dependabot_update.py" in text
+
+    def test_sweep_arms_only_verdicts_that_were_actually_reached(
         self, workflow: dict
     ) -> None:
-        assert self.MARKER in _job_text(workflow, "sweep-stranded")
+        """`unknown` must be handled like `major`, never waved through."""
+        text = _job_text(workflow, "sweep-stranded")
+        assert "group|minor|patch" in text, (
+            "auto-merge must be gated on an explicit allow-list of update types"
+        )
+        assert "major" not in text.split("group|minor|patch")[1].split("esac")[0], (
+            "a major bump must not appear in the arming branch"
+        )
+
+    def test_sweep_can_run_python(self, workflow: dict) -> None:
+        """The classifier is a repo script, so the job needs a checkout."""
+        steps = yaml.safe_dump(workflow["jobs"]["sweep-stranded"]["steps"])
+        assert "actions/checkout" in steps
+        assert "actions/setup-python" in steps
+
+
+class TestBacklogActuallyDrains:
+    """A sweep that cannot keep up with Dependabot is not a fix.
+
+    Branch protection wants an up-to-date branch, so merging one PR puts every
+    other open one back to BEHIND — the backlog drains at exactly one PR per
+    run however many branches the sweep refreshes. Confirmed live: #1346 merged
+    at 06:14 and #1345 was `behind` again immediately after, base pinned to the
+    commit #1346 had just superseded.
+    """
+
+    def test_sweep_runs_hourly(self, workflow: dict) -> None:
+        """Daily could never catch up: ~14 PRs arrive weekly, 7 would drain."""
+        schedules = workflow[True]["schedule"]
+        assert any(s["cron"] == "0 * * * *" for s in schedules), schedules
+
+    def test_sweep_updates_at_most_one_stale_branch_per_run(
+        self, workflow_text: str
+    ) -> None:
+        """Refreshing the rest burns two CI runs each and merges none of them.
+
+        Asserted against the raw file: a yaml round-trip re-escapes the shell
+        quoting, so the dumped job text is the wrong thing to match on.
+        """
+        assert "UPDATES_LEFT=1" in workflow_text
+        assert '[ "$UPDATES_LEFT" -le 0 ]' in workflow_text
+        assert "UPDATES_LEFT - 1" in workflow_text
+
+    def test_registry_matches_the_new_cadence(self) -> None:
+        from pathlib import Path
+
+        registry = yaml.safe_load(
+            (Path(__file__).resolve().parents[1] / "loops/registry.yaml").read_text(
+                encoding="utf-8"
+            )
+        )
+        entry = next(
+            loop for loop in registry["loops"] if loop["id"] == "dependabot-auto-merge"
+        )
+        assert entry["runs_per_day"] == 24
 
 
 class TestSweepStillCannotForceAnything:
