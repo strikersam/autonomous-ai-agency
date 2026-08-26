@@ -18,7 +18,6 @@ from datetime import datetime, timedelta, timezone
 # Ensure backend.server imports without a live MongoDB.
 os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017")
 os.environ.setdefault("JWT_SECRET", "test-secret-for-tests-only")
-os.environ.setdefault("ADMIN_EMAIL", "admin@test.local")
 
 from backend.server import _valid_login_state  # noqa: E402
 
