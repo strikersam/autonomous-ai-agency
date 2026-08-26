@@ -132,7 +132,9 @@ class TestCli:
     def _run(self, tmp_path: Path, text: str, *args: str) -> str:
         source = tmp_path / "out.txt"
         source.write_text(text, encoding="utf-8")
-        result = subprocess.run(
+        # Constant argv: this interpreter, a repo-relative script path, and a
+        # tmp_path file. List form, no shell, no external input. nosec B603.
+        result = subprocess.run(  # nosec B603
             [sys.executable, "scripts/parse_pytest_failures.py", str(source), *args],
             cwd=REPO_ROOT,
             capture_output=True,
