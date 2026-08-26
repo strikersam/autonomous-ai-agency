@@ -9,7 +9,13 @@ import os
 
 os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017")
 os.environ.setdefault("JWT_SECRET", "test-secret-for-tests-only")
-os.environ.setdefault("ADMIN_EMAIL", "admin@test.local")
+# NOTE: do not set ADMIN_EMAIL here. This module never used it, but the
+# assignment ran at *import* time and mutated the shared environment for every
+# test module imported after it. `backend/server.py` reads ADMIN_EMAIL once at
+# its own import (already done via conftest), so seed_admin() kept seeding
+# admin@llmrelay.local while later modules re-read the env and authenticated as
+# admin@test.local — a 401 that looked like a password bug. conftest pins
+# ADMIN_EMAIL for the whole session instead.
 
 
 async def test_log_activity_records_to_in_memory_feed():
