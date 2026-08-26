@@ -26,9 +26,12 @@ module.exports = {
         'role-user': 'var(--role-user)',
       },
       fontFamily: {
-        heading: ['Outfit', 'system-ui', 'sans-serif'],
-        mono: ['"JetBrains Mono"', '"IBM Plex Mono"', 'monospace'],
-        body: ['Outfit', 'system-ui', 'sans-serif'],
+        // Must match the faces the app actually loads (index.css @import).
+        // These previously named Outfit / JetBrains Mono, which were never
+        // loaded — font-heading/body/mono utilities silently fell back.
+        heading: ['Manrope', '"SF Pro Display"', '"Segoe UI"', 'sans-serif'],
+        mono: ['"IBM Plex Mono"', 'SFMono-Regular', 'monospace'],
+        body: ['Manrope', '"SF Pro Display"', '"Segoe UI"', 'sans-serif'],
       },
       keyframes: {
         fadeIn: {

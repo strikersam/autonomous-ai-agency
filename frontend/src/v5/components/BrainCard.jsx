@@ -39,6 +39,7 @@ const ROLE_ORDER = ['planner', 'executor', 'verifier', 'judge'];
 // Literal is the only change needed — no parallel UI list to keep in sync.
 const PROVIDER_LABEL_FALLBACK = {
   nvidia:    'NVIDIA NIM',
+  tokenin:   'TokenIn',
   cerebras:  'Cerebras',
   groq:      'Groq',
   ollama:    'Local Ollama',

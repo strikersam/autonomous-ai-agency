@@ -1,17 +1,11 @@
-import React, { useState, useEffect, Suspense } from 'react';
-import { Routes, Route, Navigate, useNavigate } from 'react-router-dom';
+import React, { Suspense } from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './AuthContext';
 import LoginPage from './pages/LoginPage';
 import AuthCallback from './pages/AuthCallback';
 import SetupWizardPage from './pages/SetupWizardPage';
-import { getSetupState, getBackendUrl } from './api';
 
 const V5App = React.lazy(() => import('./v5/V5App'));
-// The legacy v4 dashboard is a rollback path reached only at /legacy/*, so it
-// must not be in the boot bundle. Imported eagerly it forced every visitor —
-// including phones on the redirect straight to /v5 — to download ~24 screens
-// nobody navigates to before the v5 chunk could even start.
-const DashboardLayout = React.lazy(() => import('./pages/DashboardLayout'));
 
 function LoadingScreen({ message }) {
   return (
@@ -31,32 +25,6 @@ function ProtectedRoute({ children }) {
   return children;
 }
 
-/**
- * SetupGuard — wraps the dashboard and redirects to /setup if setup is incomplete.
- * Only checks when a backend URL is configured; skips silently if no backend.
- */
-function SetupGuard({ children }) {
-  const { user } = useAuth();
-  const navigate = useNavigate();
-  const [checked, setChecked] = useState(false);
-
-  useEffect(() => {
-    if (!user || !getBackendUrl()) {
-      setChecked(true);
-      return;
-    }
-    getSetupState()
-      .then(r => {
-        if (!r.data.completed) navigate('/setup', { replace: true });
-      })
-      .catch(() => {}) // don't block the dashboard if the call fails
-      .finally(() => setChecked(true));
-  }, [user, navigate]);
-
-  if (!checked) return <LoadingScreen message="Checking setup" />;
-  return children;
-}
-
 function AppRoutes() {
   const { user, loading } = useAuth();
   if (loading) return <LoadingScreen message="Initializing" />;
@@ -68,7 +36,9 @@ function AppRoutes() {
       {/* Pre-auth setup wizard — configure backend URL before logging in */}
       <Route path="/bootstrap" element={<SetupWizardPage />} />
 
-      {/* V5.0 Autonomous AI Agency — primary authenticated UI */}
+      {/* The Agency — the only authenticated UI. The legacy v4 dashboard that
+          used to live at /legacy/* was removed after the v5 IA consolidation;
+          old /v5/<screen> deep links are aliased inside V5App. */}
       <Route
         path="/v5/*"
         element={
@@ -80,21 +50,7 @@ function AppRoutes() {
         }
       />
 
-      {/* Legacy v4 dashboard — kept for rollback; accessible at /legacy */}
-      <Route
-        path="/legacy/*"
-        element={
-          <ProtectedRoute>
-            <SetupGuard>
-              <Suspense fallback={<LoadingScreen message="Loading the legacy dashboard" />}>
-                <DashboardLayout />
-              </Suspense>
-            </SetupGuard>
-          </ProtectedRoute>
-        }
-      />
-
-      {/* Default: redirect authenticated users to the Agency v5 */}
+      {/* Default: redirect authenticated users into the Agency */}
       <Route
         path="/*"
         element={user ? <Navigate to="/v5" replace /> : <Navigate to="/login" replace />}

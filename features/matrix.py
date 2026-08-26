@@ -298,13 +298,58 @@ _CANONICAL_FEATURES: list[dict[str, Any]] = [
     {
         "feature_id": "policies_governance",
         "display_name": "Policies & Governance",
-        "maturity": FeatureMaturity.BETA,
+        "maturity": FeatureMaturity.STABLE,
         "enabled": True,
-        "default_availability": FeatureMaturity.BETA,
+        "default_availability": FeatureMaturity.STABLE,
         "key_dependencies": [],
+        "config_flags": ["GOVERNANCE_ENABLED", "GOVERNANCE_MODE", "GOVERNANCE_APPROVAL_TTL_S"],
+        "admin_visible": True,
+        "notes": (
+            "STABLE (promoted from BETA 2026-08-22). The policy engine now enforces on every "
+            "execution path, not only in-process tool calls: AgentRunner._dispatch_tool guards each "
+            "tool (including run_command, file writes, execute_skill and spawn_subagent), and runtime "
+            "dispatch (RuntimeManager -> RuntimeRoutingPolicyEngine) passes through the same policy + "
+            "session budget before any adapter runs, so work handed to a runtime cannot route around a "
+            "restriction. Every allow and every block writes an audit record (packages/governance/audit.py) "
+            "tagged with the acting identity. Six session budget ceilings are wired and each fires "
+            "independently: max_tool_calls, max_cost_usd, max_tokens, max_retries, max_depth and "
+            "max_duration_s (LLM cost/tokens charged from agent/loop.py, sub-agent nesting charged at "
+            "spawn on Surface.AGENT). Approvals fail closed: a TTL-expired request denies by default and a "
+            "restart expires everything pending. Mode is honoured everywhere — observe (the shipped "
+            "default) logs would-blocks without changing behaviour, enforce blocks — so turning this on is "
+            "an operator decision, not a code change. Covered by tests/test_governance_enforcement.py, "
+            "tests/test_runtime_governance.py, tests/test_governance_policy.py and the STABLE-claim guard "
+            "in tests/test_feature_matrix.py. In-product policy authoring is tracked separately as "
+            "policy_authoring_ui (now STABLE): the dashboard validates edits and opens a PR against "
+            "config/agent_policy.yaml, so changes still go through git review. Set GOVERNANCE_MODE=observe "
+            "(default) to audit before enforcing, or FEATURE_POLICIES_GOVERNANCE=beta to re-flag it."
+        ),
+    },
+    {
+        "feature_id": "policy_authoring_ui",
+        "display_name": "Policy Authoring UI",
+        "maturity": FeatureMaturity.STABLE,
+        "enabled": True,
+        "default_availability": FeatureMaturity.STABLE,
+        "key_dependencies": ["policies_governance"],
         "config_flags": [],
         "admin_visible": True,
-        "notes": "Approval gates, RBAC, admin controls.",
+        "notes": (
+            "STABLE (promoted from BETA 2026-08-22). The governance dashboard edits policy the safe way: "
+            "the editor loads the raw config/agent_policy.yaml (GET /api/governance/policy/raw), validates "
+            "a proposed document against the real PolicyEngine and the org baseline "
+            "(POST /api/governance/policy/validate), and opens a pull request carrying the change "
+            "(POST /api/governance/policy/propose). The live policy file is never written over HTTP — the "
+            "change reaches production through review, CI and merge like any other, so 'who changed the "
+            "rules' stays answerable (the proposer is audited via packages/governance/audit.py and the "
+            "merge is a reviewed commit) and no compromised admin session can silently disable the "
+            "controls: it can only open a PR a human must still merge. The org baseline "
+            "(baseline.*.deny / require_approval) can be tightened from the dashboard but never loosened — "
+            "a loosening proposal is refused before any PR is opened. Logic lives in "
+            "packages/governance/authoring.py; covered by tests/test_governance_authoring.py and the "
+            "STABLE-claim guard in tests/test_feature_matrix.py. Proposing requires a GitHub credential "
+            "(GH_PAT); without one the propose route reports that rather than pretending to queue a change."
+        ),
     },
     # ── Experimental → DISABLED (Section I demotions per issue #467) ────────
     # These features are demoted to DISABLED pending proper re-engineering:

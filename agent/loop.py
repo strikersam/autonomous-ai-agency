@@ -411,12 +411,23 @@ class AgentRunner:
         self._token_budget.set_cap(session_id, cap=cap)
         log.debug("Token budget set: session=%s cap=%d", session_id, cap)
 
-    def _record_tokens(self, session_id: str | None, prompt_tokens: int, completion_tokens: int) -> None:
+    def _record_tokens(
+        self,
+        session_id: str | None,
+        prompt_tokens: int,
+        completion_tokens: int,
+        model: str | None = None,
+    ) -> None:
         """Record token spend for *session_id* and enforce the budget cap.
 
         Logs a warning when 80 % of the budget is exhausted.
         Raises :class:`~agent.token_budget.BudgetExceededError` when 100 % is hit.
         Called after every LLM API call in :meth:`_chat_text`.
+
+        Also charges the governance session budget (``max_tokens`` and, when the
+        model's pricing is known, ``max_cost_usd``) so those two ceilings are
+        fed by real spend rather than sitting unreachable. Best-effort: a
+        governance charge never raises and never blocks token recording.
         """
         if not session_id:
             return
@@ -432,7 +443,108 @@ class AgentRunner:
                     "Token budget at %.0f%%: session=%s used=%d remaining=%d cap=%d",
                     pct_used, session_id, usage.total_tokens, usage.remaining, usage.cap,
                 )
+        self._charge_governance_llm(prompt_tokens, completion_tokens, model)
         self._token_budget.check(session_id)  # raises BudgetExceededError if over cap
+
+    def _charge_governance_llm(
+        self, prompt_tokens: int, completion_tokens: int, model: str | None
+    ) -> None:
+        """Feed LLM token/cost spend into the governance session budget.
+
+        Kept separate (and fully defensive) so the governance layer being off,
+        broken, or slow can never affect the agent loop. The identity resolves
+        to the same session ``_dispatch_tool`` guards against, so token/cost
+        accrue on the one budget the next guarded action will check.
+        """
+        try:
+            from packages.governance.enforcement import governance_enabled
+
+            if not governance_enabled():
+                return
+            from packages.governance.enforcement import (
+                get_gate,
+                resolve_identity_for_runner,
+            )
+
+            cost = 0.0
+            if model:
+                try:
+                    from packages.ai.cost_tracker import cost_for_tokens
+
+                    cost = cost_for_tokens(model, prompt_tokens, completion_tokens)
+                except Exception:  # noqa: BLE001 - pricing is best-effort
+                    cost = 0.0
+            get_gate().charge(
+                resolve_identity_for_runner(self),
+                tokens=int(prompt_tokens) + int(completion_tokens),
+                cost_usd=cost,
+            )
+        except Exception as exc:  # noqa: BLE001 - governance must not break the loop
+            log.debug("Governance LLM charge skipped: %s", exc)
+
+    def _charge_governance_depth(self, child_depth: int) -> str | None:
+        """Charge sub-agent nesting depth and enforce the ``max_depth`` ceiling.
+
+        Isolates the depth dimension: it returns a block reason only when the
+        depth ceiling itself is reached, never for an unrelated exhausted
+        dimension (those are the general guard's job, which already ran for the
+        ``spawn_subagent`` tool call). Respects the policy mode — observe logs a
+        would-block and returns ``None``; only enforce blocks — and audits the
+        decision either way. Best-effort; returns ``None`` on any failure.
+        """
+        try:
+            from packages.governance.enforcement import governance_enabled
+
+            if not governance_enabled():
+                return None
+            from packages.governance.enforcement import (
+                get_gate,
+                resolve_identity_for_runner,
+            )
+            from packages.governance.policy import (
+                Decision,
+                Mode,
+                Surface,
+                get_policy_engine,
+            )
+
+            identity = resolve_identity_for_runner(self)
+            gate = get_gate()
+            gate.charge(identity, depth=child_depth)  # record the high-water mark
+            engine = get_policy_engine()
+            ceiling = engine.limits_for(identity).get("max_depth", 0)
+            if not ceiling or child_depth < ceiling:
+                return None
+
+            enforcing = engine.mode is Mode.ENFORCE
+            reason = f"max_depth={child_depth} reached ceiling {ceiling:.4g}"
+            # Audit the decision (block in enforce, would-block in observe) so a
+            # depth limit shows up in the audit trail like any other verdict.
+            try:
+                from packages.governance.audit import events_from_identity, record_event
+
+                fields = events_from_identity(identity)
+                record_event(
+                    **fields,
+                    surface=Surface.AGENT.value,
+                    action="spawn_subagent",
+                    tool="spawn_subagent",
+                    arguments={"depth": child_depth},
+                    decision=Decision.DENY.value,
+                    effective=(Decision.DENY.value if enforcing else Decision.ALLOW.value),
+                    status="blocked" if enforcing else "would-block",
+                    rule_id="budget.session.max_depth",
+                )
+            except Exception as audit_exc:  # noqa: BLE001 - audit must not block
+                log.debug("Governance depth audit skipped: %s", audit_exc)
+
+            if enforcing:
+                return reason
+            log.info("[governance:observe] would block spawn_subagent: %s", reason)
+            return None
+        except Exception as exc:  # noqa: BLE001 - governance must not break the loop
+            log.debug("Governance depth charge skipped: %s", exc)
+            return None
 
     async def plan(
         self,
@@ -2142,7 +2254,7 @@ class AgentRunner:
                 except Exception:  # nosec B110 -- KPI tracking is best-effort
                     pass
             # ★3: enforce per-session token budget cap
-            self._record_tokens(self._current_session_id, pt_anth, ct_anth)
+            self._record_tokens(self._current_session_id, pt_anth, ct_anth, model=model)
             return out_text
 
         # ── Universal multi-provider failover ──────────────────────────────
@@ -2179,7 +2291,8 @@ class AgentRunner:
                 log.debug("Agent Langfuse emit failed: %s", exc)
         # ★3: enforce per-session token budget cap (raises BudgetExceededError if hit)
         self._record_tokens(
-            self._current_session_id, fo.prompt_tokens, fo.completion_tokens
+            self._current_session_id, fo.prompt_tokens, fo.completion_tokens,
+            model=getattr(fo, "model", None) or model,
         )
         return fo.text
 
@@ -2668,6 +2781,22 @@ class AgentRunner:
             return {"error": "spawn_subagent requires a non-empty instruction"}
         # Depth guard: prevent runaway recursive spawning (matches Claude Code 5-level cap).
         child_depth = self._depth + 1
+        # Governance max_depth is an independent ceiling from the hard
+        # MAX_SUBAGENT_DEPTH cap below: it is set per policy group, charged onto
+        # the session budget, and blocks the spawn when configured lower than the
+        # hard cap. Best-effort — a governance failure falls through to the hard
+        # cap rather than blocking legitimate work.
+        gov_depth_block = self._charge_governance_depth(child_depth)
+        if gov_depth_block:
+            log.warning(
+                "spawn_subagent blocked by governance at depth %d: %s",
+                child_depth, gov_depth_block,
+            )
+            return {
+                "error": f"spawn_subagent blocked by governance ({gov_depth_block})",
+                "depth": child_depth,
+                "instruction": instruction[:80],
+            }
         if child_depth > MAX_SUBAGENT_DEPTH:
             log.warning(
                 "spawn_subagent blocked at depth %d (MAX_SUBAGENT_DEPTH=%d): %r",
