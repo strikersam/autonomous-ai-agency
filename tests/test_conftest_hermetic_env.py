@@ -19,7 +19,6 @@ import pytest
 
 @pytest.mark.parametrize("var,expected", [
     ("TESTING", "true"),
-    ("STORAGE_BACKEND", "sqlite"),
     ("AGENCY_CEO_ENABLED", "false"),
     ("RUN_BACKGROUND_IN_WEB", "false"),
 ])
@@ -69,16 +68,28 @@ def test_no_test_module_reassigns_admin_email_at_import() -> None:
     )
 
 
-def test_store_is_not_mongo_backed() -> None:
-    """The resolved store must never be the Mongo one under test.
+def test_conftest_does_not_pin_storage_backend() -> None:
+    """conftest must NOT pin ``STORAGE_BACKEND=sqlite``.
 
-    Asserting on the concrete class (not just the env var) catches a
-    resolution-order regression in ``db/__init__.py`` that leaves the env var
-    correct but still hands back a Mongo store.
+    It looks like the obvious hermeticity fix and it is a trap. Routing the
+    whole suite through SQLiteStore leaks an unclosed aiosqlite connection
+    whose ``_connection_worker_thread`` is non-daemon and waits on its queue
+    forever, with no atexit handler to reap it: every test passes, then the
+    interpreter never exits. The CI test job declares no ``timeout-minutes``,
+    so it runs toward GitHub's 360-minute ceiling — measured at 51+ minutes
+    against master's 3m27s for the same step.
+
+    The workflows carry a `mongo:7` service instead. A thread-inspection test
+    cannot guard this (it would only see the threads alive at its own
+    execution moment), so this asserts the decision itself, and
+    ``pytest_sessionfinish`` in conftest reports any leak at the moment it
+    would actually bite.
     """
-    from db import get_store
+    from pathlib import Path
 
-    store = get_store()
-    assert type(store).__name__ != "MongoStore", (
-        "Tests resolved a MongoStore — the suite would dial a real MongoDB"
+    conftest = (Path(__file__).resolve().parent / "conftest.py").read_text(encoding="utf-8")
+    assert 'setdefault("STORAGE_BACKEND"' not in conftest, (
+        "conftest pins STORAGE_BACKEND — this hangs the suite at interpreter "
+        "exit via a non-daemon aiosqlite worker thread. Read the note in "
+        "conftest.py before re-adding it."
     )

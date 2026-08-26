@@ -23,6 +23,22 @@ jobs:
       contents: read
       issues: write
 
+    # Same MongoDB service `ci.yml` declares — see the matching note in
+    # agency-cycle.yml. Without it, pytest ran against no database, so the one
+    # test that reaches the real store raised ServerSelectionTimeoutError and
+    # this workflow filed a "CI: Failing Tests" issue every day (#1352) for a
+    # failure the PR gate never reproduced.
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' | grep -q 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 15
+
     steps:
       - uses: actions/checkout@v4
         with:
