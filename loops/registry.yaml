@@ -430,8 +430,8 @@ loops:
     pattern: dependency-sweeper
     level: L3
     trigger: schedule
-    cadence: on dependabot PR, plus a daily 07:00 UTC recovery sweep
-    runs_per_day: 1
+    cadence: on dependabot PR, plus an hourly recovery sweep
+    runs_per_day: 24
     cost: low
     source: .github/workflows/dependabot-auto-merge.yml
     self_heal: true
