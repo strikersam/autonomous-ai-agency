@@ -2,7 +2,6 @@ import os
 # Set the environment variable for MONGO_URL to a dummy value that we will mock
 os.environ.setdefault("MONGO_URL", "mongodb://localhost:27017")
 os.environ.setdefault("JWT_SECRET", "test-secret-for-tests-only")
-os.environ.setdefault("ADMIN_EMAIL", "admin@test.local")
 
 from unittest.mock import MagicMock, patch
 

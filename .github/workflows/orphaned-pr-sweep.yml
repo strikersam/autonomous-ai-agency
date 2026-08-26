@@ -1,0 +1,131 @@
+name: Orphaned Context PR Sweep
+
+# issue-context-generator.yml opens a DRAFT PR carrying a plan, and
+# process-quick-note.yml is meant to come back and implement it. But the
+# implementer only looks at *open* issues that are not quick-note:exhausted or
+# quick-note:rejected. The moment an issue is closed or exhausted, its draft PR
+# becomes unreachable — no workflow will ever look at it again, and nothing says
+# so out loud. Nine such PRs accumulated (#1318 #1323 #1327 #1332 #1348 #1351
+# #1353 #1357 #1359), every one of their issues closed and exhausted.
+#
+# This sweep is the missing return path. It does NOT blindly strip
+# quick-note:exhausted: that would undo the analysis gate in
+# analyze_exhaustion.py and send the loop straight back to grinding on work it
+# has already correctly judged unfixable. scripts/triage_orphaned_context_prs.py
+# holds the judgement and is unit-tested; this workflow is only the API glue.
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # daily at 06:00 UTC, an hour before the dependabot sweep
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Report what would change without touching anything"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: orphaned-pr-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: Recover stranded context PRs
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+
+      - name: Triage every open draft context PR
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        run: |
+          set -u
+
+          # Draft PRs only: a ready PR is already in the normal review flow.
+          BRANCHES=$(gh pr list --repo "$REPO" --state open --draft \
+                       --json headRefName --jq '.[].headRefName' \
+                     | grep -E '^claude/context-issue-[0-9]+$' || true)
+
+          if [ -z "$BRANCHES" ]; then
+            echo "No open draft context PRs — nothing stranded."
+            exit 0
+          fi
+
+          RECOVERED=0
+          SKIPPED=0
+
+          for BRANCH in $BRANCHES; do
+            # The grep above already guarantees claude/context-issue-<digits>,
+            # so the trailing segment is the issue number.
+            ISSUE="${BRANCH##*-}"
+            case "$ISSUE" in
+              ''|*[!0-9]*) echo "::warning::Could not parse an issue from $BRANCH"; continue ;;
+            esac
+
+            echo "::group::issue #$ISSUE ($BRANCH)"
+
+            # Non-fatal: a deleted or transferred issue must not abort the sweep.
+            if ! gh issue view "$ISSUE" --repo "$REPO" \
+                   --json state,labels,comments > /tmp/issue.json 2>/dev/null; then
+              echo "::warning::issue #$ISSUE unreadable — skipping"
+              echo "::endgroup::"
+              continue
+            fi
+
+            DECISION=$(python scripts/triage_orphaned_context_prs.py /tmp/issue.json)
+            ACTION=$(echo "$DECISION" | python -c 'import json,sys; print(json.load(sys.stdin)["action"])')
+            REASON=$(echo "$DECISION" | python -c 'import json,sys; print(json.load(sys.stdin)["reason"])')
+            echo "decision: $ACTION — $REASON"
+
+            if [ "$DRY_RUN" = "true" ]; then
+              echo "(dry run — no changes)"
+              echo "::endgroup::"
+              continue
+            fi
+
+            case "$ACTION" in
+              reopen)
+                gh issue reopen "$ISSUE" --repo "$REPO" 2>/dev/null || true
+                gh issue edit "$ISSUE" --repo "$REPO" \
+                  --remove-label "quick-note:exhausted" 2>/dev/null || true
+                gh issue comment "$ISSUE" --repo "$REPO" --body \
+                  "♻️ Reopened by the orphaned-PR sweep: $REASON. Its draft plan PR is still open on \`$BRANCH\`, so the implementer can pick this up again." \
+                  2>/dev/null || true
+                RECOVERED=$((RECOVERED + 1)) ;;
+              clear-exhausted)
+                gh issue edit "$ISSUE" --repo "$REPO" \
+                  --remove-label "quick-note:exhausted" 2>/dev/null || true
+                gh issue comment "$ISSUE" --repo "$REPO" --body \
+                  "♻️ \`quick-note:exhausted\` cleared by the orphaned-PR sweep: $REASON. It gets one fair re-run now that exhaustion requires a recorded analysis." \
+                  2>/dev/null || true
+                RECOVERED=$((RECOVERED + 1)) ;;
+              *)
+                SKIPPED=$((SKIPPED + 1)) ;;
+            esac
+            echo "::endgroup::"
+          done
+
+          {
+            echo "### Orphaned context PR sweep"
+            echo ""
+            echo "- Recovered: **${RECOVERED}**"
+            echo "- Left alone: **${SKIPPED}**"
+            echo ""
+            echo "Skips are deliberate: an exhaustion backed by a recorded analysis, or a \`quick-note:rejected\` decision, is a judgement that should stand."
+          } >> "$GITHUB_STEP_SUMMARY"
