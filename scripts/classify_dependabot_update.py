@@ -43,7 +43,14 @@ import re
 import sys
 from pathlib import Path
 
-__all__ = ["classify", "is_auto_mergeable", "parse_version", "MAJOR", "UNKNOWN"]
+__all__ = [
+    "classify",
+    "classify_pull_request",
+    "is_auto_mergeable",
+    "parse_version",
+    "MAJOR",
+    "UNKNOWN",
+]
 
 MAJOR = "major"
 MINOR = "minor"
@@ -108,6 +115,25 @@ def classify(branch: str, commit_message: str) -> str:
     return compare_versions(old, new)
 
 
+def classify_pull_request(pr: dict) -> str:
+    """Classify a PR from ``gh pr view --json headRefName,commits`` output.
+
+    Reads *every* commit, not just the newest. The sweep's own
+    ``gh pr update-branch`` appends "Merge branch 'master' into ..." commits,
+    which carry no compare link — so looking only at the head commit returns
+    ``unknown`` for a PR the sweep had itself updated, and ``unknown`` is not
+    auto-mergeable. That would leave the recovery path unable to arm anything
+    it touched, and would say so in a log line that reads like a deliberate
+    safety decision. Confirmed on PR #1342: boto3 1.43.71 -> 1.43.77, a patch,
+    read as ``unknown`` under three merge commits.
+    """
+    commits = pr.get("commits") or []
+    message = "\n".join(
+        f"{c.get('messageHeadline', '')}\n{c.get('messageBody', '')}" for c in commits
+    )
+    return classify(pr.get("headRefName", ""), message)
+
+
 def is_auto_mergeable(update_type: str) -> bool:
     """Only a verdict we actually reached permits an unattended merge."""
     return update_type in _AUTO_MERGEABLE
@@ -124,13 +150,7 @@ def main(argv: list[str] | None = None) -> int:
     raw = sys.stdin.read() if args.pr_json == "-" else Path(args.pr_json).read_text(
         encoding="utf-8"
     )
-    data = json.loads(raw)
-    commits = data.get("commits") or []
-    message = commits[-1].get("messageBody", "") if commits else ""
-    if commits:
-        message = f"{commits[-1].get('messageHeadline', '')}\n{message}"
-
-    print(classify(data.get("headRefName", ""), message))
+    print(classify_pull_request(json.loads(raw)))
     return 0
 
 

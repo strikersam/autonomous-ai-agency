@@ -128,6 +128,64 @@ class TestRealStrandedPullRequests:
         assert classify("dependabot/pip/reportlab-gte-5.0.1-and-lt-6", message) == UNKNOWN
 
 
+class TestUpdatedBranchesStayClassifiable:
+    """The sweep's own `update-branch` appends merge commits to the PR.
+
+    Reading only the newest commit therefore reads "Merge branch 'master'
+    into ..." — no compare link, verdict `unknown`, and `unknown` is not
+    auto-mergeable. That would leave the sweep unable to arm any PR it had
+    itself updated: the recovery path dead, and silently, because the log
+    would read like a deliberate safety decision rather than a defect.
+
+    Taken verbatim from PR #1342 (boto3, a patch bump) after three
+    update-branch passes left `5c71ac5` buried under three merge commits.
+    """
+
+    UPDATED_PR = {
+        "headRefName": "dependabot/pip/boto3-gte-1.43.77",
+        "commits": [
+            {
+                "messageHeadline": "chore(deps): update boto3 requirement",
+                "messageBody": (
+                    "Updates the requirements on [boto3](https://github.com/boto/boto3).\n"
+                    "- [Commits](https://github.com/boto/boto3/compare/1.43.71...1.43.77)\n"
+                ),
+            },
+            {
+                "messageHeadline": "Merge branch 'master' into dependabot/pip/boto3-gte-1.43.77",
+                "messageBody": "",
+            },
+            {
+                "messageHeadline": "Merge branch 'master' into dependabot/pip/boto3-gte-1.43.77",
+                "messageBody": "",
+            },
+        ],
+    }
+
+    def test_compare_link_survives_merge_commits_on_top(self) -> None:
+        from scripts.classify_dependabot_update import classify_pull_request
+
+        assert classify_pull_request(self.UPDATED_PR) == PATCH
+
+    def test_verdict_is_unchanged_by_how_many_times_it_was_updated(self) -> None:
+        from scripts.classify_dependabot_update import classify_pull_request
+
+        pristine = {
+            "headRefName": self.UPDATED_PR["headRefName"],
+            "commits": self.UPDATED_PR["commits"][:1],
+        }
+        assert classify_pull_request(pristine) == classify_pull_request(self.UPDATED_PR)
+
+    def test_merge_commits_alone_are_still_unknown(self) -> None:
+        """Losing the dependabot commit entirely must not fabricate a verdict."""
+        from scripts.classify_dependabot_update import classify_pull_request
+
+        assert classify_pull_request({
+            "headRefName": "dependabot/pip/boto3-gte-1.43.77",
+            "commits": self.UPDATED_PR["commits"][1:],
+        }) == UNKNOWN
+
+
 class TestAutoMergeGate:
     @pytest.mark.parametrize("update_type", [GROUP, MINOR, PATCH])
     def test_reached_and_safe_verdicts_may_merge(self, update_type: str) -> None:
