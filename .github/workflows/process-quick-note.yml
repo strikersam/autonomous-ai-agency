@@ -36,6 +36,30 @@ jobs:
   process:
     runs-on: ubuntu-latest
 
+    # ── MongoDB, for the same reason ci.yml has always had one ──────────────
+    # `implement_agent.py` refuses to accept IMPLEMENTATION_COMPLETE unless the
+    # last pytest exited 0 (see its `last_pytest_passed` gate). Without a Mongo
+    # here, `tests/test_auth_me_regression.py` errors with
+    # ServerSelectionTimeoutError on localhost:27017, `pytest -x` stops there,
+    # and that gate can never be satisfied — so this workflow could not report
+    # success on *any* issue, no matter what the agent wrote. Every run ended in
+    # the retry handler, and the backlog never moved.
+    #
+    # tests/conftest.py already names this defect: the fix is the service, not a
+    # STORAGE_BACKEND pin (which hangs the suite on a leaked aiosqlite thread).
+    # It was applied to agency-cycle.yml and continuous-improvement.yml and
+    # never reached the workflow that actually does the implementing.
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' | grep -q 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 15
+
     steps:
       # ── 1. Checkout ───────────────────────────────────────────────────────
       - uses: actions/checkout@v4
@@ -755,6 +779,7 @@ jobs:
       # had a transient hiccup — in that case pr_number is set and no failure
       # occurred.
       - name: Handle failure — reopen for retry
+        id: retry
         if: >
           always() &&
           steps.pick.outputs.found == 'true' &&
@@ -880,3 +905,36 @@ jobs:
           MSG
           )"
           fi
+
+      # ── 15. Fail loudly when the run produced nothing ──────────────────────
+      # The retry handler above bookkeeps a barren run — bumps the retry label,
+      # reopens the issue, comments — and then the job ends green, because every
+      # step that would have failed was *skipped* rather than failed. A run that
+      # implemented nothing is indistinguishable in the Actions list from one
+      # that shipped a PR.
+      #
+      # That is how this went unnoticed for weeks: run 33056034069 showed the
+      # agentic loop "succeed", steps 13–25 skipped, the retry handler bump
+      # #1319 to retry:2, and a green tick on the job. Nine issues accumulated
+      # behind a workflow that looked healthy on every single run.
+      #
+      # Placed last and gated on the retry handler's own outcome, so the label
+      # bookkeeping still completes before the job goes red. Skipped runs (no
+      # issue to pick up) stay green — there is nothing wrong with an idle tick.
+      - name: Fail loudly — implementer produced no change
+        if: always() && steps.retry.outcome == 'success'
+        env:
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
+          IMPL_SUCCESS: ${{ steps.implement.outputs.success }}
+          TESTS_PASSED: ${{ steps.tests.outputs.passed }}
+          CHANGED: ${{ steps.commit.outputs.changed }}
+        run: |
+          echo "::error title=Implementer produced no change::Issue #${ISSUE_NUM} was picked up but no pull request was opened and no code was committed."
+          echo "  agentic loop reported success : ${IMPL_SUCCESS:-<not reached>}"
+          echo "  pytest passed                 : ${TESTS_PASSED:-<not reached>}"
+          echo "  files changed                 : ${CHANGED:-<not reached>}"
+          echo ""
+          echo "The issue has been reopened and its retry counter bumped, but nothing was"
+          echo "implemented. This job is red on purpose: a barren run must not look like a"
+          echo "successful one in the Actions list."
+          exit 1
