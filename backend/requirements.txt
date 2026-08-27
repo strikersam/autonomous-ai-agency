@@ -1,9 +1,9 @@
 fastapi>=0.141.1
-uvicorn[standard]>=0.52.3
+uvicorn[standard]>=0.52.4
 motor>=3.7.1
 pymongo>=4.17.0
 pydantic>=2.13.4
-python-dotenv>=1.2.2
+python-dotenv>=1.2.3
 httpx>=0.28.1
 bcrypt>=5.0.0
 PyJWT>=2.13.0
@@ -15,7 +15,7 @@ cryptography>=50.0.0
 aiosqlite>=0.22.1  # SQLite async adapter for STORAGE_BACKEND=sqlite
 
 beautifulsoup4>=4.14.3
-lxml>=6.1.1           # HTML parser for BeautifulSoup (seo_audit.py uses bs4 "lxml" feature)
+lxml>=6.1.2           # HTML parser for BeautifulSoup (seo_audit.py uses bs4 "lxml" feature)
 
 # Website-scanner detection deps. These MUST stay in sync with the scanner's
 # imports in services/scanner.py — the production image installs THIS file
