@@ -36,6 +36,24 @@ jobs:
       issues: write
       actions: read
 
+    # ── MongoDB, matching ci.yml ────────────────────────────────────────────
+    # This job verifies its candidate patch with a full `pytest` run and
+    # abandons the fix on any failure (`status=verify_failed`). With no Mongo,
+    # `tests/test_auth_me_regression.py` errors on localhost:27017 and that
+    # verification fails for every patch, however correct — so the autofix loop
+    # could never ship one. Same defect tests/conftest.py records for
+    # agency-cycle.yml and continuous-improvement.yml.
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' | grep -q 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 15
+
     # All values derived from the triggering workflow_run are placed here.
     # They are read inside run: steps via $VAR (shell), never via ${{ }}.
     env:
@@ -91,6 +109,23 @@ jobs:
               2>/dev/null | tail -200 > /tmp/ci_log.txt || true
           fi
           touch /tmp/ci_log.txt
+
+      # Belt and braces alongside the service health check, matching ci.yml.
+      # A pytest that starts a moment too early reproduces the exact defect this
+      # service exists to fix, and does so silently — the log line is what makes
+      # the difference visible next time.
+      - name: Wait for MongoDB
+        run: |
+          for i in {1..30}; do
+            if nc -z localhost 27017; then
+              printf '\u2713 MongoDB is reachable on localhost:27017\n'
+              exit 0
+            fi
+            echo "Waiting for MongoDB... ($i/30)"
+            sleep 2
+          done
+          echo "::error::MongoDB did not become reachable within 60s"
+          exit 1
 
       - name: Reproduce failure on master + branch diff
         id: reproduce
