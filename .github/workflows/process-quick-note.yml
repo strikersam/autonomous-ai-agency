@@ -270,6 +270,24 @@ jobs:
           pip install -r requirements.txt --quiet || pip install -r requirements.txt --no-deps --quiet || true
 
       # ── 6. Fetch URL content (multi-strategy) ─────────────────────────────
+      # Belt and braces alongside the service health check, matching ci.yml.
+      # A pytest that starts a moment too early reproduces the exact defect this
+      # service exists to fix, and does so silently — the log line is what makes
+      # the difference visible next time.
+      - name: Wait for MongoDB
+        if: steps.pick.outputs.found == 'true' && steps.auto_test.outputs.is_automation_test != 'true'
+        run: |
+          for i in {1..30}; do
+            if nc -z localhost 27017; then
+              printf '\u2713 MongoDB is reachable on localhost:27017\n'
+              exit 0
+            fi
+            echo "Waiting for MongoDB... ($i/30)"
+            sleep 2
+          done
+          echo "::error::MongoDB did not become reachable within 60s"
+          exit 1
+
       - name: Fetch URL content
         id: fetch
         if: steps.pick.outputs.found == 'true' && steps.auto_test.outputs.is_automation_test != 'true'

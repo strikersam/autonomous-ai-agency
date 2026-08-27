@@ -186,3 +186,36 @@ class TestEveryFullSuiteJobHasMongo:
             "unsatisfiable — which is exactly how the implementer spent weeks "
             "reporting success while shipping nothing."
         )
+
+
+class TestMongoIsReadyBeforeAnyPytest:
+    """A pytest that starts a moment early reproduces the very defect the
+    service exists to prevent — and does so silently, which is what made this
+    expensive to find. The wait step must come first."""
+
+    @pytest.mark.parametrize(
+        "workflow",
+        ["process-quick-note.yml", "ci-failure-autofix.yml"],
+    )
+    def test_wait_precedes_every_pytest(self, workflow: str) -> None:
+        path = REPO_ROOT / ".github/workflows" / workflow
+        spec = yaml.safe_load(path.read_text(encoding="utf-8"))
+        job = next(iter(spec["jobs"].values()))
+        steps = job["steps"]
+
+        waits = [
+            i for i, s in enumerate(steps)
+            if "Wait for MongoDB" in s.get("name", "")
+        ]
+        assert waits, f"{workflow} has no MongoDB readiness step"
+
+        # `implement_agent.py` shells out to pytest, so it counts too.
+        runners = [
+            i for i, s in enumerate(steps)
+            if "pytest" in s.get("run", "") or "implement_agent" in s.get("run", "")
+        ]
+        assert runners, f"{workflow} was expected to run pytest somewhere"
+        assert waits[0] < min(runners), (
+            f"{workflow} runs pytest at step {min(runners)} before waiting for "
+            f"MongoDB at step {waits[0]}"
+        )
