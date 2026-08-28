@@ -1,8 +1,8 @@
 # Next Action
 
-_Updated 2026-08-28._
+_Updated 2026-08-29._
 
-## Nothing is blocked on an agent. Two things need a human.
+## Nothing is blocked on an agent. Four things need a human.
 
 ### 0. NVIDIA models — resolved, with one measurement still missing
 
@@ -60,6 +60,45 @@ none of it is fixable from a session:
 disabled by hand and a comment posted. Rule 40 reserves a breaking dependency
 upgrade for a person. Green CI is necessary but not sufficient — the risk is the
 breaking change the suite does not cover.
+
+### 3. The loop implemented an issue a previous PR had rejected as out of scope
+
+The first fully successful autonomous run (run 33204279915, 39 min, issue #1356)
+worked end to end — implement, pytest, PR, review bots, apply review, council,
+draft→ready, squash-merge, close issue — and produced `b368f9e7` on master:
+~1,200 lines of SEO-to-portfolio bridging (`agents/seo_portfolio_bridge.py`,
+three new endpoints in `backend/seo_api.py`, 13 tests).
+
+The machinery is proven. Whether it built the right thing is a separate
+question, and the record says probably not: **PR #1357 concluded that exact
+issue was out of scope for this repository.** The loop implemented it anyway.
+Nothing in the pipeline reads a prior rejection.
+
+Two defects in the output were fixed on
+`claude/render-bottleneck-alternatives-sv8aj1` (tracker row 42); one was not:
+
+- **Rule 28 is unmet in `b368f9e7`.** `build_seo_roadmap` (74 lines),
+  `plan_seo_sprint` (83), `run_seo_pipeline` (114), and three functions in
+  `agents/seo_portfolio_bridge.py` (52/57/78) all exceed the 50-line limit, and
+  `backend/seo_api.py` went from 381 to 756 lines against the 800-line cap.
+  Refactoring merged code is behaviour-touching work under rule 1 and needs its
+  own change, not a rider on a workflow fix.
+
+What the audit *did* clear: rule 10 (all three endpoints take
+`Depends(_get_current_user_thunk)` and then `get_company_access`, so another
+company's audit answers 404) and rule 11 (Pydantic v2 request models with
+`Field` constraints, `response_model` on every route).
+
+### 4. The queue is not ordered the way the loop's purpose implies
+
+`process-quick-note.yml` picks the **oldest open issue** excluding
+`quick-note:exhausted` / `quick-note:rejected` — it is not filtered to
+quick-notes. Four "Agency: Cannot Fix Tests" escalations (#1312, #1319, #1328,
+#1349) therefore sit at the head of the queue ahead of real work, and each one
+burns three attempts (~12h) before it is labelled exhausted. Changing this is a
+queue-policy decision, so it is reported rather than done: either label the
+escalations `quick-note:rejected`, or narrow the selector to issues carrying a
+quick-note label.
 
 ## Running unattended, no action needed
 
