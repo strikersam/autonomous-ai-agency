@@ -514,7 +514,14 @@ jobs:
           ISSUE_TASK: ${{ steps.issue.outputs.task }}
           BRANCH: ${{ steps.branch.outputs.branch }}
         run: |
-          echo "${GH_TOKEN}" | gh auth login --with-token
+          # This step must NOT re-authenticate the CLI. gh already reads
+          # GH_TOKEN from the environment, and asking it to store a token while
+          # that variable is set is refused outright ("The value of the GH_TOKEN
+          # environment variable is being used for authentication"), which exits
+          # non-zero. That killed this step in under a second in run
+          # 33148970679 — after the agent had worked 34 minutes, passed its
+          # tests and pushed a real commit. The other seventeen steps here just
+          # set GH_TOKEN and call gh; every one of them works.
           IMPL_SUMMARY=$(python3 -c "
           import json, sys
           try:

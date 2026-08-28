@@ -259,3 +259,29 @@ class TestTheAgentRunsCurrentCode:
         assert run.count("origin/master") >= 2, (
             "the conflict path must also base itself on master"
         )
+
+
+class TestGhIsNotReAuthenticated:
+    """`gh auth login --with-token` fails when GH_TOKEN is already set.
+
+    gh refuses: "The value of the GH_TOKEN environment variable is being used
+    for authentication. To have GitHub CLI store credentials instead, first
+    clear the value from the environment." That is a non-zero exit, so the step
+    dies before it does anything.
+
+    It killed "Create pull request" in run 33148970679 in under a second, after
+    the agent had worked for 34 minutes, passed its tests, and pushed a real
+    commit. Seventeen other steps in this workflow set GH_TOKEN and call gh
+    directly; only that one re-authenticated, and only that one failed.
+    """
+
+    def test_no_step_re_authenticates_gh(self, workflow_text: str) -> None:
+        assert "gh auth login" not in workflow_text, (
+            "gh reads GH_TOKEN from the environment; logging in again fails "
+            "outright when it is set"
+        )
+
+    def test_the_pr_step_still_gets_a_token(self, job: dict) -> None:
+        """Removing the login must not remove the credential."""
+        step = _step(job, "Create pull request")
+        assert "GH_TOKEN" in (step.get("env") or {})
