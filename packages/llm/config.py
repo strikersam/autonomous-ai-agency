@@ -506,7 +506,7 @@ _ENV_PROVIDERS: tuple[tuple[str, str, str, str, str, str, int, str, str], ...] =
     ("litellm",   "openai",    "LITELLM_BASE_URL",   "",                       "LITELLM_API_KEY",  "local",   18, "LITELLM_DEFAULT_MODEL",  ""),
     ("cerebras",  "openai",    "CEREBRAS_BASE_URL",  "https://api.cerebras.ai/v1", "CEREBRAS_API_KEY", "free", 20, "CEREBRAS_DEFAULT_MODEL", "qwen-3-coder-480b"),
     ("groq",      "openai",    "GROQ_BASE_URL",      "https://api.groq.com/openai/v1", "GROQ_API_KEY", "free", 22, "GROQ_DEFAULT_MODEL",   "llama-3.3-70b-versatile"),
-    ("nvidia",    "openai",    "NVIDIA_BASE_URL",    "https://integrate.api.nvidia.com/v1", "NVIDIA_API_KEY", "free", 24, "NVIDIA_DEFAULT_MODEL", "nvidia/nemotron-3-ultra-550b-a55b"),
+    ("nvidia",    "openai",    "NVIDIA_BASE_URL",    "https://integrate.api.nvidia.com/v1", "NVIDIA_API_KEY", "free", 24, "NVIDIA_DEFAULT_MODEL", "nvidia/nemotron-3-super-120b-a12b"),
     ("google",    "gemini",    "GEMINI_BASE_URL",    "https://generativelanguage.googleapis.com/v1beta", "GEMINI_API_KEY", "free", 26, "GEMINI_DEFAULT_MODEL", "gemini-2.5-flash"),
     ("openrouter","openai",    "OPENROUTER_BASE_URL","https://openrouter.ai/api/v1", "OPENROUTER_API_KEY", "cheap", 40, "OPENROUTER_DEFAULT_MODEL", ""),
     ("together",  "openai",    "TOGETHER_BASE_URL",  "https://api.together.xyz/v1", "TOGETHER_API_KEY", "cheap", 42, "TOGETHER_DEFAULT_MODEL", ""),

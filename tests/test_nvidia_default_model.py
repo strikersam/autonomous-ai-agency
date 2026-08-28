@@ -24,13 +24,22 @@ SETTINGS = REPO_ROOT / "packages/config/settings.py"
 # Observed returning 410/404 in the 2026-08-27 implementer logs.
 RETIRED = [
     "meta/llama-3.3-70b-instruct",
+    # Listed in NVIDIA's catalogue and returns 404 when called. It was briefly
+    # the default here on the strength of the listing alone — which is the
+    # mistake this file exists to prevent, made inside the fix for it.
+    "nvidia/nemotron-3-ultra-550b-a55b",
+    "z-ai/glm-5.2",
+    "z-ai/glm-5.1",
     "nvidia/llama-3.3-nemotron-super-49b-v1.5",
     "nvidia/llama-3.1-nemotron-ultra-253b-v1",
     "qwen/qwen3-coder-480b-a35b-instruct",
     "qwen/qwen2.5-coder-32b-instruct",
 ]
 
-EXPECTED = "nvidia/nemotron-3-ultra-550b-a55b"
+# The one NVIDIA id proven to answer a live completion (2026-08-28,
+# catalogue-probe run 33192841180). Not "the one the docs name" — the one
+# that returned HTTP 200 with text.
+EXPECTED = "nvidia/nemotron-3-super-120b-a12b"
 
 
 def _nvidia_default(source: str, anchor: str) -> str:
@@ -68,7 +77,7 @@ class TestTheStaticFloorLeadsWithVerifiedIds:
     """
 
     FLOOR = REPO_ROOT / ".github/scripts/nvidia_models.py"
-    FALLBACK = "nvidia/nemotron-3-super-120b-a12b"
+    FALLBACK = "mistralai/mistral-nemotron"
 
     def _floor_ids(self) -> list[str]:
         source = self.FLOOR.read_text(encoding="utf-8")

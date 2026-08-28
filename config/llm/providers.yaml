@@ -133,7 +133,7 @@ providers:
     weight: 1.0
     max_concurrency: 6
     requests_per_minute: 40
-    default_model: ${NVIDIA_DEFAULT_MODEL:-nvidia/nemotron-3-ultra-550b-a55b}
+    default_model: ${NVIDIA_DEFAULT_MODEL:-nvidia/nemotron-3-super-120b-a12b}
     notes: The always-on free floor. Kept last among free tiers on purpose.
 
   google:

@@ -181,16 +181,16 @@ _VALID_STEP_TYPES: frozenset[str] = frozenset({"edit", "create", "github", "anal
 DEFAULT_PLANNER_MODEL = (
     os.environ.get("AGENT_PLANNER_MODEL")
     or os.environ.get("NVIDIA_DEFAULT_MODEL")
-    or "nvidia/nemotron-3-ultra-550b-a55b"
+    or "nvidia/nemotron-3-super-120b-a12b"
 )
 DEFAULT_EXECUTOR_MODEL = (
     os.environ.get("AGENT_EXECUTOR_MODEL")
-    or "nvidia/nemotron-3-ultra-550b-a55b"
+    or "nvidia/nemotron-3-super-120b-a12b"
 )
 DEFAULT_VERIFIER_MODEL = (
     os.environ.get("AGENT_VERIFIER_MODEL")
     or os.environ.get("NVIDIA_DEFAULT_MODEL")
-    or "nvidia/nemotron-3-ultra-550b-a55b"
+    or "nvidia/nemotron-3-super-120b-a12b"
 )
 # Default judge model — historically fell through to ``DEFAULT_VERIFIER_MODEL``.
 # Promoted to a named constant so the call-time resolver can route it through
@@ -2020,7 +2020,7 @@ class AgentRunner:
                 _base = (os.environ.get("NVIDIA_BASE_URL") or "").strip().rstrip("/") or "https://integrate.api.nvidia.com"
                 if not _base.endswith("/v1"):
                     _base = f"{_base}/v1"
-                _model = (os.environ.get("NVIDIA_DEFAULT_MODEL") or "").strip() or "nvidia/nemotron-3-ultra-550b-a55b"
+                _model = (os.environ.get("NVIDIA_DEFAULT_MODEL") or "").strip() or "nvidia/nemotron-3-super-120b-a12b"
                 return _base, {"Authorization": f"Bearer {_key}"}, _model
         _paid_allowed = _allow_paid_brain_fn()
         if (not _paid_allowed) and (_is_anthropic_model(model) or provider_is_anthropic):
