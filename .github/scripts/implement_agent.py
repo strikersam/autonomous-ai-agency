@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 """
-Agentic implementation loop using NVIDIA NIM (OpenAI-compatible tool use).
+Agentic implementation loop (OpenAI-compatible tool use via ProviderRouter).
 
 Reads URL content + task from args, loads repo context (CLAUDE.md + skills),
 and runs a plan → implement → test cycle with real file editing and bash
-execution via OpenAI function-calling against the NVIDIA NIM API.
+execution through ``packages/ai/router.py`` (CLAUDE.md rule 2).
+
+This script used to hold its own six-entry NVIDIA model list and its own
+failover. That is precisely why the agency stopped producing work: on
+2026-08-26 the last live entries reached end-of-life, every candidate answered
+``410 Gone``, and the loop died on turn 1 with nothing else to try. The router
+already owns the Cerebras → Groq → NVIDIA → Ollama chain *and* rule 4's
+410 handling, so a retired model now costs one request instead of the agency.
 
 Usage:
   python implement_agent.py <url> <issue_num> <task>
@@ -14,6 +21,7 @@ Writes /tmp/impl_result.json with {"success": bool, "summary": str}
 """
 
 
+import asyncio
 import json
 import logging
 import os
@@ -22,11 +30,13 @@ import sys
 import textwrap
 import time
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Repo root, so `packages.ai.router` imports the same router the rest of the
+# platform uses rather than this script growing a second one.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from slop_gate import is_destructive_overwrite, looks_like_secret_file  # noqa: E402
-
-from openai import OpenAI
 
 # CLI script: log to stdout so messages stay visible and ordered in CI logs.
 logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
@@ -61,19 +71,14 @@ ISSUE_COMMENTS_RAW = _load_optional(_args.comments_file)
 RESULT_FILE = "/tmp/impl_result.json"  # nosec: B108 - Predictable temp file path used for backward compatibility; secure temp file used internally
 MAX_TURNS = 120
 
-# Primary engine: NVIDIA NIM free-tier models (the real workhorse).
-# Optional fallback: Claude Opus via Anthropic, used only if NVIDIA fails and a key is set.
 OPUS_MODEL = "claude-opus-4-6"
-NVIDIA_CANDIDATE_MODELS = [
-    ("qwen/qwen3-coder-480b-a35b-instruct",      "coding (Qwen3-Coder 480B — primary)"),
-    ("nvidia/llama-3.1-nemotron-ultra-253b-v1", "reasoning (Nemotron Ultra 253B)"),
-    ("nvidia/llama-3.3-nemotron-super-49b-v1.5",  "reasoning (Nemotron Super 49B)"),
-    ("meta/llama-3.3-70b-instruct",             "coding (Llama 3.3 70B)"),
-    ("qwen/qwen2.5-coder-32b-instruct",         "coding (Qwen2.5 Coder 32B)"),
-    ("qwen/qwen3-coder-480b-a35b-instruct",     "coding (Qwen3-Coder 480B — last resort)"),
-]
-# Keep old name as alias
-CANDIDATE_MODELS = NVIDIA_CANDIDATE_MODELS
+
+# No model list lives here any more. The six hardcoded NVIDIA ids this replaced
+# were, by 2026-08-27, all dead — four `410 Gone` (two retired on 2026-08-26)
+# and one `404` — so the loop exhausted every candidate on turn 1 and the whole
+# agency went quiet while its workflow still reported success. Model choice
+# belongs to the router, which reads each provider's `default_model` and skips
+# ids already flagged dead by a prior 410. This script names no model at all.
 
 
 # ---------------------------------------------------------------------------
@@ -502,15 +507,81 @@ def _run_anthropic_agent_loop(anthropic_key: str, user_msg: str) -> tuple[bool, 
 
 
 # ---------------------------------------------------------------------------
+# Provider routing
+# ---------------------------------------------------------------------------
+def build_tool_calling_router() -> Any | None:
+    """Return a router limited to providers that pass ``tools`` through intact.
+
+    The type filter is not incidental. ``ProviderRouter`` rewrites the payload
+    for three provider types on the way out — ``anthropic`` via
+    ``_anthropic_payload``, ``bedrock`` via ``_openai_to_bedrock_converse``, and
+    ``ollama``'s native ``/api/chat`` retry — and none of those converters carry
+    a ``tools`` field. Routing a tool-calling turn through one would not error:
+    it would drop every tool definition and leave the agent describing edits it
+    can no longer make. Only ``openai-compatible`` providers forward the payload
+    verbatim, so only those are eligible here.
+
+    Returns ``None`` when no such provider is configured, so the caller can say
+    so plainly instead of failing somewhere further down.
+    """
+    try:
+        from packages.ai.router import ProviderRouter
+    except Exception as exc:  # pragma: no cover - import-environment dependent
+        print(f"ERROR: could not import ProviderRouter: {exc}", file=sys.stderr)
+        return None
+
+    providers = [
+        provider
+        for provider in ProviderRouter.from_env().providers
+        if provider.type == "openai-compatible"
+    ]
+    if not providers:
+        return None
+
+    log.info(
+        "[agent] Tool-calling providers: %s",
+        ", ".join(p.provider_id for p in providers),
+    )
+    return ProviderRouter(providers)
+
+
+def router_turn(router: Any, messages: list[dict]) -> dict:
+    """Run one tool-calling turn and return the raw OpenAI-shaped body.
+
+    ``model`` is deliberately absent: ``_candidate_models()`` then falls back to
+    each provider's own ``default_model`` and drops any id a previous ``410``
+    marked dead. Naming a model here is what created the outage this replaced.
+
+    ``temperature`` is deliberately absent too. ``packages/ai/response_cache.py``
+    keys on (model, messages, temperature, max_tokens, stop) — *not* on tools —
+    and engages only at ``temperature == 0``. Omitting it keeps the cache out of
+    the loop entirely; a cached hit here would replay a stale tool call.
+
+    ``allow_commercial_fallback=False`` preserves the standing rule that this
+    loop never escalates to a paid provider behind the operator's back.
+    """
+    payload = {
+        "messages": messages,
+        "tools": TOOLS,
+        "tool_choice": "auto",
+        "max_tokens": 8192,
+    }
+    result = asyncio.run(
+        router.chat_completion(payload, allow_commercial_fallback=False)
+    )
+    return result.response.json()
+
+
+# ---------------------------------------------------------------------------
 # Main agent loop
 # ---------------------------------------------------------------------------
 def main() -> None:
-    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    nvidia_key = os.environ.get("NVIDIA_API_KEY", "")
-
-    if not anthropic_key and not nvidia_key:
-        print("ERROR: neither ANTHROPIC_API_KEY nor NVIDIA_API_KEY set", file=sys.stderr)
-        sys.exit(1)
+    # No key check here on purpose. This used to demand ANTHROPIC_API_KEY or
+    # NVIDIA_API_KEY specifically, which would have refused to start on a box
+    # configured with Cerebras or Groq alone — the same "one provider is the
+    # world" assumption that took the agency down. The router reads whatever
+    # keys are present and build_tool_calling_router() reports it plainly when
+    # none of them can carry a tool call.
 
     note_path = Path("/tmp/note_content.txt")  # nosec: B108
     url_content = note_path.read_text() if note_path.exists() else ""
@@ -574,13 +645,19 @@ def main() -> None:
     success = False
     summary = "No implementation performed"
     turns = 0
-    final_model = NVIDIA_CANDIDATE_MODELS[0][0]
+    final_model = "(no provider attempted)"
 
-    # Primary engine: NVIDIA NIM. Opus-via-Anthropic is only an optional fallback
-    # (the Opus/Bedrock path is unreliable here), so NVIDIA does the real work.
-    if nvidia_key:
-        log.info("[agent] Using NVIDIA NIM as the primary engine")
-        client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=nvidia_key)
+    # Every call goes through ProviderRouter (rule 2), which owns the
+    # Cerebras → Groq → NVIDIA → Ollama chain and rule 4's 410 handling.
+    router = build_tool_calling_router()
+    if router is None:
+        print(
+            "ERROR: no openai-compatible provider is configured. Set at least one "
+            "provider key (CEREBRAS_API_KEY, GROQ_API_KEY, NVIDIA_API_KEY, ...) — "
+            "the anthropic/bedrock/ollama-native paths cannot carry tool calls.",
+            file=sys.stderr,
+        )
+    else:
 
         messages: list[dict] = [
             {"role": "system", "content": SYSTEM},
@@ -588,73 +665,70 @@ def main() -> None:
         ]
 
         last_pytest_passed = False
-        model_idx = 0
-        model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
-        final_model = model
-        turns = 0  # fresh turn budget for NVIDIA fallback
+        xml_quirk_turns = 0
 
         while turns < MAX_TURNS:
             turns += 1
-            print(f"\n[agent] Turn {turns}/{MAX_TURNS} model={model}", flush=True)
+            print(f"\n[agent] Turn {turns}/{MAX_TURNS}", flush=True)
 
             try:
-                res = client.chat.completions.create(
-                    model=model,
-                    max_tokens=8192,
-                    tools=TOOLS,  # type: ignore[arg-type]
-                    tool_choice="auto",
-                    messages=messages,  # type: ignore[arg-type]
-                )
+                data = router_turn(router, messages)
             except Exception as exc:
-                print(f"Model {model} error: {exc}", file=sys.stderr)
-                model_idx += 1
-                if model_idx >= len(NVIDIA_CANDIDATE_MODELS):
-                    print("All candidate models exhausted.", file=sys.stderr)
-                    break
-                model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
-                final_model = model
-                print(f"Switching to: {model}", file=sys.stderr)
-                turns -= 1
-                continue
+                # The router has already walked every eligible provider and model
+                # by this point, so there is nothing left to fall back to.
+                print(f"All providers and models failed: {exc}", file=sys.stderr)
+                break
 
-            msg = res.choices[0].message
+            final_model = str(data.get("model") or final_model)
+            msg = ((data.get("choices") or [{}])[0] or {}).get("message") or {}
+            content = msg.get("content") or ""
+            tool_calls = msg.get("tool_calls") or []
 
-            if msg.content:
-                print(f"[agent] {msg.content[:400]}", flush=True)
+            if content:
+                print(f"[agent] ({final_model}) {content[:400]}", flush=True)
 
             # Serialise without null sentinel fields that NIM rejects with 422
             assistant_entry: dict = {"role": "assistant"}
-            if msg.content:
-                assistant_entry["content"] = msg.content
-            if msg.tool_calls:
+            if content:
+                assistant_entry["content"] = content
+            if tool_calls:
                 assistant_entry["tool_calls"] = [
                     {
-                        "id": tc.id,
+                        "id": tc.get("id"),
                         "type": "function",
-                        "function": {"name": tc.function.name, "arguments": tc.function.arguments},
+                        "function": {
+                            "name": (tc.get("function") or {}).get("name"),
+                            "arguments": (tc.get("function") or {}).get("arguments") or "{}",
+                        },
                     }
-                    for tc in msg.tool_calls
+                    for tc in tool_calls
                 ]
             messages.append(assistant_entry)
 
             # No tool calls → check for XML-format tool calls (Qwen3 quirk) then terminal turn
-            if not msg.tool_calls:
-                content = msg.content or ""
-                # Some models (e.g. Qwen3-coder) emit tool calls as XML text in content
-                # instead of structured tool_calls. Detect and switch models.
+            if not tool_calls:
+                # Some models (e.g. Qwen3-coder) emit tool calls as XML text in
+                # content instead of structured tool_calls. Retrying gives the
+                # router a chance to land on a different provider; two in a row
+                # means the one answering cannot do structured tool use, and
+                # burning 120 turns on it would just be a slower failure.
                 if "<tool_call>" in content or "<function=" in content:
-                    print(f"[agent] {model} emitted XML tool calls in content — switching model", file=sys.stderr)
+                    xml_quirk_turns += 1
+                    print(
+                        f"[agent] {final_model} emitted XML tool calls in content "
+                        f"(attempt {xml_quirk_turns}/2)",
+                        file=sys.stderr,
+                    )
                     messages.pop()  # discard the malformed assistant turn
-                    model_idx += 1
-                    if model_idx < len(NVIDIA_CANDIDATE_MODELS):
-                        model = NVIDIA_CANDIDATE_MODELS[model_idx][0]
-                        final_model = model
-                        print(f"[agent] Switched to: {model}", flush=True)
-                        turns -= 1  # don't count this as a real turn
-                    else:
-                        print("All candidate models exhausted.", file=sys.stderr)
+                    if xml_quirk_turns >= 2:
+                        print(
+                            "Provider cannot produce structured tool calls — stopping.",
+                            file=sys.stderr,
+                        )
                         break
+                    turns -= 1  # don't count this as a real turn
                     continue
+                xml_quirk_turns = 0
                 summary = content or summary
                 if content and "IMPLEMENTATION_COMPLETE" in content and last_pytest_passed:
                     success = True
@@ -662,10 +736,11 @@ def main() -> None:
                 break
 
             # Execute tool calls
-            for tc in msg.tool_calls:
-                fn_name = tc.function.name
+            for tc in tool_calls:
+                function = tc.get("function") or {}
+                fn_name = function.get("name") or ""
                 try:
-                    fn_args = json.loads(tc.function.arguments)
+                    fn_args = json.loads(function.get("arguments") or "{}")
                 except json.JSONDecodeError:
                     fn_args = {}
 
@@ -689,7 +764,9 @@ def main() -> None:
                                 "Fix all test failures first, then signal completion."
                             )
 
-                messages.append({"role": "tool", "tool_call_id": tc.id, "content": str(out)})
+                messages.append(
+                    {"role": "tool", "tool_call_id": tc.get("id"), "content": str(out)}
+                )
 
             if success:
                 break
@@ -697,9 +774,11 @@ def main() -> None:
         if not success and turns >= MAX_TURNS:
             summary = f"Agent hit turn limit ({MAX_TURNS}) without completing"
 
-    # NVIDIA NIM is the sole engine. The Anthropic/Opus fallback was removed: it
-    # silently burned paid credits whenever NVIDIA failed. If NVIDIA can't finish
-    # the run fails loudly so the operator can act, rather than escalating to a
+    # The run stays on free, openai-compatible providers. The Anthropic/Opus
+    # fallback was removed because it silently burned paid credits whenever the
+    # free chain failed; `allow_commercial_fallback=False` in router_turn() is
+    # what keeps that true now that routing is delegated. A run that cannot
+    # finish fails loudly so the operator can act, rather than escalating to a
     # paid provider behind the operator's back.
 
     result = {"success": success, "summary": summary, "turns": turns}
