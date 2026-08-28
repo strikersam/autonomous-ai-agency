@@ -31,18 +31,6 @@ models:
     speed_tier: fast
     aliases: [glm-5.2, glm]
 
-  meta/llama-3.3-70b-instruct:
-    provider: nvidia
-    display_name: Llama 3.3 70B Instruct
-    context_window: 128000
-    max_output_tokens: 4096
-    supports_tools: true
-    supports_function_calling: true
-    supports_json: true
-    supports_streaming: true
-    priority: 30
-    speed_tier: medium
-
   meta/llama-4-maverick-17b-128e-instruct:
     provider: nvidia
     display_name: Llama 4 Maverick 17B (NIM)

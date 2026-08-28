@@ -74,9 +74,13 @@ providers:
     candidates:
       - z-ai/glm-5.2
       - z-ai/glm-5.1
+      # Nemotron 3, read off the live catalogue by the account owner. The ultra
+      # activates ~55B params/token, the super ~12B — so super is the faster of
+      # the two, and sits behind it as the cheap retry.
+      - nvidia/nemotron-3-ultra-550b-a55b
+      - nvidia/nemotron-3-super-120b-a12b
       - meta/llama-4-maverick-17b-128e-instruct
       - meta/llama-4-scout-17b-16e-instruct
-      - meta/llama-3.3-70b-instruct
       - nvidia/llama-3.1-nemotron-70b-instruct
       - deepseek-ai/deepseek-r1
 

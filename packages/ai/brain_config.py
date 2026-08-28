@@ -338,13 +338,12 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
     "nvidia": [
         "z-ai/glm-5.2",
         "z-ai/glm-5.1",
+        "nvidia/nemotron-3-ultra-550b-a55b",
+        "nvidia/nemotron-3-super-120b-a12b",
         "meta/llama-4-maverick-17b-128e-instruct",
         "meta/llama-4-scout-17b-16e-instruct",
         "nvidia/llama-3.1-nemotron-70b-instruct",
         "deepseek-ai/deepseek-r1",
-        # DeepSeek V4 Pro — now live in NVIDIA NIM catalog (Aug 2026).
-        # Verify the slug against NIM's /models endpoint before routing.
-        "deepseek-ai/deepseek-v4-pro",
     ],
     # tokenin.my.id — free frontier gateway. Ordered highest-RPM first so the
     # rotation prefers the models that 429 least; opus is last so it stays a
