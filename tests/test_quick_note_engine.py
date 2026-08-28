@@ -55,11 +55,29 @@ def test_implement_agent_routes_through_the_shared_router() -> None:
     )
 
 
-def test_implement_agent_primary_model_is_a_coder() -> None:
-    text = (_SCRIPTS / "nvidia_models.py").read_text()
-    # Verify the primary model in the shared NVIDIA_CANDIDATE_MODELS is
-    # a coder (nemotron-super-49b), not a generic chat model.
-    assert "nemotron-super" in text
+def test_nemotron_is_preferred_when_choosing_a_model() -> None:
+    """Nemotron first — asserted against behaviour, not file contents.
+
+    This used to grep `nvidia_models.py` for the literal "nemotron-super", which
+    told you nothing useful: the file it inspected was imported by nothing, and
+    the id it looked for reached end-of-life on 2026-08-26 while the assertion
+    kept passing. Ids are now discovered from the provider, so the durable
+    property is the ranking, which is what this exercises.
+    """
+    import sys
+
+    sys.path.insert(0, str(_SCRIPTS))
+    try:
+        from nvidia_models import rank_models
+    finally:
+        if str(_SCRIPTS) in sys.path:
+            sys.path.remove(str(_SCRIPTS))
+
+    ranked = rank_models([
+        "meta/llama-3.1-8b-instruct",
+        "nvidia/some-nemotron-super-49b",
+    ])
+    assert "nemotron" in ranked[0]
 
 
 def test_review_agent_nvidia_primary() -> None:
