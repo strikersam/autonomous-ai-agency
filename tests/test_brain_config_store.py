@@ -79,7 +79,11 @@ def test_get_returns_safe_default_when_no_doc(monkeypatch):
 def test_default_brain_config_is_safe():
     cfg = default_brain_config()
     assert cfg.primary_provider == "nvidia"
-    assert cfg.planner_model == "z-ai/glm-5.2"
+    # The safe default follows the catalogue; a literal here went stale when a
+    # live probe proved z-ai/glm-5.2 dead on 2026-08-28.
+    from packages.ai.brain_config import SAFE_DEFAULT_MODEL
+
+    assert cfg.planner_model == SAFE_DEFAULT_MODEL
 
 
 def test_recommended_config_prefers_nvidia_when_key_present(monkeypatch):

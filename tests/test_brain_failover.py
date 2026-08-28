@@ -231,13 +231,18 @@ def test_unhealthy_provider_skipped(monkeypatch):
 # ── Model alias mapping ──────────────────────────────────────────────────
 
 
-# These three exercise resolver mechanics — exact, alias, fuzzy — not any
-# particular model. They used to do it with `meta/llama-3.3-70b-instruct`,
-# which NVIDIA retired on 2026-08-26; when that id was removed from the
-# catalogue the tests broke, having pinned a fixture that no longer existed.
-# Maverick replaces it because it is in NVIDIA's catalogue entry *and* carries
-# a differing Groq alias, which is what the alias case needs.
-RESOLVER_FIXTURE = "meta/llama-4-maverick-17b-128e-instruct"
+# These exercise resolver mechanics — exact, alias, fuzzy — not any particular
+# model. Two fixtures, because the two properties are different:
+#
+#   RESOLVER_FIXTURE must be a model NVIDIA actually serves, since exact and
+#   fuzzy matching both look in the provider's model list. It has been rewritten
+#   twice as ids died under it (llama-3.3-70b, then llama-4-maverick).
+#
+#   ALIAS_FIXTURE only needs an entry in ``_MODEL_ALIASES`` with differing
+#   per-provider values. Aliases are consulted *before* the model list, so this
+#   case is about the mapping and is deliberately indifferent to liveness.
+RESOLVER_FIXTURE = "nvidia/nemotron-3-super-120b-a12b"
+ALIAS_FIXTURE = "meta/llama-4-maverick-17b-128e-instruct"
 
 
 def test_resolve_model_exact_match(monkeypatch):
@@ -264,9 +269,9 @@ def test_resolve_model_alias(monkeypatch):
     nvidia = mgr.get_provider("nvidia")
     groq = mgr.get_provider("groq")
     # The same requested model maps differently per provider
-    nvidia_model = mgr.resolve_model(nvidia, RESOLVER_FIXTURE)
-    groq_model = mgr.resolve_model(groq, RESOLVER_FIXTURE)
-    assert nvidia_model == RESOLVER_FIXTURE
+    nvidia_model = mgr.resolve_model(nvidia, ALIAS_FIXTURE)
+    groq_model = mgr.resolve_model(groq, ALIAS_FIXTURE)
+    assert nvidia_model == ALIAS_FIXTURE
     assert groq_model == "llama-4-maverick-17b-128e-instruct"
 
 
@@ -283,8 +288,8 @@ def test_resolve_model_fuzzy_match(monkeypatch):
     mgr = _make_manager()
     p = mgr.get_provider("nvidia")
     # A bare family name should fuzzy-match the provider's fully-qualified id.
-    model = mgr.resolve_model(p, "llama-4-maverick-17b-128e-instruct")
-    assert "llama-4-maverick" in model.lower()
+    model = mgr.resolve_model(p, "nemotron-3-super-120b-a12b")
+    assert "nemotron-3-super" in model.lower()
 
 
 # ── Status snapshot ──────────────────────────────────────────────────────

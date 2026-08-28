@@ -84,7 +84,7 @@ services:
       # the ultra was pinned then; confirmed live again at
       # https://build.nvidia.com/meta/llama-3.3-70b-instruct )
       - key: NVIDIA_DEFAULT_MODEL
-        value: "z-ai/glm-5.2"
+        value: "nvidia/nemotron-3-super-120b-a12b"
 
       # Mistral API key — free tier, used as brain provider + failover fallback
       - key: MISTRAL_API_KEY
@@ -698,7 +698,7 @@ services:
       # background agent/CEO task runs stay on the fast path too. Confirmed live:
       # https://build.nvidia.com/meta/llama-3.3-70b-instruct
       - key: NVIDIA_DEFAULT_MODEL
-        value: "z-ai/glm-5.2"
+        value: "nvidia/nemotron-3-super-120b-a12b"
       # UNIT 7: AGENT_<ROLE>_MODEL env vars removed — catalog (config/models.yaml)
       # + DB BrainConfig are now the single source of truth via
       # resolve_component_model(). The free NVIDIA z-ai/glm-5.2 model is the
@@ -779,9 +779,9 @@ services:
         value: "/app/runtimes/extensions/prime_agent/agency-provider.ts"
       # Model ids the extension advertises; must exist on the proxy.
       - key: PRIME_AGENT_MODELS
-        value: "z-ai/glm-5.2"
+        value: "nvidia/nemotron-3-super-120b-a12b"
       - key: PRIME_AGENT_MODEL
-        value: "z-ai/glm-5.2"
+        value: "nvidia/nemotron-3-super-120b-a12b"
       # Bearer token the extension sends to our own proxy ($PROXY_API_KEY).
       - key: PROXY_API_KEY
         sync: false
@@ -892,7 +892,7 @@ services:
       - key: NVIDIA_BASE_URL
         value: "https://integrate.api.nvidia.com"
       - key: NVIDIA_DEFAULT_MODEL
-        value: "z-ai/glm-5.2"
+        value: "nvidia/nemotron-3-super-120b-a12b"
       - key: LLM_PROVIDER
         value: "nvidia-nim"
       # UNIT 7: AGENT_<ROLE>_MODEL env vars removed — catalog (config/models.yaml)

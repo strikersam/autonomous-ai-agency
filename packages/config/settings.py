@@ -73,7 +73,7 @@ class Settings:
         # LLM Providers
         self.nvidia_api_key: str = os.environ.get("NVIDIA_API_KEY", "")
         self.nvidia_base_url: str = os.environ.get("NVIDIA_BASE_URL", "https://integrate.api.nvidia.com")
-        self.nvidia_default_model: str = os.environ.get("NVIDIA_DEFAULT_MODEL", "nvidia/nemotron-3-ultra-550b-a55b")
+        self.nvidia_default_model: str = os.environ.get("NVIDIA_DEFAULT_MODEL", "nvidia/nemotron-3-super-120b-a12b")
         self.cerebras_api_key: str = os.environ.get("CEREBRAS_API_KEY", "")
         self.groq_api_key: str = os.environ.get("GROQ_API_KEY", "")
         self.anthropic_api_key: str = os.environ.get("ANTHROPIC_API_KEY", "")

@@ -151,12 +151,16 @@ async def _cmd_chat(msg: dict[str, Any]) -> dict[str, Any]:
     last_error = ""
 
     for _attempt in range(fm.max_attempts()):
-        provider = fm.next_provider(exclude=tried, requested_model="z-ai/glm-5.2")
+        provider = fm.next_provider(exclude=tried)
         if provider is None:
             break
 
         tried.add(provider.id)
-        provider_model = fm.resolve_model(provider, "z-ai/glm-5.2")
+        # No model named here: each provider serves its own configured default,
+        # which comes from the catalogue. Naming one meant every call asked for
+        # the same id on every provider — and when that id was retired, this
+        # gateway requested a 410 on each attempt.
+        provider_model = fm.resolve_model(provider, None)
         chat_url = _openai_url(provider.base_url, "/chat/completions")
         headers = {"Content-Type": "application/json"}
         if provider.api_key:
@@ -186,7 +190,19 @@ async def _cmd_chat(msg: dict[str, Any]) -> dict[str, Any]:
             return {"type": "response", "content": content, "model": provider_model, "provider": provider.id}
 
         if resp.status_code == 410:
-            fm.record_failure(provider.id, "gone", 410)
+            # 410 is scoped to the *model*, not the provider — other models on
+            # this provider still serve. Passing the status opens the provider's
+            # circuit for 10 minutes, and ``get_failover_manager`` is a
+            # process-wide singleton, so one dead model here took the provider
+            # away from every other caller too — including failover_client,
+            # which deliberately just tries the next model. Record an ordinary
+            # failure instead, and move on.
+            last_error = f"{provider.id} model {provider_model} 410 gone"
+            log.warning(
+                "openclaw: %s model %s 410 Gone - trying next provider",
+                provider.id, provider_model,
+            )
+            fm.record_failure(provider.id, "model_gone")
             continue
         if resp.status_code in (429, 419):
             fm.record_failure(provider.id, "rate_limited", resp.status_code)

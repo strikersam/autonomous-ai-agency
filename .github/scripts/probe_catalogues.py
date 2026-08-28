@@ -181,6 +181,16 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         help="provider id whose default model should be called; repeatable",
     )
+    parser.add_argument(
+        "--model",
+        action="append",
+        default=[],
+        help=(
+            "specific model id to call on the --chat provider; repeatable. "
+            "A catalogue listing is not proof a model serves — this is how you "
+            "check a candidate before making it a default."
+        ),
+    )
     args = parser.parse_args(argv)
 
     reachable = 0
@@ -227,11 +237,12 @@ def main(argv: list[str] | None = None) -> int:
                 print(json.dumps(record, indent=2, sort_keys=True))
 
         if provider.id in args.chat:
-            target = provider.default_model or (ids[0] if ids else "")
-            if not target:
+            targets = list(args.model) or [provider.default_model or (ids[0] if ids else "")]
+            for target in [t for t in targets if t]:
+                if not probe_chat(provider, key, target):
+                    unservable.append(f"{provider.id}:{target}")
+            if not [t for t in targets if t]:
                 print("    --chat: no model to call")
-            elif not probe_chat(provider, key, target):
-                unservable.append(f"{provider.id}:{target}")
 
     print(f"\nreachable providers: {reachable}")
     if unreachable:

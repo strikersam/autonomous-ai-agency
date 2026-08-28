@@ -163,16 +163,15 @@ def reset_cache() -> None:
 
 # ── Static floor ────────────────────────────────────────────────────────────
 # Only reached when discovery cannot run. Every id observed returning 410/404 on
-# 2026-08-27 has been removed rather than left in to waste an attempt. The two
-# Nemotron 3 entries were read off the live catalogue by the account owner, who
-# can see it from outside this sandbox; the Llama entry is the one id from the
-# previous list not seen failing. This list is deliberately not padded with ids
-# nobody has verified — discovery is the mechanism now, and a short honest floor
-# beats a long speculative one.
+# 2026-08-27 has been removed rather than left in to waste an attempt. Every id
+# below was *called* on 2026-08-28 by the catalogue probe and returned HTTP 200 —
+# not merely listed. An earlier version of this list led with an id that the
+# catalogue advertised and the API answered 404 for, which is exactly the
+# failure this module was written to end. Do not add an id you have not probed.
 NVIDIA_CANDIDATE_MODELS: list[tuple[str, str]] = [
-    ("nvidia/nemotron-3-ultra-550b-a55b", "Nemotron 3 Ultra (account-owner verified)"),
-    ("nvidia/nemotron-3-super-120b-a12b", "Nemotron 3 Super (account-owner verified)"),
-    ("meta/llama-4-maverick-17b-128e-instruct", "Llama 4 Maverick (static fallback)"),
+    ("nvidia/nemotron-3-super-120b-a12b", "Nemotron 3 Super (probed live 2026-08-28)"),
+    ("mistralai/mistral-nemotron", "Mistral Nemotron (probed live 2026-08-28)"),
+    ("openai/gpt-oss-120b", "GPT-OSS 120B (probed live 2026-08-28)"),
 ]
 
 NVIDIA_MODEL_IDS: list[str] = [model_id for model_id, _label in NVIDIA_CANDIDATE_MODELS]
