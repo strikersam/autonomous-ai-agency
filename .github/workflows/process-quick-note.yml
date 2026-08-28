@@ -725,6 +725,13 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          # Every other step that names the issue declares this. This one did
+          # not, so `--subject` below interpolated an empty string and every
+          # squashed commit landed on master titled "... issue #" with no
+          # number. An undeclared shell variable expands to empty and says
+          # nothing: the merge succeeded, the tick was green, and the only
+          # evidence was in `git log`.
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
         run: |
           # Belt-and-suspenders: refuse to merge if still draft (e.g. mark-ready failed silently).
           IS_DRAFT=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json isDraft -q '.isDraft' 2>/dev/null || echo "true")
@@ -732,12 +739,15 @@ jobs:
             echo "::error::Refusing to merge PR #$PR_NUMBER — still in draft state."
             exit 1
           fi
-          gh pr merge "$PR_NUMBER" \
-            --repo "$REPO" \
-            --squash \
-            --delete-branch \
-            --admin \
-            --subject "feat: implement quick-note issue #$ISSUE_NUM"
+          # Belt-and-suspenders again: rather than write a subject with a
+          # dangling "#", fall back to the PR title gh would use anyway.
+          MERGE_ARGS=(--repo "$REPO" --squash --delete-branch --admin)
+          if [ -n "$ISSUE_NUM" ]; then
+            MERGE_ARGS+=(--subject "feat: implement quick-note issue #$ISSUE_NUM")
+          else
+            echo "::warning::ISSUE_NUM is empty; letting gh derive the squash subject."
+          fi
+          gh pr merge "$PR_NUMBER" "${MERGE_ARGS[@]}"
           echo "merged=true" >> "$GITHUB_OUTPUT"
           echo "Merged and deleted branch for PR #$PR_NUMBER"
 
