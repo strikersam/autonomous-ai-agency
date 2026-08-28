@@ -23,6 +23,10 @@ on:
         description: "Space-separated provider ids whose default model should be called"
         required: false
         default: ""
+      model:
+        description: "Space-separated model ids to call instead of the default (needs `chat`)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -61,11 +65,15 @@ jobs:
           PROBE_PROVIDER: ${{ inputs.provider }}
           PROBE_FILTER: ${{ inputs.filter }}
           PROBE_CHAT: ${{ inputs.chat }}
+          PROBE_MODEL: ${{ inputs.model }}
         run: |
           args=()
           if [ -n "$PROBE_PROVIDER" ]; then args+=(--provider "$PROBE_PROVIDER"); fi
           if [ -n "$PROBE_FILTER" ]; then args+=(--filter "$PROBE_FILTER"); fi
           for provider in $PROBE_CHAT; do
             args+=(--chat "$provider")
+          done
+          for model in $PROBE_MODEL; do
+            args+=(--model "$model")
           done
           python .github/scripts/probe_catalogues.py "${args[@]}"
