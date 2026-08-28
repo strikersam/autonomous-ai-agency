@@ -49,10 +49,11 @@ def agent():
 class _Recorder:
     """Stands in for ProviderRouter and captures what it was handed."""
 
-    def __init__(self, body: dict | None = None) -> None:
+    def __init__(self, body: dict | None = None, provider_id: str = "cerebras") -> None:
         self.payload: dict | None = None
         self.kwargs: dict | None = None
         self._body = body or {"model": "stub", "choices": [{"message": {}}]}
+        self.providers = [SimpleNamespace(provider_id=provider_id)]
 
     async def chat_completion(self, payload, **kwargs):
         self.payload = payload
@@ -110,14 +111,12 @@ class TestTurnPayload:
         assert recorder.payload["tools"] == agent.TOOLS
         assert recorder.payload["tool_choice"] == "auto"
 
-    def test_no_model_is_named(self, agent):
-        """Naming a model here is exactly what created the outage."""
-        recorder = _Recorder()
+    def test_no_model_is_named_for_a_non_nvidia_provider(self, agent):
+        """Anything but NVIDIA resolves its own default_model."""
+        recorder = _Recorder(provider_id="cerebras")
         agent.router_turn(recorder, [{"role": "user", "content": "hi"}])
-        assert not recorder.payload.get("model"), (
-            "the router must resolve the model from each provider's "
-            "default_model, skipping ids a prior 410 flagged dead"
-        )
+        assert not recorder.payload.get("model")
+        assert recorder.kwargs["model_fallbacks"] == []
 
     def test_no_zero_temperature(self, agent):
         """response_cache keys on (model, messages, temperature, max_tokens,
@@ -279,3 +278,39 @@ class TestFailoverOffABadResponder:
         """The regression Codex named: a retry that cannot change the outcome."""
         quirk = SOURCE.split("<tool_call>")[1].split("# Execute tool calls")[0]
         assert "router_without(router, answering_provider)" in quirk
+
+
+class TestNvidiaGetsMoreThanOneCandidate:
+    """Codex review, #1369 (P1): naming no model is not safe for NVIDIA.
+
+    ``ProviderRouter``'s NVIDIA entry defaults to ``meta/llama-3.3-70b-instruct``
+    (router.py:702), which reached end-of-life on 2026-08-26 and answers ``410``.
+    With no model named, ``_candidate_models`` returns that one dead id, so an
+    NVIDIA-only runner exhausts the provider on turn 1 — reproducing the very
+    outage this change exists to prevent.
+    """
+
+    def test_the_router_default_is_a_model_we_know_is_dead(self):
+        """Pins the premise, so this guard cannot quietly stop applying."""
+        router_src = (REPO_ROOT / "packages/ai/router.py").read_text(encoding="utf-8")
+        assert '"meta/llama-3.3-70b-instruct"' in router_src
+        assert "meta/llama-3.3-70b-instruct" in DEAD_MODEL_IDS
+
+    def test_nvidia_first_gets_the_curated_list(self, agent):
+        recorder = _Recorder(provider_id="nvidia-nim")
+        agent.router_turn(recorder, [{"role": "user", "content": "hi"}])
+
+        sys.path.insert(0, str(GITHUB_SCRIPTS))
+        from nvidia_models import NVIDIA_MODEL_IDS
+
+        assert recorder.payload["model"] == NVIDIA_MODEL_IDS[0]
+        assert recorder.kwargs["model_fallbacks"] == list(NVIDIA_MODEL_IDS[1:])
+        assert len(NVIDIA_MODEL_IDS) > 1, (
+            "one candidate is what the outage looked like"
+        )
+
+    def test_curated_ids_are_not_invented_here(self):
+        """Every id handed to the router comes from the repo's curated list."""
+        assert "nvidia_models" in SOURCE
+        for model_id in DEAD_MODEL_IDS:
+            assert model_id not in SOURCE

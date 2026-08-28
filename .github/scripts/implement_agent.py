@@ -555,6 +555,37 @@ def build_tool_calling_router() -> Any | None:
     return ProviderRouter(providers)
 
 
+def _nvidia_candidates(router: Any) -> tuple[str, list[str]]:
+    """Curated NVIDIA model ids, when NVIDIA is the provider that will answer.
+
+    Needed because ``ProviderRouter``'s NVIDIA entry carries a hardcoded
+    ``default_model`` (router.py:702) that reached end-of-life on 2026-08-26 and
+    now answers ``410``. With no model named, ``_candidate_models`` returns that
+    single dead id, so an NVIDIA-only runner would exhaust the provider on turn 1
+    — exactly the outage this module was changed to prevent. The id is not
+    repeated here: a dead id must never appear in this file, which is what
+    ``tests/test_implement_agent_routing.py`` enforces.
+
+    The ids come from ``.github/scripts/nvidia_models.py``, the repo's curated
+    list, so nothing is invented here. Some may also be dead; the router's own
+    ``_is_model_dead`` skips ids a prior ``410`` flagged, and having three
+    candidates beats having one that is known bad.
+
+    Only applies when NVIDIA is first in priority order: ``_candidate_models``
+    honours the named model for the primary provider only, and handing an NVIDIA
+    id to Cerebras or Groq would just fail.
+    """
+    if not router.providers or router.providers[0].provider_id != "nvidia-nim":
+        return "", []
+    try:
+        from nvidia_models import NVIDIA_MODEL_IDS
+    except Exception:  # pragma: no cover - import-environment dependent
+        return "", []
+    if not NVIDIA_MODEL_IDS:
+        return "", []
+    return NVIDIA_MODEL_IDS[0], list(NVIDIA_MODEL_IDS[1:])
+
+
 def router_turn(router: Any, messages: list[dict]) -> tuple[dict, str]:
     """Run one turn; return the raw OpenAI-shaped body and who answered it.
 
@@ -564,9 +595,11 @@ def router_turn(router: Any, messages: list[dict]) -> tuple[dict, str]:
     XML tool calls, say — has to drop it explicitly, and cannot do that without
     knowing which one replied.
 
-    ``model`` is deliberately absent: ``_candidate_models()`` then falls back to
-    each provider's own ``default_model`` and drops any id a previous ``410``
-    marked dead. Naming a model here is what created the outage this replaced.
+    A model is named only when NVIDIA leads the chain, and only from the repo's
+    curated list — see ``_nvidia_candidates``. For every other provider the
+    payload carries no model, so ``_candidate_models()`` uses that provider's own
+    ``default_model``. Either way the router drops ids a previous ``410`` marked
+    dead, so a retired model costs one request rather than the run.
 
     ``temperature`` is deliberately absent too. ``packages/ai/response_cache.py``
     keys on (model, messages, temperature, max_tokens, stop) — *not* on tools —
@@ -576,14 +609,21 @@ def router_turn(router: Any, messages: list[dict]) -> tuple[dict, str]:
     ``allow_commercial_fallback=False`` preserves the standing rule that this
     loop never escalates to a paid provider behind the operator's back.
     """
+    model, fallbacks = _nvidia_candidates(router)
     payload = {
         "messages": messages,
         "tools": TOOLS,
         "tool_choice": "auto",
         "max_tokens": 8192,
     }
+    if model:
+        payload["model"] = model
     result = asyncio.run(
-        router.chat_completion(payload, allow_commercial_fallback=False)
+        router.chat_completion(
+            payload,
+            model_fallbacks=fallbacks,
+            allow_commercial_fallback=False,
+        )
     )
     return result.response.json(), result.provider.provider_id
 
