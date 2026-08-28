@@ -35,14 +35,10 @@ NVIDIA_BASE = "https://integrate.api.nvidia.com/v1"
 # Primary: Anthropic Claude Opus (CEO / agency grade).
 OPUS_MODEL = "claude-opus-4-6"
 # Fallback: NVIDIA NIM models.
-NVIDIA_CANDIDATE_MODELS = [
-    ("nvidia/llama-3.3-nemotron-super-49b-v1.5",      "reasoning (Nemotron 120B)"),
-    ("nvidia/llama-3.3-nemotron-super-49b-v1.5", "reasoning (Nemotron 49B)"),
-    ("meta/llama-3.3-70b-instruct",            "coding (Llama 3.3 70B)"),
-    ("qwen/qwen2.5-coder-32b-instruct",        "coding (Qwen2.5 32B)"),
-]
-# Keep old name as alias
-CANDIDATE_MODELS = NVIDIA_CANDIDATE_MODELS
+# Imported rather than redeclared: see the note in review_agent.py. The copy
+# this replaces also listed the same model twice under two different labels,
+# spending one of its four attempts re-asking a model that had just refused.
+from nvidia_models import NVIDIA_CANDIDATE_MODELS  # noqa: E402
 MAX_TURNS = 50
 _STRIP_KEYS = ("NVIDIA_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
                "GEMINI_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY",

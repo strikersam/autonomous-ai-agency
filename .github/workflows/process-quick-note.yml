@@ -350,6 +350,30 @@ jobs:
             echo "Reusing existing context branch: $CONTEXT_BRANCH"
             git fetch origin "$CONTEXT_BRANCH"
             git checkout -b "$CONTEXT_BRANCH" "origin/$CONTEXT_BRANCH"
+
+            # ── Bring master in before the agent runs ────────────────────────
+            # Every later step executes the tree on THIS branch, including
+            # .github/scripts/implement_agent.py itself. A context branch cut
+            # days ago carries the tooling as it was then: run 33146384139 on
+            # 2026-08-28 executed the pre-fix implementer, logging a line master
+            # had already deleted and walking six model ids master no longer
+            # contained — so the fix merged an hour earlier had no effect, and
+            # nothing said so. The agent was also planning against stale product
+            # code. Merging master fixes both, and is simply what a human does
+            # before resuming work on an old branch.
+            git fetch origin master
+            if git merge --no-edit origin/master; then
+              echo "Merged master into $CONTEXT_BRANCH"
+            else
+              # Conflict: proceeding would run the agent on stale code, which is
+              # the defect this exists to prevent. Start clean from master
+              # instead and let the agent redo the work.
+              git merge --abort || true
+              echo "::warning::Could not merge master into ${CONTEXT_BRANCH}; starting a fresh branch from master instead."
+              git push origin --delete "$IMPL_BRANCH" 2>/dev/null || true
+              git checkout -B "$IMPL_BRANCH" origin/master
+              CONTEXT_BRANCH="$IMPL_BRANCH"
+            fi
             echo "branch=$CONTEXT_BRANCH" >> "$GITHUB_OUTPUT"
           else
             # Fall back to a fresh implementation branch
