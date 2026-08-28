@@ -28,13 +28,29 @@ class TestBrainFailoverModelUpdates:
     def _by_id(self, pid: str) -> dict:
         return next(p for p in self._registry() if p["id"] == pid)
 
-    def test_nvidia_nim_has_llama4_maverick(self):
+    def test_nvidia_nim_no_longer_offers_retired_llama4(self):
+        # 2026-08-28: superseded, same way the Groq cases below were. These
+        # asserted that NVIDIA's rotation *contained* Llama 4 Maverick and
+        # Scout, which was true when written. A live probe against the
+        # production key found meta/llama-4-maverick-17b-128e-instruct
+        # answering 410 Gone, so it left the catalogue along with every other
+        # candidate NVIDIA carried at the time. Keeping the original assertion
+        # would have pinned a dead model into the rotation — which is exactly
+        # what a chain of tests like it did for weeks.
         nvidia = self._by_id("nvidia")
-        assert "meta/llama-4-maverick-17b-128e-instruct" in nvidia["models"]
+        for retired in (
+            "meta/llama-4-maverick-17b-128e-instruct",
+            "meta/llama-4-scout-17b-16e-instruct",
+        ):
+            assert retired not in nvidia["models"]
 
-    def test_nvidia_nim_has_llama4_scout(self):
+    def test_nvidia_nim_offers_only_probed_models(self):
+        """The rotation must equal the catalogue, which the probe keeps honest."""
+        from packages.ai.brain_config import PROVIDER_CANDIDATES
+
         nvidia = self._by_id("nvidia")
-        assert "meta/llama-4-scout-17b-16e-instruct" in nvidia["models"]
+        assert nvidia["models"], "the nvidia rotation must not be empty"
+        assert list(nvidia["models"]) == list(PROVIDER_CANDIDATES["nvidia"])
 
     def test_groq_no_longer_has_deprecated_llama4_maverick(self):
         # 2026-08-03: superseded by a later catalog update. Groq deprecated
@@ -223,11 +239,25 @@ class TestModelRegistryUpdates:
         model = reg.get("llama-4-maverick-17b-128e-instruct")
         assert model.supports_tools is True
 
-    def test_llama4_maverick_nvidia_registered(self):
+    def test_nvidia_registers_a_probed_live_model(self):
+        # 2026-08-28: superseded. This asserted that packages/ai/registry.py
+        # registers meta/llama-4-maverick-17b-128e-instruct on NVIDIA. A live
+        # probe found that id answering 410, and it had to be removed — the
+        # legacy registry re-seeds packages/llm/registry.py, so while it stayed
+        # here it kept being offered as a tool-calling candidate no matter what
+        # the YAML catalogues said.
+        #
+        # The property worth keeping is that NVIDIA has *a* registered model and
+        # that it is the catalogue's default, not that it is any particular id.
+        from packages.ai.brain_config import SAFE_DEFAULT_MODEL
+
         reg = self._reg()
-        model = reg.get("meta/llama-4-maverick-17b-128e-instruct")
-        assert model is not None
+        model = reg.get(SAFE_DEFAULT_MODEL)
+        assert model is not None, f"{SAFE_DEFAULT_MODEL} is not registered"
         assert model.provider_id == "nvidia"
+        assert model.supports_tools is True, (
+            "the default must survive require_tools filtering on the gateway path"
+        )
 
     def test_gemini25_flash_registered(self):
         reg = self._reg()

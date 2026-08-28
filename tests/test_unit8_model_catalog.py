@@ -306,7 +306,11 @@ def test_get_catalog_models_returns_catalog_when_flag_on(app_client, monkeypatch
     assert catalog["catalog_version"] == 1
     assert len(catalog["providers"]) == 16
     assert catalog["safe_default"]["provider"] == "nvidia"
-    assert catalog["safe_default"]["model"] == "z-ai/glm-5.2"
+    # Read from the catalog: this test covers the endpoint's shape, not which
+    # model the roster currently names.
+    from packages.ai.brain_config import SAFE_DEFAULT_MODEL
+
+    assert catalog["safe_default"]["model"] == SAFE_DEFAULT_MODEL
 
 
 # ── 8. POST sync-catalog requires admin auth ──────────────────────────────

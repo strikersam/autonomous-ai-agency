@@ -85,6 +85,24 @@ over HTTP; a proposed change opens a pull request that a human reviews and merge
 - `GET/POST/DELETE /api/governance/sandboxes[...]` — live sandboxes, reap, destroy
 - `GET  /api/governance/budget[/{session_id}]` — live per-session budgets
 
+### SEO / GEO / AIO (`/api/**/seo/*`, `backend/seo_api.py`)
+
+Audit a website, then turn the findings into delivery artifacts. Every route
+requires an authenticated user (`_get_current_user_thunk`), and every
+company-scoped route additionally checks access to that company via
+`get_company_access` — an audit belonging to another company answers `404`.
+
+- `GET  /api/seo/checks` — the full SEO/GEO/AIO check catalog
+- `POST /api/company/{company_id}/seo/audit` — run an audit and persist the evidence
+- `GET  /api/company/{company_id}/seo/audits` — stored audits, most recent first
+- `GET  /api/company/{company_id}/seo/audits/{audit_id}` — one complete report
+- `GET  /api/company/{company_id}/seo/audits/{audit_id}/export` — export a stored audit
+- `POST /api/company/{company_id}/seo/audits/{audit_id}/delegate` — create agent tasks from the delegation plan
+- `POST /api/company/{company_id}/seo/audits/{audit_id}/roadmap` — Now/Next/Later roadmap, WSJF-scored
+- `POST /api/company/{company_id}/seo/audits/{audit_id}/sprint` — a sprint plan from the same backlog
+- `POST /api/company/{company_id}/seo/audits/{audit_id}/pipeline` — audit → portfolio → roadmap → sprint in one call
+- `POST /api/company/{company_id}/seo/fix` — repo-aware auto-fixer against the company's workspace checkout
+
 This backend is typically used with:
 - `frontend/` on port `3000`
 - `backend/server.py` on port `8001`

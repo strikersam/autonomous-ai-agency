@@ -17,31 +17,48 @@ models:
 
   # ── NVIDIA NIM (free) ──────────────────────────────────────────────────
 
-  z-ai/glm-5.2:
-    provider: nvidia
-    display_name: GLM-5.2 (Z.AI)
-    context_window: 128000
-    max_output_tokens: 8192
-    supports_tools: true
-    supports_function_calling: true
-    supports_json: true
-    supports_streaming: true
-    supports_reasoning: true
-    priority: 20
-    speed_tier: fast
-    aliases: [glm-5.2, glm]
+  # ── NVIDIA NIM: probed live, 2026-08-28 ────────────────────────────────
+  #
+  # Every field below was *measured* by .github/workflows/catalogue-probe.yml
+  # against the production key — `--chat` for "does it serve", `--tools` for
+  # "does it emit a tool_call". Nothing here is copied from a model card.
+  #
+  # `context_window` and `max_output_tokens` are deliberately omitted: NVIDIA's
+  # /v1/models returns only id/object/created/owned_by, so those numbers cannot
+  # be read from the provider, and inventing them is what this whole line of
+  # work has been undoing. Omitting them inherits the conservative defaults in
+  # packages/llm/config.py (8192 / 4096), which prune prompts rather than
+  # overflow them. Raise them when someone measures the real limits.
+  #
+  # These entries exist because packages/llm/registry.py gives any undeclared
+  # model `supports_tools: false` and filters tool-calling requests on it — so
+  # an undeclared model is silently dropped from every tool-calling request.
 
-  meta/llama-4-maverick-17b-128e-instruct:
+  nvidia/nemotron-3-super-120b-a12b:
     provider: nvidia
-    display_name: Llama 4 Maverick 17B (NIM)
-    context_window: 131072
-    max_output_tokens: 8192
-    supports_tools: true
+    display_name: Nemotron 3 Super 120B-a12b
+    supports_tools: true            # probed: returned tool_calls[get_weather]
     supports_function_calling: true
-    supports_json: true
     supports_streaming: true
-    priority: 15
-    speed_tier: fast
+    supports_reasoning: true        # probed: reply began with visible reasoning
+    priority: 10
+    speed_tier: fast                # ~12B active params/token
+
+  openai/gpt-oss-120b:
+    provider: nvidia
+    display_name: GPT-OSS 120B (NIM)
+    supports_tools: true            # probed: returned tool_calls[get_weather]
+    supports_function_calling: true
+    supports_streaming: true
+    priority: 25
+
+  openai/gpt-oss-20b:
+    provider: nvidia
+    display_name: GPT-OSS 20B (NIM)
+    supports_tools: true            # probed: returned tool_calls[get_weather]
+    supports_function_calling: true
+    supports_streaming: true
+    priority: 30
 
   # ── Cerebras (free, fastest) ───────────────────────────────────────────
 

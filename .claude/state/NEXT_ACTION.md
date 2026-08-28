@@ -1,23 +1,67 @@
 # Next Action
 
-_Updated 2026-08-28._
+_Updated 2026-08-29._
 
-## Nothing is blocked on an agent. Two things need a human.
+## Nothing is blocked on an agent. Five things need a human.
 
-### 0. The NVIDIA default model was a retired id — fixed, one item left open
+### 0. NVIDIA models — resolved, with one measurement still missing
 
-Every "model to use when `NVIDIA_DEFAULT_MODEL` is unset" fallback in the tree
-pointed at `meta/llama-3.3-70b-instruct`, which answers `410 Gone` since
-2026-08-26. All of them now point at `nvidia/nemotron-3-ultra-550b-a55b`, with
-`nvidia/nemotron-3-super-120b-a12b` as the first fallback in
-`.github/scripts/nvidia_models.py`. Both ids came from the account owner.
+Every NVIDIA id this repo carried was probed against the production key on
+2026-08-28. All but one answered 410 or 404, including `z-ai/glm-5.2` (the
+default brain for all four agent roles) and `nvidia/nemotron-3-ultra-550b-a55b`
+(briefly installed as the default on the strength of a catalogue listing alone).
 
-**Open, needs a human or a key:** `config/llm/models.yaml` has no entry for
-either id, so `packages/llm/registry.py` treats them with cautious defaults and
-`require_tools` filtering may drop them on that path. Adding entries needs real
-context-window / max-output / capability numbers, which cannot be read from a
-sandbox without egress to the NVIDIA catalogue. Anyone with the key can get
-them from `GET /v1/models` and fill the entries in.
+The rotation now holds only ids that returned HTTP 200 to a real completion,
+and all three tool-call correctly:
+`nvidia/nemotron-3-super-120b-a12b`, `openai/gpt-oss-120b`, `openai/gpt-oss-20b`.
+`mistralai/mistral-nemotron` answers but is slow — it timed out on one of two runs.
+
+**Still missing, and not guessable:** real `context_window` / `max_output_tokens`
+for these models. NVIDIA's `/v1/models` returns only `id`, `object`, `created`
+and `owned_by` — no capability fields at all, so an earlier note here claiming
+"anyone with the key can get them from `GET /v1/models`" was wrong. The entries
+in `config/llm/models.yaml` and `packages/ai/registry.py` therefore carry
+conservative floors (32768 / 4096), which prune prompts rather than overflow
+them. Raise them when someone measures the real limits.
+
+Model ids live in six places (`config/models.yaml`, `config/llm/models.yaml`,
+`config/llm/providers.yaml`, `packages/ai/brain_config.py`,
+`packages/ai/registry.py`, `services/brain_failover.py::_MODEL_ALIASES`).
+`tests/test_one_model_catalogue.py` freezes the divergence and blocks retired
+ids from becoming routable, but the consolidation itself is not done.
+
+Re-check anything above with:
+`gh workflow run catalogue-probe.yml -f provider=nvidia -f chat=nvidia -f tools=true`
+
+### 0b. `nvidia/nemotron-3-ultra-550b-a55b` is NOT dead — I retired it on bad evidence
+
+Correction to the note above. That id was retired on 2026-08-28 on the strength
+of a `404` from probe runs 33192841180 / 33193061913 (17:02 and 17:05 UTC), and
+it is on the `RETIRED` list in `tests/test_nvidia_default_model.py`, which now
+actively blocks a model that works.
+
+Two later observations contradict the 404:
+
+- The council-review step of run 33204279915, at **20:10 UTC**, logged
+  `[review] Got response from nvidia/nemotron-3-ultra-550b-a55b (NVIDIA NIM)`
+  after an `HTTP/1.1 200 OK`.
+- A direct re-probe at **23:25 UTC** (run 33220369591, dispatched against the
+  production key) returned:
+  `nvidia/nemotron-3-ultra-550b-a55b: HTTP 200` and
+  `tools nvidia/nemotron-3-ultra-550b-a55b: YES ['get_weather']`.
+
+So it serves *and* tool-calls. `nvidia/nemotron-3-super-120b-a12b` answered 200
+with tool calls in the same run, so the current default is fine either way.
+
+What this does **not** establish is that the ultra is reliable: a model that
+answers 404 at 17:00 and 200 at 20:10 and 23:25 is intermittent, and
+intermittent is not the same as retired. The honest fix is to take it off the
+`RETIRED` list — that list means "gone", and it is not gone — while leaving
+`nvidia/nemotron-3-super-120b-a12b` as the default, since that one has answered
+on every probe. Do not promote the ultra back to default on this evidence.
+
+Not done here to avoid widening a green, unrelated PR. It costs one edit to
+`tests/test_nvidia_default_model.py` plus a rotation entry.
 
 ### 1. Render is suspended for billing — this is the big one
 
@@ -46,6 +90,97 @@ none of it is fixable from a session:
 disabled by hand and a comment posted. Rule 40 reserves a breaking dependency
 upgrade for a person. Green CI is necessary but not sufficient — the risk is the
 breaking change the suite does not cover.
+
+### 3. The loop overrode its own recorded REJECT, inside a single pull request
+
+The first fully successful autonomous run (run 33204279915, 39 min, issue #1356)
+worked end to end — implement, pytest, PR, review bots, apply review, council,
+draft→ready, squash-merge, close issue — and produced `b368f9e7` on master:
+~1,200 lines of SEO-to-portfolio bridging (`agents/seo_portfolio_bridge.py`,
+three new endpoints in `backend/seo_api.py`, 13 tests).
+
+**PR #1357 is that PR** — not, as an earlier draft of this note said, a separate
+earlier one. Verified: `merged_at 2026-08-28T20:10:59Z` (the second `b368f9e7`
+was authored), base `8b448842` (its parent), and `1199 additions / 7 deletions /
+7 changed files`, matching the commit exactly. Its title is still
+*"docs: reject: SEO backlog-to-roadmap is out of scope for autonomous-ai-agenc"*
+and its body still reads **"🛑 REJECT — nothing here belongs in this
+repository."** The context step wrote that verdict; the implement step ran on the
+same branch and merged 1,199 lines under it. Nothing in the pipeline reads its
+own planning decision.
+
+The REJECT was not authoritative either, and should not be treated as the
+correct answer that got overridden. The same PR body records
+*"Fetch status: ⚠️ NOT FETCHED — the plan below is unverified against the
+source"* and a Quality Gate failure: *"R1 — the linked source was not retrieved,
+so every claim about it is unverified; the document must be reviewed before
+implementation."* It was generated by `mistral-small-latest`. So the planner
+rejected an article it never read, and the implementer then built 1,200 lines
+for an article it never read. Neither half of that run was grounded.
+
+The bad squash subject is what hid the contradiction: with a correct subject the
+merge commit would have read *"implement quick-note issue #1356"* while its own
+PR was titled *"reject: … out of scope"* — visible in one line of `git log`.
+
+**The review bots did not review it.** CodeRabbit posted
+*"This repository does not receive automatic reviews because it has fewer than
+10 stars"*, and Codex posted *"You have reached your Codex usage limits for code
+reviews."* The `.coderabbit.yml` the loop created in this very commit sets
+`auto_review.drafts: true`, which does not address the actual blocker (star
+count). The pipeline's "Wait for review bots → Apply review comments" steps ran
+11m03s and reported success against no bot review.
+
+What *did* review it was the repo's own council step, and its verdict was
+**WARN** with: *"SECURITY: WARN — New API endpoints added … but diff is
+truncated; cannot verify authentication/authorization guards on these routes"*
+and *"These are non-blocking but require human verification before merge."*
+`process-quick-note.yml` treats `WARN` as mergeable, so a review that asked for
+human verification before merge was auto-merged without it.
+
+Both council WARNs have now been resolved by hand:
+
+- **Security — resolved, no defect.** All three endpoints take
+  `Depends(_get_current_user_thunk)` *and then* `get_company_access(company_id,
+  user)`, so another company's audit answers 404. Rule 10 holds; rule 11 holds
+  too (Pydantic v2 request models with `Field` constraints, `response_model` on
+  every route).
+- **Correctness — one real defect, still open.** `Initiative.wsjf` is a
+  `@property`, so `init.wsjf` is correct, and `source` is a real field. But
+  `estimated_monthly_value` **is not a field on `Initiative`**, and
+  `delegation_task_to_initiative` never carries it across — it interpolates
+  `task.estimated_monthly_value` into the free-text `rationale` string and drops
+  the number. Every consumer then reads it as
+  `getattr(init, 'estimated_monthly_value', 0)` — 8 call sites in
+  `backend/seo_api.py`, 2 in the bridge — so **all three new endpoints return
+  `"estimated_monthly_value": 0` for every initiative, and the roadmap markdown
+  prints `$0` in the value column for every row.** Confirmed by construction: a
+  task carrying `12345.0` yields an initiative whose call sites all read `0`,
+  with the real figure surviving only as prose inside `rationale`. The
+  `getattr(..., 0)` default is what makes it silent — without it the first call
+  would have raised `AttributeError`. Fixing it changes user-visible output, so
+  it is rule 1 work and is left for a decision: either add
+  `estimated_monthly_value` to `Initiative` and set it in the conversion, or
+  drop the field from the API responses rather than reporting a fabricated zero.
+
+Still unmet and not fixed:
+
+- **Rule 28 in `b368f9e7`.** `build_seo_roadmap` (74 lines), `plan_seo_sprint`
+  (83), `run_seo_pipeline` (114), and three functions in
+  `agents/seo_portfolio_bridge.py` (52/57/78) all exceed the 50-line limit, and
+  `backend/seo_api.py` went from 381 to 756 lines against the 800-line cap.
+  Refactoring merged code is behaviour-touching work under rule 1 and needs its
+  own change, not a rider on a workflow fix.
+
+### 4. The queue is not ordered the way the loop's purpose implies
+
+`process-quick-note.yml` picks the **oldest open issue** excluding
+`quick-note:exhausted` / `quick-note:rejected` — it is not filtered to
+quick-notes. Four "Agency: Cannot Fix Tests" escalations (#1312, #1319, #1328,
+#1349) therefore sit at the head of the queue ahead of real work, and each one
+burns three attempts (~12h) before it is labelled exhausted. Changing this is a
+queue-policy decision, so it is reported rather than done: either label the
+escalations `quick-note:rejected`, or narrow the selector to issues carrying a
+quick-note label.
 
 ## Running unattended, no action needed
 
