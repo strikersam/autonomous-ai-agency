@@ -86,7 +86,9 @@ providers:
       #   nvidia/llama-3.1-nemotron-70b-instruct (404),
       #   nvidia/nemotron-4-340b-instruct (404),
       #   nvidia/llama-3.1-nemotron-51b-instruct (404),
-      #   deepseek-ai/deepseek-r1 (404)
+      #   deepseek-ai/deepseek-r1 (404),
+      #   meta/llama-4-scout-17b-16e-instruct (404),
+      #   nvidia/nemotron-3.5-lightning-30b-a3b (404)
       - nvidia/nemotron-3-super-120b-a12b
       - mistralai/mistral-nemotron
       - openai/gpt-oss-120b
