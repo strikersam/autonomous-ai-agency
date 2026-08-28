@@ -1,10 +1,10 @@
 fastapi>=0.141.1
-uvicorn[standard]>=0.52.3
+uvicorn[standard]>=0.52.4
 httpx>=0.28.1
 beautifulsoup4>=4.14.3
-lxml>=6.1.1
+lxml>=6.1.2
 pydantic>=2.13.4
-python-dotenv>=1.2.2
+python-dotenv>=1.2.3
 langfuse>=4.14.4,<5
 jinja2>=3.1.6
 python-multipart>=0.0.30
@@ -20,10 +20,10 @@ pymongo>=4.17.0
 bcrypt>=5.0.0
 PyJWT>=2.12.1
 pillow>=12.2.0
-pygments>=2.20.0
+pygments>=2.21.0
 requests>=2.34.2,<2.35
 certifi>=2026.7.22
-idna>=3.17
+idna>=3.19
 urllib3>=2.7.0
 pyasn1>=0.6.4
 setuptools>=84.0.0
@@ -31,16 +31,16 @@ oauthlib>=3.3.1
 PyYAML>=6.0.3  # config/models.yaml catalog loader (packages/ai/brain_config.py)
 zipp>=3.23.1
 wheel>=0.48.0
-boto3>=1.43.71
+boto3>=1.43.77
 anthropic>=0.122.0
 aiosqlite>=0.19.0  # SQLite async adapter for STORAGE_BACKEND=sqlite
 redis>=8.1.0  # Redis client for shared-state backend (optional; in-memory default)
-fakeredis[lua]>=2.37.0  # Fake Redis for tests
+fakeredis[lua]>=2.37.1  # Fake Redis for tests
 curl_cffi>=0.16.0
 dnspython>=2.8.0
-graphifyy>=0.9.45  # AI knowledge-graph CLI used by .claude/hooks/graphify-refresh
+graphifyy>=0.9.48  # AI knowledge-graph CLI used by .claude/hooks/graphify-refresh
 playwright>=1.62.0
-reportlab>=5.0.0,<6  # CTO-level PDF export for SEO/GEO/AEO/AIO audit reports
+reportlab>=5.0.1,<6  # CTO-level PDF export for SEO/GEO/AEO/AIO audit reports
 # E2B Firecracker micro-VM sandbox (roadmap ★5). Optional — imports are guarded
 # so the deploy works without it; install to enable sandboxed agent execution.
 # Auto-on when E2B_API_KEY is set; kill-switch E2B_ENABLED=false.

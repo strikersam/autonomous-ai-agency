@@ -36,6 +36,30 @@ jobs:
   process:
     runs-on: ubuntu-latest
 
+    # ── MongoDB, for the same reason ci.yml has always had one ──────────────
+    # `implement_agent.py` refuses to accept IMPLEMENTATION_COMPLETE unless the
+    # last pytest exited 0 (see its `last_pytest_passed` gate). Without a Mongo
+    # here, `tests/test_auth_me_regression.py` errors with
+    # ServerSelectionTimeoutError on localhost:27017, `pytest -x` stops there,
+    # and that gate can never be satisfied — so this workflow could not report
+    # success on *any* issue, no matter what the agent wrote. Every run ended in
+    # the retry handler, and the backlog never moved.
+    #
+    # tests/conftest.py already names this defect: the fix is the service, not a
+    # STORAGE_BACKEND pin (which hangs the suite on a leaked aiosqlite thread).
+    # It was applied to agency-cycle.yml and continuous-improvement.yml and
+    # never reached the workflow that actually does the implementing.
+    services:
+      mongodb:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' | grep -q 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 15
+
     steps:
       # ── 1. Checkout ───────────────────────────────────────────────────────
       - uses: actions/checkout@v4
@@ -246,6 +270,24 @@ jobs:
           pip install -r requirements.txt --quiet || pip install -r requirements.txt --no-deps --quiet || true
 
       # ── 6. Fetch URL content (multi-strategy) ─────────────────────────────
+      # Belt and braces alongside the service health check, matching ci.yml.
+      # A pytest that starts a moment too early reproduces the exact defect this
+      # service exists to fix, and does so silently — the log line is what makes
+      # the difference visible next time.
+      - name: Wait for MongoDB
+        if: steps.pick.outputs.found == 'true' && steps.auto_test.outputs.is_automation_test != 'true'
+        run: |
+          for i in {1..30}; do
+            if nc -z localhost 27017; then
+              printf '\u2713 MongoDB is reachable on localhost:27017\n'
+              exit 0
+            fi
+            echo "Waiting for MongoDB... ($i/30)"
+            sleep 2
+          done
+          echo "::error::MongoDB did not become reachable within 60s"
+          exit 1
+
       - name: Fetch URL content
         id: fetch
         if: steps.pick.outputs.found == 'true' && steps.auto_test.outputs.is_automation_test != 'true'
@@ -308,6 +350,30 @@ jobs:
             echo "Reusing existing context branch: $CONTEXT_BRANCH"
             git fetch origin "$CONTEXT_BRANCH"
             git checkout -b "$CONTEXT_BRANCH" "origin/$CONTEXT_BRANCH"
+
+            # ── Bring master in before the agent runs ────────────────────────
+            # Every later step executes the tree on THIS branch, including
+            # .github/scripts/implement_agent.py itself. A context branch cut
+            # days ago carries the tooling as it was then: run 33146384139 on
+            # 2026-08-28 executed the pre-fix implementer, logging a line master
+            # had already deleted and walking six model ids master no longer
+            # contained — so the fix merged an hour earlier had no effect, and
+            # nothing said so. The agent was also planning against stale product
+            # code. Merging master fixes both, and is simply what a human does
+            # before resuming work on an old branch.
+            git fetch origin master
+            if git merge --no-edit origin/master; then
+              echo "Merged master into $CONTEXT_BRANCH"
+            else
+              # Conflict: proceeding would run the agent on stale code, which is
+              # the defect this exists to prevent. Start clean from master
+              # instead and let the agent redo the work.
+              git merge --abort || true
+              echo "::warning::Could not merge master into ${CONTEXT_BRANCH}; starting a fresh branch from master instead."
+              git push origin --delete "$IMPL_BRANCH" 2>/dev/null || true
+              git checkout -B "$IMPL_BRANCH" origin/master
+              CONTEXT_BRANCH="$IMPL_BRANCH"
+            fi
             echo "branch=$CONTEXT_BRANCH" >> "$GITHUB_OUTPUT"
           else
             # Fall back to a fresh implementation branch
@@ -755,6 +821,7 @@ jobs:
       # had a transient hiccup — in that case pr_number is set and no failure
       # occurred.
       - name: Handle failure — reopen for retry
+        id: retry
         if: >
           always() &&
           steps.pick.outputs.found == 'true' &&
@@ -780,7 +847,61 @@ jobs:
             --remove-label "retry:${RETRY}" 2>/dev/null || true
 
           if [ "$NEW_RETRY" -ge "$MAX_RETRIES" ]; then
-            # Exhausted — label and leave open for human
+            # ── Analysis gate ────────────────────────────────────────────────
+            # Exhaustion used to be a bare counter: three failures, add the
+            # label, paste 40 lines of log, walk away. Nothing ever asked *why*,
+            # so "the agent could not write the fix" and "the agent was handed a
+            # task that was never fixable" ended up looking identical.
+            #
+            # The second is what kept happening. A parser bug fed this loop
+            # `qwen-proxy:app_settings.py:70` — a captured log record, not a test
+            # — so every pytest on it died with "file or directory not found",
+            # burned three attempts and abandoned the issue. 238 closed issues
+            # carry that shape. The diagnosis was always available: the repo's
+            # own _classify_failure() correctly called the MongoDB outage in
+            # #1360 "no code change can fix it", and the workflow marked it
+            # exhausted anyway.
+            #
+            # Now the label requires a verdict. `exhausted` means real,
+            # collectable tests genuinely resisted the fix. `needs-triage` and
+            # `blocked-infrastructure` mean the obstacle was never the agent's
+            # to clear, so the issue stays retryable instead of being buried.
+            LOG=/tmp/impl_output.txt
+            [ -s "$LOG" ] || LOG=/tmp/test_output.txt
+            ANALYSIS=$(python scripts/analyze_exhaustion.py "$LOG" \
+                         --attempts "$MAX_RETRIES" \
+                         --verdict-file /tmp/exhaustion_verdict.txt 2>/dev/null \
+                       || echo "_(analysis unavailable)_")
+            VERDICT=$(cat /tmp/exhaustion_verdict.txt 2>/dev/null || echo "exhausted")
+            echo "Exhaustion verdict: $VERDICT"
+
+            if [ "$VERDICT" != "exhausted" ]; then
+              # Not the agent's failure — do not spend the label on it.
+              case "$VERDICT" in
+                blocked-infrastructure)
+                  BLOCK_LABEL="blocked:infrastructure"
+                  BLOCK_DESC="External service unavailable — not fixable by a code change" ;;
+                *)
+                  BLOCK_LABEL="needs-triage"
+                  BLOCK_DESC="Input was not a fixable task — needs a human look" ;;
+              esac
+              gh label create "$BLOCK_LABEL" \
+                --repo "$REPO" \
+                --color "fbca04" --description "$BLOCK_DESC" 2>/dev/null || true
+              gh issue edit "$ISSUE" \
+                --repo "$REPO" \
+                --add-label "$BLOCK_LABEL" 2>/dev/null || true
+              gh issue reopen "$ISSUE" --repo "$REPO" 2>/dev/null || true
+              gh issue comment "$ISSUE" \
+                --repo "$REPO" \
+                --body "$(printf '%s\n\n%s\n' \
+                  "$ANALYSIS" \
+                  "Left **open and retryable** — \`quick-note:exhausted\` would claim the agent tried and failed, which is not what the analysis shows. Labelled \`${BLOCK_LABEL}\` instead.")" \
+                2>/dev/null || true
+              exit 0
+            fi
+
+            # Genuinely exhausted — real tests, real code failures.
             gh label create "quick-note:exhausted" \
               --repo "$REPO" \
               --color "b60205" --description "Retries exhausted" 2>/dev/null || true
@@ -791,6 +912,8 @@ jobs:
               --repo "$REPO" \
               --body "$(cat <<MSG
           ❌ Failed after ${MAX_RETRIES} attempts — manual intervention required.
+
+          ${ANALYSIS}
 
           **Failure log (last 40 lines of agent output):**
           \`\`\`
@@ -824,3 +947,36 @@ jobs:
           MSG
           )"
           fi
+
+      # ── 15. Fail loudly when the run produced nothing ──────────────────────
+      # The retry handler above bookkeeps a barren run — bumps the retry label,
+      # reopens the issue, comments — and then the job ends green, because every
+      # step that would have failed was *skipped* rather than failed. A run that
+      # implemented nothing is indistinguishable in the Actions list from one
+      # that shipped a PR.
+      #
+      # That is how this went unnoticed for weeks: run 33056034069 showed the
+      # agentic loop "succeed", steps 13–25 skipped, the retry handler bump
+      # #1319 to retry:2, and a green tick on the job. Nine issues accumulated
+      # behind a workflow that looked healthy on every single run.
+      #
+      # Placed last and gated on the retry handler's own outcome, so the label
+      # bookkeeping still completes before the job goes red. Skipped runs (no
+      # issue to pick up) stay green — there is nothing wrong with an idle tick.
+      - name: Fail loudly — implementer produced no change
+        if: always() && steps.retry.outcome == 'success'
+        env:
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
+          IMPL_SUCCESS: ${{ steps.implement.outputs.success }}
+          TESTS_PASSED: ${{ steps.tests.outputs.passed }}
+          CHANGED: ${{ steps.commit.outputs.changed }}
+        run: |
+          echo "::error title=Implementer produced no change::Issue #${ISSUE_NUM} was picked up but no pull request was opened and no code was committed."
+          echo "  agentic loop reported success : ${IMPL_SUCCESS:-<not reached>}"
+          echo "  pytest passed                 : ${TESTS_PASSED:-<not reached>}"
+          echo "  files changed                 : ${CHANGED:-<not reached>}"
+          echo ""
+          echo "The issue has been reopened and its retry counter bumped, but nothing was"
+          echo "implemented. This job is red on purpose: a barren run must not look like a"
+          echo "successful one in the Actions list."
+          exit 1
