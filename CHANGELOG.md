@@ -3,6 +3,13 @@
      move the gate to root. -->
 
 ## [Unreleased]
+### Added
+- `agents/seo_portfolio_bridge.py` — SEO-to-Portfolio/Agile bridge module that converts SEO audit findings (`SeoDelegationTask`) into portfolio initiatives with WSJF scores, builds Now/Next/Later roadmaps, and plans agile sprints. Implements the "turn SEO backlog into roadmap" workflow from Search Engine Land.
+- `backend/seo_api.py` — Three new endpoints:
+  - `POST /api/company/{company_id}/seo/audits/{audit_id}/roadmap` — Build Now/Next/Later roadmap from audit findings
+  - `POST /api/company/{company_id}/seo/audits/{audit_id}/sprint` — Plan agile sprint from audit findings
+  - `POST /api/company/{company_id}/seo/audits/{audit_id}/pipeline` — Full pipeline: roadmap + sprint in one call
+- `tests/test_seo_portfolio_bridge.py` — Comprehensive test suite (13 tests) for the bridge module covering conversion, roadmap building, sprint planning, and full pipeline integration.
 
 ### Added
 

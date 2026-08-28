@@ -10,6 +10,9 @@ Endpoints for the world-class SEO audit engine (issue #533):
 - GET  /api/company/{company_id}/seo/audits/{audit_id}/export   csv|json|markdown|urls|issues|pdf
 - POST /api/company/{company_id}/seo/audits/{audit_id}/delegate create agent tasks
 - POST /api/company/{company_id}/seo/fix                   repo-aware auto-fix
+- POST /api/company/{company_id}/seo/audits/{audit_id}/roadmap   Now/Next/Later roadmap from findings
+- POST /api/company/{company_id}/seo/audits/{audit_id}/sprint    agile sprint plan from findings
+- POST /api/company/{company_id}/seo/audits/{audit_id}/pipeline  full pipeline: roadmap + sprint
 
 Audits are persisted (best-effort) into the Company Graph as KnowledgeItems
 so specialists and the orchestrator can build on the evidence.
@@ -33,6 +36,7 @@ from models.seo_audit import (
     SeoAuditRequest,
     SeoAuditSummary,
     SeoCheckDefinition,
+    SeoDelegationTask,
     SeoFixRequest,
     SeoFixResult,
 )
@@ -291,13 +295,10 @@ async def delegate_seo_findings(
     from tasks.store import get_task_store
 
     priority_rank = {"high": 0, "medium": 1, "low": 2}
-    priority_map = {
-        "high": TaskPriority.HIGH,
-        "medium": TaskPriority.MEDIUM,
-        "low": TaskPriority.LOW,
-    }
-    store = get_task_store()
+    priority_map = {"high": TaskPriority.HIGH, "medium": TaskPriority.MEDIUM, "low": TaskPriority.LOW}
+
     owner_id = _resolve_user_id(user)
+    store = get_task_store()
     created: List[dict] = []
     for pkg in report.delegation_plan:
         if priority_rank[pkg.priority] > priority_rank[request.min_priority]:
@@ -337,6 +338,381 @@ async def delegate_seo_findings(
     log.info("Delegated %d SEO work package(s) from audit %s", len(created), audit_id)
     return SeoDelegationCreateResult(
         audit_id=audit_id, created=len(created), tasks=created,
+    )
+
+
+# =============================================================================
+# SEO → PORTFOLIO / AGILE BRIDGE ENDPOINTS
+# =============================================================================
+
+class SeoRoadmapRequest(BaseModel):
+    """Options for building a Now/Next/Later roadmap from SEO findings."""
+    capacity_per_horizon: int = Field(
+        default=20, ge=1, le=100,
+        description="Job-size capacity for each of Now/Next/Later horizons"
+    )
+    min_priority: Literal["high", "medium", "low"] = Field(
+        default="low", description="Only include packages at or above this priority"
+    )
+
+
+class SeoRoadmapResponse(BaseModel):
+    """Response for the SEO roadmap endpoint."""
+    audit_id: str
+    website_url: str
+    total_initiatives: int
+    scheduled_initiatives: int
+    unscheduled_initiatives: int
+    capacity_per_horizon: int
+    roadmap: dict[str, List[dict]]
+    markdown: str
+
+
+@router.post(
+    "/company/{company_id}/seo/audits/{audit_id}/roadmap",
+    response_model=SeoRoadmapResponse,
+)
+async def build_seo_roadmap(
+    company_id: str = Path(..., description="Company ID"),
+    audit_id: str = Path(..., description="Audit ID"),
+    request: SeoRoadmapRequest = Body(default=SeoRoadmapRequest()),
+    user: dict = Depends(_get_current_user_thunk),
+) -> SeoRoadmapResponse:
+    """Build a Now/Next/Later roadmap from the audit's delegation plan.
+
+    Converts each SeoDelegationTask into a portfolio Initiative (with WSJF
+    scores preserved), registers them in a PortfolioManager, and lays them
+    onto a three-horizon roadmap using capacity-based allocation.
+
+    This directly implements the "turn SEO backlog into roadmap" workflow
+    from Search Engine Land's methodology.
+    """
+    company = await get_company_access(company_id, user)
+    report = get_report(audit_id)
+    if report is None or report.company_id != company.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Audit {audit_id} not found for this company",
+        )
+
+    # Filter delegation plan by priority
+    priority_rank = {"high": 0, "medium": 1, "low": 2}
+    filtered_tasks = [
+        pkg for pkg in report.delegation_plan
+        if priority_rank[pkg.priority] <= priority_rank[request.min_priority]
+    ]
+
+    if not filtered_tasks:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No delegation tasks match the priority filter",
+        )
+
+    from agents.seo_portfolio_bridge import build_seo_roadmap
+
+    roadmap_plan = build_seo_roadmap(
+        filtered_tasks,
+        audit_id=audit_id,
+        website_url=report.website_url,
+        capacity_per_horizon=request.capacity_per_horizon,
+    )
+
+    # Convert roadmap to serializable format
+    roadmap_dict = {}
+    for horizon, initiatives in roadmap_plan.roadmap.items():
+        roadmap_dict[horizon] = [
+            {
+                "initiative_id": i.initiative_id,
+                "title": i.title,
+                "wsjf": round(i.wsjf, 2),
+                "job_size": i.job_size,
+                "business_value": i.business_value,
+                "time_criticality": i.time_criticality,
+                "risk_reduction": i.risk_reduction,
+                "horizon": i.horizon.value,
+                "status": i.status.value,
+                "estimated_monthly_value": getattr(i, 'estimated_monthly_value', 0),
+            }
+            for i in initiatives
+        ]
+
+    return SeoRoadmapResponse(
+        audit_id=audit_id,
+        website_url=report.website_url,
+        total_initiatives=roadmap_plan.total_initiatives,
+        scheduled_initiatives=roadmap_plan.scheduled_initiatives,
+        unscheduled_initiatives=roadmap_plan.unscheduled_initiatives,
+        capacity_per_horizon=roadmap_plan.capacity_per_horizon,
+        roadmap=roadmap_dict,
+        markdown=roadmap_plan.to_markdown(),
+    )
+
+
+class SeoSprintRequest(BaseModel):
+    """Options for planning an agile sprint from SEO findings."""
+    sprint_name: str = Field(..., min_length=1, max_length=100, description="Name for the sprint")
+    sprint_goal: str = Field(default="", max_length=500, description="Optional sprint goal")
+    capacity: int = Field(default=20, ge=1, le=100, description="Total job-size capacity for the sprint")
+    min_priority: Literal["high", "medium", "low"] = Field(
+        default="low", description="Only include packages at or above this priority"
+    )
+
+
+class SeoSprintResponse(BaseModel):
+    """Response for the SEO sprint planning endpoint."""
+    audit_id: str
+    website_url: str
+    sprint_id: str
+    sprint_name: str
+    sprint_goal: str
+    status: str
+    capacity_total: int
+    capacity_used: int
+    committed_initiatives: int
+    deferred_initiatives: int
+    committed: List[dict]
+    deferred: List[dict]
+    markdown: str
+
+
+@router.post(
+    "/company/{company_id}/seo/audits/{audit_id}/sprint",
+    response_model=SeoSprintResponse,
+)
+async def plan_seo_sprint(
+    company_id: str = Path(..., description="Company ID"),
+    audit_id: str = Path(..., description="Audit ID"),
+    request: SeoSprintRequest = Body(...),
+    user: dict = Depends(_get_current_user_thunk),
+) -> SeoSprintResponse:
+    """Plan an agile sprint from the audit's delegation plan.
+
+    Converts delegation tasks to portfolio initiatives, allocates capacity
+    by WSJF priority, creates a new AgileSprint with one UserStory per
+    committed initiative, and links each initiative to the sprint.
+
+    The sprint is left in PLANNING state for a human (or Delivery Manager)
+    to start.
+    """
+    company = await get_company_access(company_id, user)
+    report = get_report(audit_id)
+    if report is None or report.company_id != company.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Audit {audit_id} not found for this company",
+        )
+
+    # Filter delegation plan by priority
+    priority_rank = {"high": 0, "medium": 1, "low": 2}
+    filtered_tasks = [
+        pkg for pkg in report.delegation_plan
+        if priority_rank[pkg.priority] <= priority_rank[request.min_priority]
+    ]
+
+    if not filtered_tasks:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No delegation tasks match the priority filter",
+        )
+
+    from agents.seo_portfolio_bridge import plan_seo_sprint
+
+    sprint_plan = plan_seo_sprint(
+        filtered_tasks,
+        audit_id=audit_id,
+        website_url=report.website_url,
+        sprint_name=request.sprint_name,
+        sprint_goal=request.sprint_goal,
+        capacity=request.capacity,
+    )
+
+    committed = [
+        {
+            "initiative_id": i.initiative_id,
+            "title": i.title,
+            "wsjf": round(i.wsjf, 2),
+            "job_size": i.job_size,
+            "estimated_monthly_value": getattr(i, 'estimated_monthly_value', 0),
+        }
+        for i in sprint_plan.plan.committed
+    ]
+    deferred = [
+        {
+            "initiative_id": i.initiative_id,
+            "title": i.title,
+            "wsjf": round(i.wsjf, 2),
+            "job_size": i.job_size,
+            "estimated_monthly_value": getattr(i, 'estimated_monthly_value', 0),
+        }
+        for i in sprint_plan.plan.deferred
+    ]
+
+    return SeoSprintResponse(
+        audit_id=audit_id,
+        website_url=report.website_url,
+        sprint_id=sprint_plan.sprint.sprint_id,
+        sprint_name=sprint_plan.sprint.name,
+        sprint_goal=sprint_plan.sprint.goal,
+        status=sprint_plan.sprint.status.value,
+        capacity_total=sprint_plan.capacity_total,
+        capacity_used=sprint_plan.capacity_used,
+        committed_initiatives=len(committed),
+        deferred_initiatives=len(deferred),
+        committed=committed,
+        deferred=deferred,
+        markdown=sprint_plan.to_markdown(),
+    )
+
+
+class SeoPipelineRequest(BaseModel):
+    """Options for the full SEO → Agile pipeline."""
+    capacity_per_horizon: int = Field(
+        default=20, ge=1, le=100,
+        description="Job-size capacity for each roadmap horizon"
+    )
+    sprint_capacity: int = Field(
+        default=20, ge=1, le=100,
+        description="Job-size capacity for the sprint"
+    )
+    sprint_name: Optional[str] = Field(
+        default=None, max_length=100, description="Sprint name (auto-generated if omitted)"
+    )
+    sprint_goal: str = Field(default="", max_length=500, description="Optional sprint goal")
+    min_priority: Literal["high", "medium", "low"] = Field(
+        default="low", description="Only include packages at or above this priority"
+    )
+    create_sprint: bool = Field(default=True, description="Whether to create a sprint plan")
+
+
+class SeoPipelineResponse(BaseModel):
+    """Response for the full SEO → Agile pipeline endpoint."""
+    audit_id: str
+    website_url: str
+    total_initiatives: int
+    roadmap: dict[str, List[dict]]
+    roadmap_markdown: str
+    sprint: Optional[dict] = None
+    sprint_markdown: Optional[str] = None
+    full_markdown: str
+
+
+@router.post(
+    "/company/{company_id}/seo/audits/{audit_id}/pipeline",
+    response_model=SeoPipelineResponse,
+)
+async def run_seo_pipeline(
+    company_id: str = Path(..., description="Company ID"),
+    audit_id: str = Path(..., description="Audit ID"),
+    request: SeoPipelineRequest = Body(default=SeoPipelineRequest()),
+    user: dict = Depends(_get_current_user_thunk),
+) -> SeoPipelineResponse:
+    """Run the full pipeline: SEO audit → Portfolio → Roadmap → Sprint.
+
+    This is the "one call does it all" endpoint for turning an SEO audit into
+    actionable agile delivery artifacts. It:
+    1. Filters the audit's delegation plan by priority
+    2. Converts tasks to portfolio initiatives with WSJF scores
+    3. Builds a Now/Next/Later roadmap
+    4. Optionally creates an agile sprint plan
+
+    The result is a complete actionable plan that competes for capacity
+    alongside product initiatives using the same WSJF prioritisation.
+    """
+    company = await get_company_access(company_id, user)
+    report = get_report(audit_id)
+    if report is None or report.company_id != company.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Audit {audit_id} not found for this company",
+        )
+
+    # Filter delegation plan by priority
+    priority_rank = {"high": 0, "medium": 1, "low": 2}
+    filtered_tasks = [
+        pkg for pkg in report.delegation_plan
+        if priority_rank[pkg.priority] <= priority_rank[request.min_priority]
+    ]
+
+    if not filtered_tasks:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No delegation tasks match the priority filter",
+        )
+
+    from agents.seo_portfolio_bridge import run_seo_to_agile_pipeline
+
+    result = run_seo_to_agile_pipeline(
+        filtered_tasks,
+        audit_id=audit_id,
+        website_url=report.website_url,
+        capacity_per_horizon=request.capacity_per_horizon,
+        sprint_capacity=request.sprint_capacity,
+        sprint_name=request.sprint_name,
+        sprint_goal=request.sprint_goal,
+        create_sprint=request.create_sprint,
+    )
+
+    # Convert roadmap to serializable format
+    roadmap_dict = {}
+    for horizon, initiatives in result.roadmap.roadmap.items():
+        roadmap_dict[horizon] = [
+            {
+                "initiative_id": i.initiative_id,
+                "title": i.title,
+                "wsjf": round(i.wsjf, 2),
+                "job_size": i.job_size,
+                "business_value": i.business_value,
+                "time_criticality": i.time_criticality,
+                "risk_reduction": i.risk_reduction,
+                "horizon": i.horizon.value,
+                "status": i.status.value,
+                "estimated_monthly_value": getattr(i, 'estimated_monthly_value', 0),
+            }
+            for i in initiatives
+        ]
+
+    sprint_data = None
+    sprint_md = None
+    if result.sprint:
+        sprint_data = {
+            "sprint_id": result.sprint.sprint.sprint_id,
+            "sprint_name": result.sprint.sprint.name,
+            "sprint_goal": result.sprint.sprint.goal,
+            "status": result.sprint.sprint.status.value,
+            "capacity_total": result.sprint.capacity_total,
+            "capacity_used": result.sprint.capacity_used,
+            "committed": [
+                {
+                    "initiative_id": i.initiative_id,
+                    "title": i.title,
+                    "wsjf": round(i.wsjf, 2),
+                    "job_size": i.job_size,
+                    "estimated_monthly_value": getattr(i, 'estimated_monthly_value', 0),
+                }
+                for i in result.sprint.plan.committed
+            ],
+            "deferred": [
+                {
+                    "initiative_id": i.initiative_id,
+                    "title": i.title,
+                    "wsjf": round(i.wsjf, 2),
+                    "job_size": i.job_size,
+                    "estimated_monthly_value": getattr(i, 'estimated_monthly_value', 0),
+                }
+                for i in result.sprint.plan.deferred
+            ],
+        }
+        sprint_md = result.sprint.to_markdown()
+
+    return SeoPipelineResponse(
+        audit_id=audit_id,
+        website_url=report.website_url,
+        total_initiatives=len(result.initiatives),
+        roadmap=roadmap_dict,
+        roadmap_markdown=result.roadmap.to_markdown(),
+        sprint=sprint_data,
+        sprint_markdown=sprint_md,
+        full_markdown=result.to_markdown(),
     )
 
 
