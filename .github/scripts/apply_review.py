@@ -38,7 +38,7 @@ OPUS_MODEL = "claude-opus-4-6"
 # Imported rather than redeclared: see the note in review_agent.py. The copy
 # this replaces also listed the same model twice under two different labels,
 # spending one of its four attempts re-asking a model that had just refused.
-from nvidia_models import NVIDIA_CANDIDATE_MODELS  # noqa: E402
+from nvidia_models import resolve_candidates  # noqa: E402
 MAX_TURNS = 50
 _STRIP_KEYS = ("NVIDIA_API_KEY", "ANTHROPIC_API_KEY", "OPENAI_API_KEY",
                "GEMINI_API_KEY", "GROQ_API_KEY", "MISTRAL_API_KEY",
@@ -439,7 +439,7 @@ def main() -> None:
 
     # Primary engine: NVIDIA NIM
     if nvidia_key:
-        for model, desc in NVIDIA_CANDIDATE_MODELS:
+        for model, desc in resolve_candidates():
             log.info(f"Trying model {model} ({desc}) (NVIDIA NIM — primary)")
             agent = ApplyReviewAgent(nvidia_key, model, context)
             try:

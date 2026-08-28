@@ -29,7 +29,7 @@ from pathlib import Path
 from openai import OpenAI
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from nvidia_models import NVIDIA_MODEL_IDS  # noqa: E402
+from nvidia_models import resolve_model_ids  # noqa: E402
 
 # CLI script: log to stdout so messages stay visible and ordered in CI logs.
 logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
@@ -92,7 +92,7 @@ def _call_review_llm(prompt: str, *, anthropic_key: str, nvidia_key: str) -> str
     # Primary: NVIDIA NIM
     if nvidia_key:
         client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=nvidia_key)
-        for model in NVIDIA_MODEL_IDS:
+        for model in resolve_model_ids():
             try:
                 response = client.chat.completions.create(
                     model=model,

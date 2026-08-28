@@ -578,12 +578,13 @@ def _nvidia_candidates(router: Any) -> tuple[str, list[str]]:
     if not router.providers or router.providers[0].provider_id != "nvidia-nim":
         return "", []
     try:
-        from nvidia_models import NVIDIA_MODEL_IDS
+        from nvidia_models import resolve_model_ids
     except Exception:  # pragma: no cover - import-environment dependent
         return "", []
-    if not NVIDIA_MODEL_IDS:
+    model_ids = resolve_model_ids()
+    if not model_ids:
         return "", []
-    return NVIDIA_MODEL_IDS[0], list(NVIDIA_MODEL_IDS[1:])
+    return model_ids[0], list(model_ids[1:])
 
 
 def router_turn(router: Any, messages: list[dict]) -> tuple[dict, str]:

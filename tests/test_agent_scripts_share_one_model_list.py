@@ -105,9 +105,16 @@ class TestTheSharedListFitsBothCallers:
             model_id for model_id, _label in models.NVIDIA_CANDIDATE_MODELS
         ]
 
-    def test_there_is_more_than_one_candidate(self, models) -> None:
-        """One candidate is what a turn-1 exhaustion looks like."""
-        assert len(models.NVIDIA_MODEL_IDS) > 1
+    def test_the_static_floor_is_only_a_floor(self, models) -> None:
+        """Breadth now comes from discovery, not from this list.
+
+        The old list held three ids and two were dead; padding it with more
+        unverified ids would only have made the turn-1 exhaustion slower. The
+        floor is deliberately short, and `resolve_model_ids()` is what supplies
+        real breadth by asking the provider.
+        """
+        assert models.NVIDIA_MODEL_IDS, "a floor of nothing is not a floor"
+        assert callable(models.resolve_model_ids)
 
     def test_no_duplicate_candidates(self, models) -> None:
         """apply_review.py listed the same model twice, wasting a retry."""
@@ -147,8 +154,8 @@ class TestTheNamesActuallyResolve:
 
     @pytest.mark.parametrize(
         "script,expected",
-        [("review_agent.py", "NVIDIA_MODEL_IDS"),
-         ("apply_review.py", "NVIDIA_CANDIDATE_MODELS")],
+        [("review_agent.py", "resolve_model_ids"),
+         ("apply_review.py", "resolve_candidates")],
     )
     def test_every_nvidia_name_used_is_bound(self, script: str, expected: str) -> None:
         """Catches a rename that updates the import but misses a use site."""
@@ -161,7 +168,8 @@ class TestTheNamesActuallyResolve:
         used = {
             n.id for n in ast.walk(tree)
             if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)
-            and ("CANDIDATE_MODELS" in n.id or "MODEL_IDS" in n.id)
+            and ("CANDIDATE_MODELS" in n.id or "MODEL_IDS" in n.id
+                 or n.id.startswith("resolve_"))
         }
         assert used == {expected}, (
             f"{script} reads {used or 'nothing'}; it should read {expected}"

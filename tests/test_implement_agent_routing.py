@@ -296,16 +296,21 @@ class TestNvidiaGetsMoreThanOneCandidate:
         assert '"meta/llama-3.3-70b-instruct"' in router_src
         assert "meta/llama-3.3-70b-instruct" in DEAD_MODEL_IDS
 
-    def test_nvidia_first_gets_the_curated_list(self, agent):
+    def test_nvidia_first_gets_the_resolved_list(self, agent, monkeypatch):
+        sys.path.insert(0, str(GITHUB_SCRIPTS))
+        import nvidia_models
+
+        nvidia_models.reset_cache()
+        monkeypatch.setattr(
+            nvidia_models, "live_model_ids",
+            lambda *a, **k: ["nvidia/a-nemotron", "nvidia/b-instruct"],
+        )
         recorder = _Recorder(provider_id="nvidia-nim")
         agent.router_turn(recorder, [{"role": "user", "content": "hi"}])
+        nvidia_models.reset_cache()
 
-        sys.path.insert(0, str(GITHUB_SCRIPTS))
-        from nvidia_models import NVIDIA_MODEL_IDS
-
-        assert recorder.payload["model"] == NVIDIA_MODEL_IDS[0]
-        assert recorder.kwargs["model_fallbacks"] == list(NVIDIA_MODEL_IDS[1:])
-        assert len(NVIDIA_MODEL_IDS) > 1, (
+        assert recorder.payload["model"] == "nvidia/a-nemotron"
+        assert recorder.kwargs["model_fallbacks"] == ["nvidia/b-instruct"], (
             "one candidate is what the outage looked like"
         )
 
