@@ -31,6 +31,10 @@ BRAIN_CONFIG = REPO_ROOT / "packages/ai/brain_config.py"
 AGENCY_CATALOGUE = REPO_ROOT / "config/models.yaml"
 GATEWAY_CATALOGUE = REPO_ROOT / "config/llm/models.yaml"
 
+# Imported, not copied: a second list of retired ids here would drift from
+# the first, which is precisely the failure this module exists to catch.
+from tests.test_nvidia_default_model import EXPECTED, RETIRED  # noqa: E402
+
 
 def _hardcoded_candidates() -> dict[str, list[str]]:
     """``PROVIDER_CANDIDATES`` as written in the module, before YAML overrides.
@@ -150,3 +154,51 @@ class TestBothCataloguesAgreeOnWhatExists:
         assert "meta/llama-3.3-70b-instruct" not in models, (
             "retired model still declared in the gateway catalogue"
         )
+
+
+class TestTheGatewayRegistryOffersOnlyLiveModels:
+    """A sixth model source, found on 2026-08-28 while verifying a fix.
+
+    ``packages/llm/registry.py::_seed_from_legacy`` imports
+    ``packages/ai/registry.py`` and adds any model absent from the YAML
+    catalogues. So removing a retired id from ``config/llm/models.yaml`` did
+    nothing — it came straight back from the legacy registry, and kept being
+    offered as a *tool-calling* candidate on the gateway path.
+
+    This is the same defect as the rest of this file, one layer deeper: the
+    removal looked correct and was inert, and only building the registry and
+    asking it what it would route to revealed otherwise.
+    """
+
+    def _nvidia_candidates(self, require_tools: bool = False) -> list[str]:
+        from packages.llm.config import reload_config
+        from packages.llm.registry import ModelRegistry
+
+        registry = ModelRegistry(reload_config())
+        return [
+            m.id
+            for m in registry.candidates(provider_id="nvidia", require_tools=require_tools)
+        ]
+
+    def test_the_registry_offers_something(self) -> None:
+        assert self._nvidia_candidates(), "no nvidia models; guards below would be vacuous"
+
+    @pytest.mark.parametrize("retired", RETIRED)
+    def test_no_retired_id_is_routable(self, retired: str) -> None:
+        assert retired not in self._nvidia_candidates(), (
+            f"{retired} is still routable via the gateway registry — check "
+            f"packages/ai/registry.py, not just the YAML catalogues"
+        )
+
+    @pytest.mark.parametrize("retired", RETIRED)
+    def test_no_retired_id_is_offered_for_tool_calls(self, retired: str) -> None:
+        assert retired not in self._nvidia_candidates(require_tools=True)
+
+    def test_the_default_can_serve_tool_calls(self) -> None:
+        """The platform default must survive ``require_tools`` filtering.
+
+        Undeclared models get ``supports_tools: false`` and are dropped from
+        every tool-calling request — silently, since a shorter candidate list
+        looks identical to a healthy one.
+        """
+        assert EXPECTED in self._nvidia_candidates(require_tools=True)
