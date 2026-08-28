@@ -39,7 +39,10 @@ jobs:
           python-version: "3.13"
 
       - name: Install config dependencies
-        run: python -m pip install --quiet pyyaml
+        # packages/llm/__init__ imports the router, which imports httpx, so
+        # loading the provider config pulls it in even though the probe itself
+        # only uses urllib.
+        run: python -m pip install --quiet pyyaml httpx
 
       - name: Probe
         env:

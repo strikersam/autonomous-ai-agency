@@ -218,3 +218,22 @@ class TestTheWorkflowIsSafeAndReadOnly:
         text = WORKFLOW.read_text(encoding="utf-8")
         for forbidden in ("git commit", "git push", "create_pull_request", "gh pr"):
             assert forbidden not in text
+
+
+class TestTheWorkflowInstallsWhatTheImportNeeds:
+    """The first real run died in 10 seconds on ModuleNotFoundError: httpx.
+
+    The probe itself only uses ``urllib``, so installing ``pyyaml`` looked
+    sufficient. It is not: ``_providers`` imports ``packages.llm.config``, and
+    ``packages/llm/__init__`` imports the router, which imports ``httpx``. The
+    dependency is real but invisible at the call site — exactly the kind of
+    thing that is cheap to assert and expensive to rediscover.
+    """
+
+    def test_the_install_step_covers_the_transitive_imports(self) -> None:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        install = [line for line in text.splitlines() if "pip install" in line]
+        assert install, "the workflow must install the config dependencies"
+        joined = " ".join(install)
+        for package in ("pyyaml", "httpx"):
+            assert package in joined, f"{package} is needed to load the provider config"
