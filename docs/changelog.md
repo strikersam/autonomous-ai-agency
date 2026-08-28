@@ -3,6 +3,8 @@
      move the gate to root. -->
 
 ## [Unreleased]
+### Added
+- `agent/trend_watcher.py` — Added agent-driven reverse engineering & firmware security keywords to capture AI-powered hardware hacking trends (e.g., "Everything I own, owned" article). New keywords include: reverse engineering, firmware analysis, webusb, webhid, webbluetooth, microcontroller, embedded security, peripheral security, rce, root shell, secure boot, signed firmware, agentic reverse engineering. Added security/hardware subreddits (r/reverseengineering, r/hardware, r/embedded, r/netsec, r/security, r/pwned). Extended Google News, Hacker News, and arXiv search queries to cover firmware reverse engineering, hardware security vulnerabilities, and agent-driven reverse engineering topics.
 
 ### Added
 

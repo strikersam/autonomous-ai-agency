@@ -499,3 +499,137 @@ def test_keywords_include_new_terms():
     assert "agentic" in _KEYWORDS or "ai agent" in _KEYWORDS
     assert "rag" in _KEYWORDS or "retrieval augmented" in _KEYWORDS
     assert "lora" in _KEYWORDS
+
+
+# ── Tests for new firmware/reverse engineering keywords ───────────────────────
+
+def test_relevance_score_firmware_reverse_engineering(tmp_watcher):
+    """Test that firmware/reverse engineering content gets high relevance scores."""
+    text = "agent-driven reverse engineering of firmware using Claude Opus for peripheral security analysis webusb webhid"
+    score = tmp_watcher._score(text)
+    assert score >= 0.4, f"Expected high score for firmware RE content, got {score}"
+
+
+def test_relevance_score_hardware_security(tmp_watcher):
+    """Test that hardware security content gets decent relevance scores."""
+    text = "firmware security vulnerability root shell rce microcontroller embedded security i2c uart jtag"
+    score = tmp_watcher._score(text)
+    assert score >= 0.4, f"Expected high score for hardware security content, got {score}"
+
+
+def test_relevance_score_peripheral_security(tmp_watcher):
+    """Test that peripheral security content gets relevance scores."""
+    text = "webcam firmware microphone firmware monitor firmware ddc/ci usb device peripheral security"
+    score = tmp_watcher._score(text)
+    assert score >= 0.3, f"Expected decent score for peripheral security content, got {score}"
+
+
+def test_relevance_score_ai_reverse_engineering(tmp_watcher):
+    """Test that AI-driven reverse engineering content gets high relevance scores."""
+    text = "ai reverse engineering llm reverse engineering automated reverse engineering claude reverse engineering"
+    score = tmp_watcher._score(text)
+    assert score >= 0.4, f"Expected high score for AI reverse engineering content, got {score}"
+
+
+# ── Test Reddit subreddits include security/hardware ones ─────────────────────
+
+def test_reddit_subs_include_security(tmp_watcher):
+    """Test that security/hardware subreddits are included."""
+    from agent.trend_watcher import _REDDIT_SUBS
+    assert "reverseengineering" in _REDDIT_SUBS
+    assert "hardware" in _REDDIT_SUBS
+    assert "embedded" in _REDDIT_SUBS
+    assert "netsec" in _REDDIT_SUBS
+    assert "security" in _REDDIT_SUBS
+    assert "pwned" in _REDDIT_SUBS
+
+
+# ── Test Google News terms include firmware RE terms ──────────────────────────
+
+def test_gnews_terms_include_firmware_re(tmp_watcher):
+    """Test that Google News search terms include firmware RE topics."""
+    from agent.trend_watcher import _GNEWS_TERMS
+    assert "AI reverse engineering firmware" in _GNEWS_TERMS
+    assert "agent-driven reverse engineering" in _GNEWS_TERMS
+    assert "firmware security vulnerability" in _GNEWS_TERMS
+    assert "peripheral security webusb webhid" in _GNEWS_TERMS
+    assert "iot device firmware exploit" in _GNEWS_TERMS
+
+
+# ── Test HN queries include firmware RE topics ────────────────────────────────
+
+def test_hn_queries_include_firmware_re():
+    """Test that HN Algolia queries include firmware RE topics."""
+    from agent.trend_watcher import TrendWatcher
+    # We need to check the _fetch_hackernews method has the queries
+    import inspect
+    source = inspect.getsource(TrendWatcher._fetch_hackernews)
+    assert "firmware reverse engineering" in source
+    assert "hardware security vulnerability" in source
+    assert "agent-driven reverse engineering" in source
+
+
+# ── Test arXiv query includes firmware RE terms ──────────────────────────────
+
+def test_arxiv_query_includes_firmware_re():
+    """Test that arXiv search query includes firmware RE terms."""
+    from agent.trend_watcher import TrendWatcher
+    import inspect
+    source = inspect.getsource(TrendWatcher._fetch_arxiv)
+    assert "firmware-reverse" in source
+    assert "hardware-security" in source
+    assert "embedded-security" in source
+    assert "reverse-engineering" in source
+    assert "agent-driven-reverse" in source
+
+
+# ── Integration test: fetch mock for firmware RE content ──────────────────────
+
+_FIRMWARE_RE_REDDIT_PAYLOAD = {
+    "data": {
+        "children": [
+            {
+                "data": {
+                    "title": "Agent-driven reverse engineering of webcam firmware using Claude Opus",
+                    "selftext": "I used an AI agent to reverse engineer my Insta360 Link webcam firmware. Found webusb and webhid interfaces.",
+                    "url": "https://www.reddit.com/r/reverseengineering/comments/abc123",
+                    "permalink": "/r/reverseengineering/comments/abc123",
+                    "created_utc": 1715000000,
+                }
+            }
+        ]
+    }
+}
+
+
+@pytest.mark.asyncio
+async def test_fetch_reddit_firmware_re(tmp_watcher):
+    """Test that Reddit fetches firmware RE content from new subreddits."""
+    client = _FakeClient({"reddit.com/r/reverseengineering": _FIRMWARE_RE_REDDIT_PAYLOAD})
+    async with client as c:
+        alerts = await tmp_watcher._fetch_reddit(c)
+    assert len(alerts) >= 1
+    assert alerts[0].source == "reddit"
+    assert "reverse engineering" in alerts[0].title.lower() or "firmware" in alerts[0].title.lower()
+
+
+_FIRMWARE_RE_ARXIV_ATOM = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/2608.12345v1</id>
+    <title>Automated Firmware Reverse Engineering Using Large Language Models</title>
+    <summary>We present an agent-driven approach to firmware reverse engineering using LLMs for embedded device security analysis.</summary>
+    <published>2026-08-20T00:00:00Z</published>
+  </entry>
+</feed>"""
+
+
+@pytest.mark.asyncio
+async def test_fetch_arxiv_firmware_re(tmp_watcher):
+    """Test that arXiv fetches firmware RE research papers."""
+    client = _FakeClient({"arxiv.org/api/query": _FIRMWARE_RE_ARXIV_ATOM})
+    async with client as c:
+        alerts = await tmp_watcher._fetch_arxiv(c)
+    assert len(alerts) >= 1
+    assert alerts[0].source == "arxiv"
+    assert "firmware" in alerts[0].title.lower() or "reverse engineering" in alerts[0].title.lower()

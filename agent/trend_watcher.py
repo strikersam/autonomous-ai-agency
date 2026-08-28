@@ -2,6 +2,7 @@
 
 Fetches from 13 public sources in parallel to discover:
   • arXiv research papers (LLM serving, inference, routing)
+  • Agent-driven reverse engineering & firmware security (new: 2026-08)
   • New Ollama model releases (GitHub)
   • Trending GGUF-compatible models on HuggingFace
   • Trending LLM-serving repos on GitHub
@@ -23,7 +24,8 @@ All network calls are read-only, use only public / anonymous endpoints,
 and require no API keys.
 """
 from __future__ import annotations
-# nosec: B603,B607,B413,B301,B104,B608
+
+# nosec: B603,B607,B413,B301,B104,B608
 
 import asyncio
 import hashlib
@@ -85,6 +87,21 @@ _KEYWORDS = frozenset({
     "fine-tune", "distillation", "synthetic data", "world model", "diffusion",
     "open source model", "frontier model", "small language model", "slm",
     "ai product", "ai startup", "model release", "benchmark", "leaderboard",
+    # Agent-driven reverse engineering & firmware security (new: 2026-08)
+    "reverse engineering", "reverse-engineering", "firmware", "firmware analysis",
+    "firmware reverse", "firmware update", "firmware security", "firmware exploit",
+    "peripheral", "peripheral security", "usb device", "webusb", "webhid", "webbluetooth",
+    "hid", "i2c", "spi", "uart", "jtag", "swd", "debug probe",
+    "microcontroller", "mcu", "rtos", "embedded", "embedded security",
+    "device firmware", "device security", "iot security", "iot device",
+    "hardware hacking", "hardware security", "hardware reverse engineering",
+    "side channel", "fault injection", "glitching", "power analysis",
+    "secure boot", "signed firmware", "firmware signature", "ed25519",
+    "root shell", "rce", "remote code execution", "arbitrary code execution",
+    "memory poke", "memory read", "memory write", "uart shell",
+    "ddc/ci", "monitor firmware", "webcam firmware", "microphone firmware",
+    "agentic reverse engineering", "ai reverse engineering", "llm reverse engineering",
+    "claude reverse engineering", "agent-driven re", "automated reverse engineering",
 })
 
 # ── Source URLs ────────────────────────────────────────────────────────────────
@@ -95,7 +112,7 @@ _GH_SEARCH    = "https://api.github.com/search/repositories"
 _GH_HEADERS   = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
 
 # Reddit JSON — no auth needed for public subreddits
-_REDDIT_SUBS  = ["LocalLLaMA", "MachineLearning", "artificial", "singularity", "tech", "programming"]
+_REDDIT_SUBS  = ["LocalLLaMA", "MachineLearning", "artificial", "singularity", "tech", "programming", "reverseengineering", "hardware", "embedded", "netsec", "security", "pwned"]
 _REDDIT_BASE  = "https://www.reddit.com/r/{sub}/new.json?limit=25&sort=new"
 
 # Dev.to articles — public API, no auth
@@ -123,6 +140,11 @@ _GNEWS_TERMS  = [
     "reasoning model benchmark",
     "open source LLM",
     "local LLM inference server",  # keep one local-LLM term for our own niche
+    "AI reverse engineering firmware",
+    "agent-driven reverse engineering",
+    "firmware security vulnerability",
+    "peripheral security webusb webhid",
+    "iot device firmware exploit",
 ]
 _GNEWS_BASE   = "https://news.google.com/rss/search?q={q}&hl=en-US&gl=US&ceid=US:en"
 
@@ -263,7 +285,7 @@ class TrendWatcher:
                     "OR ti:llm-reasoning OR ti:code-generation OR ti:llm-evaluation "
                     "OR ti:retrieval-augmented OR ti:llm-routing OR ti:inference-serving "
                     "OR ti:speculative-decoding OR ti:mixture-of-experts "
-                    "OR abs:autonomous-agent OR abs:llm-orchestration"
+                    "OR abs:autonomous-agent OR abs:llm-orchestration OR abs:firmware-reverse OR abs:hardware-security OR abs:embedded-security OR abs:reverse-engineering OR abs:agent-driven-reverse"
                 ),
                 "start": 0, "max_results": 20,
                 "sortBy": "submittedDate", "sortOrder": "descending",
@@ -508,6 +530,9 @@ class TrendWatcher:
                 log.debug("TrendWatcher: HN Firebase error: %s", exc)
 
         hn_queries = [
+            "firmware reverse engineering",
+            "hardware security vulnerability",
+            "agent-driven reverse engineering",
             "local LLM ollama inference",
             "vllm llama.cpp quantization",
             "AI agent autonomous LLM",
