@@ -163,11 +163,15 @@ def reset_cache() -> None:
 
 # ── Static floor ────────────────────────────────────────────────────────────
 # Only reached when discovery cannot run. Every id observed returning 410/404 on
-# 2026-08-27 has been removed rather than left in to waste an attempt; what
-# remains is the one entry from the previous list not seen failing. This list is
-# deliberately not padded with ids nobody has verified — discovery is the
-# mechanism now, and a short honest floor beats a long speculative one.
+# 2026-08-27 has been removed rather than left in to waste an attempt. The two
+# Nemotron 3 entries were read off the live catalogue by the account owner, who
+# can see it from outside this sandbox; the Llama entry is the one id from the
+# previous list not seen failing. This list is deliberately not padded with ids
+# nobody has verified — discovery is the mechanism now, and a short honest floor
+# beats a long speculative one.
 NVIDIA_CANDIDATE_MODELS: list[tuple[str, str]] = [
+    ("nvidia/nemotron-3-ultra-550b-a55b", "Nemotron 3 Ultra (account-owner verified)"),
+    ("nvidia/nemotron-3-super-120b-a12b", "Nemotron 3 Super (account-owner verified)"),
     ("meta/llama-4-maverick-17b-128e-instruct", "Llama 4 Maverick (static fallback)"),
 ]
 

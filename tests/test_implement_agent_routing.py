@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import re
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -283,18 +284,28 @@ class TestFailoverOffABadResponder:
 class TestNvidiaGetsMoreThanOneCandidate:
     """Codex review, #1369 (P1): naming no model is not safe for NVIDIA.
 
-    ``ProviderRouter``'s NVIDIA entry defaults to ``meta/llama-3.3-70b-instruct``
-    (router.py:702), which reached end-of-life on 2026-08-26 and answers ``410``.
-    With no model named, ``_candidate_models`` returns that one dead id, so an
-    NVIDIA-only runner exhausts the provider on turn 1 — reproducing the very
-    outage this change exists to prevent.
+    With no model named, ``_candidate_models`` returns exactly one id — the
+    provider's ``default_model``. That single id was itself dead for a while
+    (``meta/llama-3.3-70b-instruct``, EOL 2026-08-26, ``410``), so an NVIDIA-only
+    runner exhausted the provider on turn 1. The default has since been replaced
+    with a live one, which removes the outage but *not* the fragility: one id is
+    still one id, and the next retirement puts it straight back. The runner
+    therefore names the resolved list, and these tests hold that in place.
     """
 
-    def test_the_router_default_is_a_model_we_know_is_dead(self):
-        """Pins the premise, so this guard cannot quietly stop applying."""
+    def test_the_router_default_is_a_single_point_of_failure(self):
+        """Pins the premise, so this guard cannot quietly stop applying.
+
+        Not that the default is dead — it is live again — but that it is one id,
+        which is the property that made the outage possible.
+        """
         router_src = (REPO_ROOT / "packages/ai/router.py").read_text(encoding="utf-8")
-        assert '"meta/llama-3.3-70b-instruct"' in router_src
-        assert "meta/llama-3.3-70b-instruct" in DEAD_MODEL_IDS
+        start = router_src.index("NVIDIA_DEFAULT_MODEL")
+        window = router_src[start:router_src.index("priority", start)]
+        for dead in DEAD_MODEL_IDS:
+            assert dead not in window, f"the NVIDIA default is retired again: {dead}"
+        # One id, not a chain — which is exactly why the runner names its own.
+        assert len(re.findall(r'"[^"]*/[^"]+"', window)) == 1
 
     def test_nvidia_first_gets_the_resolved_list(self, agent, monkeypatch):
         sys.path.insert(0, str(GITHUB_SCRIPTS))
