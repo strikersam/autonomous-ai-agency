@@ -149,7 +149,7 @@ def _register_defaults() -> None:
         input_cost_per_1m=0.0,
         output_cost_per_1m=0.0,
         priority=10,
-        fallback_model="meta/llama-3.3-70b-instruct",
+        fallback_model="nvidia/nemotron-3-super-120b-a12b",
     ))
     
     # Groq (free, fast)
@@ -164,7 +164,7 @@ def _register_defaults() -> None:
         input_cost_per_1m=0.0,
         output_cost_per_1m=0.0,
         priority=20,
-        fallback_model="meta/llama-3.3-70b-instruct",
+        fallback_model="nvidia/nemotron-3-super-120b-a12b",
     ))
     
     # Llama 4 Maverick on Groq — MoE 17B active/128E total, fast and capable (Meta, 2025)
@@ -180,7 +180,9 @@ def _register_defaults() -> None:
         input_cost_per_1m=0.0,
         output_cost_per_1m=0.0,
         priority=8,
-        fallback_model="llama-3.3-70b-versatile",
+        # Was llama-3.3-70b-versatile, which this registry never registered —
+        # a fallback naming an unknown id makes the chain look longer than it is.
+        fallback_model="deepseek-r1-distill-llama-70b",
     ))
 
     # GPT-OSS on NVIDIA NIM. Replaces the Llama 4 Maverick NIM registration,
@@ -228,7 +230,9 @@ def _register_defaults() -> None:
         input_cost_per_1m=0.0,
         output_cost_per_1m=0.0,
         priority=12,
-        fallback_model="gemini-2.0-flash",
+        # Was gemini-2.0-flash, never registered here. Falls back across
+        # providers, which is the pattern the free-tier entries already use.
+        fallback_model="nvidia/nemotron-3-super-120b-a12b",
     ))
 
     # Ollama (local, no cost)

@@ -202,3 +202,21 @@ class TestTheGatewayRegistryOffersOnlyLiveModels:
         looks identical to a healthy one.
         """
         assert EXPECTED in self._nvidia_candidates(require_tools=True)
+
+    def test_no_fallback_chain_dangles(self) -> None:
+        """Every ``fallback_model`` must name a model this registry knows.
+
+        Removing the retired ids left two entries — Cerebras and Groq — falling
+        back to `meta/llama-3.3-70b-instruct`, which no longer existed. A
+        dangling fallback is worse than none: the chain looks longer than it is.
+        """
+        from packages.ai.registry import all_models
+
+        known = {m.model_id for m in all_models()}
+        assert known, "empty registry; this guard would pass vacuously"
+        dangling = {
+            m.model_id: m.fallback_model
+            for m in all_models()
+            if m.fallback_model and m.fallback_model not in known
+        }
+        assert not dangling, f"fallback_model points at unknown ids: {dangling}"
