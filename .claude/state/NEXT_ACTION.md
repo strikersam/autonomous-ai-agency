@@ -1,8 +1,23 @@
 # Next Action
 
-_Updated 2026-08-26 10:40 UTC._
+_Updated 2026-08-28._
 
 ## Nothing is blocked on an agent. Two things need a human.
+
+### 0. The NVIDIA default model was a retired id — fixed, one item left open
+
+Every "model to use when `NVIDIA_DEFAULT_MODEL` is unset" fallback in the tree
+pointed at `meta/llama-3.3-70b-instruct`, which answers `410 Gone` since
+2026-08-26. All of them now point at `nvidia/nemotron-3-ultra-550b-a55b`, with
+`nvidia/nemotron-3-super-120b-a12b` as the first fallback in
+`.github/scripts/nvidia_models.py`. Both ids came from the account owner.
+
+**Open, needs a human or a key:** `config/llm/models.yaml` has no entry for
+either id, so `packages/llm/registry.py` treats them with cautious defaults and
+`require_tools` filtering may drop them on that path. Adding entries needs real
+context-window / max-output / capability numbers, which cannot be read from a
+sandbox without egress to the NVIDIA catalogue. Anyone with the key can get
+them from `GET /v1/models` and fill the entries in.
 
 ### 1. Render is suspended for billing — this is the big one
 

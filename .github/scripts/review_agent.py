@@ -28,6 +28,9 @@ from pathlib import Path
 
 from openai import OpenAI
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from nvidia_models import resolve_model_ids  # noqa: E402
+
 # CLI script: log to stdout so messages stay visible and ordered in CI logs.
 logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
 log = logging.getLogger("review_agent")
@@ -38,15 +41,13 @@ RESULT_FILE = "/tmp/review_result.json"  # nosec: B108 - Predictable temp file p
 # NVIDIA NIM is the primary engine for council review.
 # Opus-via-Anthropic is only an optional fallback when configured.
 OPUS_MODEL = "claude-opus-4-6"
-NVIDIA_CANDIDATE_MODELS = [
-    "qwen/qwen3-coder-480b-a35b-instruct",
-    "nvidia/llama-3.1-nemotron-ultra-253b-v1",
-    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
-    "meta/llama-3.3-70b-instruct",
-    "qwen/qwen2.5-coder-32b-instruct",
-]
-# Keep the old name as an alias so existing code that references CANDIDATE_MODELS still works
-CANDIDATE_MODELS = NVIDIA_CANDIDATE_MODELS
+
+# The model list lives in nvidia_models.py, which has always described itself as
+# the single source of truth for the autonomous agent scripts but which nothing
+# imported. Each script kept its own copy instead — five ids here, four in
+# apply_review.py, six in implement_agent.py — and by 2026-08-27 every id in all
+# three was retired. Fixing one left the others pointed at dead models, which is
+# how the outage survived its first fix. One list, one place to correct it.
 
 
 def get_pr_diff(pr_num: str) -> str:
@@ -91,7 +92,7 @@ def _call_review_llm(prompt: str, *, anthropic_key: str, nvidia_key: str) -> str
     # Primary: NVIDIA NIM
     if nvidia_key:
         client = OpenAI(base_url="https://integrate.api.nvidia.com/v1", api_key=nvidia_key)
-        for model in NVIDIA_CANDIDATE_MODELS:
+        for model in resolve_model_ids():
             try:
                 response = client.chat.completions.create(
                     model=model,

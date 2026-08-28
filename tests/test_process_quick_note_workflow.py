@@ -219,3 +219,69 @@ class TestMongoIsReadyBeforeAnyPytest:
             f"{workflow} runs pytest at step {min(runners)} before waiting for "
             f"MongoDB at step {waits[0]}"
         )
+
+
+class TestTheAgentRunsCurrentCode:
+    """The implementer ran a four-day-old copy of itself.
+
+    "Create or reuse feature branch" does
+    ``git checkout -b "$CONTEXT_BRANCH" "origin/$CONTEXT_BRANCH"``, so every
+    later step executes the tree *on that branch*. For issue #1347 the context
+    branch was cut on 2026-08-24, so the 2026-08-28 run executed the pre-fix
+    `.github/scripts/implement_agent.py` — its log still carried the string
+    "Using NVIDIA NIM as the primary engine", which master had already deleted,
+    and the six retired model ids master no longer contained.
+
+    So a fix to the implementer is invisible to any issue that already has a
+    branch. Worse, the agent was also reading stale *product* code: it planned
+    against a master four days behind. Bringing master in before the agent runs
+    fixes both, and is what a human would do before starting work on an old
+    branch.
+    """
+
+    def test_master_is_merged_before_the_agent_runs(self, job: dict) -> None:
+        branch_step = _step(job, "Create or reuse feature branch")
+        assert "origin/master" in branch_step["run"], (
+            "a reused context branch carries whatever tooling and product code "
+            "existed when it was cut; the agent must not run against that"
+        )
+
+    def test_the_merge_precedes_the_implementer(self, job: dict) -> None:
+        names = [s.get("name", "") for s in job["steps"]]
+        branch_at = next(i for i, n in enumerate(names) if "feature branch" in n)
+        impl_at = next(i for i, n in enumerate(names) if "Implement features" in n)
+        assert branch_at < impl_at
+
+    def test_a_conflict_does_not_run_the_agent_on_stale_code(self, job: dict) -> None:
+        """If master cannot be merged, start clean rather than proceed stale."""
+        run = _step(job, "Create or reuse feature branch")["run"]
+        assert "merge --abort" in run
+        assert run.count("origin/master") >= 2, (
+            "the conflict path must also base itself on master"
+        )
+
+
+class TestGhIsNotReAuthenticated:
+    """`gh auth login --with-token` fails when GH_TOKEN is already set.
+
+    gh refuses: "The value of the GH_TOKEN environment variable is being used
+    for authentication. To have GitHub CLI store credentials instead, first
+    clear the value from the environment." That is a non-zero exit, so the step
+    dies before it does anything.
+
+    It killed "Create pull request" in run 33148970679 in under a second, after
+    the agent had worked for 34 minutes, passed its tests, and pushed a real
+    commit. Seventeen other steps in this workflow set GH_TOKEN and call gh
+    directly; only that one re-authenticated, and only that one failed.
+    """
+
+    def test_no_step_re_authenticates_gh(self, workflow_text: str) -> None:
+        assert "gh auth login" not in workflow_text, (
+            "gh reads GH_TOKEN from the environment; logging in again fails "
+            "outright when it is set"
+        )
+
+    def test_the_pr_step_still_gets_a_token(self, job: dict) -> None:
+        """Removing the login must not remove the credential."""
+        step = _step(job, "Create pull request")
+        assert "GH_TOKEN" in (step.get("env") or {})
