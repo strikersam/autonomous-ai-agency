@@ -58,7 +58,8 @@ class _Recorder:
         self.payload = payload
         self.kwargs = kwargs
         return SimpleNamespace(
-            response=SimpleNamespace(json=lambda: self._body)
+            response=SimpleNamespace(json=lambda: self._body),
+            provider=SimpleNamespace(provider_id="stub-provider"),
         )
 
 
@@ -133,9 +134,9 @@ class TestTurnPayload:
             "this loop must not burn paid credits behind the operator's back"
         )
 
-    def test_returns_the_raw_openai_body(self, agent):
+    def test_returns_the_raw_openai_body_and_the_answering_provider(self, agent):
         body = {"model": "m", "choices": [{"message": {"content": "hello"}}]}
-        assert agent.router_turn(_Recorder(body), []) == body
+        assert agent.router_turn(_Recorder(body), []) == (body, "stub-provider")
 
 
 class TestNoHardcodedModels:
@@ -173,7 +174,8 @@ class TestToolCallsSurviveTheDictShape:
             "model": "stub",
             "choices": [{"message": {"content": None, "tool_calls": tool_calls}}],
         })
-        return agent.router_turn(recorder, [])
+        body, _provider = agent.router_turn(recorder, [])
+        return body
 
     def test_a_tool_call_round_trips(self, agent):
         raw = [{
@@ -204,3 +206,76 @@ class TestToolCallsSurviveTheDictShape:
         call = body["choices"][0]["message"]["tool_calls"][0]
         assert (call.get("function") or {}).get("name") is None
         assert json.loads((call.get("function") or {}).get("arguments") or "{}") == {}
+
+
+class TestNoPaidProviderIsEverReached:
+    """Codex review, #1369: `allow_commercial_fallback=False` is not enough.
+
+    `chat_completion` guards with ``if not first_eligible and
+    is_commercial_provider(...)``, so the *first* eligible provider is used
+    whatever it costs. On a host whose only openai-compatible key is a paid one,
+    the flag alone would bill the operator on the very first turn.
+    """
+
+    def test_commercial_providers_are_filtered_out(self, agent, monkeypatch):
+        from packages.ai import router as router_mod
+        from packages.ai.router import ProviderConfig, ProviderRouter
+
+        free = ProviderConfig(provider_id="cerebras", type="openai-compatible", base_url="https://a")
+        paid = ProviderConfig(provider_id="openrouter", type="openai-compatible", base_url="https://b")
+        monkeypatch.setattr(
+            ProviderRouter, "from_env",
+            classmethod(lambda cls, *a, **k: ProviderRouter([paid, free])),
+        )
+        monkeypatch.setattr(
+            router_mod, "is_commercial_provider",
+            lambda p: getattr(p, "provider_id", "") == "openrouter",
+        )
+        router = agent.build_tool_calling_router()
+        assert [p.provider_id for p in router.providers] == ["cerebras"]
+
+    def test_a_paid_only_host_gets_nothing_rather_than_a_bill(self, agent, monkeypatch):
+        from packages.ai import router as router_mod
+        from packages.ai.router import ProviderConfig, ProviderRouter
+
+        paid = ProviderConfig(provider_id="openrouter", type="openai-compatible", base_url="https://b")
+        monkeypatch.setattr(
+            ProviderRouter, "from_env",
+            classmethod(lambda cls, *a, **k: ProviderRouter([paid])),
+        )
+        monkeypatch.setattr(router_mod, "is_commercial_provider", lambda p: True)
+        assert agent.build_tool_calling_router() is None
+
+
+class TestFailoverOffABadResponder:
+    """Codex review, #1369: retrying the same payload reaches the same provider.
+
+    The router is priority-ordered and stateless between calls, so popping the
+    assistant turn and retrying draws the identical malformed reply. The
+    provider has to be dropped explicitly, which is what the old explicit
+    model-advance achieved.
+    """
+
+    def test_router_without_drops_only_the_named_provider(self, agent):
+        from packages.ai.router import ProviderConfig, ProviderRouter
+
+        router = ProviderRouter([
+            ProviderConfig(provider_id="a", type="openai-compatible", base_url="https://a"),
+            ProviderConfig(provider_id="b", type="openai-compatible", base_url="https://b"),
+        ])
+        assert [p.provider_id for p in agent.router_without(router, "a").providers] == ["b"]
+
+    def test_dropping_the_last_provider_yields_none(self, agent):
+        from packages.ai.router import ProviderConfig, ProviderRouter
+
+        router = ProviderRouter([
+            ProviderConfig(provider_id="only", type="openai-compatible", base_url="https://a"),
+        ])
+        assert agent.router_without(router, "only") is None, (
+            "the loop must stop, not spin on an empty router"
+        )
+
+    def test_the_loop_fails_over_rather_than_retrying(self):
+        """The regression Codex named: a retry that cannot change the outcome."""
+        quirk = SOURCE.split("<tool_call>")[1].split("# Execute tool calls")[0]
+        assert "router_without(router, answering_provider)" in quirk

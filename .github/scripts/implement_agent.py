@@ -521,11 +521,20 @@ def build_tool_calling_router() -> Any | None:
     can no longer make. Only ``openai-compatible`` providers forward the payload
     verbatim, so only those are eligible here.
 
+    Commercial providers are excluded here as well, and that is load-bearing
+    rather than redundant. ``allow_commercial_fallback=False`` alone does not
+    hold: ``chat_completion`` guards with ``if not first_eligible and
+    is_commercial_provider(...)``, so the *first* eligible provider is used
+    whatever it costs. On a host whose only openai-compatible key is a paid one
+    (OpenRouter, Zhipu, MiniMax, DeepSeek, Mistral), that would bill the
+    operator on the very first turn. Filtering here closes it; the flag stays as
+    the second line of defence.
+
     Returns ``None`` when no such provider is configured, so the caller can say
     so plainly instead of failing somewhere further down.
     """
     try:
-        from packages.ai.router import ProviderRouter
+        from packages.ai.router import ProviderRouter, is_commercial_provider
     except Exception as exc:  # pragma: no cover - import-environment dependent
         print(f"ERROR: could not import ProviderRouter: {exc}", file=sys.stderr)
         return None
@@ -534,6 +543,7 @@ def build_tool_calling_router() -> Any | None:
         provider
         for provider in ProviderRouter.from_env().providers
         if provider.type == "openai-compatible"
+        and not is_commercial_provider(provider)
     ]
     if not providers:
         return None
@@ -545,8 +555,14 @@ def build_tool_calling_router() -> Any | None:
     return ProviderRouter(providers)
 
 
-def router_turn(router: Any, messages: list[dict]) -> dict:
-    """Run one tool-calling turn and return the raw OpenAI-shaped body.
+def router_turn(router: Any, messages: list[dict]) -> tuple[dict, str]:
+    """Run one turn; return the raw OpenAI-shaped body and who answered it.
+
+    The provider id comes back because the router is priority-ordered and
+    stateless between calls: re-sending the same payload reaches the same
+    provider. A caller that needs to get away from a provider — one emitting
+    XML tool calls, say — has to drop it explicitly, and cannot do that without
+    knowing which one replied.
 
     ``model`` is deliberately absent: ``_candidate_models()`` then falls back to
     each provider's own ``default_model`` and drops any id a previous ``410``
@@ -569,7 +585,15 @@ def router_turn(router: Any, messages: list[dict]) -> dict:
     result = asyncio.run(
         router.chat_completion(payload, allow_commercial_fallback=False)
     )
-    return result.response.json()
+    return result.response.json(), result.provider.provider_id
+
+
+def router_without(router: Any, provider_id: str) -> Any | None:
+    """Return a copy of *router* with *provider_id* removed, or None if empty."""
+    from packages.ai.router import ProviderRouter
+
+    remaining = [p for p in router.providers if p.provider_id != provider_id]
+    return ProviderRouter(remaining) if remaining else None
 
 
 # ---------------------------------------------------------------------------
@@ -665,14 +689,13 @@ def main() -> None:
         ]
 
         last_pytest_passed = False
-        xml_quirk_turns = 0
 
         while turns < MAX_TURNS:
             turns += 1
             print(f"\n[agent] Turn {turns}/{MAX_TURNS}", flush=True)
 
             try:
-                data = router_turn(router, messages)
+                data, answering_provider = router_turn(router, messages)
             except Exception as exc:
                 # The router has already walked every eligible provider and model
                 # by this point, so there is nothing left to fall back to.
@@ -713,22 +736,26 @@ def main() -> None:
                 # means the one answering cannot do structured tool use, and
                 # burning 120 turns on it would just be a slower failure.
                 if "<tool_call>" in content or "<function=" in content:
-                    xml_quirk_turns += 1
+                    # Retrying is pointless: the router is priority-ordered and
+                    # holds no state between calls, so the same payload reaches
+                    # the same provider and draws the same malformed reply. Drop
+                    # the provider that answered and try the rest — this is what
+                    # the old explicit model-advance did, at provider grain.
                     print(
-                        f"[agent] {final_model} emitted XML tool calls in content "
-                        f"(attempt {xml_quirk_turns}/2)",
+                        f"[agent] {answering_provider} ({final_model}) emitted XML "
+                        "tool calls in content — dropping it and failing over",
                         file=sys.stderr,
                     )
                     messages.pop()  # discard the malformed assistant turn
-                    if xml_quirk_turns >= 2:
+                    router = router_without(router, answering_provider)
+                    if router is None:
                         print(
-                            "Provider cannot produce structured tool calls — stopping.",
+                            "No provider left that produces structured tool calls.",
                             file=sys.stderr,
                         )
                         break
                     turns -= 1  # don't count this as a real turn
                     continue
-                xml_quirk_turns = 0
                 summary = content or summary
                 if content and "IMPLEMENTATION_COMPLETE" in content and last_pytest_passed:
                     success = True
