@@ -77,7 +77,11 @@ def test_get_returns_config_providers_and_safe_default(app_client, monkeypatch):
     # is now the recommended provider. The safe NIM default remains the floor,
     # surfaced separately in `safe_default` below.
     assert body["config"]["primary_provider"] == "nvidia"
-    assert body["config"]["planner_model"] == "z-ai/glm-5.2"
+    # The planner preset follows the catalogue. It was z-ai/glm-5.2 until a live
+    # probe on 2026-08-28 found that id answering 410 — along with every other
+    # candidate NVIDIA carried. Asserted against the catalogue rather than a
+    # literal, so a future rotation change does not need this test edited again.
+    assert body["config"]["planner_model"] == _catalogue_role_preset("planner")
 
     assert "providers" in body
     provider_ids = {p["provider_id"] for p in body["providers"]}
@@ -117,7 +121,26 @@ def test_get_returns_config_providers_and_safe_default(app_client, monkeypatch):
     al = next(p for p in body["providers"] if p["provider_id"] == "aerolink")
     assert al["tier"] == "paid"
 
-    assert body["safe_default"]["model"] == "z-ai/glm-5.2"
+    assert body["safe_default"]["model"] == _catalogue_safe_default()
+
+
+def _catalogue_role_preset(role: str) -> str:
+    """The role preset the catalogue defines, not a literal copy of it.
+
+    Two tests here used to hardcode `z-ai/glm-5.2`. When a live probe proved
+    that id dead and the catalogue moved on, they failed for a reason that had
+    nothing to do with what they were testing — the API surface. Reading the
+    catalogue keeps them testing the endpoint instead of the model roster.
+    """
+    from packages.ai.brain_config import PROVIDER_PRESETS
+
+    return PROVIDER_PRESETS["nvidia"][role]
+
+
+def _catalogue_safe_default() -> str:
+    from packages.ai.brain_config import SAFE_DEFAULT_MODEL
+
+    return SAFE_DEFAULT_MODEL
 
 
 def test_get_response_never_leaks_api_keys(app_client):

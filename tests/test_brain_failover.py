@@ -231,12 +231,35 @@ def test_unhealthy_provider_skipped(monkeypatch):
 # ── Model alias mapping ──────────────────────────────────────────────────
 
 
+# These exercise resolver mechanics — exact, alias, fuzzy — not any particular
+# model. Two fixtures, because the two properties are different:
+#
+#   RESOLVER_FIXTURE must be a model NVIDIA actually serves, since exact and
+#   fuzzy matching both look in the provider's model list. It has been rewritten
+#   twice as ids died under it (llama-3.3-70b, then llama-4-maverick).
+#
+#   ALIAS_FIXTURE only needs an entry in ``_MODEL_ALIASES`` with differing
+#   per-provider values. Aliases are consulted *before* the model list, so this
+#   case is about the mapping and is deliberately indifferent to liveness.
+RESOLVER_FIXTURE = "nvidia/nemotron-3-super-120b-a12b"
+ALIAS_FIXTURE = "meta/llama-4-maverick-17b-128e-instruct"
+
+
 def test_resolve_model_exact_match(monkeypatch):
     monkeypatch.setenv("NVIDIA_API_KEY", "nvapi-test")
     mgr = _make_manager()
     p = mgr.get_provider("nvidia")
-    model = mgr.resolve_model(p, "meta/llama-3.3-70b-instruct")
-    assert model == "meta/llama-3.3-70b-instruct"
+    model = mgr.resolve_model(p, RESOLVER_FIXTURE)
+    assert model == RESOLVER_FIXTURE
+
+
+def test_the_resolver_fixture_is_really_in_the_catalogue(monkeypatch):
+    """Guards the three tests below from pinning a retired id again: if the
+    fixture leaves the catalogue, this fails plainly instead of the mechanics
+    tests failing for a reason that looks like a resolver bug."""
+    from packages.ai.brain_config import PROVIDER_CANDIDATES
+
+    assert RESOLVER_FIXTURE in PROVIDER_CANDIDATES["nvidia"]
 
 
 def test_resolve_model_alias(monkeypatch):
@@ -246,10 +269,10 @@ def test_resolve_model_alias(monkeypatch):
     nvidia = mgr.get_provider("nvidia")
     groq = mgr.get_provider("groq")
     # The same requested model maps differently per provider
-    nvidia_model = mgr.resolve_model(nvidia, "meta/llama-3.3-70b-instruct")
-    groq_model = mgr.resolve_model(groq, "meta/llama-3.3-70b-instruct")
-    assert nvidia_model == "meta/llama-3.3-70b-instruct"
-    assert groq_model == "llama-3.3-70b-versatile"
+    nvidia_model = mgr.resolve_model(nvidia, ALIAS_FIXTURE)
+    groq_model = mgr.resolve_model(groq, ALIAS_FIXTURE)
+    assert nvidia_model == ALIAS_FIXTURE
+    assert groq_model == "llama-4-maverick-17b-128e-instruct"
 
 
 def test_resolve_model_falls_back_to_default(monkeypatch):
@@ -264,9 +287,9 @@ def test_resolve_model_fuzzy_match(monkeypatch):
     monkeypatch.setenv("NVIDIA_API_KEY", "nvapi-test")
     mgr = _make_manager()
     p = mgr.get_provider("nvidia")
-    # "llama-3.3-70b-instruct" should fuzzy-match "meta/llama-3.3-70b-instruct"
-    model = mgr.resolve_model(p, "llama-3.3-70b-instruct")
-    assert "llama-3.3-70b" in model.lower()
+    # A bare family name should fuzzy-match the provider's fully-qualified id.
+    model = mgr.resolve_model(p, "nemotron-3-super-120b-a12b")
+    assert "nemotron-3-super" in model.lower()
 
 
 # ── Status snapshot ──────────────────────────────────────────────────────

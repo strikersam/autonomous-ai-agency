@@ -108,37 +108,33 @@ def best_model_for(task: str = "chat", *, allow_paid: bool = False,
 def _register_defaults() -> None:
     """Register the default free-tier models."""
     
-    # NVIDIA NIM (free, always-on floor)
+    # NVIDIA NIM (free, always-on floor).
+    #
+    # This module is a *second* model source: packages/llm/registry.py imports
+    # it (`_seed_from_legacy`) and adds anything absent from config/llm YAML.
+    # That is how meta/llama-3.3-70b-instruct, z-ai/glm-5.2 and Llama 4
+    # Maverick — all removed from the YAML catalogues on 2026-08-28 after a
+    # live probe found them answering 410 — kept reappearing as tool-calling
+    # candidates on the gateway path. Removing an id from the catalogues is not
+    # enough while it is still registered here.
+    #
+    # Probed live 2026-08-28 (catalogue-probe run 33201732226): serves, and
+    # emits tool_calls.
     register(ModelInfo(
-        model_id="meta/llama-3.3-70b-instruct",
+        model_id="nvidia/nemotron-3-super-120b-a12b",
         provider_id="nvidia",
-        display_name="Llama 3.3 70B Instruct",
+        display_name="Nemotron 3 Super 120B-a12b",
+        supports_tools=True,
         supports_streaming=True,
-        context_window=128000,
+        # NVIDIA's /v1/models returns no capability fields, so these are the
+        # conservative defaults rather than measured limits — they prune
+        # prompts rather than overflow them. Raise once someone measures.
+        context_window=32768,
         max_output_tokens=4096,
-        speed_tier="medium",
-        input_cost_per_1m=0.0,
-        output_cost_per_1m=0.0,
-        priority=30,
-        fallback_model="nvidia/llama-3.3-nemotron-super-49b-v1.5",
-    ))
-
-    # GLM-5.2 (Z.AI) on NVIDIA NIM — the operator's preferred brain model.
-    # https://build.nvidia.com/z-ai/glm-5.2 — free, high-quality, fast.
-    # Registered with priority 20 (higher than llama-3.3-70b at 30) so
-    # best_model_for() prefers it when both are available.
-    register(ModelInfo(
-        model_id="z-ai/glm-5.2",
-        provider_id="nvidia",
-        display_name="GLM-5.2 (Z.AI)",
-        supports_streaming=True,
-        context_window=128000,
-        max_output_tokens=8192,
         speed_tier="fast",
         input_cost_per_1m=0.0,
         output_cost_per_1m=0.0,
-        priority=20,
-        fallback_model="meta/llama-3.3-70b-instruct",
+        priority=10,
     ))
     
     # Cerebras (free, fastest)
@@ -153,7 +149,7 @@ def _register_defaults() -> None:
         input_cost_per_1m=0.0,
         output_cost_per_1m=0.0,
         priority=10,
-        fallback_model="meta/llama-3.3-70b-instruct",
+        fallback_model="nvidia/nemotron-3-super-120b-a12b",
     ))
     
     # Groq (free, fast)
@@ -168,7 +164,7 @@ def _register_defaults() -> None:
         input_cost_per_1m=0.0,
         output_cost_per_1m=0.0,
         priority=20,
-        fallback_model="meta/llama-3.3-70b-instruct",
+        fallback_model="nvidia/nemotron-3-super-120b-a12b",
     ))
     
     # Llama 4 Maverick on Groq — MoE 17B active/128E total, fast and capable (Meta, 2025)
@@ -184,23 +180,40 @@ def _register_defaults() -> None:
         input_cost_per_1m=0.0,
         output_cost_per_1m=0.0,
         priority=8,
-        fallback_model="llama-3.3-70b-versatile",
+        # Was llama-3.3-70b-versatile, which this registry never registered —
+        # a fallback naming an unknown id makes the chain look longer than it is.
+        fallback_model="deepseek-r1-distill-llama-70b",
     ))
 
-    # Llama 4 Maverick on NVIDIA NIM — same model, NIM endpoint
+    # GPT-OSS on NVIDIA NIM. Replaces the Llama 4 Maverick NIM registration,
+    # which answered 410 when probed on 2026-08-28. Both probed live in run
+    # 33201732226: serve, and emit tool_calls.
     register(ModelInfo(
-        model_id="meta/llama-4-maverick-17b-128e-instruct",
+        model_id="openai/gpt-oss-120b",
         provider_id="nvidia",
-        display_name="Llama 4 Maverick 17B (NVIDIA NIM)",
+        display_name="GPT-OSS 120B (NVIDIA NIM)",
         supports_tools=True,
         supports_streaming=True,
-        context_window=131072,
-        max_output_tokens=8192,
+        context_window=32768,
+        max_output_tokens=4096,
+        speed_tier="medium",
+        input_cost_per_1m=0.0,
+        output_cost_per_1m=0.0,
+        priority=25,
+    ))
+
+    register(ModelInfo(
+        model_id="openai/gpt-oss-20b",
+        provider_id="nvidia",
+        display_name="GPT-OSS 20B (NVIDIA NIM)",
+        supports_tools=True,
+        supports_streaming=True,
+        context_window=32768,
+        max_output_tokens=4096,
         speed_tier="fast",
         input_cost_per_1m=0.0,
         output_cost_per_1m=0.0,
-        priority=15,
-        fallback_model="meta/llama-3.3-70b-instruct",
+        priority=30,
     ))
 
     # Gemini 2.5 Flash — fast, 1M context, tool-use, free via Google AI Studio key
@@ -217,7 +230,9 @@ def _register_defaults() -> None:
         input_cost_per_1m=0.0,
         output_cost_per_1m=0.0,
         priority=12,
-        fallback_model="gemini-2.0-flash",
+        # Was gemini-2.0-flash, never registered here. Falls back across
+        # providers, which is the pattern the free-tier entries already use.
+        fallback_model="nvidia/nemotron-3-super-120b-a12b",
     ))
 
     # Ollama (local, no cost)

@@ -66,23 +66,32 @@ def test_router_default_model_uses_catalog():
     assert "resolve_component_model" in body
 
 
+def _catalog_preset(role: str) -> str:
+    """The nvidia preset for a role, read from the catalog.
+
+    These tests are named "returns catalog preset" and used to assert against a
+    hardcoded copy of that preset. When a live probe on 2026-08-28 proved
+    z-ai/glm-5.2 dead and the catalog moved on, the copy went stale and the
+    tests failed — testing the literal rather than the propagation they name.
+    """
+    from packages.ai.brain_config import PROVIDER_PRESETS
+
+    return PROVIDER_PRESETS["nvidia"][role]
+
+
 def test_router_default_model_returns_catalog_preset_for_nvidia(monkeypatch):
     """With a NVIDIA key set, ``_default_model()`` returns the catalog's
-    nvidia executor preset (``z-ai/glm-5.2``), not the stale hardcoded id."""
+    nvidia executor preset, not a stale hardcoded id."""
     monkeypatch.setenv("NVIDIA_API_KEY", "fake-nv")
     from router.model_router import _default_model
-    m = _default_model()
-    # Catalog preset for nvidia/executor is z-ai/glm-5.2.
-    assert m == "z-ai/glm-5.2"
+    assert _default_model() == _catalog_preset("executor")
 
 
 def test_router_default_reasoning_model_returns_catalog_preset_for_nvidia(monkeypatch):
-    """``_default_reasoning_model()`` returns the catalog's nvidia planner
-    preset (``z-ai/glm-5.2``)."""
+    """``_default_reasoning_model()`` returns the catalog's nvidia planner preset."""
     monkeypatch.setenv("NVIDIA_API_KEY", "fake-nv")
     from router.model_router import _default_reasoning_model
-    m = _default_reasoning_model()
-    assert m == "z-ai/glm-5.2"
+    assert _default_reasoning_model() == _catalog_preset("planner")
 
 
 def test_router_default_model_returns_catalog_preset_for_ollama(monkeypatch):
@@ -199,17 +208,20 @@ def test_internal_agent_nvidia_default_model_derives_from_catalog():
 
 
 def test_internal_agent_nvidia_default_model_is_not_stale():
-    """The stale value was ``meta/llama-3.3-70b-instruct`` — the catalog
-    preset is now ``z-ai/glm-5.2``."""
-    from runtimes.adapters.internal_agent import _NVIDIA_DEFAULT_MODEL
-    # Either it's the catalog preset OR the defensive fallback (which is
-    # the stale value, but only used when the catalog import fails). In
-    # normal operation, it should be the catalog preset.
-    # We accept either, but log a warning if the stale fallback is in use.
-    assert _NVIDIA_DEFAULT_MODEL in (
-        "z-ai/glm-5.2",          # catalog preset
-        "meta/llama-3.3-70b-instruct",  # defensive fallback
-    )
+    """The adapter must resolve through the catalog, not a frozen literal.
+
+    This test asserted membership in a hardcoded tuple — and that tuple went
+    stale twice over: meta/llama-3.3-70b-instruct was retired 2026-08-26, and
+    z-ai/glm-5.2 was proven dead by a live probe on 2026-08-28. A staleness
+    test cannot be written against a constant it has to remember to update, so
+    it now compares against the catalog and the module's own fallback.
+    """
+    from runtimes.adapters.internal_agent import _NVIDIA_DEFAULT_MODEL, _resolve_nvidia_default_model
+
+    assert _NVIDIA_DEFAULT_MODEL == _resolve_nvidia_default_model()
+    from packages.ai.brain_config import PROVIDER_CANDIDATES, SAFE_DEFAULT_MODEL
+
+    assert _NVIDIA_DEFAULT_MODEL in (PROVIDER_CANDIDATES.get("nvidia") or []) + [SAFE_DEFAULT_MODEL]
 
 
 # ── 7. render.yaml ────────────────────────────────────────────────────────

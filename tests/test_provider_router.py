@@ -330,7 +330,11 @@ def test_provider_router_from_env_prioritizes_nvidia_nemotron_default(monkeypatc
     router = ProviderRouter.from_env()
 
     assert router.providers[0].provider_id == "nvidia-nim"
-    assert router.providers[0].default_model == "meta/llama-3.3-70b-instruct"
+    # The test name has always said "nemotron default"; the id underneath had
+    # drifted to a Llama one, which then reached end-of-life and answered 410.
+    # Its replacement was briefly the 550B ultra — listed in NVIDIA's catalogue
+    # and answering 404 when called. This id was proven by a live completion.
+    assert router.providers[0].default_model == "nvidia/nemotron-3-super-120b-a12b"
 
 
 @pytest.mark.anyio

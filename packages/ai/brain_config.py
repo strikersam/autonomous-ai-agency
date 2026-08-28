@@ -176,7 +176,7 @@ def _build_tier_from_yaml(yaml_data: dict[str, Any]) -> dict[str, str]:
 # (see ``brain_policy.DEFAULT_FREE_NVIDIA_MODEL``). A bad DB write or a corrupt
 # config doc must never displace it.
 SAFE_DEFAULT_PROVIDER: str = "nvidia"
-SAFE_DEFAULT_MODEL: str = "z-ai/glm-5.2"
+SAFE_DEFAULT_MODEL: str = "nvidia/nemotron-3-super-120b-a12b"
 
 # Provider ids the Brain card recognises. The Literal keeps the Pydantic model
 # strict so a typo in the UI ("cerebrass") fails validation instead of
@@ -199,10 +199,10 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
         "judge":     "llama-3.3-70b-versatile",
     },
     "nvidia": {
-        "planner":   "z-ai/glm-5.2",
-        "executor":  "z-ai/glm-5.2",
-        "verifier":  "z-ai/glm-5.2",
-        "judge":     "z-ai/glm-5.2",
+        "planner":   "nvidia/nemotron-3-super-120b-a12b",
+        "executor":  "nvidia/nemotron-3-super-120b-a12b",
+        "verifier":  "nvidia/nemotron-3-super-120b-a12b",
+        "judge":     "nvidia/nemotron-3-super-120b-a12b",
     },
     "tokenin": {
         "planner":   "myt/deepseek-v4-pro-free",
@@ -336,16 +336,13 @@ PROVIDER_DEFAULT_BASE_URL: dict[str, str] = {
 # the YAML catalog; never reorder existing keys (sort-stable external contract).
 PROVIDER_CANDIDATES: dict[str, list[str]] = {
     "nvidia": [
-        "z-ai/glm-5.2",
-        "z-ai/glm-5.1",
-        "meta/llama-4-maverick-17b-128e-instruct",
-        "meta/llama-4-scout-17b-16e-instruct",
-        "meta/llama-3.3-70b-instruct",
-        "nvidia/llama-3.1-nemotron-70b-instruct",
-        "deepseek-ai/deepseek-r1",
-        # DeepSeek V4 Pro — now live in NVIDIA NIM catalog (Aug 2026).
-        # Verify the slug against NIM's /models endpoint before routing.
-        "deepseek-ai/deepseek-v4-pro",
+        # Probed live 2026-08-28 — every id here returned HTTP 200 to a real
+        # completion. The previous list was made entirely of ids that were
+        # listed in the catalogue and returned 410 or 404 when called.
+        "nvidia/nemotron-3-super-120b-a12b",
+        "mistralai/mistral-nemotron",
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
     ],
     # tokenin.my.id — free frontier gateway. Ordered highest-RPM first so the
     # rotation prefers the models that 429 least; opus is last so it stays a

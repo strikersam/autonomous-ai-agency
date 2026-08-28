@@ -236,7 +236,7 @@ class ProviderManager:
                     "priority": 10,
                     "default_model": (
                         os.environ.get("NVIDIA_DEFAULT_MODEL")
-                        or "meta/llama-3.3-70b-instruct"
+                        or "nvidia/nemotron-3-super-120b-a12b"
                     ),
                     "default_temperature": float(
                         os.environ.get("DEFAULT_TEMPERATURE") or 0.2

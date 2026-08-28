@@ -179,6 +179,12 @@ jobs:
       - name: Process all eligible issues
         if: env.ELIGIBLE_COUNT != '0' && env.DRY_RUN_MODE == 'false'
         env:
+          # Free-cloud brain chain (Cerebras -> Groq -> NVIDIA NIM), selected by
+          # which key is present — the convention autonomous-agent.yml and
+          # autonomous-fix.yml already follow. This workflow passed NVIDIA alone,
+          # so the agency here had no first or second link at all.
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

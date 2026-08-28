@@ -76,15 +76,29 @@ services:
         sync: false
       - key: NVIDIA_BASE_URL
         value: "https://integrate.api.nvidia.com"
-      # FREE NVIDIA NIM brain. z-ai/glm-5.2 is the default model (live, free, high-quality).
-      # that activates only ~12B params/token (vs ~55B for the 550B "ultra"), so
-      # it is several times faster per call while staying a same-generation
-      # reasoning model — best fit for the latency-sensitive agent loop on a free,
-      # no-rate-limit endpoint. (It 404'd briefly around issue #656, which is why
-      # the ultra was pinned then; confirmed live again at
-      # https://build.nvidia.com/meta/llama-3.3-70b-instruct )
+      # FREE NVIDIA NIM brain. Nemotron 3 Super activates ~12B params/token (vs
+      # ~55B for the 550B "ultra"), so it is several times faster per call while
+      # staying a same-generation reasoning model — a good fit for the
+      # latency-sensitive agent loop on a free, no-rate-limit endpoint.
+      #
+      # More importantly: it is the only NVIDIA id proven to answer. On
+      # 2026-08-28 .github/workflows/catalogue-probe.yml called every candidate
+      # this repo carried against the production key, and all of them failed —
+      # z-ai/glm-5.2 (410, the value this line held), z-ai/glm-5.1 (410),
+      # meta/llama-4-maverick (410), meta/llama-4-scout (404),
+      # nvidia/nemotron-3-ultra-550b-a55b (404), deepseek-ai/deepseek-r1 (404).
+      # Do not change this value to an id that has not been probed: a model can
+      # be listed in NVIDIA's catalogue and still refuse to serve.
       - key: NVIDIA_DEFAULT_MODEL
-        value: "z-ai/glm-5.2"
+        value: "nvidia/nemotron-3-super-120b-a12b"
+
+      # Cerebras — the first link in the documented free-cloud failover chain
+      # (Cerebras -> Groq -> NVIDIA NIM -> Ollama, CLAUDE.md §4). It was set in
+      # the Render dashboard but declared nowhere, so a service recreated from
+      # this file would have silently lost it. `sync: false` keeps the existing
+      # dashboard value; declaring it only makes its absence visible.
+      - key: CEREBRAS_API_KEY
+        sync: false
 
       # Mistral API key — free tier, used as brain provider + failover fallback
       - key: MISTRAL_API_KEY
@@ -698,7 +712,7 @@ services:
       # background agent/CEO task runs stay on the fast path too. Confirmed live:
       # https://build.nvidia.com/meta/llama-3.3-70b-instruct
       - key: NVIDIA_DEFAULT_MODEL
-        value: "z-ai/glm-5.2"
+        value: "nvidia/nemotron-3-super-120b-a12b"
       # UNIT 7: AGENT_<ROLE>_MODEL env vars removed — catalog (config/models.yaml)
       # + DB BrainConfig are now the single source of truth via
       # resolve_component_model(). The free NVIDIA z-ai/glm-5.2 model is the
@@ -779,9 +793,9 @@ services:
         value: "/app/runtimes/extensions/prime_agent/agency-provider.ts"
       # Model ids the extension advertises; must exist on the proxy.
       - key: PRIME_AGENT_MODELS
-        value: "z-ai/glm-5.2"
+        value: "nvidia/nemotron-3-super-120b-a12b"
       - key: PRIME_AGENT_MODEL
-        value: "z-ai/glm-5.2"
+        value: "nvidia/nemotron-3-super-120b-a12b"
       # Bearer token the extension sends to our own proxy ($PROXY_API_KEY).
       - key: PROXY_API_KEY
         sync: false
@@ -892,7 +906,7 @@ services:
       - key: NVIDIA_BASE_URL
         value: "https://integrate.api.nvidia.com"
       - key: NVIDIA_DEFAULT_MODEL
-        value: "z-ai/glm-5.2"
+        value: "nvidia/nemotron-3-super-120b-a12b"
       - key: LLM_PROVIDER
         value: "nvidia-nim"
       # UNIT 7: AGENT_<ROLE>_MODEL env vars removed — catalog (config/models.yaml)

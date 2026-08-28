@@ -3993,7 +3993,7 @@ def _nvidia_nim_provider_record() -> Optional[Dict]:
         os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com"
     ).rstrip("/").removesuffix("/v1")
     model = (
-        os.environ.get("NVIDIA_DEFAULT_MODEL") or "meta/llama-3.3-70b-instruct"
+        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b"
     )
     return {
         "provider_id": "nvidia-nim",

@@ -20,19 +20,64 @@ def _before(text: str, primary: str, fallback: str) -> bool:
     return i < j
 
 
-def test_implement_agent_nvidia_primary() -> None:
-    """implement_agent.py uses NVIDIA NIM exclusively — the Anthropic/Opus
-    fallback was removed (it burned paid credits whenever NVIDIA failed)."""
+def test_implement_agent_never_escalates_to_paid() -> None:
+    """implement_agent.py must not spend paid credits behind the operator.
+
+    This used to assert the literal string "Using NVIDIA NIM as the primary
+    engine", which encoded a premise that turned out to be the bug: pinning one
+    provider in this script meant that when every NVIDIA model reached
+    end-of-life on 2026-08-26, the loop had nothing to fall back to and the
+    agency stopped producing work. Routing moved to `ProviderRouter`.
+
+    The *intent* behind the original assertion is unchanged and still worth
+    guarding — it was never "use NVIDIA", it was "do not silently reach for a
+    paid provider". `allow_commercial_fallback=False` is what enforces that now,
+    and it is a stronger guarantee than a comment ordering check, because the
+    router classifies which providers are commercial rather than this file.
+    """
     text = (_SCRIPTS / "implement_agent.py").read_text()
-    assert "Using NVIDIA NIM as the primary engine" in text
+    assert "allow_commercial_fallback=False" in text, (
+        "the loop must never escalate to a paid provider on its own"
+    )
     assert "Anthropic Claude Opus fallback" not in text
 
 
-def test_implement_agent_primary_model_is_a_coder() -> None:
-    text = (_SCRIPTS / "nvidia_models.py").read_text()
-    # Verify the primary model in the shared NVIDIA_CANDIDATE_MODELS is
-    # a coder (nemotron-super-49b), not a generic chat model.
-    assert "nemotron-super" in text
+def test_implement_agent_routes_through_the_shared_router() -> None:
+    """Rule 2: all LLM calls go through packages/ai/router.py.
+
+    A private model list in this script is what caused the outage — it could not
+    see that its models were dead, and had no other provider to try.
+    """
+    text = (_SCRIPTS / "implement_agent.py").read_text()
+    assert "from packages.ai.router import ProviderRouter" in text
+    assert "integrate.api.nvidia.com" not in text, (
+        "provider endpoints belong to the router, not to this script"
+    )
+
+
+def test_nemotron_is_preferred_when_choosing_a_model() -> None:
+    """Nemotron first — asserted against behaviour, not file contents.
+
+    This used to grep `nvidia_models.py` for the literal "nemotron-super", which
+    told you nothing useful: the file it inspected was imported by nothing, and
+    the id it looked for reached end-of-life on 2026-08-26 while the assertion
+    kept passing. Ids are now discovered from the provider, so the durable
+    property is the ranking, which is what this exercises.
+    """
+    import sys
+
+    sys.path.insert(0, str(_SCRIPTS))
+    try:
+        from nvidia_models import rank_models
+    finally:
+        if str(_SCRIPTS) in sys.path:
+            sys.path.remove(str(_SCRIPTS))
+
+    ranked = rank_models([
+        "meta/llama-3.1-8b-instruct",
+        "nvidia/some-nemotron-super-49b",
+    ])
+    assert "nemotron" in ranked[0]
 
 
 def test_review_agent_nvidia_primary() -> None:

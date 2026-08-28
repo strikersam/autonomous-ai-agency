@@ -135,20 +135,30 @@ def test_brain_config_groq_candidates_no_deprecated_mixtral():
         )
 
 
-def test_brain_config_nvidia_has_llama4_maverick():
-    from packages.ai.brain_config import PROVIDER_CANDIDATES
-    cands = PROVIDER_CANDIDATES["nvidia"]
-    assert "meta/llama-4-maverick-17b-128e-instruct" in cands, (
-        f"Llama 4 Maverick missing from nvidia candidates: {cands}"
-    )
+# 2026-08-28: superseded, exactly like the deprecated-Groq cases above. These
+# asserted that NVIDIA's rotation *contained* Llama 4 Maverick and Scout, which
+# was true when written. A live probe against the production key found both
+# retired — Maverick 410 Gone, Scout 404 — so they left the catalogue. Keeping
+# the original assertions would have pinned two dead models into the rotation.
+RETIRED_NVIDIA_MODELS = (
+    "meta/llama-4-maverick-17b-128e-instruct",
+    "meta/llama-4-scout-17b-16e-instruct",
+)
 
 
-def test_brain_config_nvidia_has_llama4_scout():
+def test_brain_config_nvidia_has_no_retired_llama4():
     from packages.ai.brain_config import PROVIDER_CANDIDATES
     cands = PROVIDER_CANDIDATES["nvidia"]
-    assert "meta/llama-4-scout-17b-16e-instruct" in cands, (
-        f"Llama 4 Scout missing from nvidia candidates: {cands}"
-    )
+    for retired in RETIRED_NVIDIA_MODELS:
+        assert retired not in cands, (
+            f"Retired model {retired!r} still in nvidia candidates: {cands}"
+        )
+
+
+def test_brain_config_nvidia_candidates_are_not_empty():
+    """The rotation losing every entry is the outage this series began with."""
+    from packages.ai.brain_config import PROVIDER_CANDIDATES
+    assert PROVIDER_CANDIDATES["nvidia"], "nvidia rotation must not be empty"
 
 
 # ── Cross-check: brain_config.py and models.yaml are in sync ─────────────────
