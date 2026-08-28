@@ -1,0 +1,68 @@
+name: Provider catalogue probe
+
+# Read-only diagnostic: asks every configured provider what it actually serves.
+#
+# It runs here because this is where the keys are. A developer sandbox has
+# neither the keys nor a route to the vendors, which is why model ids in this
+# repo were guessed rather than read — and why the guesses kept rotting.
+#
+# Dispatch-only: no commits, no PRs, not part of the autonomous loop fleet.
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: "Probe only this provider id (empty = all configured)"
+        required: false
+        default: ""
+      filter:
+        description: "Dump raw catalogue records whose id contains this substring"
+        required: false
+        default: ""
+      chat:
+        description: "Space-separated provider ids whose default model should be called"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Ask the providers what they serve
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install config dependencies
+        run: python -m pip install --quiet pyyaml
+
+      - name: Probe
+        env:
+          # Every provider the router knows. A key that is not set simply means
+          # that provider reports "key present: no" and is skipped.
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NVIDIA_BASE_URL: ${{ secrets.NVIDIA_BASE_URL }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Inputs reach the shell as environment variables, never interpolated
+          # into the script text: a ${{ }} expansion inside run: is pasted in as
+          # shell source, so a crafted input would execute as a command.
+          PROBE_PROVIDER: ${{ inputs.provider }}
+          PROBE_FILTER: ${{ inputs.filter }}
+          PROBE_CHAT: ${{ inputs.chat }}
+        run: |
+          args=()
+          if [ -n "$PROBE_PROVIDER" ]; then args+=(--provider "$PROBE_PROVIDER"); fi
+          if [ -n "$PROBE_FILTER" ]; then args+=(--filter "$PROBE_FILTER"); fi
+          for provider in $PROBE_CHAT; do
+            args+=(--chat "$provider")
+          done
+          python .github/scripts/probe_catalogues.py "${args[@]}"
