@@ -59,7 +59,7 @@ def _resolve_nvidia_default_model() -> str:
             return cands[0]
         return SAFE_DEFAULT_MODEL
     except Exception:
-        return "meta/llama-3.3-70b-instruct"
+        return "nvidia/nemotron-3-ultra-550b-a55b"
 
 
 _NVIDIA_DEFAULT_MODEL = _resolve_nvidia_default_model()
