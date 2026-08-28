@@ -239,11 +239,25 @@ class TestModelRegistryUpdates:
         model = reg.get("llama-4-maverick-17b-128e-instruct")
         assert model.supports_tools is True
 
-    def test_llama4_maverick_nvidia_registered(self):
+    def test_nvidia_registers_a_probed_live_model(self):
+        # 2026-08-28: superseded. This asserted that packages/ai/registry.py
+        # registers meta/llama-4-maverick-17b-128e-instruct on NVIDIA. A live
+        # probe found that id answering 410, and it had to be removed — the
+        # legacy registry re-seeds packages/llm/registry.py, so while it stayed
+        # here it kept being offered as a tool-calling candidate no matter what
+        # the YAML catalogues said.
+        #
+        # The property worth keeping is that NVIDIA has *a* registered model and
+        # that it is the catalogue's default, not that it is any particular id.
+        from packages.ai.brain_config import SAFE_DEFAULT_MODEL
+
         reg = self._reg()
-        model = reg.get("meta/llama-4-maverick-17b-128e-instruct")
-        assert model is not None
+        model = reg.get(SAFE_DEFAULT_MODEL)
+        assert model is not None, f"{SAFE_DEFAULT_MODEL} is not registered"
         assert model.provider_id == "nvidia"
+        assert model.supports_tools is True, (
+            "the default must survive require_tools filtering on the gateway path"
+        )
 
     def test_gemini25_flash_registered(self):
         reg = self._reg()

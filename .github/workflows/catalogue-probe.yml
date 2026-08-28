@@ -27,6 +27,11 @@ on:
         description: "Space-separated model ids to call instead of the default (needs `chat`)"
         required: false
         default: ""
+      tools:
+        description: "Also send a tool-calling request, to establish supports_tools by evidence"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -66,6 +71,7 @@ jobs:
           PROBE_FILTER: ${{ inputs.filter }}
           PROBE_CHAT: ${{ inputs.chat }}
           PROBE_MODEL: ${{ inputs.model }}
+          PROBE_TOOLS: ${{ inputs.tools }}
         run: |
           args=()
           if [ -n "$PROBE_PROVIDER" ]; then args+=(--provider "$PROBE_PROVIDER"); fi
@@ -76,4 +82,5 @@ jobs:
           for model in $PROBE_MODEL; do
             args+=(--model "$model")
           done
+          if [ "$PROBE_TOOLS" = "true" ]; then args+=(--tools); fi
           python .github/scripts/probe_catalogues.py "${args[@]}"

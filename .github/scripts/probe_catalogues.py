@@ -154,6 +154,56 @@ def probe_chat(provider, key: str, model_id: str) -> bool:
     return True
 
 
+_PROBE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "get_weather",
+        "description": "Get the current weather for a city.",
+        "parameters": {
+            "type": "object",
+            "properties": {"city": {"type": "string"}},
+            "required": ["city"],
+        },
+    },
+}
+
+
+def probe_tools(provider, key: str, model_id: str) -> bool:
+    """Does this model actually emit a tool call?
+
+    ``config/llm/models.yaml`` declares ``supports_tools`` per model, and
+    ``packages/llm/registry.py`` filters tool-calling requests on it — giving
+    anything undeclared ``supports_tools: false``. So an undeclared model is
+    silently excluded from every tool-calling request. Declaring it needs
+    evidence, and this is the evidence.
+    """
+    kind = _kind(provider)
+    spec = _CHAT.get(kind)
+    if spec is None:
+        print(f"    (no chat route known for kind {kind!r}; tools not probed)")
+        return False
+
+    payload = {
+        "model": model_id,
+        "messages": [{"role": "user", "content": "What is the weather in Paris?"}],
+        "tools": [_PROBE_TOOL],
+        "tool_choice": "auto",
+        spec["wraps_max_tokens"]: 128,
+    }
+    try:
+        body = _request(provider, spec["path"], key, payload)
+    except Exception as exc:  # noqa: BLE001 - diagnostic, report anything
+        print(f"    tools {model_id}: {type(exc).__name__}: {exc}")
+        return False
+
+    choices = body.get("choices") or [{}]
+    message = (choices[0] or {}).get("message") or {}
+    calls = message.get("tool_calls") or []
+    named = [((c.get("function") or {}).get("name")) for c in calls if isinstance(c, dict)]
+    print(f"    tools {model_id}: {'YES' if named else 'no tool_calls'} {named or ''}")
+    return bool(named)
+
+
 def _providers(only: str | None):
     from packages.llm.config import load_config
 
@@ -180,6 +230,11 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         default=[],
         help="provider id whose default model should be called; repeatable",
+    )
+    parser.add_argument(
+        "--tools",
+        action="store_true",
+        help="also send a tool-calling request, to establish supports_tools by evidence",
     )
     parser.add_argument(
         "--model",
@@ -241,6 +296,8 @@ def main(argv: list[str] | None = None) -> int:
             for target in [t for t in targets if t]:
                 if not probe_chat(provider, key, target):
                     unservable.append(f"{provider.id}:{target}")
+                elif args.tools:
+                    probe_tools(provider, key, target)
             if not [t for t in targets if t]:
                 print("    --chat: no model to call")
 

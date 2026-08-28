@@ -4,20 +4,34 @@ _Updated 2026-08-28._
 
 ## Nothing is blocked on an agent. Two things need a human.
 
-### 0. The NVIDIA default model was a retired id — fixed, one item left open
+### 0. NVIDIA models — resolved, with one measurement still missing
 
-Every "model to use when `NVIDIA_DEFAULT_MODEL` is unset" fallback in the tree
-pointed at `meta/llama-3.3-70b-instruct`, which answers `410 Gone` since
-2026-08-26. All of them now point at `nvidia/nemotron-3-ultra-550b-a55b`, with
-`nvidia/nemotron-3-super-120b-a12b` as the first fallback in
-`.github/scripts/nvidia_models.py`. Both ids came from the account owner.
+Every NVIDIA id this repo carried was probed against the production key on
+2026-08-28. All but one answered 410 or 404, including `z-ai/glm-5.2` (the
+default brain for all four agent roles) and `nvidia/nemotron-3-ultra-550b-a55b`
+(briefly installed as the default on the strength of a catalogue listing alone).
 
-**Open, needs a human or a key:** `config/llm/models.yaml` has no entry for
-either id, so `packages/llm/registry.py` treats them with cautious defaults and
-`require_tools` filtering may drop them on that path. Adding entries needs real
-context-window / max-output / capability numbers, which cannot be read from a
-sandbox without egress to the NVIDIA catalogue. Anyone with the key can get
-them from `GET /v1/models` and fill the entries in.
+The rotation now holds only ids that returned HTTP 200 to a real completion,
+and all three tool-call correctly:
+`nvidia/nemotron-3-super-120b-a12b`, `openai/gpt-oss-120b`, `openai/gpt-oss-20b`.
+`mistralai/mistral-nemotron` answers but is slow — it timed out on one of two runs.
+
+**Still missing, and not guessable:** real `context_window` / `max_output_tokens`
+for these models. NVIDIA's `/v1/models` returns only `id`, `object`, `created`
+and `owned_by` — no capability fields at all, so an earlier note here claiming
+"anyone with the key can get them from `GET /v1/models`" was wrong. The entries
+in `config/llm/models.yaml` and `packages/ai/registry.py` therefore carry
+conservative floors (32768 / 4096), which prune prompts rather than overflow
+them. Raise them when someone measures the real limits.
+
+Model ids live in six places (`config/models.yaml`, `config/llm/models.yaml`,
+`config/llm/providers.yaml`, `packages/ai/brain_config.py`,
+`packages/ai/registry.py`, `services/brain_failover.py::_MODEL_ALIASES`).
+`tests/test_one_model_catalogue.py` freezes the divergence and blocks retired
+ids from becoming routable, but the consolidation itself is not done.
+
+Re-check anything above with:
+`gh workflow run catalogue-probe.yml -f provider=nvidia -f chat=nvidia -f tools=true`
 
 ### 1. Render is suspended for billing — this is the big one
 

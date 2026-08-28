@@ -388,6 +388,12 @@ jobs:
         if: steps.branch.outputs.branch != ''
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Free-cloud brain chain (Cerebras -> Groq -> NVIDIA NIM), selected by
+          # which key is present — the convention autonomous-agent.yml and
+          # autonomous-fix.yml already follow. This workflow passed NVIDIA alone,
+          # so the agency here had no first or second link at all.
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
           ISSUE_URL: ${{ steps.issue.outputs.url }}
@@ -596,6 +602,12 @@ jobs:
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Free-cloud brain chain (Cerebras -> Groq -> NVIDIA NIM), selected by
+          # which key is present — the convention autonomous-agent.yml and
+          # autonomous-fix.yml already follow. This workflow passed NVIDIA alone,
+          # so the agency here had no first or second link at all.
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
           GH_TOKEN: ${{ secrets.GH_PAT }}
@@ -639,6 +651,12 @@ jobs:
         continue-on-error: true
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Free-cloud brain chain (Cerebras -> Groq -> NVIDIA NIM), selected by
+          # which key is present — the convention autonomous-agent.yml and
+          # autonomous-fix.yml already follow. This workflow passed NVIDIA alone,
+          # so the agency here had no first or second link at all.
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
           GH_TOKEN: ${{ secrets.GH_PAT }}
