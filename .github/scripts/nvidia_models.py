@@ -19,8 +19,11 @@ claim that kept going stale.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import urllib.request
+
+log = logging.getLogger("nvidia-models")
 
 __all__ = [
     "NVIDIA_CANDIDATE_MODELS",
@@ -97,12 +100,20 @@ def live_model_ids(api_key: str, timeout: float = 15.0) -> list[str]:
     static list below can still carry it.
     """
     if not api_key:
+        log.warning(
+            "[models] No NVIDIA_API_KEY — cannot ask the provider which models "
+            "exist; falling back to the static list."
+        )
         return []
     try:
         payload = _fetch_models_json(api_key, timeout)
         entries = payload.get("data") or []
         return rank_models([str(e.get("id") or "") for e in entries])
-    except Exception:
+    except Exception as exc:
+        # Swallowed on purpose — discovery must never be why a run dies — but
+        # never silently. A run on the static floor that looks identical to a
+        # healthy one is the exact failure mode this module was written to end.
+        log.warning("[models] Model discovery failed (%s): %s", type(exc).__name__, exc)
         return []
 
 
@@ -120,7 +131,21 @@ def resolve_model_ids(api_key: str | None = None, timeout: float = 15.0) -> list
         return list(_RESOLVED)
     if api_key is None:
         api_key = os.environ.get("NVIDIA_API_KEY", "")
-    _RESOLVED = live_model_ids(api_key, timeout) or list(NVIDIA_MODEL_IDS)
+    discovered = live_model_ids(api_key, timeout)
+    if discovered:
+        log.info(
+            "[models] Discovered %d usable model(s); trying %s first.",
+            len(discovered), discovered[0],
+        )
+        _RESOLVED = discovered
+    else:
+        log.warning(
+            "[models] Using the static fallback list (%s). It is a floor, not a "
+            "verified set — if the run exhausts it, discovery is what needs "
+            "fixing, not the list.",
+            ", ".join(NVIDIA_MODEL_IDS) or "empty",
+        )
+        _RESOLVED = list(NVIDIA_MODEL_IDS)
     return list(_RESOLVED)
 
 

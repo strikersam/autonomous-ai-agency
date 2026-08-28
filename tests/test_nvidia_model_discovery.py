@@ -140,3 +140,40 @@ class TestResolution:
 
     def test_shapes_still_agree(self, nm) -> None:
         assert nm.NVIDIA_MODEL_IDS == [m for m, _ in nm.NVIDIA_CANDIDATE_MODELS]
+
+
+class TestFailureIsAudible:
+    """Silent degradation is the defect this whole module exists to end.
+
+    `live_model_ids()` swallows every exception and returns `[]`, and
+    `resolve_model_ids()` then falls back to a one-entry static floor. Without a
+    log line, an unreachable provider or a bad key looks exactly like a healthy
+    run that simply had nothing to discover — the operator learns only when the
+    agent exhausts its single candidate and the whole issue fails.
+    """
+
+    def test_a_discovery_failure_is_logged(self, nm, monkeypatch, caplog) -> None:
+        def _raise(*a, **k):
+            raise RuntimeError("connection refused")
+
+        monkeypatch.setattr(nm, "_fetch_models_json", _raise)
+        with caplog.at_level("WARNING"):
+            assert nm.live_model_ids("key") == []
+        assert any("connection refused" in r.getMessage() for r in caplog.records), (
+            "the reason discovery failed must reach the log, not vanish"
+        )
+
+    def test_falling_back_to_the_floor_is_logged(self, nm, monkeypatch, caplog) -> None:
+        monkeypatch.setattr(nm, "live_model_ids", lambda *a, **k: [])
+        with caplog.at_level("WARNING"):
+            nm.resolve_model_ids("key")
+        assert any(
+            "static" in r.getMessage().lower() or "fallback" in r.getMessage().lower()
+            for r in caplog.records
+        ), "running on the floor must be visible, not assumed"
+
+    def test_a_successful_discovery_says_what_it_found(self, nm, monkeypatch, caplog) -> None:
+        monkeypatch.setattr(nm, "live_model_ids", lambda *a, **k: ["nvidia/x-instruct"])
+        with caplog.at_level("INFO"):
+            nm.resolve_model_ids("key")
+        assert any("nvidia/x-instruct" in r.getMessage() for r in caplog.records)
