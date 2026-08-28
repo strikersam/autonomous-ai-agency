@@ -1,16 +1,15 @@
-"""The free-brain default model must be an endpoint-live model.
+"""The free-brain default must be an id the endpoint actually serves.
 
-Regression for the historical latent bug where callers hit NIM with the
-bare ``llama-3.3-nemotron-super-49b-v1`` id (without the ``nvidia/`` prefix) and
-got 404. As of the 2026-06-20 live-NIM probe, BOTH namespaced IDs
-(``meta/llama-3.3-70b-instruct`` and
-``meta/llama-3.3-70b-instruct``) return HTTP 200. The default
-(``meta/llama-3.3-70b-instruct`` and
-``meta/llama-3.3-70b-instruct``) return HTTP 200. The default
-brain now points at the 120B-a12b model (12B active/call, reasoning-tuned
-MoE — empirically faster and stronger than the dense 49B on chain-of-thought
-agent tasks), with the 49B kept as a fallback that the resolver still
-honours when ``NVIDIA_DEFAULT_MODEL`` is explicitly set to it.
+Two regressions live here. The original one: callers hit NIM with a bare id
+(no ``nvidia/`` prefix) and got 404, so the default must always be namespaced.
+
+The second is this file's own history. It carried a ``LIVE_MODELS`` set
+"live-verified 2026-06-20" naming ``z-ai/glm-5.2`` and
+``meta/llama-3.3-70b-instruct``. By 2026-08-28 a live probe found **both**
+answering 410 Gone — the set had become a frozen claim about the world that
+nothing re-checked, which is the failure mode the whole NVIDIA series has been
+unwinding. "Live" is now read from the catalogue, which
+``.github/workflows/catalogue-probe.yml`` is what keeps honest.
 """
 from __future__ import annotations
 
@@ -21,14 +20,14 @@ import urllib.request
 import pytest
 
 import packages.ai.brain as brain_policy
-# Names that resolve on NVIDIA NIM today (live-verified 2026-06-20 via curl
-# against https://integrate.api.nvidia.com/v1/chat/completions — both returned
-# HTTP 200 with a coherent ~600-token reply). Keeping both names in tests so a
-# future flip doesn't silently regress.
-LIVE_MODELS = {
-    "z-ai/glm-5.2",
-    "meta/llama-3.3-70b-instruct",
-}
+def _live_models() -> set[str]:
+    """The ids the catalogue currently vouches for.
+
+    Derived, not frozen: a hardcoded set here outlived the models twice.
+    """
+    from packages.ai.brain_config import PROVIDER_CANDIDATES, SAFE_DEFAULT_MODEL
+
+    return set(PROVIDER_CANDIDATES.get("nvidia") or []) | {SAFE_DEFAULT_MODEL}
 
 # Bare-name form that the previous-session 404 hit (NIM accepts only
 # namespaced IDs). The test still rejects this so a regression to the bare
@@ -40,13 +39,21 @@ DEAD_BARE_NAMES = {
 
 def test_default_model_is_a_live_namespaced_id():
     """Default must be one of the live NIM namespaced IDs — never the bare name."""
+    live = _live_models()
+    assert live, "the catalogue names no models; this guard would pass vacuously"
     assert brain_policy.DEFAULT_FREE_NVIDIA_MODEL not in DEAD_BARE_NAMES
-    assert brain_policy.DEFAULT_FREE_NVIDIA_MODEL in LIVE_MODELS
+    assert brain_policy.DEFAULT_FREE_NVIDIA_MODEL in live
+    assert "/" in brain_policy.DEFAULT_FREE_NVIDIA_MODEL, "NIM ids must be namespaced"
 
 
-def test_default_model_is_glm52():
-    """PR #984: default is now z-ai/glm-5.2 (was meta/llama-3.3-70b-instruct)."""
-    assert brain_policy.DEFAULT_FREE_NVIDIA_MODEL == "z-ai/glm-5.2"
+def test_default_model_matches_the_catalogue():
+    """The module-level copy must not drift from the catalogue's safe default.
+
+    Was ``test_default_model_is_glm52``, pinning an id that later answered 410.
+    """
+    from packages.ai.brain_config import SAFE_DEFAULT_MODEL
+
+    assert brain_policy.DEFAULT_FREE_NVIDIA_MODEL == SAFE_DEFAULT_MODEL
 
 
 def test_resolve_uses_default_when_env_unset(monkeypatch):
@@ -55,7 +62,7 @@ def test_resolve_uses_default_when_env_unset(monkeypatch):
     resolved = brain_policy.resolve_free_nvidia_brain()
     assert resolved is not None, "a key is set, so a brain must resolve"
     _base, _headers, model = resolved
-    assert model == "z-ai/glm-5.2"
+    assert model == brain_policy.DEFAULT_FREE_NVIDIA_MODEL
 
 
 def test_resolve_respects_env_override(monkeypatch):

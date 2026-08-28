@@ -24,11 +24,13 @@ log = logging.getLogger("brain_policy")
 # free cloud model via NVIDIA_DEFAULT_MODEL; this fallback is the documented
 # default (see .env.example / render.yaml).
 #
-# PR #984: default changed to z-ai/glm-5.2 — the operator's preferred brain
-# model (https://build.nvidia.com/z-ai/glm-5.2). Free, high-quality, fast.
+# Probed live 2026-08-28: z-ai/glm-5.2 (the previous value, PR #984) answers
+# 410 Gone, as does every other id the NVIDIA rotation carried. This is the one
+# that returned HTTP 200 to a real completion. Keep it equal to the catalogue's
+# SAFE_DEFAULT_MODEL — tests/test_brain_default_consistency.py enforces that.
 # The old default (meta/llama-3.3-70b-instruct) is kept as the fallback in
 # the model registry.
-DEFAULT_FREE_NVIDIA_MODEL = "z-ai/glm-5.2"
+DEFAULT_FREE_NVIDIA_MODEL = "nvidia/nemotron-3-super-120b-a12b"
 
 _TRUTHY = {"1", "true", "yes", "on"}
 
