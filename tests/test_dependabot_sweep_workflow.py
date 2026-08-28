@@ -165,6 +165,47 @@ class TestBacklogActuallyDrains:
         assert entry["runs_per_day"] == 24
 
 
+class TestConflictedPullRequestsGetUnstuck:
+    """A conflicted PR is neither BEHIND nor mergeable, so it falls through.
+
+    Without an explicit branch it lands in the arming path: auto-merge armed on
+    a conflict waits forever, the PR is never BEHIND again so the sweep never
+    revisits it, and the log says only `update type: patch`. Observed live on
+    #1335 and #1336 (sweep run 32977520893, 13:59). Every dependency bump edits
+    `requirements.txt`, so each merge makes a conflict likelier for whatever is
+    still queued — this gets worse as the backlog drains, not better.
+
+    Dependabot is the only actor that can resolve it: the conflict is in a file
+    it generates, and it rebases its own PRs on request.
+    """
+
+    def test_sweep_handles_a_conflicted_pr(self, workflow_text: str) -> None:
+        assert 'STATE" = "DIRTY"' in workflow_text
+
+    def test_conflicted_prs_are_nudged_to_rebase(self, workflow_text: str) -> None:
+        assert "REBASE_MARKER" in workflow_text
+        assert "@dependabot rebase" in workflow_text
+
+    def test_the_nudge_is_not_repeated_every_hour(self, workflow_text: str) -> None:
+        """It runs hourly; a standing request must not become 24 comments a day."""
+        assert ".comments[-1].body" in workflow_text
+
+    def test_a_conflicted_pr_is_never_armed(self, workflow: dict) -> None:
+        """The DIRTY branch must return before the arming path is reached."""
+        job = _job_text(workflow, "sweep-stranded")
+        dirty_at = job.index("DIRTY")
+        arm_at = job.index("group|minor|patch")
+        assert dirty_at < arm_at, "DIRTY must be handled before classification arms"
+
+    def test_a_conflict_does_not_consume_the_update_budget(
+        self, workflow_text: str
+    ) -> None:
+        """update-branch cannot fix a conflict, so spending the slot wastes CI."""
+        dirty = workflow_text.index('STATE" = "DIRTY"')
+        behind = workflow_text.index('STATE" = "BEHIND"')
+        assert "UPDATES_LEFT" not in workflow_text[dirty:behind]
+
+
 class TestSweepStillCannotForceAnything:
     def test_sweep_never_uses_admin_merge(self, workflow: dict) -> None:
         """--admin bypasses required checks. --auto waits for them."""
