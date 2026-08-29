@@ -340,6 +340,10 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         # completion. The previous list was made entirely of ids that were
         # listed in the catalogue and returned 410 or 404 when called.
         "nvidia/nemotron-3-super-120b-a12b",
+        # Intermittent, not dead — 404 at 17:02/17:05 on 2026-08-28, then HTTP
+        # 200 with a real tool_call at 23:25 and again on 2026-08-29 07:37.
+        # Kept behind the default, which has answered on every probe.
+        "nvidia/nemotron-3-ultra-550b-a55b",
         "mistralai/mistral-nemotron",
         "openai/gpt-oss-120b",
         "openai/gpt-oss-20b",

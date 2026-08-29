@@ -431,7 +431,7 @@ async def build_seo_roadmap(
                 "risk_reduction": i.risk_reduction,
                 "horizon": i.horizon.value,
                 "status": i.status.value,
-                "estimated_monthly_value": getattr(i, 'estimated_monthly_value', 0),
+                "estimated_monthly_value": i.estimated_monthly_value,
             }
             for i in initiatives
         ]
@@ -532,7 +532,7 @@ async def plan_seo_sprint(
             "title": i.title,
             "wsjf": round(i.wsjf, 2),
             "job_size": i.job_size,
-            "estimated_monthly_value": getattr(i, 'estimated_monthly_value', 0),
+            "estimated_monthly_value": i.estimated_monthly_value,
         }
         for i in sprint_plan.plan.committed
     ]
@@ -542,7 +542,7 @@ async def plan_seo_sprint(
             "title": i.title,
             "wsjf": round(i.wsjf, 2),
             "job_size": i.job_size,
-            "estimated_monthly_value": getattr(i, 'estimated_monthly_value', 0),
+            "estimated_monthly_value": i.estimated_monthly_value,
         }
         for i in sprint_plan.plan.deferred
     ]
@@ -666,7 +666,7 @@ async def run_seo_pipeline(
                 "risk_reduction": i.risk_reduction,
                 "horizon": i.horizon.value,
                 "status": i.status.value,
-                "estimated_monthly_value": getattr(i, 'estimated_monthly_value', 0),
+                "estimated_monthly_value": i.estimated_monthly_value,
             }
             for i in initiatives
         ]
@@ -687,7 +687,7 @@ async def run_seo_pipeline(
                     "title": i.title,
                     "wsjf": round(i.wsjf, 2),
                     "job_size": i.job_size,
-                    "estimated_monthly_value": getattr(i, 'estimated_monthly_value', 0),
+                    "estimated_monthly_value": i.estimated_monthly_value,
                 }
                 for i in result.sprint.plan.committed
             ],
@@ -697,7 +697,7 @@ async def run_seo_pipeline(
                     "title": i.title,
                     "wsjf": round(i.wsjf, 2),
                     "job_size": i.job_size,
-                    "estimated_monthly_value": getattr(i, 'estimated_monthly_value', 0),
+                    "estimated_monthly_value": i.estimated_monthly_value,
                 }
                 for i in result.sprint.plan.deferred
             ],

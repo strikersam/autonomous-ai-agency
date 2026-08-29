@@ -22,12 +22,20 @@ ROUTER = REPO_ROOT / "packages/ai/router.py"
 SETTINGS = REPO_ROOT / "packages/config/settings.py"
 
 # Observed returning 410/404 in the 2026-08-27 implementer logs.
+#
+# `nvidia/nemotron-3-ultra-550b-a55b` was on this list and has been removed.
+# It was added on a 404 from two probes at 17:02 and 17:05 on 2026-08-28, and
+# three later observations contradict that: the council-review step got HTTP
+# 200 from it at 20:10, and catalogue-probe runs 33220369591 (23:25, which also
+# returned a real `tool_calls`) and 33241283346 (2026-08-29 07:37) both
+# succeeded — that workflow exits non-zero if a `--chat` model will not answer.
+#
+# It is intermittent, not retired, and this list means retired. Keeping a
+# working model here blocked it for no reason, which is the mirror image of the
+# defect the file exists to catch. It is a rotation candidate, not the default:
+# `nvidia/nemotron-3-super-120b-a12b` has answered on every probe.
 RETIRED = [
     "meta/llama-3.3-70b-instruct",
-    # Listed in NVIDIA's catalogue and returns 404 when called. It was briefly
-    # the default here on the strength of the listing alone — which is the
-    # mistake this file exists to prevent, made inside the fix for it.
-    "nvidia/nemotron-3-ultra-550b-a55b",
     "z-ai/glm-5.2",
     "z-ai/glm-5.1",
     "meta/llama-4-maverick-17b-128e-instruct",

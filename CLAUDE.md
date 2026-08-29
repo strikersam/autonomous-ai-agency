@@ -258,7 +258,7 @@ the Render service name still carry that name.
 
 | Provider | Env var | Purpose |
 |----------|---------|---------|
-| NVIDIA NIM | `NVIDIA_API_KEY` | Free LLM (`nvidia/nemotron-3-ultra-550b-a55b`) |
+| NVIDIA NIM | `NVIDIA_API_KEY` | Free LLM (`nvidia/nemotron-3-super-120b-a12b`) |
 | Cerebras | `CEREBRAS_API_KEY` | Free fast LLM (`qwen-3-coder-480b`) |
 | Groq | `GROQ_API_KEY` | Free fast LLM (`deepseek-r1-70b`) |
 | Anthropic | `ANTHROPIC_API_KEY` | Paid LLM (Claude) |
@@ -379,7 +379,7 @@ change behaviour most:
 | `CORS_ORIGINS` | `*` | **Never `*` in production** (rule 41) |
 | `RATE_LIMIT_RPM` | `60` | Per-key request limit |
 | `AGENT_WORKSPACE_ROOT` | `.` | Agent filesystem sandbox root |
-| `NVIDIA_DEFAULT_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b` | Free NVIDIA NIM model |
+| `NVIDIA_DEFAULT_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | Free NVIDIA NIM model |
 | `AGENT_{PLANNER,EXECUTOR,VERIFIER,JUDGE}_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | Per-role LLMs |
 | `BRAIN_WATCHDOG_MAX_FAILURES` | `3` | Failover threshold |
 | `ACTIVATION_REQUIRED` | `true` | `false` for self-hosted |

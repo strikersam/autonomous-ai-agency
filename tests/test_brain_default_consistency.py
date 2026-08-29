@@ -72,7 +72,6 @@ def test_render_yaml_ships_the_same_default() -> None:
         "z-ai/glm-5.2",
         "z-ai/glm-5.1",
         "meta/llama-3.3-70b-instruct",
-        "nvidia/nemotron-3-ultra-550b-a55b",
     ):
         assert f'value: "{retired}"' not in content, (
             f"render.yaml still ships a retired model id: {retired}"

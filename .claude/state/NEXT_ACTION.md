@@ -2,7 +2,7 @@
 
 _Updated 2026-08-29._
 
-## Nothing is blocked on an agent. Three things need a human.
+## Nothing is blocked on an agent. Two things need a human.
 
 ### 0. NVIDIA models — resolved, with one measurement still missing
 
@@ -33,35 +33,49 @@ ids from becoming routable, but the consolidation itself is not done.
 Re-check anything above with:
 `gh workflow run catalogue-probe.yml -f provider=nvidia -f chat=nvidia -f tools=true`
 
-### 0b. `nvidia/nemotron-3-ultra-550b-a55b` is NOT dead — I retired it on bad evidence
+### 0b. `nvidia/nemotron-3-ultra-550b-a55b` — RESOLVED, restored to the rotation
 
-Correction to the note above. That id was retired on 2026-08-28 on the strength
-of a `404` from probe runs 33192841180 / 33193061913 (17:02 and 17:05 UTC), and
-it is on the `RETIRED` list in `tests/test_nvidia_default_model.py`, which now
-actively blocks a model that works.
+It was retired on a 404 from probes at 17:02 and 17:05 on 2026-08-28. Three
+later observations contradicted that — a council-review `HTTP/1.1 200 OK` at
+20:10, and probe runs 33220369591 (23:25, with a real `tool_calls`) and
+33241283346 (2026-08-29 07:37), both exiting zero from a workflow that returns
+non-zero when a `--chat` model will not answer.
 
-Two later observations contradict the 404:
+It is back as a rotation candidate, behind `nvidia/nemotron-3-super-120b-a12b`,
+which stays the default because it has answered on every probe. Removed from
+both `RETIRED` lists, added to `config/models.yaml` and the reconciled
+`packages/ai/brain_config.py` copy, and the "proven dead" comments in
+`config/models.yaml` and `render.yaml` are corrected.
 
-- The council-review step of run 33204279915, at **20:10 UTC**, logged
-  `[review] Got response from nvidia/nemotron-3-ultra-550b-a55b (NVIDIA NIM)`
-  after an `HTTP/1.1 200 OK`.
-- A direct re-probe at **23:25 UTC** (run 33220369591, dispatched against the
-  production key) returned:
-  `nvidia/nemotron-3-ultra-550b-a55b: HTTP 200` and
-  `tools nvidia/nemotron-3-ultra-550b-a55b: YES ['get_weather']`.
+Four documents had drifted the *other* way and are now consistent with
+`packages/config/settings.py`: `CLAUDE.md` (two tables) and `.env.example` (two
+blocks) named the ultra as the built-in default, which the code has not done
+since 2026-08-28.
 
-So it serves *and* tool-calls. `nvidia/nemotron-3-super-120b-a12b` answered 200
-with tool calls in the same run, so the current default is fine either way.
+### 0c. The daily `Update repo with latest details` routine needs one edit from you
 
-What this does **not** establish is that the ultra is reliable: a model that
-answers 404 at 17:00 and 200 at 20:10 and 23:25 is intermittent, and
-intermittent is not the same as retired. The honest fix is to take it off the
-`RETIRED` list — that list means "gone", and it is not gone — while leaving
-`nvidia/nemotron-3-super-120b-a12b` as the default, since that one has answered
-on every probe. Do not promote the ultra back to default on this evidence.
+`trig_01YAcSFjnca1mmTyyS4CpJCy`, cron `0 7 * * *`. It cannot be changed from a
+session: it was created via the HTTP API, and an agent may only update routines
+it created itself. The edit is a prompt replacement in the Routines UI.
 
-Not done here to avoid widening a green, unrelated PR. It costs one edit to
-`tests/test_nvidia_default_model.py` plus a rotation entry.
+Its last run (`cse_01Lt5frsHuqskGmcpmDbYZwg`, 2026-08-28 07:01) failed with
+`"You've hit your session limit · resets 10:20am (UTC)"` — a five-hour rate
+limit, `status: rejected`, after 1.49M cached tokens and $1.18 spent on an
+open-ended industry survey with nothing committed. The stale
+`local-llm-server` source URL is **not** the cause; GitHub's rename redirect
+resolves it and the run did check out and branch.
+
+Two real defects:
+
+1. **Its prompt says "Push directly to `master`."** That bypasses the plan
+   gate, the PASS-only council merge and the review-bot counting added in
+   #1377 — precisely the gates that exist to stop unreviewed work landing.
+2. **Its scope is unbounded** ("scan Anthropic, OpenAI, Claude Code, Codex and
+   leading AI-dev tools"), which is what exhausted the budget. It also implies
+   it must always ship something, so "nothing worth doing today" is not an
+   available outcome.
+
+The replacement prompt is in the session transcript for 2026-08-29.
 
 ### 1. Render is suspended for billing — this is the big one
 
@@ -154,23 +168,24 @@ Both council WARNs have now been resolved by hand:
   user)`, so another company's audit answers 404. Rule 10 holds; rule 11 holds
   too (Pydantic v2 request models with `Field` constraints, `response_model` on
   every route).
-- **Correctness — one real defect, still open.** `Initiative.wsjf` is a
-  `@property`, so `init.wsjf` is correct, and `source` is a real field. But
-  `estimated_monthly_value` **is not a field on `Initiative`**, and
-  `delegation_task_to_initiative` never carries it across — it interpolates
-  `task.estimated_monthly_value` into the free-text `rationale` string and drops
-  the number. Every consumer then reads it as
-  `getattr(init, 'estimated_monthly_value', 0)` — 8 call sites in
-  `backend/seo_api.py`, 2 in the bridge — so **all three new endpoints return
-  `"estimated_monthly_value": 0` for every initiative, and the roadmap markdown
-  prints `$0` in the value column for every row.** Confirmed by construction: a
-  task carrying `12345.0` yields an initiative whose call sites all read `0`,
-  with the real figure surviving only as prose inside `rationale`. The
-  `getattr(..., 0)` default is what makes it silent — without it the first call
-  would have raised `AttributeError`. Fixing it changes user-visible output, so
-  it is rule 1 work and is left for a decision: either add
-  `estimated_monthly_value` to `Initiative` and set it in the conversion, or
-  drop the field from the API responses rather than reporting a fabricated zero.
+- **Correctness — one real defect, now FIXED.** `Initiative.wsjf` is a
+  `@property`, so `init.wsjf` was always correct, and `source` is a real field.
+  But `estimated_monthly_value` was **not a field on `Initiative`**, and
+  `delegation_task_to_initiative` never carried it across — it interpolated
+  `task.estimated_monthly_value` into the free-text `rationale` and dropped the
+  number. Every consumer read it back as
+  `getattr(init, 'estimated_monthly_value', 0)`, so all three endpoints returned
+  a fabricated `0` and the roadmap printed `$0` on every row.
+
+  `Initiative` now declares `estimated_monthly_value: float = 0.0`, the bridge
+  sets it, and all **8** `getattr` defaults are gone — **6** in
+  `backend/seo_api.py` and 2 in the bridge. (An earlier note here said 8 in
+  `seo_api.py` and 10 overall; the real counts are 6 and 8, caught by an
+  assertion in the edit script.) The default is what made the loss silent, so
+  removing it matters as much as adding the field: a future regression now
+  raises instead of reporting a plausible zero.
+  `tests/test_seo_initiative_value_survives.py` — 9 tests, all failing against
+  the pre-fix code.
 
 **The override itself is fixed** — see §4. `scripts/context_plan_gate.py` now
 reads the plan before the implementer runs, and fails closed on all three of the

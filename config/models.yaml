@@ -81,7 +81,6 @@ providers:
       # Proven dead on that run — do not re-add without a probe:
       #   z-ai/glm-5.2 (410), z-ai/glm-5.1 (410),
       #   meta/llama-4-maverick-17b-128e-instruct (410),
-      #   nvidia/nemotron-3-ultra-550b-a55b (404),
       #   nvidia/nemotron-nano-3-30b-a3b (404),
       #   nvidia/llama-3.1-nemotron-70b-instruct (404),
       #   nvidia/nemotron-4-340b-instruct (404),
@@ -90,6 +89,12 @@ providers:
       #   meta/llama-4-scout-17b-16e-instruct (404),
       #   nvidia/nemotron-3.5-lightning-30b-a3b (404)
       - nvidia/nemotron-3-super-120b-a12b
+      # Intermittent, not dead. It 404'd at 17:02 and 17:05 on 2026-08-28 and
+      # was wrongly retired on that; it then answered HTTP 200 with a real
+      # tool_call at 23:25 (probe run 33220369591), and again on 2026-08-29 at
+      # 07:37 (run 33241283346). Behind the default deliberately: the id above
+      # has answered on every probe, this one has not.
+      - nvidia/nemotron-3-ultra-550b-a55b
       - mistralai/mistral-nemotron
       - openai/gpt-oss-120b
       - openai/gpt-oss-20b
