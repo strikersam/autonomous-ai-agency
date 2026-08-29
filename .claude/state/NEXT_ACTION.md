@@ -236,6 +236,31 @@ trades throughput for the property that a merged change was actually reviewed.
 If the volume of waiting PRs becomes the problem, the lever is the council's
 own strictness, not the merge gate.
 
+### 5. The catalogue probe was letting a refused listing veto the answering
+
+`probe_catalogues.py` exists on one premise — a model can sit in a vendor's
+catalogue and still refuse to serve, so listing is not proof and answering is.
+Its provider loop did the opposite of that. On a `list-models` failure it
+recorded the provider as unreachable and `continue`d, which skipped the `--chat`
+block entirely, so an explicit `--model` id passed precisely to test a candidate
+was discarded without a word.
+
+Found by running it: with `CEREBRAS_API_KEY` now in GitHub Actions, run
+33257508244 reported `key present: yes`, `list-models failed: HTTP 403 —
+Forbidden`, `reachable providers: 0` — and never sent the completion it had been
+asked to send.
+
+Listing and calling are now independent. A named model is called whichever way
+the listing went; a provider is reachable if *either* succeeds; and "answered but
+would not list" is its own line, distinct from `unreachable`, because collapsing
+the two is how a live model gets written off (§0b, the day before). Relaxing the
+rule exposed a second silent path — `probe_chat` returned `True` for an adapter
+kind it has no chat route for, which would have read as an answer — so the skip
+is now decided before the call and counts as nothing.
+
+Re-check any candidate model with:
+`gh workflow run catalogue-probe.yml -f provider=<id> -f chat=<id> -f model="<model-id>" -f tools=true`
+
 ## Running unattended, no action needed
 
 - **Dependabot backlog: 12 open, draining ~1/hour.** `dependabot-auto-merge.yml`

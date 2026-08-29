@@ -237,3 +237,130 @@ class TestTheWorkflowInstallsWhatTheImportNeeds:
         joined = " ".join(install)
         for package in ("pyyaml", "httpx"):
             assert package in joined, f"{package} is needed to load the provider config"
+
+
+class TestAListingFailureDoesNotVetoTheAnswer:
+    """A refused catalogue says nothing about whether a named model answers.
+
+    On 2026-08-29 a probe run with ``--chat cerebras --model <candidate>``
+    printed ``list-models failed: HTTP 403 — Forbidden`` and stopped there. The
+    provider loop appended the id to ``unreachable`` and moved on, so the
+    completion it had been explicitly asked to send was never sent, and the
+    question the run existed to answer — does this candidate serve? — came back
+    blank.
+
+    That is the script contradicting its own thesis. Listing is not proof;
+    answering is. A listing that cannot be read must therefore not be able to
+    veto the answering.
+    """
+
+    @staticmethod
+    def _cannot_list(answers: bool = True):
+        """A provider whose /models refuses but whose /chat works."""
+
+        def _request(p, path, key, payload=None):
+            if payload is None:
+                raise OSError("403 Forbidden")
+            if not answers:
+                raise OSError("404 Not Found")
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+        return _request
+
+    def test_an_explicit_model_is_still_called(self, probe, monkeypatch, capsys) -> None:
+        monkeypatch.setenv("ACME_API_KEY", SECRET)
+        monkeypatch.setattr(probe, "_providers", lambda only: [_provider()])
+        monkeypatch.setattr(probe, "_request", self._cannot_list())
+
+        code = probe.main(["--chat", "acme", "--model", "acme/candidate-9"])
+        out = capsys.readouterr().out
+
+        assert "list-models failed" in out, "the listing failure must still be reported"
+        assert "acme/candidate-9: HTTP 200" in out, (
+            "the named model was never called; the listing failure vetoed it"
+        )
+        assert code == 0, "the provider answered a completion, so it is reachable"
+
+    def test_the_default_model_is_still_called(self, probe, monkeypatch, capsys) -> None:
+        """No ``--model`` given: the provider's declared default is the target."""
+        monkeypatch.setenv("ACME_API_KEY", SECRET)
+        monkeypatch.setattr(probe, "_providers", lambda only: [_provider()])
+        monkeypatch.setattr(probe, "_request", self._cannot_list())
+
+        probe.main(["--chat", "acme"])
+        assert "acme/model-1: HTTP 200" in capsys.readouterr().out
+
+    def test_it_is_reported_apart_from_unreachable(self, probe, monkeypatch, capsys) -> None:
+        """Answered-but-unlistable is a different fact from unreachable.
+
+        Collapsing the two is how a working provider gets written off, which is
+        the mistake that retired a model in this repo on 2026-08-28.
+        """
+        monkeypatch.setenv("ACME_API_KEY", SECRET)
+        monkeypatch.setattr(probe, "_providers", lambda only: [_provider()])
+        monkeypatch.setattr(probe, "_request", self._cannot_list())
+
+        probe.main(["--chat", "acme", "--model", "acme/candidate-9"])
+        out = capsys.readouterr().out
+
+        assert "reachable providers: 1" in out
+        assert "unreachable: acme" not in out
+        assert "answered but would not list: acme" in out
+
+    def test_a_model_that_will_not_answer_still_fails(self, probe, monkeypatch, capsys) -> None:
+        """The relaxation must not turn a real failure into a pass."""
+        monkeypatch.setenv("ACME_API_KEY", SECRET)
+        monkeypatch.setattr(probe, "_providers", lambda only: [_provider()])
+        monkeypatch.setattr(probe, "_request", self._cannot_list(answers=False))
+
+        code = probe.main(["--chat", "acme", "--model", "acme/candidate-9"])
+        out = capsys.readouterr().out
+
+        assert code == 1
+        assert "acme/candidate-9" in out
+        assert "reachable providers: 0" in out
+
+    def test_without_chat_a_listing_failure_is_still_unreachable(
+        self, probe, monkeypatch, capsys
+    ) -> None:
+        """Nothing was asked to be called, so nothing proved the provider is up."""
+        monkeypatch.setenv("ACME_API_KEY", SECRET)
+        monkeypatch.setattr(probe, "_providers", lambda only: [_provider()])
+        monkeypatch.setattr(probe, "_request", self._cannot_list())
+
+        assert probe.main([]) == 1
+        assert "unreachable: acme" in capsys.readouterr().out
+
+    def test_the_key_stays_out_of_this_path_too(self, probe, monkeypatch, capsys) -> None:
+        """Rule 6, re-asserted on the branch this change introduces."""
+        monkeypatch.setenv("ACME_API_KEY", SECRET)
+        monkeypatch.setattr(probe, "_providers", lambda only: [_provider()])
+        monkeypatch.setattr(probe, "_request", self._cannot_list())
+
+        probe.main(["--chat", "acme", "--model", "acme/candidate-9", "--tools"])
+        out = capsys.readouterr().out
+        assert SECRET not in out
+        assert SECRET[:10] not in out
+
+    def test_a_kind_with_no_chat_route_is_not_counted_as_an_answer(
+        self, probe, monkeypatch, capsys
+    ) -> None:
+        """A call that was never sent is not evidence that anything answered.
+
+        ``_LIST_MODELS`` knows four adapter kinds; ``_CHAT`` knows two. For the
+        other two, ``--chat`` has nothing to send. Before the reachability rule
+        changed that was harmless — the provider had already been counted
+        reachable by its listing. It is not harmless now: a skipped call that
+        reads as an answer would make an unreachable provider exit zero.
+        """
+        monkeypatch.setenv("ACME_API_KEY", SECRET)
+        monkeypatch.setattr(probe, "_providers", lambda only: [_provider(kind="gemini")])
+        monkeypatch.setattr(probe, "_request", self._cannot_list())
+        assert "gemini" in probe._LIST_MODELS and "gemini" not in probe._CHAT
+
+        code = probe.main(["--chat", "acme"])
+        out = capsys.readouterr().out
+
+        assert "no chat route known" in out
+        assert code == 1, "nothing was actually called, so nothing was proved"
+        assert "unreachable: acme" in out
