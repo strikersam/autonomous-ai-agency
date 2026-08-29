@@ -2,7 +2,7 @@
 
 _Updated 2026-08-29._
 
-## Nothing is blocked on an agent. Five things need a human.
+## Nothing is blocked on an agent. Three things need a human.
 
 ### 0. NVIDIA models — resolved, with one measurement still missing
 
@@ -83,13 +83,23 @@ none of it is fixable from a session:
 `/api/ping` returns 000; Hermes 404s. The GitHub-Actions half of the agency
 (37 loops) is unaffected and running.
 
-### 2. PR #1336 needs a human decision
+### 2. `anthropic >=1.0.0` — resolved, and the premise was wrong
 
-`anthropic >=0.122.0 → >=1.0.0`, against an SDK this repo calls through
-`packages/ai/router.py` and `handlers/anthropic_compat.py`. Auto-merge was
-disabled by hand and a comment posted. Rule 40 reserves a breaking dependency
-upgrade for a person. Green CI is necessary but not sufficient — the risk is the
-breaking change the suite does not cover.
+An earlier note here held this back under rule 40 as a breaking dependency
+upgrade. It is not one, and the reason matters: **`anthropic>=0.122.0` already
+resolves to 1.0.0**, so CI, Render and every developer install have been running
+1.0.0 since it was published. Dependabot's PR raises the *floor*; it does not
+change a single byte of what gets installed. The risk it appeared to carry had
+already been taken, silently, weeks earlier — which is the same shape as every
+other defect on this branch.
+
+Verified rather than assumed. The SDK has exactly two call sites, both in
+`agent/loop.py` (not `packages/ai/router.py` or `handlers/anthropic_compat.py`,
+as the earlier note said): they construct `AsyncAnthropic` and
+`AsyncAnthropicBedrock` and call
+`messages.create(model=, max_tokens=, system=, messages=)`. All four names are
+present in 1.0.0's signature; neither site passes `temperature`, which 1.0.0
+dropped. The pin is applied and #1336 is closed.
 
 ### 3. The loop overrode its own recorded REJECT, inside a single pull request
 
@@ -162,6 +172,10 @@ Both council WARNs have now been resolved by hand:
   `estimated_monthly_value` to `Initiative` and set it in the conversion, or
   drop the field from the API responses rather than reporting a fabricated zero.
 
+**The override itself is fixed** — see §4. `scripts/context_plan_gate.py` now
+reads the plan before the implementer runs, and fails closed on all three of the
+signals this plan carried (REJECT, unfetched source, unmet rules).
+
 Still unmet and not fixed:
 
 - **Rule 28 in `b368f9e7`.** `build_seo_roadmap` (74 lines), `plan_seo_sprint`
@@ -171,16 +185,41 @@ Still unmet and not fixed:
   Refactoring merged code is behaviour-touching work under rule 1 and needs its
   own change, not a rider on a workflow fix.
 
-### 4. The queue is not ordered the way the loop's purpose implies
+### 4. The backlog is at zero, and the gates that let bad work through are closed
 
-`process-quick-note.yml` picks the **oldest open issue** excluding
-`quick-note:exhausted` / `quick-note:rejected` — it is not filtered to
-quick-notes. Four "Agency: Cannot Fix Tests" escalations (#1312, #1319, #1328,
-#1349) therefore sit at the head of the queue ahead of real work, and each one
-burns three attempts (~12h) before it is labelled exhausted. Changing this is a
-queue-policy decision, so it is reported rather than done: either label the
-escalations `quick-note:rejected`, or narrow the selector to issues carrying a
-quick-note label.
+**6 open issues → 0. 11 open PRs → 0.** Details in tracker row 43.
+
+Five gates in `process-quick-note.yml` resolved an unknown into an approval,
+and all five are now closed with tests that fail against the pre-fix workflows:
+
+1. **The plan is read before anything is built.** `scripts/context_plan_gate.py`
+   parses the committed context plan and fails **closed** — a REJECT verdict, an
+   unfetched source, unmet rulebook rules, or a verdict it does not recognise
+   all block the implement step, label the issue `quick-note:rejected`, and
+   comment. The old defence was a label written best-effort by a different
+   workflow on one code path; when it did not happen, nothing said so.
+2. **Only `PASS` auto-merges.** `WARN` used to, including the one on #1357
+   reading *"cannot verify authentication/authorization guards"* and *"require
+   human verification before merge"*.
+3. **A council that did not run is `NONE`, not `WARN`.** The step is
+   `continue-on-error: true`, so a crashed reviewer previously merged exactly
+   like an approving one. Every non-`PASS` outcome now comments; before, only
+   `FAIL` did.
+4. **Review bots are counted.** Zero reviews raises a warning instead of an
+   11-minute "apply review comments" step reporting success against nothing.
+5. **The queue holds work, not paperwork.** `agency-escalation`,
+   `trend-digest` and `crispy-burn-in` labels are excluded from selection.
+
+Two upstream loops fed the same pattern and are fixed: `agency-cycle.yml` no
+longer escalates failures its own classifier calls unfixable, and
+`crispy-burn-in-check.yml` fails loudly instead of filing a verdict computed
+from an empty evaluation.
+
+**What this changes for you:** the loop will now open PRs and leave them for a
+human whenever the council does not return `PASS`. That is deliberate — it
+trades throughput for the property that a merged change was actually reviewed.
+If the volume of waiting PRs becomes the problem, the lever is the council's
+own strictness, not the merge gate.
 
 ## Running unattended, no action needed
 
