@@ -212,7 +212,11 @@ class TestTheQueueHoldsWorkNotPaperwork:
             {"number": 1375, "labels": [{"name": "enhancement"}]},
             {"number": 1380, "labels": []},
         ]
-        result = subprocess.run(
+        # jq_binary is resolved by shutil.which, the expression comes from a
+        # workflow file in this repo, the payload is a literal above, and the
+        # call is list form with no shell — the vetted pattern `.bandit`
+        # describes for individual B603/B607 suppressions.
+        result = subprocess.run(  # nosec B603
             [jq_binary, "-r", match.group(1)],
             input=json.dumps(backlog),
             capture_output=True,
@@ -239,7 +243,11 @@ class TestTheQueueHoldsWorkNotPaperwork:
             {"number": 1312, "labels": [{"name": "agency-escalation"}]},
             {"number": 1350, "labels": [{"name": "trend-digest"}]},
         ]
-        result = subprocess.run(
+        # jq_binary is resolved by shutil.which, the expression comes from a
+        # workflow file in this repo, the payload is a literal above, and the
+        # call is list form with no shell — the vetted pattern `.bandit`
+        # describes for individual B603/B607 suppressions.
+        result = subprocess.run(  # nosec B603
             [jq_binary, "-r", match.group(1)],
             input=json.dumps(backlog),
             capture_output=True,
