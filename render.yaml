@@ -86,7 +86,8 @@ services:
       # this repo carried against the production key, and all of them failed —
       # z-ai/glm-5.2 (410, the value this line held), z-ai/glm-5.1 (410),
       # meta/llama-4-maverick (410), meta/llama-4-scout (404),
-      # nvidia/nemotron-3-ultra-550b-a55b (404), deepseek-ai/deepseek-r1 (404).
+      # deepseek-ai/deepseek-r1 (404). nemotron-3-ultra-550b-a55b was listed
+      # here too and is not dead — see config/models.yaml for the probe evidence.
       # Do not change this value to an id that has not been probed: a model can
       # be listed in NVIDIA's catalogue and still refuse to serve.
       - key: NVIDIA_DEFAULT_MODEL

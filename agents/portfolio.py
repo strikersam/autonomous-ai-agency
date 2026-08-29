@@ -66,6 +66,13 @@ class Initiative:
     # Provenance — where an auto-generated initiative came from and why it scored.
     source: str = "manual"
     rationale: str = ""
+    # Recoverable value per month, when the source can estimate one. Zero means
+    # "not estimated", which is why consumers must not present it as a measured
+    # figure. It lives here rather than only inside `rationale` prose because
+    # `agents/seo_portfolio_bridge.py` had the number, interpolated it into the
+    # rationale string, and dropped it — leaving every SEO endpoint reporting
+    # $0 recoverable revenue for every initiative.
+    estimated_monthly_value: float = 0.0
 
     def __post_init__(self) -> None:
         for name in ("business_value", "time_criticality", "risk_reduction"):

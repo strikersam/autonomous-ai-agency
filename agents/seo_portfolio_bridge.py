@@ -80,6 +80,7 @@ def delegation_task_to_initiative(
         status=InitiativeStatus.PROPOSED,
         horizon=RoadmapHorizon.UNSCHEDULED,
         source=source,
+        estimated_monthly_value=task.estimated_monthly_value,
         rationale=(
             f"Auto-generated from SEO audit {audit_id}. "
             f"WSJF={task.wsjf_score:.2f} (CoD={task.business_value + task.time_criticality + task.risk_reduction}, "
@@ -147,7 +148,7 @@ class SeoRoadmapPlan:
                 lines.append("| Initiative | WSJF | Job Size | Monthly Value |")
                 lines.append("|------------|------|----------|---------------|")
                 for init in items:
-                    mv = getattr(init, 'estimated_monthly_value', 0)
+                    mv = init.estimated_monthly_value
                     lines.append(
                         f"| {init.title} | {init.wsjf:.2f} | {init.job_size} | ${mv:,.0f} |"
                     )
@@ -161,7 +162,7 @@ class SeoRoadmapPlan:
             lines.append("| Initiative | WSJF | Job Size | Monthly Value |")
             lines.append("|------------|------|----------|---------------|")
             for init in unscheduled:
-                mv = getattr(init, 'estimated_monthly_value', 0)
+                mv = init.estimated_monthly_value
                 lines.append(
                     f"| {init.title} | {init.wsjf:.2f} | {init.job_size} | ${mv:,.0f} |"
                 )
