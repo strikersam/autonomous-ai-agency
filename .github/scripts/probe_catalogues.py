@@ -31,11 +31,13 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from dataclasses import dataclass, field
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, REPO_ROOT)
 
 TIMEOUT = 30.0
+USER_AGENT = "autonomous-ai-agency-catalogue-probe/1.0 (+https://github.com/strikersam/autonomous-ai-agency)"
 
 # How to list models, per adapter kind. This is adapter knowledge — the shape of
 # each vendor's API — not a list of models. No model id appears in this file.
@@ -98,7 +100,15 @@ def _request(provider, path: str, key: str, payload: dict | None = None) -> dict
         url = f"{url}?{urllib.parse.urlencode({'key': key})}"
 
     data = json.dumps(payload).encode() if payload is not None else None
-    headers = {"Accept": "application/json", **_auth_headers(provider, key)}
+    headers = {
+        "Accept": "application/json",
+        # urllib's default identifies as "Python-urllib/x.y", which edge
+        # filters in front of several vendor APIs reject outright — a 403 that
+        # looks exactly like a bad key and is not one. A diagnostic should say
+        # what it is anyway. Overridable per provider via extra_headers.
+        "User-Agent": USER_AGENT,
+        **_auth_headers(provider, key),
+    }
     if data:
         headers["Content-Type"] = "application/json"
     headers.update(provider.extra_headers or {})
@@ -126,13 +136,12 @@ def probe_chat(provider, key: str, model_id: str) -> bool:
 
     A model can be listed and still refuse to serve — that is exactly how the
     retired ids kept looking healthy. Listing is not proof; answering is.
-    """
-    kind = _kind(provider)
-    spec = _CHAT.get(kind)
-    if spec is None:
-        print(f"    (no chat route known for kind {kind!r}; skipped)")
-        return True
 
+    Only called for kinds this script knows how to call: a skipped call must
+    never be able to return ``True``, because the caller reads ``True`` as
+    evidence that the provider is up.
+    """
+    spec = _CHAT[_kind(provider)]
     payload = {
         "model": model_id,
         "messages": [{"role": "user", "content": "Reply with the word: ok"}],
@@ -217,7 +226,99 @@ def _providers(only: str | None):
     return items
 
 
-def main(argv: list[str] | None = None) -> int:
+@dataclass
+class ProviderOutcome:
+    """What one provider proved about itself in a single run."""
+
+    listed: bool = False
+    answered: bool = False
+    unservable: list[str] = field(default_factory=list)
+
+    @property
+    def reachable(self) -> bool:
+        """Either route proves the provider is there; answering is the stronger.
+
+        A provider whose catalogue endpoint refuses but whose model returns a
+        completion is reachable. Treating it as unreachable was this script
+        contradicting its own thesis.
+        """
+        return self.listed or self.answered
+
+
+def _chat_targets(provider, args, ids: list[str]) -> list[str]:
+    """Which model ids ``--chat`` should call for this provider.
+
+    Explicit ``--model`` ids are honoured even when the catalogue could not be
+    read. A listing endpoint that refuses says nothing about whether a named
+    model answers, and answering is the only evidence this script trusts.
+    """
+    if provider.id not in args.chat:
+        return []
+    targets = list(args.model) or [provider.default_model or (ids[0] if ids else "")]
+    return [target for target in targets if target]
+
+
+def _dump_matching(records: list[dict], ident: str, needle: str) -> None:
+    """Raw records whose id contains ``needle`` — for reading vendor metadata."""
+    if not needle:
+        return
+    matched = [r for r in records if needle.lower() in str(r.get(ident, "")).lower()]
+    print(f"    raw records matching {needle!r}: {len(matched)}")
+    for record in matched:
+        print(json.dumps(record, indent=2, sort_keys=True))
+
+
+def _list_or_report(provider, key: str) -> list[dict] | None:
+    """Catalogue records, or ``None`` after printing why there are none."""
+    try:
+        return list_models(provider, key)
+    except urllib.error.HTTPError as exc:
+        print(f"    list-models failed: HTTP {exc.code} — {exc.reason}")
+    except Exception as exc:  # noqa: BLE001 - diagnostic, report anything
+        print(f"    list-models failed: {type(exc).__name__}: {exc}")
+    return None
+
+
+def probe_provider(provider, key: str, args) -> ProviderOutcome:
+    """List what the provider claims, then call what it was asked to call.
+
+    The two are independent on purpose. The earlier version returned early on a
+    listing failure, so ``--chat`` and ``--model`` were silently discarded for
+    exactly the providers whose catalogue is hardest to read.
+    """
+    outcome = ProviderOutcome()
+    ids: list[str] = []
+
+    records = _list_or_report(provider, key)
+    if records is not None:
+        outcome.listed = True
+        ident = _LIST_MODELS[_kind(provider)]["ident"]
+        ids = [str(r.get(ident) or "") for r in records if r.get(ident)]
+        print(f"    models served: {len(ids)}")
+        for model_id in ids:
+            print(f"      - {model_id}")
+        _dump_matching(records, ident, args.filter)
+
+    targets = _chat_targets(provider, args, ids)
+    if provider.id in args.chat and not targets:
+        print("    --chat: no model to call")
+    if targets and _kind(provider) not in _CHAT:
+        # A call that was never sent is not an answer. Letting it count as one
+        # would make a provider look reachable on no evidence — the failure
+        # mode this whole script exists to remove.
+        print(f"    (no chat route known for kind {_kind(provider)!r}; skipped)")
+        targets = []
+    for target in targets:
+        if not probe_chat(provider, key, target):
+            outcome.unservable.append(f"{provider.id}:{target}")
+            continue
+        outcome.answered = True
+        if args.tools:
+            probe_tools(provider, key, target)
+    return outcome
+
+
+def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--provider", default=None, help="probe only this provider id")
     parser.add_argument(
@@ -243,13 +344,19 @@ def main(argv: list[str] | None = None) -> int:
         help=(
             "specific model id to call on the --chat provider; repeatable. "
             "A catalogue listing is not proof a model serves — this is how you "
-            "check a candidate before making it a default."
+            "check a candidate before making it a default. Called even when the "
+            "catalogue itself cannot be read."
         ),
     )
-    args = parser.parse_args(argv)
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _parse_args(argv)
 
     reachable = 0
     unreachable: list[str] = []
+    unlistable: list[str] = []
     unservable: list[str] = []
 
     for provider in _providers(args.provider):
@@ -267,45 +374,25 @@ def main(argv: list[str] | None = None) -> int:
             print("    skipped — no base_url configured")
             continue
 
-        try:
-            records = list_models(provider, key)
-        except urllib.error.HTTPError as exc:
-            print(f"    list-models failed: HTTP {exc.code} — {exc.reason}")
+        outcome = probe_provider(provider, key, args)
+        unservable.extend(outcome.unservable)
+        if outcome.reachable:
+            reachable += 1
+        else:
             unreachable.append(provider.id)
-            continue
-        except Exception as exc:  # noqa: BLE001 - diagnostic, report anything
-            print(f"    list-models failed: {type(exc).__name__}: {exc}")
-            unreachable.append(provider.id)
-            continue
-
-        reachable += 1
-        ident = _LIST_MODELS[_kind(provider)]["ident"]
-        ids = [str(r.get(ident) or "") for r in records if r.get(ident)]
-        print(f"    models served: {len(ids)}")
-        for model_id in ids:
-            print(f"      - {model_id}")
-
-        if args.filter:
-            matched = [r for r in records if args.filter.lower() in str(r.get(ident, "")).lower()]
-            print(f"    raw records matching {args.filter!r}: {len(matched)}")
-            for record in matched:
-                print(json.dumps(record, indent=2, sort_keys=True))
-
-        if provider.id in args.chat:
-            targets = list(args.model) or [provider.default_model or (ids[0] if ids else "")]
-            for target in [t for t in targets if t]:
-                if not probe_chat(provider, key, target):
-                    unservable.append(f"{provider.id}:{target}")
-                elif args.tools:
-                    probe_tools(provider, key, target)
-            if not [t for t in targets if t]:
-                print("    --chat: no model to call")
+        if outcome.answered and not outcome.listed:
+            unlistable.append(provider.id)
 
     print(f"\nreachable providers: {reachable}")
     if unreachable:
         print(f"unreachable: {', '.join(unreachable)}")
+    if unlistable:
+        # Not the same failure as unreachable, and worth saying out loud: the
+        # provider answered a completion, so any "models served" list above is
+        # missing for it rather than empty.
+        print(f"answered but would not list: {', '.join(unlistable)}")
     if unservable:
-        print(f"listed but would not answer: {', '.join(unservable)}")
+        print(f"named but would not answer: {', '.join(unservable)}")
     # A probe that cannot reach anything must not look like a healthy one.
     if unreachable or unservable or reachable == 0:
         return 1

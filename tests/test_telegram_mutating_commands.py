@@ -25,6 +25,20 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
+def _catalogue_preset(provider_id: str) -> dict[str, str]:
+    """The provider's role preset as the catalogue defines it.
+
+    ``PROVIDER_PRESETS`` is what ``cmd_setbrain`` sends, so reading it here
+    tests the propagation this test is named for rather than freezing a copy
+    of its output.
+    """
+    from packages.ai.brain_config import PROVIDER_PRESETS
+
+    preset = PROVIDER_PRESETS.get(provider_id) or {}
+    assert preset, f"no preset for {provider_id}; the assertions would be vacuous"
+    return preset
+
+
 @pytest.fixture
 def telegram_bot(monkeypatch):
     """Load telegram_bot fresh in each test, with env vars reset."""
@@ -148,13 +162,14 @@ def test_setbrain_sends_service_token_header_and_surfaces_success(telegram_bot, 
         captured["url"] = url
         captured["json"] = json
         captured["headers"] = headers
+        preset = _catalogue_preset("cerebras")
         return _make_mock_response(200, {
             "config": {
                 "primary_provider": "cerebras",
-                "planner_model": "qwen-3-coder-480b",
-                "executor_model": "qwen-3-coder-480b",
-                "verifier_model": "llama-3.3-70b",
-                "judge_model": "llama-3.3-70b",
+                "planner_model": preset["planner"],
+                "executor_model": preset["executor"],
+                "verifier_model": preset["verifier"],
+                "judge_model": preset["judge"],
             },
             "probe_report": [],
         })
@@ -168,7 +183,12 @@ def test_setbrain_sends_service_token_header_and_surfaces_success(telegram_bot, 
     assert "/admin/api/policy/brain" in captured["url"]
     # Body has the cerebras preset
     assert captured["json"]["primary_provider"] == "cerebras"
-    assert captured["json"]["planner_model"] == "qwen-3-coder-480b"
+    # Derived from the catalogue, not pinned to an id. What this command owes
+    # its caller is *the provider's preset*; which model that names is the
+    # catalogue's business, and pinning it here is how a test comes to hold a
+    # dead model in place (see `6180f4c2`, and the Cerebras ids that answered
+    # 404 on 2026-08-29 while three files and two tests still named them).
+    assert captured["json"]["planner_model"] == _catalogue_preset("cerebras")["planner"]
     # Reply surfaces success + actor attribution
     assert "✅" in result
     assert "cerebras" in result

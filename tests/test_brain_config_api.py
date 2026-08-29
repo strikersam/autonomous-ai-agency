@@ -112,7 +112,13 @@ def test_get_returns_config_providers_and_safe_default(app_client, monkeypatch):
     assert cb["key_present"] is True
     assert cb["display_name"] == "Cerebras (fast, free tier)"
     assert cb["tier"] == "free"
-    assert cb["candidates"][0] == "qwen-3-coder-480b"
+    # Derived, not pinned. A literal here asserts one model id, and this repo
+    # has twice had a *test* hold a dead model in place that way — see
+    # `6180f4c2`. What this endpoint owes its caller is the catalogue's own
+    # first candidate, whatever that currently is; the id itself is the
+    # catalogue's business and is checked against the live provider by
+    # `.github/workflows/catalogue-probe.yml`.
+    assert cb["candidates"] == _catalogue_candidates("cerebras")
     # ollama is always key_present=True (local).
     ol = next(p for p in body["providers"] if p["provider_id"] == "ollama")
     assert ol["key_present"] is True
@@ -141,6 +147,19 @@ def _catalogue_safe_default() -> str:
     from packages.ai.brain_config import SAFE_DEFAULT_MODEL
 
     return SAFE_DEFAULT_MODEL
+
+
+def _catalogue_candidates(provider_id: str) -> list[str]:
+    """The rotation as the catalogue defines it, after the YAML override.
+
+    ``PROVIDER_CANDIDATES`` is a Python fallback that ``config/models.yaml``
+    overwrites at import, so reading it here reads what the endpoint reads.
+    """
+    from packages.ai.brain_config import PROVIDER_CANDIDATES
+
+    candidates = list(PROVIDER_CANDIDATES.get(provider_id) or [])
+    assert candidates, f"no candidates for {provider_id}; the check would be vacuous"
+    return candidates
 
 
 def test_get_response_never_leaks_api_keys(app_client):

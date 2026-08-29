@@ -135,15 +135,22 @@ providers:
     key_env: CEREBRAS_API_KEY
     base_url_env: CEREBRAS_BASE_URL
     default_base_url: https://api.cerebras.ai
+    # Probed 2026-08-29 against the live key (run 33259357211): the account's
+    # catalogue is exactly gpt-oss-120b and gemma-4-31b. The three ids that were
+    # here — qwen-3-coder-480b, llama-3.3-70b, llama-3.1-8b — every one answered
+    # 404, so this provider had no working entry at all.
+    #
+    # Neither replacement has answered a completion either: both return
+    # 402 Payment Required, which is an account state, not a model state. The
+    # chain fails over to Groq meanwhile. Re-probe when billing is settled.
     role_presets:
-      planner:   qwen-3-coder-480b
-      executor:  qwen-3-coder-480b
-      verifier:  llama-3.3-70b
-      judge:     llama-3.3-70b
+      planner:   gpt-oss-120b
+      executor:  gpt-oss-120b
+      verifier:  gemma-4-31b
+      judge:     gemma-4-31b
     candidates:
-      - qwen-3-coder-480b
-      - llama-3.3-70b
-      - llama-3.1-8b
+      - gpt-oss-120b
+      - gemma-4-31b
 
   groq:
     display_name: Groq (fast, free tier)

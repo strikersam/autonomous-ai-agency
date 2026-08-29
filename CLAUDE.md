@@ -259,7 +259,7 @@ the Render service name still carry that name.
 | Provider | Env var | Purpose |
 |----------|---------|---------|
 | NVIDIA NIM | `NVIDIA_API_KEY` | Free LLM (`nvidia/nemotron-3-super-120b-a12b`) |
-| Cerebras | `CEREBRAS_API_KEY` | Free fast LLM (`qwen-3-coder-480b`) |
+| Cerebras | `CEREBRAS_API_KEY` | Free fast LLM (`gpt-oss-120b`) |
 | Groq | `GROQ_API_KEY` | Free fast LLM (`deepseek-r1-70b`) |
 | Anthropic | `ANTHROPIC_API_KEY` | Paid LLM (Claude) |
 | Ollama | `OLLAMA_BASE` | Local LLM |
