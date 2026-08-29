@@ -62,16 +62,41 @@ models:
 
   # ── Cerebras (free, fastest) ───────────────────────────────────────────
 
-  qwen-3-coder-480b:
+  # Probed 2026-08-29 (run 33259357211): the account's /v1/models returns these
+  # two and nothing else. qwen-3-coder-480b, which used to be the entry here and
+  # the provider default, answers 404 — it was never on this account.
+  #
+  # Neither has answered a completion: both return 402 Payment Required. So the
+  # capability numbers below are conservative floors, not measurements, on the
+  # same principle as the NVIDIA entries — a floor prunes a prompt, an
+  # overstatement overflows it. supports_tools stays false because nothing has
+  # demonstrated a tool_call; packages/llm/registry.py reads that flag to filter
+  # tool-calling requests, so claiming it without evidence routes work to a model
+  # that may drop it. Raise both when a probe with --tools comes back green.
+
+  gpt-oss-120b:
     provider: cerebras
-    display_name: Qwen 3 Coder 480B
-    context_window: 32768
-    max_output_tokens: 8192
-    supports_tools: true
-    supports_function_calling: true
+    display_name: GPT-OSS 120B (Cerebras)
+    context_window: 32768           # floor — not measured, see note above
+    max_output_tokens: 8192         # floor — not measured
+    supports_tools: false           # not probed: the account returns 402
+    supports_function_calling: false
     supports_json: true
     supports_streaming: true
     priority: 10
+    speed_tier: fast
+    max_requests_per_minute: 30
+
+  gemma-4-31b:
+    provider: cerebras
+    display_name: Gemma 4 31B (Cerebras)
+    context_window: 32768           # floor — not measured
+    max_output_tokens: 8192         # floor — not measured
+    supports_tools: false           # not probed: the account returns 402
+    supports_function_calling: false
+    supports_json: true
+    supports_streaming: true
+    priority: 12
     speed_tier: fast
     max_requests_per_minute: 30
 

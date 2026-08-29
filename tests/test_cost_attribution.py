@@ -247,3 +247,44 @@ class TestClaudeOpusModelCoverage:
         versioned = ct.cost_for_tokens("claude-haiku-4-5-20251001", 1_000_000, 1_000_000)
         alias = ct.cost_for_tokens("claude-haiku-4-5", 1_000_000, 1_000_000)
         assert versioned == pytest.approx(alias)
+
+
+class TestTheCostTableHasNoDuplicateKeys:
+    """A repeated key in a dict literal is silent: the later value wins.
+
+    Found on 2026-08-29 while replacing the Cerebras ids. `gpt-oss-120b` was
+    added near the top of the block while an entry for it already existed below
+    at a different rate — Python kept the second and discarded the first without
+    a word, so a table that looked edited was not. The same slip in the other
+    order would have silently zeroed a paid model's rate and under-reported
+    spend, which no test would catch because the arithmetic stays correct.
+
+    Parsed from source rather than read from the built dict: by the time it is a
+    dict the duplicate is already gone, which is the whole problem.
+    """
+
+    def test_no_model_id_is_declared_twice(self) -> None:
+        import ast
+        from pathlib import Path
+
+        source = (
+            Path(__file__).resolve().parents[1] / "packages/ai/cost_tracker.py"
+        ).read_text(encoding="utf-8")
+
+        tables: dict[str, list[str]] = {}
+        for node in ast.walk(ast.parse(source)):
+            target = getattr(node, "target", None)
+            name = getattr(target, "id", "")
+            if not name.endswith("COST_TABLE") or not isinstance(node.value, ast.Dict):
+                continue
+            tables[name] = [
+                key.value for key in node.value.keys if isinstance(key, ast.Constant)
+            ]
+
+        assert tables, "no cost table found; this guard would pass vacuously"
+        for name, keys in tables.items():
+            duplicates = sorted({key for key in keys if keys.count(key) > 1})
+            assert not duplicates, (
+                f"{name} declares these twice — the later value silently wins: "
+                f"{duplicates}"
+            )

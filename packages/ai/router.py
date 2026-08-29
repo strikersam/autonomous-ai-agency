@@ -878,7 +878,8 @@ class ProviderRouter:
                     type="openai-compatible",
                     base_url="https://api.cerebras.ai/v1",
                     api_key=cerebras_key,
-                    default_model=os.environ.get("CEREBRAS_MODEL") or "llama-3.3-70b",
+                    # Probed 2026-08-29: llama-3.3-70b answers 404 on this account.
+                    default_model=os.environ.get("CEREBRAS_MODEL") or "gpt-oss-120b",
                     priority=28,
                 )
             )

@@ -40,11 +40,15 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # DeepSeek V4 Pro — live in NIM catalog Aug 2026 (free tier).
     "deepseek-ai/deepseek-v4-pro": (0.0, 0.0),
     # --- Cerebras (free/paid tier) ---
-    "qwen-3-coder-480b": (0.0, 0.0),
-    "llama-3.3-70b": (0.0, 0.0),
-    "llama-3.1-8b": (0.0, 0.0),
+    # Probed 2026-08-29: this account's catalogue is exactly these two. The
+    # three ids that were here — qwen-3-coder-480b, llama-3.3-70b,
+    # llama-3.1-8b — all answer 404.
     # gpt-oss-120B — Cerebras's 120B OSS model, ~3000 tok/s (Aug 2026).
     "gpt-oss-120b": (0.85, 1.20),
+    # Rate not established: the account returns 402, so nothing has been
+    # billed to read a rate off. Zero matches every other free-tier entry here
+    # and the documented default for an unlisted model, so it adds no claim.
+    "gemma-4-31b": (0.0, 0.0),
     # --- Groq (free/paid tier) ---
     "llama-3.3-70b-versatile": (0.0, 0.0),
     "deepseek-r1-distill-llama-70b": (0.0, 0.0),

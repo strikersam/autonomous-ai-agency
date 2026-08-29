@@ -261,6 +261,39 @@ is now decided before the call and counts as nothing.
 Re-check any candidate model with:
 `gh workflow run catalogue-probe.yml -f provider=<id> -f chat=<id> -f model="<model-id>" -f tools=true`
 
+### 6. Cerebras serves nothing to this account — and needs one thing from you
+
+With the key finally in Actions, the provider was asked what it serves rather
+than configured from documentation. Its `/v1/models` returns exactly two ids:
+`gpt-oss-120b` and `gemma-4-31b`.
+
+**Every id this repo had configured for Cerebras answers 404** —
+`qwen-3-coder-480b` (the default, the one `CLAUDE.md` named), `llama-3.3-70b`
+(the verifier/judge preset and `ProviderRouter`'s default), `llama-3.1-8b`, and
+`qwen-3-235b-a22b-instruct-2507` from PR #1378, which would have gone in at
+`priority: 9`, ahead of everything. Rule 4 makes Cerebras the *first* provider
+tried on every call, so this was a 404 on the first hop of every request, all
+along, reported by nothing: failing over to Groq looks exactly like a healthy
+chain until Groq fails too.
+
+That half is fixed — the configuration now names only what the account lists.
+
+**What needs you:** both remaining ids return **402 Payment Required**. That is
+an account state, not a model state, and no code change reaches it. Until it is
+resolved, Cerebras contributes nothing and every call starts at Groq. Nothing is
+broken by this: the chain degrades correctly, and it is the second billing hold
+on the list (Render, §1, is the other).
+
+When credit is in place, re-probe before trusting anything:
+`gh workflow run catalogue-probe.yml -f provider=cerebras -f chat=cerebras -f model="gpt-oss-120b gemma-4-31b" -f tools=true`
+
+That run also settles the two capability numbers currently carrying conservative
+floors (32768/4096) and `supports_tools: false`. The flag is not pessimism for
+its own sake: `packages/llm/registry.py` routes tool-calling work on it, and
+inferring it from a model's family name is precisely what PR #1378 did.
+
+PR #1378 is closed with the probe output on the thread.
+
 ## Running unattended, no action needed
 
 - **Dependabot backlog: 12 open, draining ~1/hour.** `dependabot-auto-merge.yml`

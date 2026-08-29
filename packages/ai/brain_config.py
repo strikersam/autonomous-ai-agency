@@ -187,10 +187,12 @@ BrainProvider = Literal["nvidia", "tokenin", "cerebras", "groq", "ollama", "mist
 # Operators can still type any model id — these are just convenience defaults.
 PROVIDER_PRESETS: dict[str, dict[str, str]] = {
     "cerebras": {
-        "planner":   "qwen-3-coder-480b",
-        "executor":  "qwen-3-coder-480b",
-        "verifier":  "llama-3.3-70b",
-        "judge":     "llama-3.3-70b",
+        # Probed 2026-08-29: the account serves gpt-oss-120b and gemma-4-31b.
+        # The four ids previously here answered 404. See config/models.yaml.
+        "planner":   "gpt-oss-120b",
+        "executor":  "gpt-oss-120b",
+        "verifier":  "gemma-4-31b",
+        "judge":     "gemma-4-31b",
     },
     "groq": {
         "planner":   "llama-3.3-70b-versatile",
@@ -364,12 +366,10 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         "myt/claude-opus-4-8-free",
     ],
     "cerebras": [
-        "qwen-3-coder-480b",
-        "llama-3.3-70b",
-        "llama-3.1-8b",
-        # gpt-oss-120B — Cerebras's 120B open-source model (~3000 tok/s, Aug 2026).
-        # $0.85/$1.20 per 1M tokens; faster than qwen-3-coder-480b for general tasks.
+        # Read off the account's own /v1/models on 2026-08-29, not from docs.
+        # Everything else this file used to list answers 404.
         "gpt-oss-120b",
+        "gemma-4-31b",
     ],
     "groq": [
         "llama-3.3-70b-versatile",

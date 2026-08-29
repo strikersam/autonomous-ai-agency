@@ -111,7 +111,7 @@ class TestTheCopiesMayNotDriftFurther:
     """
 
     KNOWN_DIVERGENT = {
-        "cerebras", "dashscope", "deepseek", "google", "groq",
+        "dashscope", "deepseek", "google", "groq",
         "moonshot", "ollama", "zai", "zhipu",
     }
 
@@ -131,10 +131,16 @@ class TestTheCopiesMayNotDriftFurther:
             f"catalogue; the Python copy is a fallback, not a place to edit."
         )
 
-    def test_nvidia_stays_reconciled(self) -> None:
-        """NVIDIA is the one this work reconciled. It must not regress —
-        that divergence is what put a retired model in production."""
-        assert "nvidia" not in self._divergent()
+    @pytest.mark.parametrize("provider_id", ["nvidia", "cerebras"])
+    def test_the_reconciled_providers_stay_reconciled(self, provider_id: str) -> None:
+        """These two are the ones this work reconciled, and each was reconciled
+        because the drift had already cost something.
+
+        NVIDIA's divergence is what put a retired model in production. Cerebras'
+        is what let three ids sit in the rotation that a probe on 2026-08-29
+        showed the account has never served — every one of them a 404.
+        """
+        assert provider_id not in self._divergent()
 
     def test_the_known_list_is_not_stale(self) -> None:
         """A shrinking divergence is progress, but the list must be trimmed to

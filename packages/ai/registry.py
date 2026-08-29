@@ -139,9 +139,9 @@ def _register_defaults() -> None:
     
     # Cerebras (free, fastest)
     register(ModelInfo(
-        model_id="qwen-3-coder-480b",
+        model_id="gpt-oss-120b",
         provider_id="cerebras",
-        display_name="Qwen 3 Coder 480B",
+        display_name="GPT-OSS 120B (Cerebras)",
         supports_streaming=True,
         context_window=32768,
         max_output_tokens=8192,

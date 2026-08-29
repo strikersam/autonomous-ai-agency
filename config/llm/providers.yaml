@@ -102,7 +102,10 @@ providers:
     weight: 1.5                 # fastest free option — bias traffic toward it
     max_concurrency: 4
     requests_per_minute: 30
-    default_model: ${CEREBRAS_DEFAULT_MODEL:-qwen-3-coder-480b}
+    # Probed 2026-08-29 against the live key: this account's catalogue holds
+    # gpt-oss-120b and gemma-4-31b and nothing else. qwen-3-coder-480b,
+    # llama-3.3-70b and llama-3.1-8b all answer 404 — they were never on it.
+    default_model: ${CEREBRAS_DEFAULT_MODEL:-gpt-oss-120b}
 
   groq:
     kind: openai
