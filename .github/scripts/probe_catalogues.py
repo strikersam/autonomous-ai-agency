@@ -37,6 +37,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__fi
 sys.path.insert(0, REPO_ROOT)
 
 TIMEOUT = 30.0
+USER_AGENT = "autonomous-ai-agency-catalogue-probe/1.0 (+https://github.com/strikersam/autonomous-ai-agency)"
 
 # How to list models, per adapter kind. This is adapter knowledge — the shape of
 # each vendor's API — not a list of models. No model id appears in this file.
@@ -99,7 +100,15 @@ def _request(provider, path: str, key: str, payload: dict | None = None) -> dict
         url = f"{url}?{urllib.parse.urlencode({'key': key})}"
 
     data = json.dumps(payload).encode() if payload is not None else None
-    headers = {"Accept": "application/json", **_auth_headers(provider, key)}
+    headers = {
+        "Accept": "application/json",
+        # urllib's default identifies as "Python-urllib/x.y", which edge
+        # filters in front of several vendor APIs reject outright — a 403 that
+        # looks exactly like a bad key and is not one. A diagnostic should say
+        # what it is anyway. Overridable per provider via extra_headers.
+        "User-Agent": USER_AGENT,
+        **_auth_headers(provider, key),
+    }
     if data:
         headers["Content-Type"] = "application/json"
     headers.update(provider.extra_headers or {})

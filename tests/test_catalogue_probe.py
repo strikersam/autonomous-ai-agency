@@ -364,3 +364,53 @@ class TestAListingFailureDoesNotVetoTheAnswer:
         assert "no chat route known" in out
         assert code == 1, "nothing was actually called, so nothing was proved"
         assert "unreachable: acme" in out
+
+
+class TestTheProbeIdentifiesItself:
+    """``urllib``'s default User-Agent is a 403 waiting to happen.
+
+    Unset, every request goes out as ``Python-urllib/3.13``. Edge filters in
+    front of several vendor APIs reject that outright — and the rejection is a
+    403, which is indistinguishable by status alone from a revoked key. A probe
+    whose entire job is to tell "it refused" apart from "it is not there" must
+    not introduce a third possibility it cannot see.
+    """
+
+    def test_every_request_carries_a_real_user_agent(self, probe) -> None:
+        sent = {}
+
+        class _Resp:
+            def read(self):
+                return b"{}"
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def _urlopen(req, timeout=None):
+            sent.update(req.headers)
+            return _Resp()
+
+        import urllib.request
+
+        original = urllib.request.urlopen
+        urllib.request.urlopen = _urlopen
+        try:
+            probe._request(_provider(), "models", "k")
+        finally:
+            urllib.request.urlopen = original
+
+        agent = sent.get("User-agent", "")
+        assert agent, "no User-Agent sent; urllib would default to Python-urllib"
+        assert "urllib" not in agent.lower()
+
+    def test_a_provider_can_override_it(self, probe) -> None:
+        """``extra_headers`` is applied last, so a provider stays in control."""
+        source = SCRIPT.read_text(encoding="utf-8")
+        agent_at = source.index('"User-Agent"')
+        extra_at = source.index("provider.extra_headers")
+        assert agent_at < extra_at, (
+            "extra_headers must be merged after the default User-Agent"
+        )
