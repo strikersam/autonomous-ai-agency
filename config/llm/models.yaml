@@ -61,6 +61,25 @@ models:
     priority: 30
 
   # ── Cerebras (free, fastest) ───────────────────────────────────────────
+  # Free tier: 1M tokens/day. All Cerebras models run on wafer-scale hardware
+  # at 1,000–2,000 tok/s sustained — dramatically faster than GPU inference.
+
+  qwen-3-235b-a22b-instruct-2507:
+    provider: cerebras
+    display_name: Qwen3 235B A22B Instruct (2507)
+    context_window: 262144           # 262k tokens: verified in Cerebras docs
+    max_output_tokens: 16384
+    supports_tools: true             # Qwen3 instruct series fully supports tool_calls
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    supports_reasoning: false        # Non-thinking variant; use qwen-3-235b-a22b-thinking-2507 for CoT
+    input_cost_per_1m: 0.0           # free tier (1M tokens/day); Cerebras pay-as-you-go: $0.60/$1.20
+    output_cost_per_1m: 0.0
+    priority: 9                      # Highest-priority free Cerebras model (235B > 480B-coder)
+    speed_tier: fast                 # ~1,500 tok/s on Cerebras wafer-scale
+    max_requests_per_minute: 30
+    aliases: [qwen3-235b, cerebras-qwen3-235b]
 
   qwen-3-coder-480b:
     provider: cerebras
@@ -292,8 +311,9 @@ models:
 
   # ── Anthropic — Claude 5 family ───────────────────────────────────────────
   # Sonnet 5: best balance of intelligence and speed in Claude 5.
-  # 1M-token context, adaptive thinking, introductory pricing $2/$10 per MTok.
-  # GA July 2026; introductory pricing kept through September 2026.
+  # 1M-token context, adaptive thinking. Standard pricing $2/$10 per MTok.
+  # GA July 2026; planned September 2026 price increase to $3/$15 cancelled
+  # 2026-08-10 — $2/$10 is now the permanent standard rate.
   claude-sonnet-5:
     provider: anthropic
     display_name: Claude Sonnet 5
