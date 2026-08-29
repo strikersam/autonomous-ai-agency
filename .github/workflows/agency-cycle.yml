@@ -179,6 +179,28 @@ jobs:
               json.dump(classifications, f, indent=2)
           print(json.dumps(classifications, indent=2))
 
+          # `infrastructure_error` is the classifier saying, in its own hint,
+          # "No code change can fix it." Escalating those to a human as
+          # "Agency: Cannot Fix Tests" states the obvious and buries the cases
+          # where an agent genuinely got stuck. Four such issues (#1312, #1319,
+          # #1328, #1349) were filed over five days for one missing MongoDB
+          # service, each burning retries. Report the shape of the failure so
+          # the escalation step can tell the two apart.
+          infra_only = bool(classifications) and all(
+              c["category"] == "infrastructure_error" for c in classifications
+          )
+          gh_out = os.environ.get("GITHUB_OUTPUT")
+          if gh_out:
+              with open(gh_out, "a") as f:
+                  f.write(f"infra_only={'true' if infra_only else 'false'}\n")
+                  f.write(f"failure_count={len(classifications)}\n")
+          if infra_only:
+              services = ", ".join(sorted({c["test"] for c in classifications}))
+              print(
+                  "::warning::Every failure is an infrastructure error — an "
+                  f"external service is unavailable, not a code defect: {services}"
+              )
+
           # Also write per-test fix hints for the Dispatch step
           with open("/tmp/self_healing_hints.txt", "w") as f:
               for c in classifications:
@@ -327,8 +349,15 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # `infra_only` means the classifier itself concluded no code change can
+      # fix any of these. An escalation then is not a bug report, it is the loop
+      # telling a human what the loop already knows — and it recurs every run
+      # until someone closes it by hand.
       - name: Create issue if agency cannot fix
-        if: steps.baseline.outputs.exit_code != '0' && steps.post_fix.outputs.exit_code != '0'
+        if: >-
+          steps.baseline.outputs.exit_code != '0' &&
+          steps.post_fix.outputs.exit_code != '0' &&
+          steps.self_healing.outputs.infra_only != 'true'
         uses: actions/github-script@v9
         with:
           script: |

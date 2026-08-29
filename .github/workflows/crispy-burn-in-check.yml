@@ -80,24 +80,40 @@ jobs:
           cat /tmp/eval.json
           echo "=== Stderr ==="
           cat /tmp/eval.err || true
-          # Capture the 'ready' flag + gap for the issue step
-          python3 -c "
-          import json
-          d = json.load(open('/tmp/eval.json'))
-          print('ready=' + str(d['ready']).lower() >> /dev/stderr)
-          " 2>>/tmp/eval.err || true
-          python3 -c "
+          # Capture the 'ready' flag + gap for the issue step.
+          #
+          # This must distinguish "criteria not met" from "could not evaluate".
+          # It previously did not, and on 2026-08-24 filed issue #1347 saying
+          # "Not yet ready for promotion" with an *empty* gap and an *empty*
+          # evaluation block — a verdict computed from no data, because the
+          # Render service backing the status URL is suspended and the
+          # evaluator produced nothing. Reporting that as a promotion-blocked
+          # result is worse than reporting nothing.
+          #
+          # A dead `python3 -c` that pasted the shell redirection `>> /dev/stderr`
+          # into Python source also used to sit here, raising on every run behind
+          # `|| true`. Removed.
+          if python3 -c "
           import json
           d = json.load(open('/tmp/eval.json'))
           print('READY=' + str(d['ready']).lower())
-          print('GAP=' + d['gap'].replace('\n', ' '))
-          " > /tmp/eval_props.txt
-          cat /tmp/eval_props.txt >> "$GITHUB_OUTPUT" || true
-          # Don't fail the workflow when criteria aren't met — that's the
-          # expected steady state until the metric accumulates.
+          print('GAP=' + str(d['gap']).replace('\n', ' '))
+          " > /tmp/eval_props.txt 2>>/tmp/eval.err; then
+            echo "evaluated=true" >> "$GITHUB_OUTPUT"
+            cat /tmp/eval_props.txt >> "$GITHUB_OUTPUT"
+          else
+            echo "evaluated=false" >> "$GITHUB_OUTPUT"
+            echo "::error::The burn-in evaluator produced no usable result for ${STATUS_URL}. Not filing a readiness verdict — 'could not measure' is not 'criteria not met'."
+            cat /tmp/eval.err || true
+            exit 1
+          fi
+          # A met/unmet criterion is the expected steady state and must not fail
+          # the job; an unreachable endpoint is a real failure and does.
           exit 0
 
       - name: File or update tracking issue
+        # Never file a verdict the evaluator did not produce.
+        if: steps.eval.outputs.evaluated == 'true'
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           GH_PAT: ${{ secrets.GH_PAT }}
@@ -105,8 +121,15 @@ jobs:
         run: |
           set -u
           # Parse the evaluation output
-          READY=$(grep '^READY=' /tmp/eval_props.txt | cut -d= -f2 || echo "false")
-          GAP=$(grep '^GAP=' /tmp/eval_props.txt | cut -d= -f2- || echo "(could not parse gap)")
+          # `grep … | cut …` reports *cut's* status, and cut succeeds on empty
+          # input — so the `|| echo default` fallbacks below could never fire
+          # and these became empty strings instead. Empty then compared unequal
+          # to "true" and produced a "not ready" verdict from nothing. Read the
+          # value first, then default it explicitly.
+          READY=$(grep -m1 '^READY=' /tmp/eval_props.txt | cut -d= -f2)
+          GAP=$(grep -m1 '^GAP=' /tmp/eval_props.txt | cut -d= -f2-)
+          : "${READY:=false}"
+          : "${GAP:=(could not parse gap)}"
 
           TITLE="crispy-burn-in: CRISPY promotion readiness"
           EXISTING=$(gh issue list --state open --search "$TITLE in:title" --json number --jq '.[0].number' || echo "")

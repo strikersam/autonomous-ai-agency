@@ -89,12 +89,21 @@ jobs:
             # exact source the analysis ruled out. The two labels are kept
             # distinct because they mean different things — `exhausted` is three
             # failed attempts, `rejected` is a deliberate decision not to build.
+            # Reports are not work. `agency-escalation`, `trend-digest` and
+            # `crispy-burn-in` issues are status output for a human: a digest is
+            # a list of links, an escalation is a failure record. The selector
+            # took the oldest open issue of any kind, so four escalations and a
+            # digest sat at the head of the queue for days — #1350 reached
+            # `retry:2` being "implemented" — while real work waited behind
+            # them. Every one of those five was later closed without a line of
+            # code. Excluding them here is not a filter on content; it is the
+            # difference between a queue of tasks and a queue of paperwork.
             NUM=$(gh issue list \
               --repo "$REPO" \
               --state open \
               --json number,labels \
               --limit 100 \
-              --jq '[.[] | select((.labels // []) | map(.name) | (index("quick-note:exhausted") == null and index("quick-note:rejected") == null))] | sort_by(.number) | .[0].number // empty')
+              --jq '[.[] | select(([(.labels // [])[].name] - ["quick-note:exhausted","quick-note:rejected","agency-escalation","trend-digest","crispy-burn-in"]) == [(.labels // [])[].name])] | sort_by(.number) | .[0].number // empty')
           fi
           if [ -z "$NUM" ]; then
             echo "No pending quick-note issues found — nothing to do."
@@ -372,20 +381,106 @@ jobs:
               echo "::warning::Could not merge master into ${CONTEXT_BRANCH}; starting a fresh branch from master instead."
               git push origin --delete "$IMPL_BRANCH" 2>/dev/null || true
               git checkout -B "$IMPL_BRANCH" origin/master
+              # Abandon the branch's code, keep its decision. The context plan
+              # is what the gate below reads; losing it here would either block
+              # a recoverable run or, worse, let it build unplanned.
+              git checkout "origin/${CONTEXT_BRANCH}" -- "docs/context/issue-${ISSUE_NUM}.md" 2>/dev/null \
+                && echo "Recovered the context plan from ${CONTEXT_BRANCH}" \
+                || echo "::warning::No context plan on ${CONTEXT_BRANCH} to recover."
               CONTEXT_BRANCH="$IMPL_BRANCH"
             fi
             echo "branch=$CONTEXT_BRANCH" >> "$GITHUB_OUTPUT"
+            # The planning pass ran for this issue, so a context plan is
+            # expected on disk. The gate below treats an absent plan as a
+            # failure in that case rather than as "nothing to enforce".
+            echo "reused_context=true" >> "$GITHUB_OUTPUT"
           else
             # Fall back to a fresh implementation branch
             git push origin --delete "$IMPL_BRANCH" 2>/dev/null || true
             git checkout -b "$IMPL_BRANCH"
             echo "branch=$IMPL_BRANCH" >> "$GITHUB_OUTPUT"
+            # No context branch: no planning pass ran, so there is no decision
+            # to honour and the gate has nothing to enforce.
+            echo "reused_context=false" >> "$GITHUB_OUTPUT"
           fi
+
+      # ── 7b. Honour the plan's own verdict ──────────────────────────────────
+      # The planning pass writes `docs/context/issue-<N>.md` and commits it to
+      # the context branch. On 2026-08-28 that document said, in three separate
+      # places, not to build: a REJECT verdict, a "NOT FETCHED" source, and a
+      # Quality Gate reading "treat the items below as unresolved before
+      # implementing". The implement step ran anyway and 1,199 lines reached
+      # master under a PR titled "reject: ... out of scope" (#1357).
+      #
+      # A `quick-note:rejected` label already existed for this, applied by
+      # issue-context-generator.yml — best-effort, in another workflow, only on
+      # the PR-creation path. Enforcement that lives in another job's side
+      # effect goes missing without a sound. This reads the plan at the point of
+      # use and fails closed.
+      - name: Check the context plan permits implementation
+        id: plan_gate
+        if: steps.branch.outputs.branch != ''
+        env:
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
+          REUSED_CONTEXT_BRANCH: ${{ steps.branch.outputs.reused_context }}
+        run: |
+          PLAN="docs/context/issue-${ISSUE_NUM}.md"
+          # --missing-ok only when no planning pass ran at all. If the context
+          # branch was reused, the generator *did* run, so an absent plan means
+          # missing rather than never-written — and that blocks.
+          if [ "$REUSED_CONTEXT_BRANCH" = "true" ]; then
+            MISSING_FLAG=""
+          else
+            MISSING_FLAG="--missing-ok"
+          fi
+          set +e
+          # shellcheck disable=SC2086
+          python3 scripts/context_plan_gate.py "$PLAN" $MISSING_FLAG > /tmp/plan_gate.txt
+          GATE_EXIT=$?
+          set -e
+          cat /tmp/plan_gate.txt
+          cat /tmp/plan_gate.txt >> "$GITHUB_OUTPUT"
+          echo "gate_exit=${GATE_EXIT}" >> "$GITHUB_OUTPUT"
+
+      - name: Stop — the plan says do not build this
+        id: plan_blocked
+        if: steps.plan_gate.outputs.may_implement == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
+          VERDICT: ${{ steps.plan_gate.outputs.verdict }}
+          REASON: ${{ steps.plan_gate.outputs.reason }}
+        run: |
+          # Label so the scheduled sweep does not re-pick this in four hours and
+          # re-run the same refusal.
+          gh issue edit "$ISSUE_NUM" --repo "$REPO" \
+            --add-label "quick-note:rejected" \
+            || echo "::warning::Could not add quick-note:rejected to #${ISSUE_NUM}"
+
+          gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "$(cat <<MSG
+          🛑 **Not implemented — the context plan says not to.**
+
+          Verdict: \`${VERDICT}\`
+
+          > ${REASON}
+
+          This is a complete outcome, not a failure. \`docs/context/issue-${ISSUE_NUM}.md\`
+          is the plan the analysis pass wrote; this run read it before building
+          and stopped. Labelled \`quick-note:rejected\` so the four-hourly sweep
+          does not pick it up again.
+
+          If you disagree, remove that label to hand it back to the loop — or
+          fix the plan, since an ungrounded or incomplete plan blocks for a
+          different reason than a deliberate reject.
+          MSG
+          )"
+          echo "::notice::Implementation blocked by the context plan (${VERDICT}): ${REASON}"
 
       # ── 8. Implement features with Claude ──────────────────────────────────
       - name: Implement features (Claude agentic loop)
         id: implement
-        if: steps.branch.outputs.branch != ''
+        if: steps.branch.outputs.branch != '' && steps.plan_gate.outputs.may_implement == 'true'
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           # Free-cloud brain chain (Cerebras -> Groq -> NVIDIA NIM), selected by
@@ -589,9 +684,33 @@ jobs:
       # ── 11b. Wait for auto-review bots ────────────────────────────────────────
       # Give CodeRabbit / GitHub Copilot time to post their first-pass review.
       # 120 s is enough for most bots; the apply step handles the empty case.
-      - name: Wait for review bots (CodeRabbit / Copilot)
+      # Waiting is not reviewing. On 2026-08-28 this slept, the apply step ran
+      # for 11m03s, and both reported success — against zero reviews. CodeRabbit
+      # had posted "This repository does not receive automatic reviews because
+      # it has fewer than 10 stars" and Codex "You have reached your Codex usage
+      # limits for code reviews". Neither is an error the pipeline noticed, so
+      # "review bots applied" appeared in the run summary of a PR nothing had
+      # reviewed. Count what actually arrived and say so.
+      - name: Wait for review bots, then count what actually reviewed
+        id: bots
         if: steps.pr.outputs.pr_number != ''
-        run: sleep 120
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+        run: |
+          sleep 120
+          REVIEWS=$(gh pr view "$PR_NUMBER" --repo "$REPO" \
+            --json reviews --jq '[.reviews[]] | length' 2>/dev/null || echo 0)
+          THREADS=$(gh api "repos/${REPO}/pulls/${PR_NUMBER}/comments" \
+            --jq 'length' 2>/dev/null || echo 0)
+          SEEN=$(( REVIEWS + THREADS ))
+          echo "reviews_seen=${SEEN}" >> "$GITHUB_OUTPUT"
+          if [ "$SEEN" -eq 0 ]; then
+            echo "::warning::No review bot produced a review or an inline comment on PR #${PR_NUMBER}. The apply step below has nothing to act on — do not read its success as 'review applied'."
+          else
+            echo "::notice::${SEEN} review item(s) available on PR #${PR_NUMBER}."
+          fi
 
       # ── 11c. Apply review comments (NVIDIA NIM) ────────────────────────────
       # Reads every review comment posted on the PR (CodeRabbit, Copilot, council)
@@ -613,6 +732,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          REVIEWS_SEEN: ${{ steps.bots.outputs.reviews_seen }}
         run: |
           python3 .github/scripts/apply_review.py \
             "$PR_NUMBER" \
@@ -623,6 +743,10 @@ jobs:
             echo "applied=$APPLIED" >> "$GITHUB_OUTPUT"
           else
             echo "applied=False" >> "$GITHUB_OUTPUT"
+          fi
+          # Say plainly which of the two indistinguishable outcomes this was.
+          if [ "${REVIEWS_SEEN:-0}" -eq 0 ]; then
+            echo "::notice::Nothing to apply — no review existed on this PR."
           fi
 
       # ── 11d. Push review fixes ─────────────────────────────────────────────
@@ -667,11 +791,17 @@ jobs:
             "$PR_NUMBER" \
             2>&1 | tee /tmp/review_output.txt
 
+          # A council that did not run is not a council that approved. This
+          # previously defaulted to WARN, and WARN was accepted by the merge
+          # gate below — so a crashed reviewer (the step is
+          # `continue-on-error: true`) merged the PR exactly as a passing one
+          # would. NONE is its own value, and it blocks.
           if [ -f /tmp/review_result.json ]; then
-            VERDICT=$(python3 -c "import json; print(json.load(open('/tmp/review_result.json'))['verdict'])")
+            VERDICT=$(python3 -c "import json; print(json.load(open('/tmp/review_result.json'))['verdict'])" 2>/dev/null || echo "NONE")
           else
-            VERDICT="WARN"
+            VERDICT="NONE"
           fi
+          [ -n "$VERDICT" ] || VERDICT="NONE"
           echo "verdict=$VERDICT" >> "$GITHUB_OUTPUT"
 
           REVIEW_BODY=$(tail -60 /tmp/review_output.txt)
@@ -688,11 +818,15 @@ jobs:
       # --admin bypasses changelog CI check for auto-generated PRs.
       - name: Mark PR ready for review (draft → ready)
         id: ready
+        # Only PASS. WARN previously auto-merged, and on 2026-08-28 that
+        # merged a review whose own text read "cannot verify
+        # authentication/authorization guards on these routes" and "require
+        # human verification before merge" (#1357). An empty verdict merged
+        # too, which meant a skipped or crashed council was indistinguishable
+        # from an approving one.
         if: >-
           steps.pr.outputs.pr_number != '' &&
-          (steps.review.outputs.verdict == 'PASS' ||
-           steps.review.outputs.verdict == 'WARN'  ||
-           steps.review.outputs.verdict == '')
+          steps.review.outputs.verdict == 'PASS'
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           REPO: ${{ github.repository }}
@@ -718,9 +852,7 @@ jobs:
         if: >
           steps.pr.outputs.pr_number != '' &&
           steps.ready.outputs.ready == 'true' &&
-          (steps.review.outputs.verdict == 'PASS' ||
-           steps.review.outputs.verdict == 'WARN'  ||
-           steps.review.outputs.verdict == '')
+          steps.review.outputs.verdict == 'PASS'
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           REPO: ${{ github.repository }}
@@ -793,22 +925,44 @@ jobs:
             --reason completed
 
       # ── 15. Leave PR open when council returns FAIL ────────────────────────
-      - name: Comment — needs human review (council FAIL)
+      # Anything that is not PASS stops the auto-merge, so anything that is not
+      # PASS has to say so. When only FAIL was reported here, a WARN verdict
+      # merged silently and a crashed council merged silently — the two states
+      # this gate now separates.
+      - name: Comment — needs human review (council did not return PASS)
         if: >
           steps.pr.outputs.pr_number != '' &&
-          steps.review.outputs.verdict == 'FAIL'
+          steps.review.outputs.verdict != 'PASS'
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           REPO: ${{ github.repository }}
           ISSUE_NUM: ${{ steps.issue.outputs.number }}
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          VERDICT: ${{ steps.review.outputs.verdict }}
         run: |
+          case "$VERDICT" in
+            NONE|"")
+              HEADLINE="🚧 The council review did not run"
+              DETAIL="No verdict was produced — the reviewer crashed, was skipped, or wrote no result file. That is not an approval, so the PR was left for a human. Previously this state merged."
+              ;;
+            WARN)
+              HEADLINE="⚠️ Council review returned **WARN**"
+              DETAIL="A WARN is the reviewer saying it could not confirm something. On 2026-08-28 a WARN reading \"cannot verify authentication/authorization guards on these routes\" and \"require human verification before merge\" was auto-merged anyway (#1357). It no longer is."
+              ;;
+            *)
+              HEADLINE="⛔ Council review returned **${VERDICT}**"
+              DETAIL="The reviewer rejected the change."
+              ;;
+          esac
+
           gh issue comment "$ISSUE_NUM" \
             --repo "$REPO" \
             --body "$(cat <<MSG
-          ⚠️ Council review returned **FAIL** — PR #$PR_NUMBER needs human review before merging.
+          ${HEADLINE} — PR #$PR_NUMBER was **not** merged and needs a human.
 
-          Please review and merge (or close) the PR manually.
+          ${DETAIL}
+
+          Review the council comment on the PR, then merge or close it manually.
           MSG
           )"
 

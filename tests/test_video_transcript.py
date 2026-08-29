@@ -279,7 +279,13 @@ def test_rejected_issues_are_excluded_from_the_scheduled_sweep() -> None:
     it up hours later and build the source the architect pass ruled out.
     """
     sweep = (REPO_ROOT / ".github" / "workflows" / "process-quick-note.yml").read_text()
-    assert 'index("quick-note:rejected") == null' in sweep
+    # Asserted on the label, not on the jq that excludes it. This previously
+    # pinned `index("quick-note:rejected") == null`, so widening the selector to
+    # also drop status-report issues broke a test whose actual subject —
+    # "a rejected issue is not re-picked" — was unchanged.
+    # `tests/test_autonomous_pipeline_gates.py` executes the real expression
+    # against sample issues and checks which number comes back.
+    assert "quick-note:rejected" in sweep
 
     generator = (REPO_ROOT / ".github" / "workflows" / "issue-context-generator.yml").read_text()
     assert "--add-label \"quick-note:rejected\"" in generator
