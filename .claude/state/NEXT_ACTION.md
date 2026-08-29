@@ -284,6 +284,13 @@ resolved, Cerebras contributes nothing and every call starts at Groq. Nothing is
 broken by this: the chain degrades correctly, and it is the second billing hold
 on the list (Render, §1, is the other).
 
+**The key has been ruled out.** `CEREBRAS_API_KEY` was replaced on 2026-08-29
+and re-probed (run 33263933282): the catalogue listed both ids and both
+completions returned 402 again. A 402 is an *authenticated* refusal — an invalid
+or revoked key answers 401/403 and never reaches a billing check — so the
+credential is good and the account simply has no credit. Replacing the key again
+will not change this; only billing will.
+
 When credit is in place, re-probe before trusting anything:
 `gh workflow run catalogue-probe.yml -f provider=cerebras -f chat=cerebras -f model="gpt-oss-120b gemma-4-31b" -f tools=true`
 
