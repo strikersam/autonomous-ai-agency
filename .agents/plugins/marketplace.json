@@ -1,0 +1,20 @@
+{
+  "name": "sol-advisor",
+  "interface": {
+    "displayName": "Sol Advisor"
+  },
+  "plugins": [
+    {
+      "name": "sol-advisor",
+      "source": {
+        "source": "local",
+        "path": "./plugins/sol-advisor"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
