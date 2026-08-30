@@ -108,6 +108,14 @@ class AnthropicProvider(LLMProvider):
             if instr:
                 system_parts.append(instr)
 
+        # Rolling conversation cache breakpoints: mark the most-recent stable
+        # message so Anthropic caches the history prefix on multi-turn calls.
+        # Separate from system-prompt caching (_build_system) and tool-list
+        # caching (payload["tools"] block below) — each uses one of the four
+        # cache_control slots Anthropic allows per request.
+        if self.config.prompt_caching:
+            messages = self._add_conversation_cache_breakpoints(messages)
+
         payload: dict[str, Any] = {
             "model": model,
             "messages": messages or [{"role": "user", "content": ""}],
@@ -246,6 +254,51 @@ class AnthropicProvider(LLMProvider):
         if not self.config.prompt_caching:
             return system_text
         return [{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}]
+
+    @staticmethod
+    def _add_conversation_cache_breakpoints(
+        messages: list[dict[str, Any]],
+        *,
+        stable_back: int = 2,
+    ) -> list[dict[str, Any]]:
+        """Add a rolling cache_control breakpoint to the most-recent stable message.
+
+        In a multi-turn agent loop the message history grows by two entries per
+        turn (one assistant turn + one user turn).  Marking messages[-stable_back]
+        with cache_control tells Anthropic to cache the stable history prefix so
+        subsequent requests pay only for the new tokens at the trailing edge.
+
+        ``stable_back`` defaults to 2: messages[-1] is always the new user turn
+        (changes every request), while messages[-2] is the last assistant turn —
+        stable until the model replies again — and is the natural cache frontier.
+
+        Returns a new list; the caller's list and its message dicts are not mutated.
+        Does nothing if there are fewer than stable_back + 1 messages (no stable
+        prefix to cache), or if the target message has no cacheable content.
+        """
+        if len(messages) < stable_back + 1:
+            return messages
+
+        result = list(messages)
+        target_idx = len(result) - stable_back
+        msg = dict(result[target_idx])
+        content = msg.get("content")
+
+        if isinstance(content, str) and content:
+            # Plain-string content must become a block array to carry cache_control.
+            msg["content"] = [{"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}]
+        elif isinstance(content, list) and content:
+            # Block-array content: annotate the last block (any type is valid).
+            blocks = list(content)
+            last_block = dict(blocks[-1])
+            last_block["cache_control"] = {"type": "ephemeral"}
+            blocks[-1] = last_block
+            msg["content"] = blocks
+        else:
+            return messages  # Nothing to annotate; return original.
+
+        result[target_idx] = msg
+        return result
 
     def _thinking_config(self, request: LLMRequest) -> dict[str, Any] | None:
         """Anthropic's extended-thinking constraints on ``budget_tokens``:
