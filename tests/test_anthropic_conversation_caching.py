@@ -291,3 +291,166 @@ class TestBuildPayloadConversationCaching:
         cc = _breakpoint_at(payload["messages"], -2)
         assert cc is not None
         assert cc.get("type") == "ephemeral"
+
+
+# ── Extended 1-hour TTL tests ─────────────────────────────────────────────────
+
+def _make_provider_1h():
+    """Return an AnthropicProvider configured for the extended 1-hour cache TTL."""
+    from packages.llm.config import ProviderConfig
+    from packages.llm.providers.anthropic import AnthropicProvider
+    cfg = ProviderConfig(
+        id="anthropic-test",
+        kind="anthropic",
+        base_url="https://api.anthropic.com",
+        prompt_caching=True,
+        cache_ttl="1h",
+    )
+    return AnthropicProvider(cfg)
+
+
+class TestExtendedCacheTTL:
+    """Verify the extended 1-hour prompt cache TTL path."""
+
+    def test_cache_control_returns_ttl_1h_when_configured(self):
+        provider = _make_provider_1h()
+        cc = provider._cache_control()
+        assert cc == {"type": "ephemeral", "ttl": "1h"}
+
+    def test_cache_control_returns_standard_when_5m(self):
+        provider = _make_provider(prompt_caching=True)
+        cc = provider._cache_control()
+        assert cc == {"type": "ephemeral"}
+
+    def test_auth_headers_include_extended_beta_when_1h(self):
+        provider = _make_provider_1h()
+        headers = provider.auth_headers("test-key")
+        beta = headers.get("anthropic-beta", "")
+        assert "extended-cache-ttl-2025-04-11" in beta
+
+    def test_auth_headers_exclude_extended_beta_when_5m(self):
+        provider = _make_provider(prompt_caching=True)
+        headers = provider.auth_headers("test-key")
+        beta = headers.get("anthropic-beta", "")
+        assert "extended-cache-ttl-2025-04-11" not in beta
+
+    def test_auth_headers_extended_beta_alongside_caching_beta(self):
+        """The extended TTL beta must coexist with the prompt-caching beta."""
+        provider = _make_provider_1h()
+        headers = provider.auth_headers("test-key")
+        beta_vals = [v.strip() for v in headers.get("anthropic-beta", "").split(",")]
+        assert "prompt-caching-2024-07-31" in beta_vals
+        assert "extended-cache-ttl-2025-04-11" in beta_vals
+
+    def test_system_prompt_uses_1h_ttl(self):
+        provider = _make_provider_1h()
+        result = provider._build_system(["You are helpful."])
+        assert isinstance(result, list)
+        assert result[0]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+
+    def test_conversation_breakpoints_use_1h_ttl(self):
+        provider = _make_provider_1h()
+        request = _make_request(_msgs(
+            ("user", "hello"),
+            ("assistant", "hi"),
+            ("user", "bye"),
+        ))
+        payload = provider.build_payload(request, "claude-sonnet-4-6")
+        cc = _breakpoint_at(payload["messages"], -2)
+        assert cc == {"type": "ephemeral", "ttl": "1h"}
+
+    def test_tool_list_uses_1h_ttl(self):
+        provider = _make_provider_1h()
+        tools = [{"name": "search", "description": "s", "input_schema": {"type": "object"}}]
+        request = _make_request(_msgs(("user", "q")), tools=tools)
+        payload = provider.build_payload(request, "claude-sonnet-4-6")
+        last_tool = payload["tools"][-1]
+        assert last_tool.get("cache_control") == {"type": "ephemeral", "ttl": "1h"}
+
+    def test_static_method_accepts_custom_cache_control(self):
+        """Verify _add_conversation_cache_breakpoints honours a caller-supplied cc."""
+        from packages.llm.providers.anthropic import AnthropicProvider
+        msgs = [
+            {"role": "user", "content": "u"},
+            {"role": "assistant", "content": "a"},
+            {"role": "user", "content": "u2"},
+        ]
+        result = AnthropicProvider._add_conversation_cache_breakpoints(
+            msgs, cache_control={"type": "ephemeral", "ttl": "1h"}
+        )
+        content = result[1]["content"]
+        assert isinstance(content, list)
+        assert content[-1]["cache_control"] == {"type": "ephemeral", "ttl": "1h"}
+
+    def test_static_method_default_is_standard_ephemeral(self):
+        """Without cache_control kwarg the default 5-minute block is used."""
+        from packages.llm.providers.anthropic import AnthropicProvider
+        msgs = [
+            {"role": "user", "content": "u"},
+            {"role": "assistant", "content": "a"},
+            {"role": "user", "content": "u2"},
+        ]
+        result = AnthropicProvider._add_conversation_cache_breakpoints(msgs)
+        content = result[1]["content"]
+        assert content[-1]["cache_control"] == {"type": "ephemeral"}
+
+    def test_no_extended_beta_when_caching_disabled(self):
+        """Disabled caching → no extended TTL beta regardless of cache_ttl."""
+        from packages.llm.config import ProviderConfig
+        from packages.llm.providers.anthropic import AnthropicProvider
+        cfg = ProviderConfig(
+            id="anthropic-test",
+            kind="anthropic",
+            base_url="https://api.anthropic.com",
+            prompt_caching=False,
+            cache_ttl="1h",
+        )
+        provider = AnthropicProvider(cfg)
+        headers = provider.auth_headers("key")
+        beta = headers.get("anthropic-beta", "")
+        assert "extended-cache-ttl-2025-04-11" not in beta
+
+    def test_provider_config_default_cache_ttl_is_5m(self):
+        from packages.llm.config import ProviderConfig
+        cfg = ProviderConfig(id="x", kind="anthropic", base_url="https://api.anthropic.com")
+        assert cfg.cache_ttl == "5m"
+
+
+# ── Config env-var tests ───────────────────────────────────────────────────────
+
+class TestCacheTTLEnvVar:
+    """Verify that ANTHROPIC_CACHE_TTL=1h is reflected in auto-configured providers."""
+
+    def test_env_1h_sets_cache_ttl_on_anthropic_provider(self, monkeypatch):
+        import importlib
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        monkeypatch.setenv("ANTHROPIC_CACHE_TTL", "1h")
+        import packages.llm.config as cfg_mod
+        importlib.reload(cfg_mod)
+        providers: dict = {}
+        models: dict = {}
+        cfg_mod._merge_env_defaults(providers, models)
+        assert "anthropic" in providers
+        assert providers["anthropic"].cache_ttl == "1h"
+
+    def test_env_default_is_5m(self, monkeypatch):
+        import importlib
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        monkeypatch.delenv("ANTHROPIC_CACHE_TTL", raising=False)
+        import packages.llm.config as cfg_mod
+        importlib.reload(cfg_mod)
+        providers: dict = {}
+        models: dict = {}
+        cfg_mod._merge_env_defaults(providers, models)
+        assert providers.get("anthropic", type("x", (), {"cache_ttl": "5m"})).cache_ttl == "5m"
+
+    def test_env_1hour_alias_resolves_to_1h(self, monkeypatch):
+        import importlib
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+        monkeypatch.setenv("ANTHROPIC_CACHE_TTL", "1hour")
+        import packages.llm.config as cfg_mod
+        importlib.reload(cfg_mod)
+        providers: dict = {}
+        models: dict = {}
+        cfg_mod._merge_env_defaults(providers, models)
+        assert providers["anthropic"].cache_ttl == "1h"
