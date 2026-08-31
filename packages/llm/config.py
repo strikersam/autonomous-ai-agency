@@ -78,6 +78,10 @@ class ProviderConfig:
     prompt_caching: bool = True    # adds anthropic-beta: prompt-caching-2024-07-31
     thinking_budget: int = 0       # >0 enables extended thinking with that token budget
     default_effort: str = ""       # provider-level effort default for adaptive-thinking models
+    # "5m" = standard 5-minute ephemeral cache (default); "1h" = extended 1-hour TTL
+    # (requires ANTHROPIC_CACHE_TTL=1h and adds anthropic-beta: extended-cache-ttl-2025-04-11).
+    # The 1-hour write costs ~60% more, but saves ~90% on repeated access across long sessions.
+    cache_ttl: str = "5m"
 
     @property
     def is_local(self) -> bool:
@@ -549,6 +553,11 @@ def _merge_env_defaults(
         if not base_url:
             continue
         default_model = os.environ.get(model_env, "").strip() or model_default
+        _cache_ttl = "5m"
+        if pid == "anthropic":
+            _raw_ttl = os.environ.get("ANTHROPIC_CACHE_TTL", "5m").strip().lower()
+            if _raw_ttl in ("1h", "1hour", "3600"):
+                _cache_ttl = "1h"
         providers[pid] = ProviderConfig(
             id=pid,
             kind=kind,
@@ -562,6 +571,7 @@ def _merge_env_defaults(
             auth_style="x-api-key" if kind == "anthropic" else ("none" if not requires_key else "bearer"),
             api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "") if pid == "azure" else "",
             deployment=os.environ.get("AZURE_OPENAI_DEPLOYMENT", "") if pid == "azure" else "",
+            cache_ttl=_cache_ttl,
             notes="auto-configured from environment",
         )
     _seed_model_defaults(providers, models)
