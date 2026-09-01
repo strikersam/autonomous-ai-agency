@@ -190,13 +190,30 @@ class TestBrainConfigUpdates:
         bc = self._bc()
         assert bc.PROVIDER_PRESETS["aerolink"]["executor"] == "claude-sonnet-5"
 
-    def test_groq_preset_reverted_to_llama33_after_llama4_deprecation(self):
-        # 2026-08-03: Groq deprecated its Llama 4 models in March 2026 (see
-        # test_groq_no_longer_has_deprecated_llama4_maverick above); the
-        # preset moved back to llama-3.3-70b-versatile, superseding the
-        # llama-4-maverick expectation asserted here on 2026-07-10.
+    def test_groq_planner_preset_is_a_live_rotation_candidate(self):
+        """The durable property, not the id of the week.
+
+        This assertion has been amended twice to chase a moving target: it
+        asserted llama-4-maverick on 2026-07-10, was moved to
+        llama-3.3-70b-versatile on 2026-08-03 when Groq deprecated Llama 4,
+        and that id answers 404 as of 2026-09-01 (probe run 33483766556) — it
+        is not in this account's catalogue at all.
+
+        Two amendments to keep one literal true is the signal that the literal
+        was never the subject. What this test is *for* is that the planner
+        preset is a model the provider will actually serve, and that the
+        rotation can fall back to it. Which id satisfies that belongs to the
+        catalogue, and the catalogue is checked against the live provider by
+        .github/workflows/catalogue-probe.yml.
+        """
         bc = self._bc()
-        assert bc.PROVIDER_PRESETS["groq"]["planner"] == "llama-3.3-70b-versatile"
+        planner = bc.PROVIDER_PRESETS["groq"]["planner"]
+        candidates = bc.PROVIDER_CANDIDATES["groq"]
+        assert candidates, "no groq candidates; this check would pass vacuously"
+        assert planner in candidates, (
+            f"groq planner preset {planner!r} is not in the rotation, so a "
+            "failure on it has nowhere to fall back to"
+        )
 
     def test_google_key_env_registered(self):
         bc = self._bc()

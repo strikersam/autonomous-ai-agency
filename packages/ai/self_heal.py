@@ -85,29 +85,48 @@ async def self_heal_brain_and_unblock_tasks() -> dict[str, Any]:
 
     # PR #1046: if the persisted BrainConfig points at a provider that is NOT
     # in the known-good set (nvidia/cerebras/groq — the ones with API keys on
-    # Render), reset it to the safe default (nvidia/z-ai/glm-5.2) immediately.
-    # This catches stale configs from UI changes or model catalog refreshes
-    # that left a broken provider/model in the DB.
+    # Render), reset it to the catalogue's NVIDIA preset immediately. This
+    # catches stale configs from UI changes or model catalog refreshes that
+    # left a broken provider/model in the DB.
+    #
+    # Until 2026-09-01 this reset wrote four hardcoded `z-ai/glm-5.2` values.
+    # That id answers 410 and had been removed from every catalogue on
+    # 2026-08-28, so this healer was the thing installing the failure — and
+    # because it runs on a loop rather than only at boot, it re-poisoned the
+    # config within seconds of any fix, then saw the 410s its own write caused
+    # and ran again. Step 2 below has always read PROVIDER_PRESETS; this block
+    # simply did not follow the pattern its own file already used.
     known_good_providers = {"nvidia", "cerebras", "groq", "colibri"}
     if cfg.updated_at and normalized_active not in known_good_providers:
-        log.warning(
-            "self_heal: persisted brain provider %s is not in known-good set %s — resetting to nvidia",
-            normalized_active, known_good_providers,
-        )
-        try:
-            store = await get_brain_config_store()
-            patch = BrainConfigPatch(
-                primary_provider="nvidia",
-                planner_model="z-ai/glm-5.2",
-                executor_model="z-ai/glm-5.2",
-                verifier_model="z-ai/glm-5.2",
-                judge_model="z-ai/glm-5.2",
+        reset_preset = PROVIDER_PRESETS.get("nvidia") or {}
+        if not reset_preset:
+            # Nothing proven to reset *to*. Writing a guess is what caused the
+            # outage; leaving the row for Step 2's failover search is
+            # recoverable.
+            log.warning(
+                "self_heal: no nvidia preset in the catalogue — leaving %s in place",
+                normalized_active,
             )
-            await store.set_brain_config(patch, actor="self_heal_stale_provider_reset")
-            summary["failover_persisted"] = "nvidia"
-            summary["reset_reason"] = f"provider {normalized_active} not in known-good set"
-        except Exception as exc:
-            log.error("self_heal: failed to reset stale brain config: %s", exc)
+            summary["reset_reason"] = "no nvidia preset available"
+        else:
+            log.warning(
+                "self_heal: persisted brain provider %s is not in known-good set %s — resetting to nvidia",
+                normalized_active, known_good_providers,
+            )
+            try:
+                store = await get_brain_config_store()
+                patch = BrainConfigPatch(
+                    primary_provider="nvidia",
+                    planner_model=reset_preset.get("planner"),
+                    executor_model=reset_preset.get("executor"),
+                    verifier_model=reset_preset.get("verifier"),
+                    judge_model=reset_preset.get("judge"),
+                )
+                await store.set_brain_config(patch, actor="self_heal_stale_provider_reset")
+                summary["failover_persisted"] = "nvidia"
+                summary["reset_reason"] = f"provider {normalized_active} not in known-good set"
+            except Exception as exc:
+                log.error("self_heal: failed to reset stale brain config: %s", exc)
         # After reset, the next task dispatch will use nvidia. No need to
         # continue the failover search below.
         # Still unblock tasks below.

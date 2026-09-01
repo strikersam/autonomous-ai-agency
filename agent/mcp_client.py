@@ -26,6 +26,16 @@ MCP spec 2025-11-05 §5.6.1 — tool annotations:
     is ``True`` and ``destructiveHint`` is ``False`` — useful when the agent
     wants to explore without side-effects.
 
+MCP spec 2026-07-28 — Mcp-Method / Mcp-Name routing headers:
+
+  - Every outbound request now includes ``Mcp-Method: <rpc_method>`` so that
+    HTTP intermediaries (API gateways, rate-limiters, CDNs) can route and
+    throttle at the HTTP layer without parsing the JSON-RPC body.
+  - ``tools/call`` requests additionally include ``Mcp-Name: <tool_name>``
+    so per-tool rate limits and audit rules can be applied at the gateway.
+  - Both headers are purely informational and backward-compatible: servers and
+    proxies that do not understand them simply ignore them.
+
 MCP spec 2026-07-28 RC — tools/list TTL caching:
 
   - Servers may include ``ttlMs`` in the ``tools/list`` response to signal
@@ -377,7 +387,13 @@ class MCPClient:
             raise ValueError("SSE stream carried no JSON-RPC response frame")
         return result
 
-    async def _rpc(self, method: str, params: dict[str, Any] | None = None) -> Any:
+    async def _rpc(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        *,
+        extra_headers: dict[str, str] | None = None,
+    ) -> Any:
         if not self.base_url:
             raise MCPUnavailableError(
                 "MCP server not reachable — set MCP_SERVER_BASE_URL to the /mcp-internal endpoint "
@@ -393,9 +409,14 @@ class MCPClient:
             "method": method,
             "params": params or {},
         }
+        # MCP spec 2026-07-28: surface the RPC method in an HTTP header so
+        # intermediaries can route/throttle without parsing the JSON body.
+        headers = {**self._headers(), "Mcp-Method": method}
+        if extra_headers:
+            headers.update(extra_headers)
         try:
             async with httpx.AsyncClient(timeout=self.timeout) as client:
-                resp = await client.post(self.endpoint, json=payload, headers=self._headers())
+                resp = await client.post(self.endpoint, json=payload, headers=headers)
                 resp.raise_for_status()
             self._capture_session(resp)
             body = self._parse_body(resp)
@@ -491,7 +512,12 @@ class MCPClient:
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
         """Call a tool and return the text content of the first content item."""
-        result = await self._rpc("tools/call", {"name": name, "arguments": arguments})
+        # MCP spec 2026-07-28: include Mcp-Name so gateways can apply per-tool rules.
+        result = await self._rpc(
+            "tools/call",
+            {"name": name, "arguments": arguments},
+            extra_headers={"Mcp-Name": name},
+        )
         content = result.get("content", [])
         if content:
             text = content[0].get("text", "")
@@ -517,7 +543,11 @@ class MCPClient:
         ``call_tool()``.  Raises ``MCPUnavailableError`` if the server is
         unreachable.
         """
-        raw = await self._rpc("tools/call", {"name": name, "arguments": arguments})
+        raw = await self._rpc(
+            "tools/call",
+            {"name": name, "arguments": arguments},
+            extra_headers={"Mcp-Name": name},
+        )
         is_error = bool(raw.get("isError", False))
 
         # ── Text content (backward compat) ────────────────────────────────────
