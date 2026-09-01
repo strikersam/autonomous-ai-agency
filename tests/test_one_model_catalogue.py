@@ -111,7 +111,7 @@ class TestTheCopiesMayNotDriftFurther:
     """
 
     KNOWN_DIVERGENT = {
-        "dashscope", "deepseek", "google", "groq",
+        "dashscope", "deepseek", "google",
         "moonshot", "ollama", "zai", "zhipu",
     }
 
@@ -131,12 +131,14 @@ class TestTheCopiesMayNotDriftFurther:
             f"catalogue; the Python copy is a fallback, not a place to edit."
         )
 
-    @pytest.mark.parametrize("provider_id", ["nvidia", "cerebras"])
+    @pytest.mark.parametrize("provider_id", ["nvidia", "cerebras", "groq"])
     def test_the_reconciled_providers_stay_reconciled(self, provider_id: str) -> None:
         """These two are the ones this work reconciled, and each was reconciled
         because the drift had already cost something.
 
-        NVIDIA's divergence is what put a retired model in production. Cerebras'
+        NVIDIA's divergence is what put a retired model in production. Groq's
+        held three ids the account does not serve, so the whole second link of
+        the failover chain answered 404 (probe run 33483766556). Cerebras'
         is what let three ids sit in the rotation that a probe on 2026-08-29
         showed the account has never served — every one of them a 404.
         """
