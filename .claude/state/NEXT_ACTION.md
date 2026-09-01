@@ -301,6 +301,53 @@ inferring it from a model's family name is precisely what PR #1378 did.
 
 PR #1378 is closed with the probe output on the thread.
 
+### 7. The last 410 is operator data, not code — one edit in the admin UI
+
+Production still logs, roughly hourly:
+
+    Model nvidia-nim/z-ai/glm-5.2 returned 410 Gone — skipping for 3600s
+    Provider nvidia-nim placed on cooldown for 300s
+
+**This is no longer an outage.** After #1400 and #1401 the chain fails over and
+completes — `router.huggingface.co` returned `HTTP/1.1 200 OK` at 11:26:19 on
+2026-09-01, and no task has been `blocked after 5 failed dispatch attempts`
+since that deploy. The cost is one wasted first hop plus a 300s NVIDIA cooldown
+per cycle, so the platform runs on its second-choice provider.
+
+Every code-side source was checked and is correct:
+
+| source | value |
+|---|---|
+| `render.yaml` `NVIDIA_DEFAULT_MODEL` (3 places) | `nvidia/nemotron-3-super-120b-a12b` |
+| `packages/ai/router.py` `from_env` default | same |
+| `packages/ai/brain.py` `DEFAULT_FREE_NVIDIA_MODEL` | same |
+| `packages/ai/brain_config.py` presets + candidates | same |
+| the persisted BrainConfig row | reset correctly at 11:24:22, log-confirmed |
+
+What remains is a **persisted provider record in MongoDB** with
+`provider_id="nvidia-nim"` and `default_model="z-ai/glm-5.2"`. Two things point
+there and nothing points elsewhere: `ProviderRouter.from_provider_records` is
+the only builder that takes `default_model` from stored data, and
+`packages/ai/brain.py` only uses its (correct) free-NVIDIA fallback *"when the
+operator has no configured provider records"* — a path production did not take.
+Strongly indicated by elimination, not directly observed: this sandbox cannot
+reach the app, the Worker, or MongoDB, and the Render API exposes no env reader.
+
+**The fix is yours and takes one edit:** in the Brain / Providers admin surface,
+set the `nvidia-nim` record's model to `nvidia/nemotron-3-super-120b-a12b`
+(probed 2026-09-01, HTTP 200 with a real `tool_call`).
+
+**A code guard was considered and deliberately not shipped.** Rejecting a
+retired id inside `from_provider_records` needs a retired-model list in
+production — a seventh copy of the catalogue, which is the defect this whole
+line of work has been removing — and validating against the catalogue instead
+would override operator-configured records, a behaviour change nobody asked
+for and a real risk for legitimate proxy setups. The safe version, if wanted,
+is *observability only*: one loud startup WARNING naming any provider record
+whose `default_model` is absent from the catalogue for that provider. No
+override, no behaviour change, and it would have surfaced this on day one
+instead of after four catalogue corrections and two fixes.
+
 ## Running unattended, no action needed
 
 - **Dependabot backlog: 12 open, draining ~1/hour.** `dependabot-auto-merge.yml`

@@ -158,15 +158,22 @@ providers:
     key_env: GROQ_API_KEY
     base_url_env: GROQ_BASE_URL
     default_base_url: https://api.groq.com/openai/v1
+    # Probed against the live account 2026-09-01 (run 33483861221): each id
+    # below returned HTTP 200 to a real completion *and* emitted a genuine
+    # tool_call. The three ids previously here — llama-3.3-70b-versatile,
+    # deepseek-r1-distill-llama-70b, llama-3.1-8b-instant — are not in this
+    # account's catalogue at all and answer 404/400 (run 33483766556).
+    # groq/compound answers chat but rejects tools (400), so it is not a
+    # candidate for agent roles. Do not add an id here that has not answered.
     role_presets:
-      planner:   llama-3.3-70b-versatile
-      executor:  llama-3.3-70b-versatile
-      verifier:  llama-3.3-70b-versatile
-      judge:     llama-3.3-70b-versatile
+      planner:   openai/gpt-oss-120b
+      executor:  openai/gpt-oss-120b
+      verifier:  openai/gpt-oss-120b
+      judge:     openai/gpt-oss-120b
     candidates:
-      - llama-3.3-70b-versatile
-      - deepseek-r1-distill-llama-70b
-      - llama-3.1-8b-instant
+      - openai/gpt-oss-120b
+      - openai/gpt-oss-20b
+      - qwen/qwen3.8-27b
 
   mistral:
     display_name: Mistral (free tier)
