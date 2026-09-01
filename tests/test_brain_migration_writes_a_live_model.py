@@ -139,3 +139,77 @@ class TestTheCatalogueNamesOnlyProbedGroqIds:
         assert candidates, "no groq candidates; this check would pass vacuously"
         for role, model in PROVIDER_PRESETS.get("groq", {}).items():
             assert model in candidates, f"groq {role} preset {model!r} is not in the rotation"
+
+
+class TestNoBrainConfigWriterHardcodesAModel:
+    """The class-level guard. Four writers exist; two carried literals.
+
+    Chasing instances found them one outage at a time:
+
+    * `backend/server.py` — the startup migration, fixed 2026-09-01
+    * `packages/ai/self_heal.py` (PR #1046 reset) — found *because the first
+      fix did not work*: the migration corrected the row at boot and this
+      healer overwrote it with `z-ai/glm-5.2` 32 seconds later, then saw the
+      410s its own write caused and ran again
+    * `packages/ai/self_heal.py` (failover persist) — always read the catalogue
+    * `packages/ai/watchdog.py` — always read the catalogue
+
+    Two of the four were already right, which is the point: the pattern was
+    established in the same files that violated it. So this asserts the
+    property directly rather than naming the offenders — a fifth writer added
+    later fails here without anyone remembering why.
+
+    Parsed with `ast`, not grep: a keyword argument's value is either a literal
+    or it is not, and that distinction is exactly what is being enforced.
+    """
+
+    ROOTS = ("packages", "backend", "services", "agent", "agents", "handlers", "tasks")
+
+    @staticmethod
+    def _model_kwargs_with_literals(path: Path) -> list[str]:
+        import ast
+
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except SyntaxError:  # pragma: no cover - not our concern here
+            return []
+
+        offenders: list[str] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            func = node.func
+            name = getattr(func, "id", None) or getattr(func, "attr", None)
+            if name != "BrainConfigPatch":
+                continue
+            for keyword in node.keywords:
+                if not keyword.arg or not keyword.arg.endswith("_model"):
+                    continue
+                value = keyword.value
+                if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                    offenders.append(
+                        f"{path}:{value.lineno} {keyword.arg}={value.value!r}"
+                    )
+        return offenders
+
+    def test_no_writer_assigns_a_literal_model_id(self) -> None:
+        offenders: list[str] = []
+        scanned = 0
+        for root in self.ROOTS:
+            for path in (REPO_ROOT / root).rglob("*.py"):
+                if "test" in path.name:
+                    continue
+                text = path.read_text(encoding="utf-8", errors="ignore")
+                if "BrainConfigPatch(" not in text:
+                    continue
+                scanned += 1
+                offenders.extend(self._model_kwargs_with_literals(path))
+
+        assert scanned, "no BrainConfigPatch writers found; this guard would pass vacuously"
+        assert not offenders, (
+            "a brain-config writer hardcodes a model id. Every id in this repo "
+            "has an expiry date nobody is told about, so a literal here becomes "
+            "a 410 that survives every catalogue correction. Read the model from "
+            "packages.ai.brain_config.PROVIDER_PRESETS, which the catalogue-probe "
+            f"workflow checks against the live provider: {offenders}"
+        )
