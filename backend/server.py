@@ -1882,17 +1882,26 @@ async def lifespan(app_: "FastAPI"):
         if os.environ.get("TESTING", "").strip().lower() in ("1", "true", "yes"):
             log.debug("brain_policy: TESTING detected; skipping _migrate_brain_to_safe_default migration")
             return
-        """Reset stale BrainConfig to NVIDIA GLM-5.2 if the persisted config
+        """Reset a stale BrainConfig to the catalogue's NVIDIA preset.
+
+        Named for what it does now. Until 2026-09-01 it reset to two hardcoded
+        ids that both answer 410, so the rescue wrote the failure.
+
+        Original note follows: reset the config if the persisted config
         points at a provider/model that is known-broken or not available.
 
         PR #1046: the DB BrainConfig survives across deploys, so a stale config
         pointing at google-gemini/gemma-4 (404) or ollama (no URL on Render)
         blocks all task execution. This migration resets the config to the
-        safe default (nvidia + z-ai/glm-5.2) whenever the persisted provider
+        safe default (nvidia + the catalogue preset) whenever the persisted provider
         is not nvidia/cerebras/groq (the free providers with API keys on Render).
         """
         try:
-            from packages.ai.brain_config import get_brain_config_store, BrainConfigPatch
+            from packages.ai.brain_config import (
+                PROVIDER_PRESETS,
+                BrainConfigPatch,
+                get_brain_config_store,
+            )
             store = await get_brain_config_store()
             cfg = await store.get_brain_config()
             if not cfg.updated_at:
@@ -1906,7 +1915,14 @@ async def lifespan(app_: "FastAPI"):
             provider = str(cfg.primary_provider)
 
             # Dead model ids that must be migrated off (removed from the provider).
-            old_models = {"meta/llama-3.3-70b-instruct", "llama-3.3-70b-instruct", "gemma-4"}
+            # The last two were written *by this migration* until 2026-09-01 and
+            # both answer 410, so every rescued config was poisoned on the way
+            # out. They must be listed here or an already-poisoned row never
+            # self-corrects: `needs_reset` is the only path that rewrites them.
+            old_models = {
+                "meta/llama-3.3-70b-instruct", "llama-3.3-70b-instruct", "gemma-4",
+                "z-ai/glm-5.2", "meta/llama-4-maverick-17b-128e-instruct",
+            }
             # Reasoning-heavy models that blow the planner/executor failover
             # deadline on the free tier: they spend the token budget on thinking
             # tokens and take >120s to answer, so every autonomous task fails at
@@ -1919,8 +1935,22 @@ async def lifespan(app_: "FastAPI"):
                 "nvidia/llama-3.1-nemotron-70b-instruct",
                 "deepseek-ai/deepseek-r1",
             }
-            fast_agent_model = "meta/llama-4-maverick-17b-128e-instruct"  # fast MoE, JSON-clean
-            standard_model = "z-ai/glm-5.2"                              # capable default for verify/judge
+            # Derived, never literal. Two hardcoded ids here answered 410 from
+            # 2026-08-28 until 2026-09-01 while every catalogue in the repo had
+            # already been corrected — this copy is what kept production broken,
+            # because the migration rewrote the database on every boot. The
+            # catalogue is the one source the probe workflow actually verifies
+            # against the live provider, so read it rather than restating it.
+            preset = PROVIDER_PRESETS.get("nvidia") or {}
+            fast_agent_model = preset.get("executor") or ""
+            standard_model = preset.get("verifier") or ""
+            if not fast_agent_model or not standard_model:
+                # No catalogue preset to migrate *to*. Writing a guess here is
+                # what caused the outage; leaving the row alone is recoverable.
+                log.warning(
+                    "Brain config migration skipped: no nvidia role preset in the catalogue"
+                )
+                return
 
             needs_reset = provider not in known_good_providers or any(
                 getattr(cfg, f, "") in old_models
