@@ -1839,6 +1839,15 @@ class ProviderRouter:
             out["thinking"] = {"type": "enabled", "budget_tokens": _thinking_budget}
             out["temperature"] = 1  # Anthropic requires temperature=1 for extended thinking
 
+        # Server-side fallbacks (2026-07-01 beta): when the beta header is active,
+        # also send fallbacks={"mode":"default"} so Anthropic re-runs refused requests
+        # on a recommended alternative model automatically.
+        _server_fallback_on = os.environ.get(
+            "ANTHROPIC_SERVER_FALLBACK_BETA", "true"
+        ).strip().lower() not in ("0", "false", "no", "off")
+        if _server_fallback_on:
+            out["fallbacks"] = {"mode": "default"}
+
         return out
 
     @staticmethod
