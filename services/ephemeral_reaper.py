@@ -44,10 +44,16 @@ async def reap_expired_companies(now: datetime | None = None) -> int:
     A company is reaped when ``persistent`` is False AND ``expires_at`` is set
     AND ``expires_at <= now``. Persistent companies (admins) are skipped.
     """
+    from services.company_graph import CompanyGraphService
     from services.company_graph_store import get_company_graph_store
 
     now = _as_aware_utc(now or datetime.now(timezone.utc))
     store = get_company_graph_store()
+    # Delete through the service, not the store: the service also tears down the
+    # company's live agency (schedules + registered agents), which a raw store
+    # delete would leave orphaned and running. Bind it to this exact store so we
+    # reap from the same backend we listed from.
+    service = CompanyGraphService(store=store)
 
     deleted = 0
     offset = 0
@@ -73,7 +79,7 @@ async def reap_expired_companies(now: datetime | None = None) -> int:
 
     for cid in to_delete:
         try:
-            if await store.delete_company(cid):
+            if await service.delete_company(cid):
                 deleted += 1
                 log.info("Ephemeral reaper destroyed expired company %s", cid)
         except Exception:  # noqa: BLE001 — one bad row must not abort the sweep
