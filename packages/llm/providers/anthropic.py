@@ -35,6 +35,9 @@ log = logging.getLogger("llm.providers.anthropic")
 
 DEFAULT_API_VERSION = "2023-06-01"
 
+# Beta header required to use the extended 1-hour prompt cache TTL.
+_EXTENDED_CACHE_TTL_BETA = "extended-cache-ttl-2025-04-11"
+
 # Anthropic's extended-thinking floor: a request with a budget below this is
 # rejected outright, so an invalid one must never be sent.
 _MIN_THINKING_BUDGET_TOKENS = 1024
@@ -88,6 +91,12 @@ class AnthropicProvider(LLMProvider):
                 betas.append(value)
         if self.config.prompt_caching and "prompt-caching-2024-07-31" not in betas:
             betas.append("prompt-caching-2024-07-31")
+        if (
+            self.config.prompt_caching
+            and getattr(self.config, "cache_ttl", "5m") == "1h"
+            and _EXTENDED_CACHE_TTL_BETA not in betas
+        ):
+            betas.append(_EXTENDED_CACHE_TTL_BETA)
         if self.config.thinking_budget > 0 and "interleaved-thinking-2025-05-14" not in betas:
             betas.append("interleaved-thinking-2025-05-14")
         if betas:
@@ -114,7 +123,9 @@ class AnthropicProvider(LLMProvider):
         # caching (payload["tools"] block below) — each uses one of the four
         # cache_control slots Anthropic allows per request.
         if self.config.prompt_caching:
-            messages = self._add_conversation_cache_breakpoints(messages)
+            messages = self._add_conversation_cache_breakpoints(
+                messages, cache_control=self._cache_control()
+            )
 
         payload: dict[str, Any] = {
             "model": model,
@@ -139,7 +150,7 @@ class AnthropicProvider(LLMProvider):
             # caching, so operators can disable it via ANTHROPIC_PROMPT_CACHING=off.
             if self.config.prompt_caching and converted_tools:
                 last = dict(converted_tools[-1])
-                last["cache_control"] = {"type": "ephemeral"}
+                last["cache_control"] = self._cache_control()
                 converted_tools = converted_tools[:-1] + [last]
             payload["tools"] = converted_tools
             if request.tool_choice is not None:
@@ -249,17 +260,34 @@ class AnthropicProvider(LLMProvider):
             })
         return {"role": "assistant", "content": blocks}
 
+    def _cache_control(self) -> dict[str, Any]:
+        """Return the cache_control block appropriate for this provider's TTL setting.
+
+        Standard (5-minute): ``{"type": "ephemeral"}``
+        Extended (1-hour):   ``{"type": "ephemeral", "ttl": "1h"}``
+
+        Requires ``extended-cache-ttl-2025-04-11`` in the beta header, which
+        ``auth_headers`` adds automatically when ``config.cache_ttl == "1h"``.
+        The 1-hour write costs ~60% more than the default, but subsequent reads
+        within the hour are free, making it cost-effective for agent sessions
+        longer than a few minutes.
+        """
+        if getattr(self.config, "cache_ttl", "5m") == "1h":
+            return {"type": "ephemeral", "ttl": "1h"}
+        return {"type": "ephemeral"}
+
     def _build_system(self, system_parts: list[str]) -> str | list[dict[str, Any]]:
         system_text = "\n\n".join(system_parts)
         if not self.config.prompt_caching:
             return system_text
-        return [{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}]
+        return [{"type": "text", "text": system_text, "cache_control": self._cache_control()}]
 
     @staticmethod
     def _add_conversation_cache_breakpoints(
         messages: list[dict[str, Any]],
         *,
         stable_back: int = 2,
+        cache_control: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Add a rolling cache_control breakpoint to the most-recent stable message.
 
@@ -272,10 +300,16 @@ class AnthropicProvider(LLMProvider):
         (changes every request), while messages[-2] is the last assistant turn —
         stable until the model replies again — and is the natural cache frontier.
 
+        ``cache_control`` overrides the block applied; defaults to the standard
+        5-minute ephemeral cache.  Pass ``{"type": "ephemeral", "ttl": "1h"}`` to
+        use the extended 1-hour TTL (requires the matching beta header).
+
         Returns a new list; the caller's list and its message dicts are not mutated.
         Does nothing if there are fewer than stable_back + 1 messages (no stable
         prefix to cache), or if the target message has no cacheable content.
         """
+        cc = cache_control if cache_control is not None else {"type": "ephemeral"}
+
         if len(messages) < stable_back + 1:
             return messages
 
@@ -286,12 +320,12 @@ class AnthropicProvider(LLMProvider):
 
         if isinstance(content, str) and content:
             # Plain-string content must become a block array to carry cache_control.
-            msg["content"] = [{"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}]
+            msg["content"] = [{"type": "text", "text": content, "cache_control": cc}]
         elif isinstance(content, list) and content:
             # Block-array content: annotate the last block (any type is valid).
             blocks = list(content)
             last_block = dict(blocks[-1])
-            last_block["cache_control"] = {"type": "ephemeral"}
+            last_block["cache_control"] = cc
             blocks[-1] = last_block
             msg["content"] = blocks
         else:
