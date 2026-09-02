@@ -4,15 +4,15 @@ The strongest evidence that this platform's agent loop works is not a benchmark 
 
 ## The numbers (verifiable via the GitHub API)
 
-As of 2026-08-16:
+As of 2026-09-01:
 
 | Metric | Count | Verify it yourself |
 |---|---|---|
-| Merged pull requests, total | **829** | [`is:pr is:merged`](https://github.com/strikersam/autonomous-ai-agency/pulls?q=is%3Apr+is%3Amerged) |
-| Merged PRs opened by agent sessions (`claude/*` head branches) | **271** | [`is:pr is:merged head:claude/`](https://github.com/strikersam/autonomous-ai-agency/pulls?q=is%3Apr+is%3Amerged+head%3Aclaude%2F) |
-| Merged PRs opened by agent sessions (`codex/*` head branches) | **8** | [`is:pr is:merged head:codex/`](https://github.com/strikersam/autonomous-ai-agency/pulls?q=is%3Apr+is%3Amerged+head%3Acodex%2F) |
+| Merged pull requests, total | **906** | [`is:pr is:merged`](https://github.com/strikersam/autonomous-ai-agency/pulls?q=is%3Apr+is%3Amerged) |
+| Merged PRs opened by agent sessions (`claude/*` head branches) | **314** | [`is:pr is:merged head:claude/`](https://github.com/strikersam/autonomous-ai-agency/pulls?q=is%3Apr+is%3Amerged+head%3Aclaude%2F) |
+| Merged PRs opened by agent sessions (`codex/*` head branches) | **9** | [`is:pr is:merged head:codex/`](https://github.com/strikersam/autonomous-ai-agency/pulls?q=is%3Apr+is%3Amerged+head%3Acodex%2F) |
 
-**279 of 829 merged PRs (34%) were opened by AI agent sessions**, identifiable by their head branch prefix alone. The true share of agent-written code is higher — many commits land from agent sessions pushing to shared branches — but this table only claims what a branch-name query proves.
+**323 of 906 merged PRs (36%) were opened by AI agent sessions**, identifiable by their head branch prefix alone. The true share of agent-written code is higher — many commits land from agent sessions pushing to shared branches — but this table only claims what a branch-name query proves.
 
 Every one of these PRs went through the same gates as a human PR: full pytest suite, frontend Jest + build, Bandit SAST, CodeQL, loop-registry audit, changelog parity, and human review before merge. Agents propose; CI verifies; a human approves. That is exactly the HITL model the platform ships.
 
