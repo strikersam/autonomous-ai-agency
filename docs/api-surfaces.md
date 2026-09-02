@@ -65,6 +65,12 @@ The `backend/` app powers the separate React control plane and includes routes f
 - GitHub repo, branch, file, and PR flows
 - schedules and legacy scheduler compatibility routes
 - governance: posture, policy, approvals, audit, sandboxes, and session budgets (`/api/governance/*`, admin-only)
+- Telegram bot control-plane (`/api/telegram/*`)
+
+### Telegram (`/api/telegram/*`)
+
+- `GET  /api/telegram/diag` — unauthenticated diagnostic snapshot (bot token masked). Reports config (`run_telegram_bot`, `poller_disabled`, allow/admin IDs) **and live state**: `poller_last_poll_age_sec` / `poller_running_here` (is the getUpdates consumer draining updates in this process?) and `webhook` (`has_webhook`, `pending_update_count`, `last_error_message`). Use it when cards arrive but inline buttons do nothing.
+- `POST /api/telegram/webhook` — inbound Telegram webhook (the non-polling delivery path). Authenticated by the `X-Telegram-Bot-Api-Secret-Token` header matched against `TELEGRAM_WEBHOOK_SECRET` (mismatch/unset → 403); no JWT. Active only when `TELEGRAM_WEBHOOK_ENABLED=true` + secret set, in which case startup registers the webhook and the getUpdates poller is not started. Dispatches to the same callback/message handlers as polling.
 
 ### Governance (`/api/governance/*`, admin-only)
 

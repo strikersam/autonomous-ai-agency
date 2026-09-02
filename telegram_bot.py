@@ -51,8 +51,10 @@ Security model:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
+import re
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -177,6 +179,28 @@ _bg_tasks: set[asyncio.Task] = set()
 # config reload — that's acceptable because a process restart clears it.
 _EMPTY_ALLOWLIST_WARNED: bool = False
 
+# Wall-clock time (epoch seconds) of the last SUCCESSFUL getUpdates poll. This
+# is the one signal that distinguishes "the poller is alive and consuming
+# updates" from "cards are sent but taps do nothing" — a card is delivered by
+# an independent direct sendMessage (NotificationDispatcher / pr_approval_gate)
+# and never touches this loop, so a button can look dead while notifications
+# still arrive. ``None`` means run_bot has never completed a poll in this
+# process (never started, poller disabled here, or wedged on a 409 webhook
+# conflict). Read via ``poller_heartbeat_age_sec()`` from the diag endpoint.
+_LAST_SUCCESSFUL_POLL_TS: float | None = None
+
+
+def poller_heartbeat_age_sec() -> float | None:
+    """Seconds since the last successful getUpdates poll, or None if never.
+
+    A small value means the long-poll consumer is running in THIS process; a
+    large/growing value or None means it is not — which is exactly when inline
+    Approve/Reject/merge buttons appear to do nothing.
+    """
+    if _LAST_SUCCESSFUL_POLL_TS is None:
+        return None
+    return max(0.0, time.time() - _LAST_SUCCESSFUL_POLL_TS)
+
 
 # ─── Auth helpers ──────────────────────────────────────────────────────────────
 
@@ -230,6 +254,103 @@ def _poller_disabled() -> bool:
     return (
         os.environ.get("TELEGRAM_POLLER_DISABLED", "").strip().lower()
         in ("1", "true", "yes", "on")
+    )
+
+
+# ─── Webhook mode ───────────────────────────────────────────────────────────────
+#
+# On a Render web service the getUpdates long-poll consumer is a background task
+# that can silently stop (poller disabled to avoid a 409 with a worker that isn't
+# actually up, a wedged 409, a crashed task), and when it does, cards are still
+# delivered by independent direct sendMessage calls while every inline button
+# goes dead. A webhook removes that failure mode: Telegram POSTs each update to
+# an HTTP endpoint the web service already knows how to serve, so tap handling no
+# longer depends on a long-lived poll loop. Webhook and getUpdates are mutually
+# exclusive at Telegram (a set webhook makes getUpdates 409), so the poller must
+# NOT run when webhook mode is enabled — see backend/server.py startup wiring.
+
+
+def webhook_mode_enabled() -> bool:
+    """True when TELEGRAM_WEBHOOK_ENABLED is truthy AND a secret is configured.
+
+    The secret is mandatory: the webhook endpoint triggers admin actions
+    (approve/merge), so without a shared secret to authenticate Telegram's
+    POSTs the endpoint would be an unauthenticated trigger. No secret => mode
+    off, and the poller stays the transport.
+    """
+    enabled = os.environ.get("TELEGRAM_WEBHOOK_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+    return enabled and bool(webhook_secret())
+
+
+def webhook_secret() -> str | None:
+    """The shared secret Telegram echoes in X-Telegram-Bot-Api-Secret-Token.
+
+    Must be 1–256 chars of A-Z a-z 0-9 _ - (Telegram's own constraint). Returns
+    None when unset or invalid so callers fail closed.
+    """
+    raw = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip()
+    if not raw or len(raw) > 256:
+        return None
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", raw):
+        return None
+    return raw
+
+
+def ensure_config_loaded() -> None:
+    """Re-resolve the token + allowlists from the environment (idempotent).
+
+    ``run_bot`` does this at startup; webhook mode may dispatch updates without
+    ``run_bot`` ever running, so the webhook path calls this first to guarantee
+    ALLOWED/ADMIN and the token reflect the environment regardless of import
+    order.
+    """
+    global ALLOWED_USER_IDS, ADMIN_USER_IDS, TELEGRAM_BOT_TOKEN
+    if not TELEGRAM_BOT_TOKEN:
+        TELEGRAM_BOT_TOKEN = "".join(os.environ.get("TELEGRAM_BOT_TOKEN", "").strip().split())
+    ALLOWED_USER_IDS, ADMIN_USER_IDS = _resolve_bot_user_ids(
+        os.environ.get("TELEGRAM_ALLOWED_USER_IDS", ""),
+        os.environ.get("TELEGRAM_ADMIN_USER_IDS", ""),
+        os.environ.get("TELEGRAM_CHAT_ID", ""),
+    )
+
+
+async def process_webhook_update(update: dict) -> None:
+    """Dispatch a single Telegram update delivered via webhook.
+
+    Routes to the SAME handlers the long-poll loop uses, so webhook and polling
+    behave identically. Best-effort: never raises (a raised error would make
+    Telegram retry the delivery in a storm).
+    """
+    ensure_config_loaded()
+    try:
+        if update.get("callback_query"):
+            await _process_callback(TELEGRAM_BOT_TOKEN, update["callback_query"])
+        else:
+            await _process_update(TELEGRAM_BOT_TOKEN, update)
+    except Exception as exc:  # noqa: BLE001 — one bad update must not break the endpoint
+        log.exception("process_webhook_update failed: %s", exc)
+
+
+async def register_webhook(base_url: str) -> dict[str, Any]:
+    """Point Telegram at ``<base_url>/api/telegram/webhook`` (best-effort).
+
+    Sets the secret token and restricts delivery to messages + callback queries
+    (the only updates this bot acts on). Called at startup when webhook mode is
+    enabled; returns Telegram's parsed response so the caller can log it.
+    """
+    secret = webhook_secret()
+    if not secret:
+        return {"ok": False, "description": "TELEGRAM_WEBHOOK_SECRET not set/invalid"}
+    url = f"{base_url.rstrip('/')}/api/telegram/webhook"
+    return await _tg_call(
+        "setWebhook",
+        {
+            "url": url,
+            "secret_token": secret,
+            "allowed_updates": json.dumps(["message", "callback_query"]),
+            "max_connections": "20",
+        },
+        timeout=15.0,
     )
 
 
@@ -1590,10 +1711,15 @@ async def _process_update(bot_token: str, update: dict) -> None:
 
 # ─── Long-poll main loop ───────────────────────────────────────────────────────
 
-async def _tg_call(method: str, params: dict | None = None) -> dict:
-    """Call a Telegram Bot API method and return the parsed JSON (best-effort)."""
+async def _tg_call(method: str, params: dict | None = None, *, timeout: float = 35.0) -> dict:
+    """Call a Telegram Bot API method and return the parsed JSON (best-effort).
+
+    ``timeout`` defaults to 35s for the long-poll path; callers that must return
+    quickly (e.g. the diag endpoint's getWebhookInfo) pass a short one so a slow
+    or unreachable Telegram API cannot stall the request.
+    """
     try:
-        async with httpx.AsyncClient(timeout=35.0) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             r = await client.get(
                 f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}",
                 params=params or {},
@@ -1601,6 +1727,32 @@ async def _tg_call(method: str, params: dict | None = None) -> dict:
         return r.json()
     except Exception as exc:  # network / decode errors shouldn't crash startup
         return {"ok": False, "description": f"request failed: {exc}"}
+
+
+async def get_webhook_info() -> dict[str, Any]:
+    """Fetch Telegram's live getWebhookInfo, distilled to the fields that
+    diagnose a dead poller.
+
+    A non-empty ``url`` means a webhook is registered, so ``getUpdates`` is
+    rejected with 409 and long-polling cannot consume taps until the webhook is
+    deleted. A ``pending_update_count`` that stays above zero (and grows) means
+    updates are queued but nothing is draining them — the exact signature of
+    "the card arrives but the button does nothing". ``last_error_message`` is
+    Telegram's own note on the most recent failed delivery. Best-effort: returns
+    ``{"ok": False, ...}`` rather than raising.
+    """
+    resp = await _tg_call("getWebhookInfo", timeout=8.0)
+    if not resp.get("ok"):
+        return {"ok": False, "description": resp.get("description", "getWebhookInfo failed")}
+    result = resp.get("result", {}) or {}
+    return {
+        "ok": True,
+        "webhook_url": result.get("url") or "",
+        "has_webhook": bool(result.get("url")),
+        "pending_update_count": result.get("pending_update_count", 0),
+        "last_error_message": result.get("last_error_message", ""),
+        "last_error_date": result.get("last_error_date", 0),
+    }
 
 
 async def run_bot() -> None:
@@ -1734,8 +1886,11 @@ async def run_bot() -> None:
                     backoff = min(backoff * 2, _BACKOFF_CEIL)
                 continue
 
-            # Successful poll — reset the backoff floor.
+            # Successful poll — reset the backoff floor and stamp the heartbeat
+            # so /api/telegram/diag can prove the consumer is actually running.
             backoff = _BACKOFF_FLOOR
+            global _LAST_SUCCESSFUL_POLL_TS
+            _LAST_SUCCESSFUL_POLL_TS = time.time()
             for update in data.get("result", []):
                 offset = update["update_id"] + 1
                 try:

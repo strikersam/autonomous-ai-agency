@@ -1570,6 +1570,38 @@ def _start_in_web_bot_tasks() -> list:
     os.environ.setdefault("FREEBUFF_BASE_BRANCH", "master")
     os.environ.setdefault("FREEBUFF_REPO_URL", "https://github.com/strikersam/local-llm-server")
 
+    # Webhook mode: Telegram POSTs updates to /api/telegram/webhook, so the
+    # getUpdates poller must NOT run (a set webhook 409s getUpdates, and the
+    # poller would delete the webhook on that 409). Register the webhook and
+    # skip the poll supervisor; keepalive still runs so the web service that
+    # receives the webhook stays awake on free tier.
+    try:
+        import telegram_bot as _tb
+
+        if _tb.webhook_mode_enabled():
+            base_url = (os.environ.get("RENDER_EXTERNAL_URL")
+                        or os.environ.get("SELF_BOOTSTRAP_URL") or "").rstrip("/")
+            if not base_url:
+                log.error(
+                    "TELEGRAM_WEBHOOK_ENABLED is set but RENDER_EXTERNAL_URL is not — "
+                    "cannot register the webhook; falling back to the getUpdates poller."
+                )
+            else:
+                async def _register() -> None:
+                    result = await _tb.register_webhook(base_url)
+                    if result.get("ok"):
+                        log.info("Telegram webhook registered at %s/api/telegram/webhook", base_url)
+                    else:
+                        log.error("Telegram setWebhook failed: %s", result.get("description"))
+
+                tasks.append(_asyncio.create_task(_register()))
+                if os.environ.get("BOT_KEEPALIVE", "true").strip().lower() in {"1", "true", "yes"}:
+                    tasks.append(_asyncio.create_task(_keepalive_self_ping()))
+                log.info("Telegram bot in WEBHOOK mode — getUpdates poller not started.")
+                return tasks
+    except Exception as exc:
+        log.warning("Telegram webhook setup failed (%s) — falling back to poller.", exc)
+
     try:
         tasks.append(_asyncio.create_task(_telegram_bot_supervisor()))
         log.info("FreeBuff Telegram bot starting inside web process (embedded mode).")
@@ -7599,9 +7631,33 @@ async def telegram_diag() -> dict[str, object]:
     allowed = _os.environ.get("TELEGRAM_ALLOWED_USER_IDS", "")
     admins = _os.environ.get("TELEGRAM_ADMIN_USER_IDS", "")
 
+    # Live poller/webhook state — the part env vars cannot reveal. This is what
+    # tells a card-arrives-but-button-does-nothing report apart: notifications
+    # are sent by an independent direct call, but acting on a tap needs the
+    # getUpdates consumer to be alive AND unblocked by any registered webhook.
+    poller_age: float | None = None
+    webhook: dict[str, object] = {"ok": False, "description": "not checked"}
+    if token:
+        try:
+            import telegram_bot as _tb
+
+            poller_age = _tb.poller_heartbeat_age_sec()
+            webhook = await _tb.get_webhook_info()
+        except Exception as _exc:  # best-effort; diag must never 500
+            webhook = {"ok": False, "description": f"lookup failed: {type(_exc).__name__}"}
+
     return {
         "run_telegram_bot": _os.environ.get("RUN_TELEGRAM_BOT", "false").strip().lower() in ("true", "1", "yes", "on"),
         "poller_disabled": _os.environ.get("TELEGRAM_POLLER_DISABLED", "false").strip().lower() in ("true", "1", "yes", "on"),
+        # Live: seconds since this process last consumed an update. None => the
+        # long-poll consumer has never run here (not started, disabled on this
+        # service, or wedged on a webhook 409). A steady small value => healthy.
+        "poller_last_poll_age_sec": poller_age,
+        "poller_running_here": poller_age is not None and poller_age < 120,
+        # Live: a registered webhook makes getUpdates 409, so buttons can't be
+        # handled by the poller. pending_update_count > 0 and rising => nobody
+        # is draining updates (the "tap does nothing" signature).
+        "webhook": webhook,
         "bot_token_set": bool(token),
         "bot_token_prefix": _mask(token),
         "chat_id": chat_id or "(unset)",
@@ -7614,10 +7670,57 @@ async def telegram_diag() -> dict[str, object]:
         "render_external_url": _os.environ.get("RENDER_EXTERNAL_URL", "(unset)"),
         "diagnostic_hints": {
             "bot_silent": "If the bot is silent: (1) check bot_token_set is true; (2) check allowed_user_ids contains your numeric Telegram ID (message @userinfobot to get it); (3) check poller_disabled is false on the service that should poll; (4) only ONE service may poll a given token (409 conflict otherwise); (5) if on free tier, verify BOT_KEEPALIVE=true and /api/ping is reachable.",
+            "buttons_do_nothing": "If cards arrive but tapping Approve/Reject/merge does nothing, the getUpdates consumer is not draining updates — sending a card is an independent direct call and does not prove the poller is alive. Confirm with the LIVE fields above: poller_running_here must be true (poller_last_poll_age_sec small), and webhook.has_webhook must be false (a set webhook makes getUpdates 409). If webhook.has_webhook is true, delete it (see webhook_conflict). If poller_running_here is false while poller_disabled is false and run_telegram_bot is true, the poll task is not running in this process — restart the service and re-check.",
             "stale_repo": "If FREEBUFF_REPO_URL points at strikersam/local-llm-server, repoint to strikersam/autonomous-ai-agency (the repo was renamed).",
-            "webhook_conflict": "If getUpdates returns 409 'conflict', a webhook is set. The bot calls deleteWebhook on startup; if the conflict persists, run: curl -s 'https://api.telegram.org/bot<TOKEN>/deleteWebhook' manually.",
+            "webhook_conflict": "If webhook.has_webhook is true (or getUpdates returns 409 'conflict'), a webhook is set. The bot calls deleteWebhook on startup; if it persists, run: curl -s 'https://api.telegram.org/bot<TOKEN>/deleteWebhook' manually.",
         },
     }
+
+
+@app.post("/api/telegram/webhook")
+async def telegram_webhook(request: Request) -> dict[str, bool]:
+    """Inbound Telegram webhook — the delivery path that does not depend on the
+    getUpdates long-poll consumer.
+
+    Enabled by ``TELEGRAM_WEBHOOK_ENABLED=true`` + ``TELEGRAM_WEBHOOK_SECRET``
+    (see startup wiring, which registers the webhook and, because a set webhook
+    409s getUpdates, does NOT start the poller). Telegram echoes the secret in
+    the ``X-Telegram-Bot-Api-Secret-Token`` header on every POST; that header is
+    this endpoint's authentication (the standard Telegram webhook model, akin to
+    the X-Service-Token surface) — a mismatch or unconfigured secret is a flat
+    403, so the endpoint can never be an unauthenticated trigger for the admin
+    actions the callback handlers perform. Update processing is dispatched to a
+    background task so we return 200 promptly (Telegram retries slow responses),
+    and the handlers apply their own per-user admin gate on top.
+    """
+    import secrets as _secrets
+
+    import telegram_bot as _tb
+
+    configured = _tb.webhook_secret()
+    if not configured:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    presented = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not _secrets.compare_digest(presented, configured):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    try:
+        update = await request.json()
+    except Exception as exc:  # malformed body — ack so Telegram doesn't retry
+        log.warning("telegram_webhook: could not parse update body: %s", exc)
+        return {"ok": True}
+    if not isinstance(update, dict):
+        return {"ok": True}
+
+    task = asyncio.create_task(_tb.process_webhook_update(update))
+    _TELEGRAM_WEBHOOK_TASKS.add(task)
+    task.add_done_callback(_TELEGRAM_WEBHOOK_TASKS.discard)
+    return {"ok": True}
+
+
+# Strong refs to in-flight webhook dispatch tasks (RUF006: without this,
+# asyncio may GC a running task mid-flight).
+_TELEGRAM_WEBHOOK_TASKS: set = set()
 
 
 # ── OpenClaw Gateway (iOS control) ────────────────────────────────────────
