@@ -363,9 +363,30 @@ function TaskBoardScreen() {
   const handleApprove = async (taskId) => {
     setActionError(''); setPendingApprove(taskId);
     try {
-      await api.approveTaskCheckpoint(taskId, { approved: true, reason: 'Approved via UI' });
+      const task = rawTasks.find(t => t.task_id === taskId);
+      const pending = (task?.approval_checkpoints || []).filter(
+        c => c.approved === null || c.approved === undefined,
+      );
+      if (pending.length) {
+        // Sign off each outstanding review checkpoint. The /approve endpoint
+        // requires a concrete { checkpoint_id, approve } body — the earlier
+        // { approved: true } shape 422'd ("checkpoint_id: Field required;
+        // approve: Field required"). The backend releases the task to DONE
+        // once the last required checkpoint is approved.
+        for (const cp of pending) {
+          await api.approveTaskCheckpoint(taskId, {
+            checkpoint_id: cp.checkpoint_id,
+            approve: true,
+            reason: 'Approved via board',
+          });
+        }
+      } else {
+        // A reviewed task with no explicit checkpoints is released by moving it
+        // straight to DONE (IN_REVIEW → DONE is an allowed transition).
+        await api.updateTask(taskId, { status: 'done' });
+      }
     } catch (e) {
-      if (e?.response?.status !== 404 && e?.response?.status !== 400) {
+      if (e?.response?.status !== 404) {
         setActionError(api.fmtErr?.(e?.response?.data?.detail) || e?.message || 'Could not approve task.');
       }
     }
