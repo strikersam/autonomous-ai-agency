@@ -34,7 +34,7 @@ def captured(monkeypatch):
     async def fake_edit(token, chat_id, message_id, text, keyboard=None, parse_mode="Markdown"):
         log["edits"].append((text, keyboard))
 
-    async def fake_answer(token, callback_id, text=""):
+    async def fake_answer(token, callback_id, text="", *, show_alert=False):
         log["answers"].append(text)
 
     async def fake_get(path, use_admin=True):
