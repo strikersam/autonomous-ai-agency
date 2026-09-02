@@ -275,6 +275,15 @@ class ProviderConfig:
                 ).strip().lower() in ("0", "false", "no", "off")
                 if not _caching_off:
                     betas.append("prompt-caching-2024-07-31")
+                    # Extended cache TTL (2025-04-11): ANTHROPIC_CACHE_TTL=1h
+                    # promotes the 5m ephemeral cache to 1h. Same knob the
+                    # provider adapter (packages/llm/config.py) already honours,
+                    # so both Anthropic paths share one setting. Only "1h" opts
+                    # in; any other value keeps the default and omits the beta.
+                    if os.environ.get(
+                        "ANTHROPIC_CACHE_TTL", "5m"
+                    ).strip().lower() == "1h":
+                        betas.append("extended-cache-ttl-2025-04-11")
                 try:
                     _thinking_budget = int(
                         os.environ.get("ANTHROPIC_THINKING_BUDGET", "0") or "0"
@@ -1811,11 +1820,21 @@ class ProviderRouter:
             "ANTHROPIC_PROMPT_CACHING", "true"
         ).strip().lower() in ("0", "false", "no", "off")
         if system_text and not _caching_off:
+            # Extended cache TTL (2025-04-11): ANTHROPIC_CACHE_TTL=1h promotes the
+            # 5m ephemeral cache to 1h, cutting cache refreshes ~12x for agent
+            # loops that re-send the same system prompt many times an hour. Only
+            # "1h" opts in; any other value keeps the default 5m block. The
+            # matching extended-cache-ttl beta is added in auth_headers().
+            _cache_control: dict[str, Any] = {"type": "ephemeral"}
+            if os.environ.get(
+                "ANTHROPIC_CACHE_TTL", "5m"
+            ).strip().lower() == "1h":
+                _cache_control = {"type": "ephemeral", "ttl": "1h"}
             system_field: Any = [
                 {
                     "type": "text",
                     "text": system_text,
-                    "cache_control": {"type": "ephemeral"},
+                    "cache_control": _cache_control,
                 }
             ]
         else:
@@ -1838,6 +1857,15 @@ class ProviderRouter:
         if _thinking_budget > 0:
             out["thinking"] = {"type": "enabled", "budget_tokens": _thinking_budget}
             out["temperature"] = 1  # Anthropic requires temperature=1 for extended thinking
+
+        # Server-side fallbacks (2026-07-01 beta): when the beta header is active,
+        # also send fallbacks={"mode":"default"} so Anthropic re-runs refused requests
+        # on a recommended alternative model automatically.
+        _server_fallback_on = os.environ.get(
+            "ANTHROPIC_SERVER_FALLBACK_BETA", "true"
+        ).strip().lower() not in ("0", "false", "no", "off")
+        if _server_fallback_on:
+            out["fallbacks"] = {"mode": "default"}
 
         return out
 

@@ -42,7 +42,7 @@ Most "autonomous agent" projects show you a demo video. Here are artifacts inste
 
 | Proof | What it shows |
 |---|---|
-| [**This repo is maintained by its own agents**](proof/agent-built.md) | **279 of the 829 merged pull requests** in this repository were opened by the agent fleet — self-healing systems, provider failover, CI hardening, releases. Not a demo: the public commit history, verifiable with one GitHub search. |
+| [**This repo is maintained by its own agents**](proof/agent-built.md) | **323 of the 906 merged pull requests** in this repository were opened by the agent fleet — self-healing systems, provider failover, CI hardening, releases. Not a demo: the public commit history, verifiable with one GitHub search. |
 | [**Real audit output**](proof/audits/) | The SEO/GEO/AIO audit engine run against this project's own site — findings, scores, and the agent delegation plan, committed unedited (yes, including our own imperfect score). |
 | [**24-hour live sandbox**](https://autonomous-ai-agency.strikersam.workers.dev/) | Onboard any site, watch specialists get provisioned, talk to the CEO agent. The environment resets every 24 hours. No signup wall, nothing to uninstall. |
 
@@ -145,6 +145,14 @@ edited in [`config/agent_policy.yaml`](config/agent_policy.yaml) under git
 review, not from the dashboard.
 
 Guide, gap analysis, and threat model: [docs/governance/](docs/governance/README.md).
+
+## What's New (2026-09-01)
+
+**Anthropic server-side refusal fallbacks.** The Anthropic provider now sends `fallbacks: {"mode": "default"}` in the request body when `server_fallback: true` is set in the provider config (opt-in, default off). Paired with the existing `server-side-fallback-2026-07-01` beta header, this tells Anthropic's inference layer to automatically re-run content-refused requests on a recommended alternative model without a client-side round-trip. The legacy `ProviderRouter` also emits the parameter when `ANTHROPIC_SERVER_FALLBACK_BETA` is truthy (the default).
+
+**Refusal observability.** When Anthropic returns `stop_reason: "refusal"`, a `WARNING` log is now emitted with the refusal category (`cyber`, `bio`, or `unknown`) and explanation. Previously, these refusals arrived as silent empty-text responses with no operator-visible signal.
+
+---
 
 ## What's New (2026-08-21)
 

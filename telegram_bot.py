@@ -56,6 +56,7 @@ import os
 import time
 from collections import defaultdict
 from pathlib import Path
+from typing import Any
 
 import httpx
 from dotenv import load_dotenv
@@ -760,7 +761,9 @@ async def _edit_message(
         )
 
 
-async def _answer_callback(bot_token: str, callback_id: str, text: str = "") -> None:
+async def _answer_callback(
+    bot_token: str, callback_id: str, text: str = "", *, show_alert: bool = False
+) -> None:
     """Acknowledge a callback query so Telegram stops the button's loading spinner.
 
     Best-effort: NEVER raises. Telegram's client UI shows a "loading"
@@ -769,10 +772,18 @@ async def _answer_callback(bot_token: str, callback_id: str, text: str = "") -> 
     this function leaves the spinner up indefinitely. A 5s timeout protects
     against a slow / hostile Telegram API. Errors are logged but swallowed
     so a Telegram outage cannot break an end-user-facing flow.
+
+    ``show_alert=True`` renders ``text`` as a modal the user must dismiss
+    instead of the default toast that auto-fades in ~1s. Use it for failures
+    (denied / not-found / error) that would otherwise look like the button
+    "did nothing" \u2014 a silently-fading toast on an unedited message is
+    indistinguishable from a dead button.
     """
-    payload = {"callback_query_id": callback_id}
+    payload: dict[str, Any] = {"callback_query_id": callback_id}
     if text:
         payload["text"] = text
+    if show_alert:
+        payload["show_alert"] = True
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             await client.post(
@@ -982,7 +993,26 @@ async def _process_callback(bot_token: str, callback: dict) -> None:
     data = callback.get("data", "")
 
     if not _is_allowed(user_id) or not _is_admin(user_id):
-        await _answer_callback(bot_token, callback_id, "Not allowed.")
+        # This is the ONLY callback path that returns without editing the
+        # message, so a plain toast here is what makes a tapped Approve/Reject
+        # button look dead ("clicking does nothing"). The common cause is an
+        # operator who set TELEGRAM_ALLOWED_USER_IDS but not
+        # TELEGRAM_ADMIN_USER_IDS: the approval card is delivered (delivery
+        # falls back to the ALLOWED set) yet acting on it needs ADMIN, which
+        # does NOT fall back to ALLOWED. Surface it as a modal + a log line
+        # naming the fix instead of failing silently.
+        log.warning(
+            "Rejected callback from user_id=%s — admin-only. ADMIN_USER_IDS=%s. "
+            "If this is you, set TELEGRAM_ADMIN_USER_IDS (or TELEGRAM_CHAT_ID) to "
+            "your numeric Telegram ID and restart the bot.",
+            user_id, ADMIN_USER_IDS or "(empty)",
+        )
+        await _answer_callback(
+            bot_token, callback_id,
+            "Not allowed — this action is admin-only. Add your Telegram user ID "
+            "to TELEGRAM_ADMIN_USER_IDS (or set TELEGRAM_CHAT_ID) and restart.",
+            show_alert=True,
+        )
         return
 
     action, arg = _parse_callback(data)
