@@ -1570,6 +1570,38 @@ def _start_in_web_bot_tasks() -> list:
     os.environ.setdefault("FREEBUFF_BASE_BRANCH", "master")
     os.environ.setdefault("FREEBUFF_REPO_URL", "https://github.com/strikersam/local-llm-server")
 
+    # Webhook mode: Telegram POSTs updates to /api/telegram/webhook, so the
+    # getUpdates poller must NOT run (a set webhook 409s getUpdates, and the
+    # poller would delete the webhook on that 409). Register the webhook and
+    # skip the poll supervisor; keepalive still runs so the web service that
+    # receives the webhook stays awake on free tier.
+    try:
+        import telegram_bot as _tb
+
+        if _tb.webhook_mode_enabled():
+            base_url = (os.environ.get("RENDER_EXTERNAL_URL")
+                        or os.environ.get("SELF_BOOTSTRAP_URL") or "").rstrip("/")
+            if not base_url:
+                log.error(
+                    "TELEGRAM_WEBHOOK_ENABLED is set but RENDER_EXTERNAL_URL is not — "
+                    "cannot register the webhook; falling back to the getUpdates poller."
+                )
+            else:
+                async def _register() -> None:
+                    result = await _tb.register_webhook(base_url)
+                    if result.get("ok"):
+                        log.info("Telegram webhook registered at %s/api/telegram/webhook", base_url)
+                    else:
+                        log.error("Telegram setWebhook failed: %s", result.get("description"))
+
+                tasks.append(_asyncio.create_task(_register()))
+                if os.environ.get("BOT_KEEPALIVE", "true").strip().lower() in {"1", "true", "yes"}:
+                    tasks.append(_asyncio.create_task(_keepalive_self_ping()))
+                log.info("Telegram bot in WEBHOOK mode — getUpdates poller not started.")
+                return tasks
+    except Exception as exc:
+        log.warning("Telegram webhook setup failed (%s) — falling back to poller.", exc)
+
     try:
         tasks.append(_asyncio.create_task(_telegram_bot_supervisor()))
         log.info("FreeBuff Telegram bot starting inside web process (embedded mode).")
@@ -7643,6 +7675,52 @@ async def telegram_diag() -> dict[str, object]:
             "webhook_conflict": "If webhook.has_webhook is true (or getUpdates returns 409 'conflict'), a webhook is set. The bot calls deleteWebhook on startup; if it persists, run: curl -s 'https://api.telegram.org/bot<TOKEN>/deleteWebhook' manually.",
         },
     }
+
+
+@app.post("/api/telegram/webhook")
+async def telegram_webhook(request: Request) -> dict[str, bool]:
+    """Inbound Telegram webhook — the delivery path that does not depend on the
+    getUpdates long-poll consumer.
+
+    Enabled by ``TELEGRAM_WEBHOOK_ENABLED=true`` + ``TELEGRAM_WEBHOOK_SECRET``
+    (see startup wiring, which registers the webhook and, because a set webhook
+    409s getUpdates, does NOT start the poller). Telegram echoes the secret in
+    the ``X-Telegram-Bot-Api-Secret-Token`` header on every POST; that header is
+    this endpoint's authentication (the standard Telegram webhook model, akin to
+    the X-Service-Token surface) — a mismatch or unconfigured secret is a flat
+    403, so the endpoint can never be an unauthenticated trigger for the admin
+    actions the callback handlers perform. Update processing is dispatched to a
+    background task so we return 200 promptly (Telegram retries slow responses),
+    and the handlers apply their own per-user admin gate on top.
+    """
+    import secrets as _secrets
+
+    import telegram_bot as _tb
+
+    configured = _tb.webhook_secret()
+    if not configured:
+        raise HTTPException(status_code=403, detail="Forbidden")
+    presented = request.headers.get("X-Telegram-Bot-Api-Secret-Token", "")
+    if not _secrets.compare_digest(presented, configured):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    try:
+        update = await request.json()
+    except Exception as exc:  # malformed body — ack so Telegram doesn't retry
+        log.warning("telegram_webhook: could not parse update body: %s", exc)
+        return {"ok": True}
+    if not isinstance(update, dict):
+        return {"ok": True}
+
+    task = asyncio.create_task(_tb.process_webhook_update(update))
+    _TELEGRAM_WEBHOOK_TASKS.add(task)
+    task.add_done_callback(_TELEGRAM_WEBHOOK_TASKS.discard)
+    return {"ok": True}
+
+
+# Strong refs to in-flight webhook dispatch tasks (RUF006: without this,
+# asyncio may GC a running task mid-flight).
+_TELEGRAM_WEBHOOK_TASKS: set = set()
 
 
 # ── OpenClaw Gateway (iOS control) ────────────────────────────────────────

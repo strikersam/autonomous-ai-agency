@@ -51,8 +51,10 @@ Security model:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
+import re
 import time
 from collections import defaultdict
 from pathlib import Path
@@ -252,6 +254,103 @@ def _poller_disabled() -> bool:
     return (
         os.environ.get("TELEGRAM_POLLER_DISABLED", "").strip().lower()
         in ("1", "true", "yes", "on")
+    )
+
+
+# ─── Webhook mode ───────────────────────────────────────────────────────────────
+#
+# On a Render web service the getUpdates long-poll consumer is a background task
+# that can silently stop (poller disabled to avoid a 409 with a worker that isn't
+# actually up, a wedged 409, a crashed task), and when it does, cards are still
+# delivered by independent direct sendMessage calls while every inline button
+# goes dead. A webhook removes that failure mode: Telegram POSTs each update to
+# an HTTP endpoint the web service already knows how to serve, so tap handling no
+# longer depends on a long-lived poll loop. Webhook and getUpdates are mutually
+# exclusive at Telegram (a set webhook makes getUpdates 409), so the poller must
+# NOT run when webhook mode is enabled — see backend/server.py startup wiring.
+
+
+def webhook_mode_enabled() -> bool:
+    """True when TELEGRAM_WEBHOOK_ENABLED is truthy AND a secret is configured.
+
+    The secret is mandatory: the webhook endpoint triggers admin actions
+    (approve/merge), so without a shared secret to authenticate Telegram's
+    POSTs the endpoint would be an unauthenticated trigger. No secret => mode
+    off, and the poller stays the transport.
+    """
+    enabled = os.environ.get("TELEGRAM_WEBHOOK_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+    return enabled and bool(webhook_secret())
+
+
+def webhook_secret() -> str | None:
+    """The shared secret Telegram echoes in X-Telegram-Bot-Api-Secret-Token.
+
+    Must be 1–256 chars of A-Z a-z 0-9 _ - (Telegram's own constraint). Returns
+    None when unset or invalid so callers fail closed.
+    """
+    raw = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip()
+    if not raw or len(raw) > 256:
+        return None
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", raw):
+        return None
+    return raw
+
+
+def ensure_config_loaded() -> None:
+    """Re-resolve the token + allowlists from the environment (idempotent).
+
+    ``run_bot`` does this at startup; webhook mode may dispatch updates without
+    ``run_bot`` ever running, so the webhook path calls this first to guarantee
+    ALLOWED/ADMIN and the token reflect the environment regardless of import
+    order.
+    """
+    global ALLOWED_USER_IDS, ADMIN_USER_IDS, TELEGRAM_BOT_TOKEN
+    if not TELEGRAM_BOT_TOKEN:
+        TELEGRAM_BOT_TOKEN = "".join(os.environ.get("TELEGRAM_BOT_TOKEN", "").strip().split())
+    ALLOWED_USER_IDS, ADMIN_USER_IDS = _resolve_bot_user_ids(
+        os.environ.get("TELEGRAM_ALLOWED_USER_IDS", ""),
+        os.environ.get("TELEGRAM_ADMIN_USER_IDS", ""),
+        os.environ.get("TELEGRAM_CHAT_ID", ""),
+    )
+
+
+async def process_webhook_update(update: dict) -> None:
+    """Dispatch a single Telegram update delivered via webhook.
+
+    Routes to the SAME handlers the long-poll loop uses, so webhook and polling
+    behave identically. Best-effort: never raises (a raised error would make
+    Telegram retry the delivery in a storm).
+    """
+    ensure_config_loaded()
+    try:
+        if update.get("callback_query"):
+            await _process_callback(TELEGRAM_BOT_TOKEN, update["callback_query"])
+        else:
+            await _process_update(TELEGRAM_BOT_TOKEN, update)
+    except Exception as exc:  # noqa: BLE001 — one bad update must not break the endpoint
+        log.exception("process_webhook_update failed: %s", exc)
+
+
+async def register_webhook(base_url: str) -> dict[str, Any]:
+    """Point Telegram at ``<base_url>/api/telegram/webhook`` (best-effort).
+
+    Sets the secret token and restricts delivery to messages + callback queries
+    (the only updates this bot acts on). Called at startup when webhook mode is
+    enabled; returns Telegram's parsed response so the caller can log it.
+    """
+    secret = webhook_secret()
+    if not secret:
+        return {"ok": False, "description": "TELEGRAM_WEBHOOK_SECRET not set/invalid"}
+    url = f"{base_url.rstrip('/')}/api/telegram/webhook"
+    return await _tg_call(
+        "setWebhook",
+        {
+            "url": url,
+            "secret_token": secret,
+            "allowed_updates": json.dumps(["message", "callback_query"]),
+            "max_connections": "20",
+        },
+        timeout=15.0,
     )
 
 
