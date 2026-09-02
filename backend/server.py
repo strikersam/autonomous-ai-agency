@@ -7599,9 +7599,33 @@ async def telegram_diag() -> dict[str, object]:
     allowed = _os.environ.get("TELEGRAM_ALLOWED_USER_IDS", "")
     admins = _os.environ.get("TELEGRAM_ADMIN_USER_IDS", "")
 
+    # Live poller/webhook state — the part env vars cannot reveal. This is what
+    # tells a card-arrives-but-button-does-nothing report apart: notifications
+    # are sent by an independent direct call, but acting on a tap needs the
+    # getUpdates consumer to be alive AND unblocked by any registered webhook.
+    poller_age: float | None = None
+    webhook: dict[str, object] = {"ok": False, "description": "not checked"}
+    if token:
+        try:
+            import telegram_bot as _tb
+
+            poller_age = _tb.poller_heartbeat_age_sec()
+            webhook = await _tb.get_webhook_info()
+        except Exception as _exc:  # best-effort; diag must never 500
+            webhook = {"ok": False, "description": f"lookup failed: {type(_exc).__name__}"}
+
     return {
         "run_telegram_bot": _os.environ.get("RUN_TELEGRAM_BOT", "false").strip().lower() in ("true", "1", "yes", "on"),
         "poller_disabled": _os.environ.get("TELEGRAM_POLLER_DISABLED", "false").strip().lower() in ("true", "1", "yes", "on"),
+        # Live: seconds since this process last consumed an update. None => the
+        # long-poll consumer has never run here (not started, disabled on this
+        # service, or wedged on a webhook 409). A steady small value => healthy.
+        "poller_last_poll_age_sec": poller_age,
+        "poller_running_here": poller_age is not None and poller_age < 120,
+        # Live: a registered webhook makes getUpdates 409, so buttons can't be
+        # handled by the poller. pending_update_count > 0 and rising => nobody
+        # is draining updates (the "tap does nothing" signature).
+        "webhook": webhook,
         "bot_token_set": bool(token),
         "bot_token_prefix": _mask(token),
         "chat_id": chat_id or "(unset)",
@@ -7614,8 +7638,9 @@ async def telegram_diag() -> dict[str, object]:
         "render_external_url": _os.environ.get("RENDER_EXTERNAL_URL", "(unset)"),
         "diagnostic_hints": {
             "bot_silent": "If the bot is silent: (1) check bot_token_set is true; (2) check allowed_user_ids contains your numeric Telegram ID (message @userinfobot to get it); (3) check poller_disabled is false on the service that should poll; (4) only ONE service may poll a given token (409 conflict otherwise); (5) if on free tier, verify BOT_KEEPALIVE=true and /api/ping is reachable.",
+            "buttons_do_nothing": "If cards arrive but tapping Approve/Reject/merge does nothing, the getUpdates consumer is not draining updates — sending a card is an independent direct call and does not prove the poller is alive. Confirm with the LIVE fields above: poller_running_here must be true (poller_last_poll_age_sec small), and webhook.has_webhook must be false (a set webhook makes getUpdates 409). If webhook.has_webhook is true, delete it (see webhook_conflict). If poller_running_here is false while poller_disabled is false and run_telegram_bot is true, the poll task is not running in this process — restart the service and re-check.",
             "stale_repo": "If FREEBUFF_REPO_URL points at strikersam/local-llm-server, repoint to strikersam/autonomous-ai-agency (the repo was renamed).",
-            "webhook_conflict": "If getUpdates returns 409 'conflict', a webhook is set. The bot calls deleteWebhook on startup; if the conflict persists, run: curl -s 'https://api.telegram.org/bot<TOKEN>/deleteWebhook' manually.",
+            "webhook_conflict": "If webhook.has_webhook is true (or getUpdates returns 409 'conflict'), a webhook is set. The bot calls deleteWebhook on startup; if it persists, run: curl -s 'https://api.telegram.org/bot<TOKEN>/deleteWebhook' manually.",
         },
     }
 

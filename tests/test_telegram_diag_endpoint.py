@@ -33,6 +33,20 @@ def client(monkeypatch):
     monkeypatch.setenv("FREEBUFF_EMBEDDED", "true")
     monkeypatch.setenv("RENDER_EXTERNAL_URL", "https://local-llm-server.onrender.com")
 
+    # Stub the LIVE Telegram lookups so the endpoint never hits the network:
+    # getWebhookInfo would otherwise make a real API call. Default here models a
+    # healthy poller with no webhook set.
+    import telegram_bot as _tb
+
+    async def _fake_webhook_info():
+        return {
+            "ok": True, "webhook_url": "", "has_webhook": False,
+            "pending_update_count": 0, "last_error_message": "", "last_error_date": 0,
+        }
+
+    monkeypatch.setattr(_tb, "get_webhook_info", _fake_webhook_info)
+    monkeypatch.setattr(_tb, "poller_heartbeat_age_sec", lambda: 3.0)
+
     # Import after env is set
     from backend.server import app
     return TestClient(app)
@@ -101,3 +115,48 @@ def test_telegram_diag_unset_token(client, monkeypatch):
     data = resp.json()
     assert data["bot_token_set"] is False
     assert data["bot_token_prefix"] == "(unset)"
+
+
+def test_telegram_diag_reports_healthy_poller_and_no_webhook(client):
+    """The live fields show a running poller and no webhook when healthy."""
+    data = client.get("/api/telegram/diag").json()
+    assert data["poller_last_poll_age_sec"] == 3.0
+    assert data["poller_running_here"] is True
+    assert data["webhook"]["ok"] is True
+    assert data["webhook"]["has_webhook"] is False
+    # The buttons-do-nothing hint must be present — it's the whole point.
+    assert "buttons_do_nothing" in data["diagnostic_hints"]
+
+
+def test_telegram_diag_flags_dead_poller_and_set_webhook(client, monkeypatch):
+    """The exact 'card arrives but tap does nothing' state is made visible:
+    no poll has ever run here, and a webhook is registered (getUpdates 409)."""
+    import telegram_bot as _tb
+
+    async def _webhook_set():
+        return {
+            "ok": True, "webhook_url": "https://example.test/hook", "has_webhook": True,
+            "pending_update_count": 7, "last_error_message": "Conflict", "last_error_date": 111,
+        }
+
+    monkeypatch.setattr(_tb, "get_webhook_info", _webhook_set)
+    monkeypatch.setattr(_tb, "poller_heartbeat_age_sec", lambda: None)
+
+    data = client.get("/api/telegram/diag").json()
+    assert data["poller_last_poll_age_sec"] is None
+    assert data["poller_running_here"] is False          # nothing is consuming taps
+    assert data["webhook"]["has_webhook"] is True          # and a webhook blocks getUpdates
+    assert data["webhook"]["pending_update_count"] == 7    # updates piling up, undrained
+
+
+def test_telegram_diag_survives_webhook_lookup_failure(client, monkeypatch):
+    """A failed live lookup must degrade to a diagnostic, never 500 the endpoint."""
+    import telegram_bot as _tb
+
+    async def _boom():
+        raise RuntimeError("telegram unreachable")
+
+    monkeypatch.setattr(_tb, "get_webhook_info", _boom)
+    resp = client.get("/api/telegram/diag")
+    assert resp.status_code == 200
+    assert resp.json()["webhook"]["ok"] is False

@@ -177,6 +177,28 @@ _bg_tasks: set[asyncio.Task] = set()
 # config reload — that's acceptable because a process restart clears it.
 _EMPTY_ALLOWLIST_WARNED: bool = False
 
+# Wall-clock time (epoch seconds) of the last SUCCESSFUL getUpdates poll. This
+# is the one signal that distinguishes "the poller is alive and consuming
+# updates" from "cards are sent but taps do nothing" — a card is delivered by
+# an independent direct sendMessage (NotificationDispatcher / pr_approval_gate)
+# and never touches this loop, so a button can look dead while notifications
+# still arrive. ``None`` means run_bot has never completed a poll in this
+# process (never started, poller disabled here, or wedged on a 409 webhook
+# conflict). Read via ``poller_heartbeat_age_sec()`` from the diag endpoint.
+_LAST_SUCCESSFUL_POLL_TS: float | None = None
+
+
+def poller_heartbeat_age_sec() -> float | None:
+    """Seconds since the last successful getUpdates poll, or None if never.
+
+    A small value means the long-poll consumer is running in THIS process; a
+    large/growing value or None means it is not — which is exactly when inline
+    Approve/Reject/merge buttons appear to do nothing.
+    """
+    if _LAST_SUCCESSFUL_POLL_TS is None:
+        return None
+    return max(0.0, time.time() - _LAST_SUCCESSFUL_POLL_TS)
+
 
 # ─── Auth helpers ──────────────────────────────────────────────────────────────
 
@@ -1590,10 +1612,15 @@ async def _process_update(bot_token: str, update: dict) -> None:
 
 # ─── Long-poll main loop ───────────────────────────────────────────────────────
 
-async def _tg_call(method: str, params: dict | None = None) -> dict:
-    """Call a Telegram Bot API method and return the parsed JSON (best-effort)."""
+async def _tg_call(method: str, params: dict | None = None, *, timeout: float = 35.0) -> dict:
+    """Call a Telegram Bot API method and return the parsed JSON (best-effort).
+
+    ``timeout`` defaults to 35s for the long-poll path; callers that must return
+    quickly (e.g. the diag endpoint's getWebhookInfo) pass a short one so a slow
+    or unreachable Telegram API cannot stall the request.
+    """
     try:
-        async with httpx.AsyncClient(timeout=35.0) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             r = await client.get(
                 f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}",
                 params=params or {},
@@ -1601,6 +1628,32 @@ async def _tg_call(method: str, params: dict | None = None) -> dict:
         return r.json()
     except Exception as exc:  # network / decode errors shouldn't crash startup
         return {"ok": False, "description": f"request failed: {exc}"}
+
+
+async def get_webhook_info() -> dict[str, Any]:
+    """Fetch Telegram's live getWebhookInfo, distilled to the fields that
+    diagnose a dead poller.
+
+    A non-empty ``url`` means a webhook is registered, so ``getUpdates`` is
+    rejected with 409 and long-polling cannot consume taps until the webhook is
+    deleted. A ``pending_update_count`` that stays above zero (and grows) means
+    updates are queued but nothing is draining them — the exact signature of
+    "the card arrives but the button does nothing". ``last_error_message`` is
+    Telegram's own note on the most recent failed delivery. Best-effort: returns
+    ``{"ok": False, ...}`` rather than raising.
+    """
+    resp = await _tg_call("getWebhookInfo", timeout=8.0)
+    if not resp.get("ok"):
+        return {"ok": False, "description": resp.get("description", "getWebhookInfo failed")}
+    result = resp.get("result", {}) or {}
+    return {
+        "ok": True,
+        "webhook_url": result.get("url") or "",
+        "has_webhook": bool(result.get("url")),
+        "pending_update_count": result.get("pending_update_count", 0),
+        "last_error_message": result.get("last_error_message", ""),
+        "last_error_date": result.get("last_error_date", 0),
+    }
 
 
 async def run_bot() -> None:
@@ -1734,8 +1787,11 @@ async def run_bot() -> None:
                     backoff = min(backoff * 2, _BACKOFF_CEIL)
                 continue
 
-            # Successful poll — reset the backoff floor.
+            # Successful poll — reset the backoff floor and stamp the heartbeat
+            # so /api/telegram/diag can prove the consumer is actually running.
             backoff = _BACKOFF_FLOOR
+            global _LAST_SUCCESSFUL_POLL_TS
+            _LAST_SUCCESSFUL_POLL_TS = time.time()
             for update in data.get("result", []):
                 offset = update["update_id"] + 1
                 try:
