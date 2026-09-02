@@ -195,10 +195,11 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
         "judge":     "gemma-4-31b",
     },
     "groq": {
-        "planner":   "llama-3.3-70b-versatile",
-        "executor":  "llama-3.3-70b-versatile",
-        "verifier":  "llama-3.3-70b-versatile",
-        "judge":     "llama-3.3-70b-versatile",
+        # Probed 2026-09-01 (run 33483861221): HTTP 200 plus a real tool_call.
+        "planner":   "openai/gpt-oss-120b",
+        "executor":  "openai/gpt-oss-120b",
+        "verifier":  "openai/gpt-oss-120b",
+        "judge":     "openai/gpt-oss-120b",
     },
     "nvidia": {
         "planner":   "nvidia/nemotron-3-super-120b-a12b",
@@ -372,13 +373,14 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         "gemma-4-31b",
     ],
     "groq": [
-        "llama-3.3-70b-versatile",
-        "deepseek-r1-distill-llama-70b",
-        "llama-3.1-8b-instant",
-        # Kimi K2 on Groq (Moonshot AI's MoE, Aug 2026). ~1M token context.
-        "moonshotai/kimi-k2-instruct",
-        # Qwen3 32B — strong coder, available on Groq free tier (Aug 2026).
-        "qwen-qwq-32b",
+        # Probed against the live account 2026-09-01 (run 33483861221): each
+        # returned HTTP 200 to a real completion and emitted a genuine
+        # tool_call. The five ids previously here are none of them in this
+        # account's 14-model catalogue; the three that were tried answered
+        # 404/400 (run 33483766556) and the other two were never checked.
+        "openai/gpt-oss-120b",
+        "openai/gpt-oss-20b",
+        "qwen/qwen3.8-27b",
     ],
     "mistral": [
         "mistral-small-latest",
