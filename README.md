@@ -146,6 +146,14 @@ review, not from the dashboard.
 
 Guide, gap analysis, and threat model: [docs/governance/](docs/governance/README.md).
 
+## What's New (2026-09-01)
+
+**Anthropic server-side refusal fallbacks.** The Anthropic provider now sends `fallbacks: {"mode": "default"}` in the request body when `server_fallback: true` is set in the provider config (opt-in, default off). Paired with the existing `server-side-fallback-2026-07-01` beta header, this tells Anthropic's inference layer to automatically re-run content-refused requests on a recommended alternative model without a client-side round-trip. The legacy `ProviderRouter` also emits the parameter when `ANTHROPIC_SERVER_FALLBACK_BETA` is truthy (the default).
+
+**Refusal observability.** When Anthropic returns `stop_reason: "refusal"`, a `WARNING` log is now emitted with the refusal category (`cyber`, `bio`, or `unknown`) and explanation. Previously, these refusals arrived as silent empty-text responses with no operator-visible signal.
+
+---
+
 ## What's New (2026-08-21)
 
 **Claude 5 family in the YAML model catalog.** `claude-sonnet-5`, `claude-sonnet-5-20260501`, `claude-opus-5`, and `claude-haiku-4-5-20251001` are now declared in `config/llm/models.yaml`, the catalog that drives capability filtering, context-window checks, and per-token cost tracking for every routed request. Sonnet 5's 1M-token context window and introductory pricing ($2/$10 per MTok — cheaper than Sonnet 4.6's $3/$15) are now visible to the YAML-driven code paths. The Anthropic provider default is promoted from `claude-sonnet-4-6` to `claude-sonnet-5`; new deployments that set only `ANTHROPIC_API_KEY` now route to Sonnet 5 automatically.

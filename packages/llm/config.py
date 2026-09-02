@@ -82,6 +82,11 @@ class ProviderConfig:
     # (requires ANTHROPIC_CACHE_TTL=1h and adds anthropic-beta: extended-cache-ttl-2025-04-11).
     # The 1-hour write costs ~60% more, but saves ~90% on repeated access across long sessions.
     cache_ttl: str = "5m"
+    # server_fallback: inject fallbacks={"mode":"default"} in the request body, paired with the
+    # server-side-fallback-2026-07-01 beta header. Anthropic automatically re-runs refused
+    # requests on an alternative model from the recommended set for that refusal category.
+    # Complements the local provider failover chain rather than replacing it.
+    server_fallback: bool = False
 
     @property
     def is_local(self) -> bool:
