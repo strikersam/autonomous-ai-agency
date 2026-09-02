@@ -4,7 +4,7 @@ Most "autonomous agent" projects show you a demo video. This directory holds **a
 
 | Artifact | What it proves |
 |---|---|
-| [`agent-built.md`](agent-built.md) | This repository is maintained by its own agents: **279 of the 829 merged pull requests** were opened by AI agent sessions (verifiable from the PR head branches). |
+| [`agent-built.md`](agent-built.md) | This repository is maintained by its own agents: **323 of the 906 merged pull requests** were opened by AI agent sessions (verifiable from the PR head branches). |
 | [`audits/self-audit/`](audits/self-audit/) | The SEO/GEO/AIO audit engine, run for real against this project's own public docs page — including the findings against ourselves. |
 
 ## The self-audit (yes, we publish our own imperfect score)

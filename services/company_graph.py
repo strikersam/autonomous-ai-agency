@@ -153,14 +153,63 @@ class CompanyGraphService:
     async def delete_company(self, company_id: str) -> bool:
         """
         Delete a company and all its associated data.
-        
+
+        The store only clears the company-graph rows (specialists, websites,
+        repos, …). Onboarding also stands up a live agency for the company:
+        each provisioned specialist is registered as an ``AgentDefinition`` in
+        the AgentStore (``owner_id == company_id``) and company-tagged 24x7
+        schedules are created. Those survive a raw row delete, so the agents
+        keep running and keep showing in the dashboard after the company is
+        gone. Tear the agency down first, then delete the persisted rows.
+
         Args:
             company_id: Company ID
-            
+
         Returns:
             True if deleted, False otherwise
         """
+        await self._teardown_company_agency(company_id)
         return await self.store.delete_company(company_id)
+
+    async def _teardown_company_agency(self, company_id: str) -> None:
+        """Stop schedules and remove the registered agents for a company.
+
+        Best-effort: a failure here must never prevent the company rows from
+        being deleted, so every step is guarded and logged rather than raised.
+        """
+        # 1. Deactivate the running agency: removes company-tagged schedules
+        #    and clears in-memory agency state.
+        try:
+            from services.company_agency import get_company_agency_service
+            await get_company_agency_service().deactivate_company(company_id)
+        except Exception:
+            log.exception(
+                "delete_company: failed to deactivate agency for %s", company_id
+            )
+
+        # 2. Delete the specialist agents registered in the AgentStore. They are
+        #    owned by the company (owner_id == company_id), so a per-owner list
+        #    finds every one regardless of its public flag or tags.
+        try:
+            from agents.store import get_agent_store
+            agent_store = get_agent_store()
+            agents = await agent_store.list_for_user(
+                company_id, include_public=False
+            )
+            removed = 0
+            for agent in agents:
+                if await agent_store.delete(agent.agent_id):
+                    removed += 1
+            if removed:
+                log.info(
+                    "delete_company: removed %d registered agent(s) for %s",
+                    removed, company_id,
+                )
+        except Exception:
+            log.exception(
+                "delete_company: failed to delete registered agents for %s",
+                company_id,
+            )
 
     async def list_companies(
         self,

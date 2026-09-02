@@ -184,6 +184,12 @@ class AnthropicProvider(LLMProvider):
         if effort and effort in _VALID_EFFORT_LEVELS:
             payload["output_config"] = {"effort": effort}
 
+        # Server-side fallbacks (2026-07-01): when enabled, Anthropic re-runs refused
+        # requests on a recommended alternative model for that refusal category.
+        # Paired with the server-side-fallback-2026-07-01 beta header in auth_headers.
+        if getattr(self.config, "server_fallback", False):
+            payload["fallbacks"] = {"mode": "default"}
+
         return payload
 
     @classmethod
@@ -466,6 +472,18 @@ class AnthropicProvider(LLMProvider):
                     index=index,
                 ))
 
+        stop_reason = data.get("stop_reason")
+        if stop_reason == "refusal":
+            stop_details = data.get("stop_details") or {}
+            category = stop_details.get("category")
+            explanation = stop_details.get("explanation", "")
+            log.warning(
+                "Anthropic content refusal on %s — category=%s explanation=%s",
+                model,
+                category or "unknown",
+                explanation[:200] if explanation else "(none)",
+            )
+
         raw_usage = data.get("usage") or {}
         usage = Usage(
             prompt_tokens=int(raw_usage.get("input_tokens") or 0),
@@ -481,7 +499,7 @@ class AnthropicProvider(LLMProvider):
             provider=self.id,
             usage=usage,
             tool_calls=tool_calls,
-            finish_reason=data.get("stop_reason"),
+            finish_reason=stop_reason,
             latency_ms=latency_ms,
             cost_usd=self.cost(model, usage),
             raw=raw,
