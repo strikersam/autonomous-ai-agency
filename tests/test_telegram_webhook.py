@@ -55,26 +55,43 @@ def test_webhook_secret_rejects_invalid(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_register_webhook_requests_only_needed_updates(monkeypatch):
-    import json
-
+async def test_register_webhook_posts_secret_in_body_not_url(monkeypatch):
+    """The secret must go in the POST body, never the URL (URLs get logged)."""
     import telegram_bot as tb
 
     monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", SECRET)
+    monkeypatch.setattr(tb, "TELEGRAM_BOT_TOKEN", "123:ABC")
     captured: dict = {}
 
-    async def fake_tg_call(method, params=None, *, timeout=35.0):
-        captured["method"] = method
-        captured["params"] = params
-        return {"ok": True}
+    class _FakeResp:
+        def json(self):
+            return {"ok": True, "result": True}
 
-    monkeypatch.setattr(tb, "_tg_call", fake_tg_call)
+    class _FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None):
+            captured["url"] = url
+            captured["json"] = json
+            return _FakeResp()
+
+    monkeypatch.setattr(tb.httpx, "AsyncClient", _FakeClient)
     result = await tb.register_webhook("https://x.onrender.com/")
     assert result["ok"] is True
-    assert captured["method"] == "setWebhook"
-    assert captured["params"]["url"] == "https://x.onrender.com/api/telegram/webhook"
-    assert captured["params"]["secret_token"] == SECRET
-    assert json.loads(captured["params"]["allowed_updates"]) == ["message", "callback_query"]
+    # URL is the plain setWebhook endpoint — no secret in the query string.
+    assert captured["url"].endswith("/setWebhook")
+    assert SECRET not in captured["url"]
+    # Params (incl. the secret) travel in the JSON body.
+    assert captured["json"]["url"] == "https://x.onrender.com/api/telegram/webhook"
+    assert captured["json"]["secret_token"] == SECRET
+    assert captured["json"]["allowed_updates"] == ["message", "callback_query"]
 
 
 @pytest.mark.asyncio

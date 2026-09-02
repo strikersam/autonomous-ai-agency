@@ -51,7 +51,6 @@ Security model:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import re
@@ -80,6 +79,14 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] telegram-bot %(message)s",
 )
+
+# httpx logs every request at INFO as "HTTP Request: GET <full-url> ...". For
+# Telegram that URL carries the bot token in its path (and previously the
+# webhook secret in its query), so those INFO lines leak secrets into the
+# service logs (rule 6). Quiet httpx to WARNING process-wide — the per-request
+# line is noise, and our own code logs what matters. Set here because this
+# module is imported by the web process that makes the Telegram calls.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 
 # ─── Configuration ─────────────────────────────────────────────────────────────
 
@@ -342,16 +349,25 @@ async def register_webhook(base_url: str) -> dict[str, Any]:
     if not secret:
         return {"ok": False, "description": "TELEGRAM_WEBHOOK_SECRET not set/invalid"}
     url = f"{base_url.rstrip('/')}/api/telegram/webhook"
-    return await _tg_call(
-        "setWebhook",
-        {
-            "url": url,
-            "secret_token": secret,
-            "allowed_updates": json.dumps(["message", "callback_query"]),
-            "max_connections": "20",
-        },
-        timeout=15.0,
-    )
+    # POST the params in the request BODY, not the query string: the secret_token
+    # must never appear in a URL (URLs get logged/proxied/retained). The bot
+    # token is still in the request path, but httpx request logging is quieted to
+    # WARNING at import so that line is not emitted either.
+    payload = {
+        "url": url,
+        "secret_token": secret,
+        "allowed_updates": ["message", "callback_query"],
+        "max_connections": 20,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            r = await client.post(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook",
+                json=payload,
+            )
+        return r.json()
+    except Exception as exc:  # noqa: BLE001 — best-effort; startup must not crash
+        return {"ok": False, "description": f"setWebhook request failed: {exc}"}
 
 
 def _check_rate_limit(user_id: int) -> bool:
