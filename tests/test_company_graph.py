@@ -385,3 +385,57 @@ class TestMalformedCompanyId:
         store = MongoDBStore()
         result = asyncio.run(store.get_company("companies"))  # not a valid ObjectId
         assert result is None
+
+
+class TestDeleteCompanyRemovesAgents:
+    """Regression: deleting an onboarded company left its agents behind.
+
+    Onboarding registers each provisioned specialist as an ``AgentDefinition``
+    in the AgentStore (``owner_id == company_id``). ``delete_company`` only
+    cleared the company-graph rows, so those agents kept running and kept
+    showing in the dashboard after the company was deleted. The service now
+    tears the agency down as part of ``delete_company``.
+    """
+
+    @pytest.mark.asyncio
+    async def test_delete_company_removes_registered_agents(self, tmp_path, monkeypatch):
+        try:
+            from services.company_graph import CompanyGraphService
+            from services.company_graph_store import SQLiteStore
+            from agents import store as agent_store_module
+            from agents.store import AgentDefinition, AgentStore
+        except (ImportError, ModuleNotFoundError):
+            pytest.skip("company graph service / agent store not importable")
+
+        # Fresh in-memory AgentStore so the test is hermetic.
+        monkeypatch.setattr(agent_store_module, "_store", AgentStore())
+        agent_store = agent_store_module.get_agent_store()
+
+        cg_store = SQLiteStore()
+        cg_store._db_path = str(tmp_path / "cg.db")
+        svc = CompanyGraphService(store=cg_store)
+
+        company = await svc.create_company(name="Acme", domain="acme.com", owner_id="u1")
+        other = await svc.create_company(name="Beta", domain="beta.com", owner_id="u2")
+
+        # Simulate what CompanyAgencyService.activate_company registers.
+        await agent_store.create(AgentDefinition(
+            agent_id=f"specialist:s1", owner_id=company.id,
+            name="[Acme] Backend", role="backend", is_public=True,
+            tags=[f"company:{company.id}", "auto-provisioned"],
+        ))
+        await agent_store.create(AgentDefinition(
+            agent_id=f"specialist:s2", owner_id=other.id,
+            name="[Beta] Frontend", role="frontend", is_public=True,
+            tags=[f"company:{other.id}", "auto-provisioned"],
+        ))
+
+        # Sanity: both agents are present before deletion.
+        assert await agent_store.get("specialist:s1") is not None
+        assert await agent_store.get("specialist:s2") is not None
+
+        assert await svc.delete_company(company.id) is True
+
+        # Acme's agent is gone; Beta's agent (a different company) is untouched.
+        assert await agent_store.get("specialist:s1") is None
+        assert await agent_store.get("specialist:s2") is not None

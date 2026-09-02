@@ -109,3 +109,36 @@ async def test_unknown_task_id_answers_not_found(store, recorder):
 async def test_callback_parser_routes_task_prefix():
     assert telegram_bot._parse_callback("task:approve:task_abc") == ("task_approve", "task_abc")
     assert telegram_bot._parse_callback("task:reject:task_abc") == ("task_reject", "task_abc")
+
+
+@pytest.mark.asyncio
+async def test_non_admin_tap_gets_visible_alert_not_silent_toast(monkeypatch):
+    """A non-admin tapping Approve must get a modal (show_alert), not silence.
+
+    Regression: the admin gate answered with a plain toast and returned without
+    editing the message — the ONLY callback path that leaves the message
+    untouched — so a denied tap looked like a dead button ("clicking does
+    nothing"). This is the exact failure an operator hits when they set
+    TELEGRAM_ALLOWED_USER_IDS but not TELEGRAM_ADMIN_USER_IDS: the approval card
+    is delivered (delivery falls back to ALLOWED) but acting on it needs ADMIN.
+    """
+    monkeypatch.setattr(telegram_bot, "ALLOWED_USER_IDS", {42})
+    monkeypatch.setattr(telegram_bot, "ADMIN_USER_IDS", set())  # nobody is admin
+
+    captured: dict = {}
+
+    async def fake_answer(bot_token, callback_id, text="", *, show_alert=False):
+        captured["text"] = text
+        captured["show_alert"] = show_alert
+
+    monkeypatch.setattr(telegram_bot, "_answer_callback", fake_answer)
+
+    await telegram_bot._process_callback("tok", {
+        "id": "cb1",
+        "from": {"id": 42},
+        "message": {"chat": {"id": 100}, "message_id": 7},
+        "data": "task:approve:task_abc",
+    })
+
+    assert captured.get("show_alert") is True
+    assert "TELEGRAM_ADMIN_USER_IDS" in captured.get("text", "")
