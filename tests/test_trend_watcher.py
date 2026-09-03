@@ -498,4 +498,116 @@ def test_keywords_include_new_terms():
     assert "cuda" in _KEYWORDS
     assert "agentic" in _KEYWORDS or "ai agent" in _KEYWORDS
     assert "rag" in _KEYWORDS or "retrieval augmented" in _KEYWORDS
+
+
+# ── High-signal scoring — regression for the sloppy #1397 digest ──────────────
+
+@pytest.mark.asyncio
+async def test_fetch_ollama_scores_by_content_not_blanket(tmp_watcher):
+    """A release is scored by its notes, never the old blanket 0.95 that let five
+    version bumps headline a digest (#1397)."""
+    client = _FakeClient({"ollama/ollama/releases": _OLLAMA_RELEASES_PAYLOAD})
+    async with client as c:
+        alerts = await tmp_watcher._fetch_ollama_releases(c)
+    assert len(alerts) == 1
+    assert alerts[0].relevance_score < 0.95
+
+
+@pytest.mark.asyncio
+async def test_fetch_ollama_collapses_routine_release_spam(tmp_watcher):
+    """Only the newest release is force-surfaced; older routine patch releases in the
+    same batch (no model/API signal) are dropped, so five bumps collapse to one row."""
+    payload = [
+        {
+            "tag_name": "v0.33.0",
+            "body": "Add support for new vision models and function calling.",
+            "html_url": "https://github.com/ollama/ollama/releases/tag/v0.33.0",
+            "published_at": "2026-08-21T10:00:00Z",
+        },
+        {
+            "tag_name": "v0.32.15",
+            "body": "Bug fixes and performance improvements.",
+            "html_url": "https://github.com/ollama/ollama/releases/tag/v0.32.15",
+            "published_at": "2026-08-19T10:00:00Z",
+        },
+        {
+            "tag_name": "v0.32.14",
+            "body": "Minor patch.",
+            "html_url": "https://github.com/ollama/ollama/releases/tag/v0.32.14",
+            "published_at": "2026-08-15T10:00:00Z",
+        },
+    ]
+    client = _FakeClient({"ollama/ollama/releases": payload})
+    async with client as c:
+        alerts = await tmp_watcher._fetch_ollama_releases(c)
+    assert len(alerts) == 1
+    assert "v0.33.0" in alerts[0].title
+    assert "action-required" in alerts[0].tags  # notes signal model/API changes
+
+
+@pytest.mark.asyncio
+async def test_fetch_ollama_routine_latest_not_actionable(tmp_watcher):
+    """A routine latest release still surfaces (our niche) but is informational — not
+    tagged action-required, and well below the old 0.95."""
+    payload = [{
+        "tag_name": "v0.33.2",
+        "body": "Bug fixes and performance improvements.",
+        "html_url": "https://github.com/ollama/ollama/releases/tag/v0.33.2",
+        "published_at": "2026-08-27T10:00:00Z",
+    }]
+    client = _FakeClient({"ollama/ollama/releases": payload})
+    async with client as c:
+        alerts = await tmp_watcher._fetch_ollama_releases(c)
+    assert len(alerts) == 1
+    assert "action-required" not in alerts[0].tags
+    assert alerts[0].relevance_score < 0.95
+
+
+_HN_TOP_IDS = [111, 222]
+_HN_ITEM_OFFTOPIC = {
+    "title": "OpenShot 4.0: Record, Edit, and Color Like Never Before",
+    "url": "https://www.openshot.org/blog/openshot-40/",
+    "score": 400,
+    "time": 1756600000,
+    "text": "",
+}
+_HN_ITEM_RELEVANT = {
+    "title": "Show HN: local LLM inference server with vLLM and function calling",
+    "url": "https://github.com/example/serve",
+    "score": 45,
+    "time": 1756600000,
+    "text": "",
+}
+
+
+@pytest.mark.asyncio
+async def test_hackernews_requires_relevance_not_points(tmp_watcher):
+    """A high-point but off-topic HN front-page story is excluded; relevance is the
+    entry ticket and points only rank (#1397 surfaced OpenShot/ReactOS on points)."""
+    client = _FakeClient({
+        "topstories.json": _HN_TOP_IDS,
+        "item/111.json": _HN_ITEM_OFFTOPIC,
+        "item/222.json": _HN_ITEM_RELEVANT,
+    })
+    async with client as c:
+        alerts = await tmp_watcher._fetch_hackernews(c)
+    assert not any("OpenShot" in a.title for a in alerts)
+    assert any("inference server" in a.title.lower() for a in alerts)
+
+
+@pytest.mark.asyncio
+async def test_producthunt_requires_relevance_not_votes(tmp_watcher):
+    """A highly-voted but non-AI Product Hunt launch is excluded; only AI-relevant
+    launches surface."""
+    payload = {"posts": [
+        {"name": "TodoZen", "tagline": "Organize your day",
+         "slug": "todozen", "votes_count": 300},
+        {"name": "AgentKit", "tagline": "Build autonomous agents with tool calling and RAG",
+         "slug": "agentkit", "votes_count": 40},
+    ]}
+    client = _FakeClient({"posts.json": payload})
+    async with client as c:
+        alerts = await tmp_watcher._fetch_producthunt(c)
+    assert not any("TodoZen" in a.title for a in alerts)
+    assert any("AgentKit" in a.title for a in alerts)
     assert "lora" in _KEYWORDS

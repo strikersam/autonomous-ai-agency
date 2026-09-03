@@ -151,6 +151,16 @@ MIN_RELEVANCE        = 0.25
 # Kept constant so adding keywords broadens coverage instead of lowering all scores.
 _SCORE_SATURATION_HITS = 12.0
 
+# An Ollama release is only an actionable digest item when its notes signal new model
+# support or an API/behaviour change worth routing work — not for a routine patch. We
+# consume Ollama as a service (OLLAMA_BASE), never as a vendored dependency, so a
+# version bump on its own is informational, not a "dependency upgrade" task.
+_OLLAMA_ACTIONABLE_KEYWORDS = (
+    "new model", "model support", "now supports", "add support", "api change",
+    "breaking", "function calling", "tool call", "tool use", "vision",
+    "embedding", "structured output",
+)
+
 # Reddit user-agent (required or Reddit returns 429/403)
 _REDDIT_HEADERS = {"User-Agent": "local-llm-server/4.1 (trend-watcher; +https://github.com/strikersam/local-llm-server)"}
 
@@ -300,20 +310,35 @@ class TrendWatcher:
             r = await client.get(_GH_OLLAMA, headers=_GH_HEADERS, timeout=10)
             if r.status_code != 200:
                 return alerts
-            for rel in r.json()[:5]:
+            for idx, rel in enumerate(r.json()[:5]):
                 tag   = rel.get("tag_name", "")
                 title = f"Ollama {tag} released"
                 sig   = self._sig("ollama", title)
                 if sig in self._seen:
                     continue
                 body = (rel.get("body") or "")[:500]
+                # Score by content, not a blanket 0.95. The old fixed top score let five
+                # routine version bumps headline a digest (#1397). Surface the newest
+                # release at a modest baseline (it is our own niche), and older ones in
+                # the batch only when their notes score as genuinely relevant — so patch
+                # spam collapses to one row instead of five.
+                content_score = self._score(title, body)
+                is_latest = idx == 0
+                if not is_latest and content_score < self._min_relevance:
+                    continue
+                score = min(0.4 + content_score, 0.9) if is_latest else content_score
+                blob = f"{title}\n{body}".lower()
+                actionable = any(kw in blob for kw in _OLLAMA_ACTIONABLE_KEYWORDS)
+                tags = ["ollama", "release"]
+                if actionable:
+                    tags += ["model-support", "action-required"]
                 alerts.append(TrendAlert(
                     source="ollama", title=title,
-                    summary=body or f"New Ollama release {tag}. Check for new model support and API changes.",
+                    summary=body or f"New Ollama release {tag}.",
                     url=rel.get("html_url", ""),
-                    relevance_score=0.95,
+                    relevance_score=round(score, 3),
                     published=(rel.get("published_at") or "")[:10],
-                    tags=["ollama", "release", "model-support", "action-required"],
+                    tags=tags,
                 ))
                 self._seen.add(sig)
         except Exception as exc:
@@ -490,7 +515,10 @@ class TrendWatcher:
                             if sig in self._seen or not title:
                                 continue
                             score = self._score(title, story.get("text") or "")
-                            if score >= self._min_relevance or pts >= 30:
+                            # Relevance is the entry ticket; points only rank. The old
+                            # `or pts >= 30` surfaced the whole HN front page — OpenShot,
+                            # ReactOS, hobby posts — on popularity alone (#1397).
+                            if score >= self._min_relevance:
                                 score = max(score, 0.35)
                                 alerts.append(TrendAlert(
                                     source="hackernews",
@@ -530,7 +558,8 @@ class TrendWatcher:
                     if sig in self._seen or not title:
                         continue
                     score = self._score(title, hit.get("story_text") or "", q)
-                    if score >= self._min_relevance or pts >= 50:
+                    # Relevance gates; points only rank (see the Firebase branch above).
+                    if score >= self._min_relevance:
                         score = max(score, 0.35)
                         alerts.append(TrendAlert(
                             source="hackernews",
@@ -650,7 +679,9 @@ class TrendWatcher:
                     if sig in self._seen or not title:
                         continue
                     score = self._score(title, desc, tag)
-                    if score >= self._min_relevance or react >= 20:
+                    # Relevance gates; reactions only rank — a popular off-topic post
+                    # under an AI tag should not surface on reaction count alone.
+                    if score >= self._min_relevance:
                         score = max(score, 0.35)
                         alerts.append(TrendAlert(
                             source="devto",
@@ -724,7 +755,9 @@ class TrendWatcher:
                 if sig in self._seen or not title:
                     continue
                 score = self._score(title, desc, "AI product launch")
-                if score >= self._min_relevance or votes >= 50:
+                # Relevance gates; votes only rank — Product Hunt is mostly non-AI, so a
+                # high vote count is not a reason to surface an unrelated launch.
+                if score >= self._min_relevance:
                     score = max(score, 0.35)
                     alerts.append(TrendAlert(
                         source="producthunt",

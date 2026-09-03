@@ -274,7 +274,7 @@ loops:
     source: .github/workflows/weekly-trend-digest.yml
     self_heal: true
     gate: none
-    purpose: Distil the week's AI trends into actionable notes.
+    purpose: Distil the week's AI trends into a relevance-gated digest (keyword-matched to the platform's domain; popularity only ranks), triaged into feature requests, research spikes, or no action.
 
   - id: user-research-scan
     name: Weekly User-Research Scan
