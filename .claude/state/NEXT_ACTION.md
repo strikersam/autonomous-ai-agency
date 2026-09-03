@@ -1,6 +1,34 @@
 # Next Action
 
-_Updated 2026-08-29._
+_Updated 2026-09-03._
+
+## TOP: Provider/model central source of truth + admin-UI control (task #50)
+
+Branch `claude/provider-health-status-3gc25r`. Phase 0 shipped (see task #50).
+Next session picks up Phase 1 with these decisions **locked**:
+
+1. **One authoritative model catalogue** — everything derives from it. Blocker to
+   solve first: `packages/llm/registry.py:54` keys models one-provider-per-id, so
+   the same id (e.g. `openai/gpt-oss-120b` on both nvidia and groq) can't be
+   expressed centrally. Phase 1 = allow provider-qualified / multi-provider ids,
+   then collapse `config/models.yaml` into `config/llm/models.yaml` and have
+   `brain_config`/`brain_failover` derive from the one file. The new CI guard
+   (`scripts/check_model_catalog_consistency.py`) already reports the 8 divergences
+   to reconcile.
+2. **Keys stay in Render env (rule 6 intact), updatable via the UI** using the
+   Render API — "Render is the key DB". Build an admin-only endpoint that PATCHes a
+   provider's key/base_url env var via the Render API (foundation:
+   `backend/render_router.py`, `packages/integrations/render_mcp.py`). Note: an
+   env change triggers a Render redeploy — surface that in the UI. One bootstrap
+   secret (the Render API token) stays in env.
+3. **UI**: simple (ref `CompanyHelm/companyhelm`, not yet reviewed — review when
+   building). Show availability (which keys are set) + health (from
+   `/api/brain/failover/status`) + editable base_url/model. Much of the surface
+   exists: `frontend/src/v5/screens/ProvidersScreen.jsx`, `/api/providers*`.
+
+**Constraint:** none of P1–P4 is testable in the web container (no fastapi/bcrypt/
+motor) — they must land with the real `pytest -x` suite. Do not ship the brain
+change without it.
 
 ## Nothing is blocked on an agent. Two things need a human.
 
