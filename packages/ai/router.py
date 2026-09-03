@@ -857,7 +857,7 @@ class ProviderRouter:
                     type="openai-compatible",
                     base_url="https://api.groq.com/openai/v1",
                     api_key=groq_key,
-                    default_model=os.environ.get("GROQ_MODEL") or "llama-3.3-70b-versatile",
+                    default_model=os.environ.get("GROQ_MODEL") or "openai/gpt-oss-120b",
                     priority=25,
                 )
             )

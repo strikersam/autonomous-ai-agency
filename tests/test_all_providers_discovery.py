@@ -116,7 +116,9 @@ def test_groq_discovery(monkeypatch):
     assert p is not None
     assert p.priority == 25
     assert _url_has_host(p.base_url, "groq.com")
-    assert "llama" in p.default_model.lower()
+    # Groq's live free default is the GPT-OSS pair; llama-3.3-70b-versatile,
+    # which this used to assert via "llama", is not on the account (404).
+    assert p.default_model == "openai/gpt-oss-120b"
 
 
 # ── SambaNova ─────────────────────────────────────────────────────────────────
