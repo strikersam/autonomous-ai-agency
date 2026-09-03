@@ -1840,13 +1840,28 @@ class ProviderRouter:
         else:
             system_field = system_text
 
+        # Model-capability guards, shared with the ADR-008 adapter
+        # (packages/llm/providers/anthropic.py) as the one source of truth.
+        # Adaptive-thinking models (Sonnet 5, Fable 5, Mythos) 400 on any
+        # non-default temperature, and Opus 5 / Sonnet 5 / Opus 4.7-4.8 400 on
+        # the legacy thinking.type="enabled" parameter. Sending either to those
+        # models is what makes an Anthropic planning/execution step fail every
+        # cycle rather than just the misconfigured ones.
+        from packages.llm.providers.anthropic import (
+            NO_EXTENDED_THINKING_MODELS,
+            NO_TEMPERATURE_MODELS,
+        )
+
+        model_id = str(payload.get("model") or "")
+
         out: dict[str, Any] = {
             "model": payload.get("model"),
             "messages": messages or [{"role": "user", "content": ""}],
             "system": system_field,
             "max_tokens": int(payload.get("max_tokens") or 1024),
-            "temperature": float(payload.get("temperature") or 0.3),
         }
+        if model_id not in NO_TEMPERATURE_MODELS:
+            out["temperature"] = float(payload.get("temperature") or 0.3)
 
         try:
             _thinking_budget = int(
@@ -1854,7 +1869,7 @@ class ProviderRouter:
             )
         except ValueError:
             _thinking_budget = 0
-        if _thinking_budget > 0:
+        if _thinking_budget > 0 and model_id not in NO_EXTENDED_THINKING_MODELS:
             out["thinking"] = {"type": "enabled", "budget_tokens": _thinking_budget}
             out["temperature"] = 1  # Anthropic requires temperature=1 for extended thinking
 

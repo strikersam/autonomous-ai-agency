@@ -45,7 +45,12 @@ _MIN_THINKING_BUDGET_TOKENS = 1024
 # Claude Sonnet 5 and Fable 5 enforce adaptive thinking; sending temperature /
 # top_p / top_k at a non-default value returns HTTP 400.  Strip those fields
 # from the payload for every model in this set.
-_NO_TEMPERATURE_MODELS: frozenset[str] = frozenset({
+#
+# Public because the legacy brain (packages/ai/router.py::_anthropic_payload)
+# builds its own Anthropic payload and must apply the same model-capability
+# guards — one source of truth so a new Claude model can never be added to one
+# path and forgotten in the other.
+NO_TEMPERATURE_MODELS: frozenset[str] = frozenset({
     "claude-sonnet-5",
     "claude-fable-5",
     "claude-mythos-5",
@@ -54,7 +59,7 @@ _NO_TEMPERATURE_MODELS: frozenset[str] = frozenset({
 
 # These models use adaptive thinking and do NOT support the legacy
 # thinking.type="enabled" budget parameter — sending it returns HTTP 400.
-_NO_EXTENDED_THINKING_MODELS: frozenset[str] = frozenset({
+NO_EXTENDED_THINKING_MODELS: frozenset[str] = frozenset({
     "claude-fable-5",
     "claude-mythos-5",
     "claude-mythos-preview",
@@ -105,7 +110,7 @@ class AnthropicProvider(LLMProvider):
 
     def build_payload(self, request: LLMRequest, model: str) -> dict[str, Any]:
         system_parts, messages = self._convert_messages(request.messages)
-        no_temperature = model in _NO_TEMPERATURE_MODELS
+        no_temperature = model in NO_TEMPERATURE_MODELS
 
         # Anthropic's API doesn't accept response_format.  When JSON mode is
         # requested, inject the constraint as a system-prompt instruction so the
@@ -171,7 +176,7 @@ class AnthropicProvider(LLMProvider):
         # Legacy extended thinking: only for models that still support it.
         # Newer adaptive-thinking models (Opus 5, Sonnet 5, Fable 5, Opus 4.7/4.8)
         # return HTTP 400 when thinking.type="enabled" is sent.
-        if model not in _NO_EXTENDED_THINKING_MODELS:
+        if model not in NO_EXTENDED_THINKING_MODELS:
             thinking = self._thinking_config(request)
             if thinking is not None:
                 payload["thinking"] = thinking
