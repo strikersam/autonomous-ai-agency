@@ -52,23 +52,27 @@ import httpx
 
 # Provider presets — mirrors services/brain_config_store.py:PROVIDER_PRESETS
 PROVIDER_PRESETS: dict[str, dict[str, str]] = {
+    # Probed-live model ids only (see config/models.yaml). The previous cerebras
+    # (qwen-3-coder-480b, llama-3.3-70b), groq (llama-3.3-70b-versatile,
+    # deepseek-r1-distill-llama-70b) and nvidia (meta/llama-3.3-70b-instruct)
+    # presets all 404/410 and are not on their accounts.
     "cerebras": {
-        "planner": "qwen-3-coder-480b",
-        "executor": "qwen-3-coder-480b",
-        "verifier": "llama-3.3-70b",
-        "judge": "llama-3.3-70b",
+        "planner": "gpt-oss-120b",
+        "executor": "gpt-oss-120b",
+        "verifier": "gemma-4-31b",
+        "judge": "gemma-4-31b",
     },
     "groq": {
-        "planner": "deepseek-r1-distill-llama-70b",
-        "executor": "llama-3.3-70b-versatile",
-        "verifier": "deepseek-r1-distill-llama-70b",
-        "judge": "llama-3.3-70b-versatile",
+        "planner": "openai/gpt-oss-120b",
+        "executor": "openai/gpt-oss-120b",
+        "verifier": "openai/gpt-oss-120b",
+        "judge": "openai/gpt-oss-120b",
     },
     "nvidia": {
-        "planner": "meta/llama-3.3-70b-instruct",
-        "executor": "meta/llama-3.3-70b-instruct",
-        "verifier": "meta/llama-3.3-70b-instruct",
-        "judge": "meta/llama-3.3-70b-instruct",
+        "planner": "nvidia/nemotron-3-super-120b-a12b",
+        "executor": "nvidia/nemotron-3-super-120b-a12b",
+        "verifier": "nvidia/nemotron-3-super-120b-a12b",
+        "judge": "nvidia/nemotron-3-super-120b-a12b",
     },
     "ollama": {
         "planner": "deepseek-r1:32b",

@@ -539,7 +539,7 @@ _ENV_PROVIDERS: tuple[tuple[str, str, str, str, str, str, int, str, str], ...] =
     ("vllm",      "openai",    "VLLM_BASE_URL",      "",                       "VLLM_API_KEY",     "local",   14, "VLLM_DEFAULT_MODEL",     ""),
     ("localai",   "openai",    "LOCALAI_BASE_URL",   "",                       "LOCALAI_API_KEY",  "local",   16, "LOCALAI_DEFAULT_MODEL",  ""),
     ("litellm",   "openai",    "LITELLM_BASE_URL",   "",                       "LITELLM_API_KEY",  "local",   18, "LITELLM_DEFAULT_MODEL",  ""),
-    ("cerebras",  "openai",    "CEREBRAS_BASE_URL",  "https://api.cerebras.ai/v1", "CEREBRAS_API_KEY", "free", 20, "CEREBRAS_DEFAULT_MODEL", "qwen-3-coder-480b"),
+    ("cerebras",  "openai",    "CEREBRAS_BASE_URL",  "https://api.cerebras.ai/v1", "CEREBRAS_API_KEY", "free", 20, "CEREBRAS_DEFAULT_MODEL", "gpt-oss-120b"),
     ("groq",      "openai",    "GROQ_BASE_URL",      "https://api.groq.com/openai/v1", "GROQ_API_KEY", "free", 22, "GROQ_DEFAULT_MODEL",   "openai/gpt-oss-120b"),
     ("nvidia",    "openai",    "NVIDIA_BASE_URL",    "https://integrate.api.nvidia.com/v1", "NVIDIA_API_KEY", "free", 24, "NVIDIA_DEFAULT_MODEL", "nvidia/nemotron-3-super-120b-a12b"),
     ("google",    "gemini",    "GEMINI_BASE_URL",    "https://generativelanguage.googleapis.com/v1beta", "GEMINI_API_KEY", "free", 26, "GEMINI_DEFAULT_MODEL", "gemini-2.5-flash"),

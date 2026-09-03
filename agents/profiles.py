@@ -101,12 +101,14 @@ def _catalog_defaults() -> dict[str, str] | None:
 
 def _nvidia_defaults() -> dict[str, str]:
     if os.environ.get("NVIDIA_API_KEY") or os.environ.get("NVidiaApiKey"):
+        # Probed-live NVIDIA default; meta/llama-3.3-70b-instruct, which was here,
+        # answers 410 (retired).
         return {
-            "architect": "meta/llama-3.3-70b-instruct",
-            "scout":     "meta/llama-3.3-70b-instruct",
-            "coder":     "meta/llama-3.3-70b-instruct",
-            "reviewer":  "meta/llama-3.3-70b-instruct",
-            "verifier":  "meta/llama-3.3-70b-instruct",
+            "architect": "nvidia/nemotron-3-super-120b-a12b",
+            "scout":     "nvidia/nemotron-3-super-120b-a12b",
+            "coder":     "nvidia/nemotron-3-super-120b-a12b",
+            "reviewer":  "nvidia/nemotron-3-super-120b-a12b",
+            "verifier":  "nvidia/nemotron-3-super-120b-a12b",
         }
     if os.environ.get("DEEPSEEK_API_KEY"):
         return {
@@ -117,12 +119,14 @@ def _nvidia_defaults() -> dict[str, str]:
             "verifier":  "deepseek-chat",
         }
     if os.environ.get("GROQ_API_KEY"):
+        # Groq's live free model (probed 2026-09-01); llama-3.3-70b-versatile,
+        # which was here, is not in the account's catalogue (404).
         return {
-            "architect": "llama-3.3-70b-versatile",
-            "scout":     "llama-3.3-70b-versatile",
-            "coder":     "llama-3.3-70b-versatile",
-            "reviewer":  "llama-3.3-70b-versatile",
-            "verifier":  "llama-3.3-70b-versatile",
+            "architect": "openai/gpt-oss-120b",
+            "scout":     "openai/gpt-oss-120b",
+            "coder":     "openai/gpt-oss-120b",
+            "reviewer":  "openai/gpt-oss-120b",
+            "verifier":  "openai/gpt-oss-120b",
         }
     if os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("QWEN_API_KEY"):
         return {
