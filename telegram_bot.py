@@ -338,12 +338,22 @@ async def process_webhook_update(update: dict) -> None:
         log.exception("process_webhook_update failed: %s", exc)
 
 
-async def register_webhook(base_url: str) -> dict[str, Any]:
-    """Point Telegram at ``<base_url>/api/telegram/webhook`` (best-effort).
+async def register_webhook(base_url: str, *, attempts: int = 5) -> dict[str, Any]:
+    """Point Telegram at ``<base_url>/api/telegram/webhook``, with retries.
 
     Sets the secret token and restricts delivery to messages + callback queries
     (the only updates this bot acts on). Called at startup when webhook mode is
     enabled; returns Telegram's parsed response so the caller can log it.
+
+    ``setWebhook`` is validated by Telegram at registration time — it resolves
+    the host and probes it — so a cold start races the service becoming
+    DNS-resolvable and reachable, and Telegram's own resolver hiccups
+    ("Failed to resolve host: Temporary failure in name resolution",
+    "Bad Gateway", 429). Those are transient, and setWebhook is idempotent, so
+    retry with exponential backoff (2s, 4s, 8s, 16s, capped) before giving up.
+    Runs in a startup background task, so the sleeps never block the port
+    opening. Returns the last response; the caller falls back to the poller when
+    it is still not ``ok``.
     """
     secret = webhook_secret()
     if not secret:
@@ -359,15 +369,27 @@ async def register_webhook(base_url: str) -> dict[str, Any]:
         "allowed_updates": ["message", "callback_query"],
         "max_connections": 20,
     }
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            r = await client.post(
-                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook",
-                json=payload,
+    result: dict[str, Any] = {"ok": False, "description": "not attempted"}
+    for attempt in range(1, max(1, attempts) + 1):
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                r = await client.post(
+                    f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook",
+                    json=payload,
+                )
+            result = r.json()
+        except Exception as exc:  # noqa: BLE001 — best-effort; startup must not crash
+            result = {"ok": False, "description": f"setWebhook request failed: {exc}"}
+        if result.get("ok"):
+            return result
+        if attempt < attempts:
+            backoff = min(2 ** attempt, 16)
+            log.warning(
+                "setWebhook attempt %d/%d failed (%s) — retrying in %ds",
+                attempt, attempts, result.get("description"), backoff,
             )
-        return r.json()
-    except Exception as exc:  # noqa: BLE001 — best-effort; startup must not crash
-        return {"ok": False, "description": f"setWebhook request failed: {exc}"}
+            await asyncio.sleep(backoff)
+    return result
 
 
 def _check_rate_limit(user_id: int) -> bool:
