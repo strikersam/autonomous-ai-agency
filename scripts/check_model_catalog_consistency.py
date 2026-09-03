@@ -59,18 +59,26 @@ def _load(path: Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def _llm_declared(models_doc: dict[str, Any]) -> dict[str, str]:
-    """Map every declared model id (and alias) → its provider in the llm catalogue."""
-    declared: dict[str, str] = {}
+def _llm_declared(models_doc: dict[str, Any]) -> dict[str, set[str]]:
+    """Map every declared model id (and alias) → the provider(s) serving it.
+
+    A model may be served by several providers, declared either as
+    ``provider: nvidia`` or ``providers: [nvidia, groq]``; both spellings fold
+    into the same provider set.
+    """
+    declared: dict[str, set[str]] = {}
     for mid, cfg in (models_doc.get("models") or {}).items():
-        provider = (cfg or {}).get("provider", "")
-        declared[mid] = provider
-        for alias in (cfg or {}).get("aliases") or []:
-            declared[alias] = provider
+        cfg = cfg or {}
+        provs = {str(p) for p in (cfg.get("providers") or []) if str(p)}
+        if cfg.get("provider"):
+            provs.add(str(cfg["provider"]))
+        declared[mid] = provs
+        for alias in cfg.get("aliases") or []:
+            declared[alias] = provs
     return declared
 
 
-def _check_prefer_models(routing: dict[str, Any], declared: dict[str, str]) -> list[str]:
+def _check_prefer_models(routing: dict[str, Any], declared: dict[str, set[str]]) -> list[str]:
     """HARD check 1: every per-agent prefer_models id is declared in the catalogue."""
     errors: list[str] = []
     agents = ((routing.get("routing") or {}).get("agents")) or {}
@@ -98,16 +106,18 @@ def _check_presets(brain_doc: dict[str, Any]) -> list[str]:
     return errors
 
 
-def _check_cross_catalogue(brain_doc: dict[str, Any], declared: dict[str, str]) -> list[str]:
-    """WARN check 3: same id claimed by different providers across the two catalogues."""
+def _check_cross_catalogue(brain_doc: dict[str, Any], declared: dict[str, set[str]]) -> list[str]:
+    """WARN check 3: an id served by a provider in config/models.yaml that the llm
+    catalogue declares only under different providers."""
     warnings: list[str] = []
     for pid, spec in (brain_doc.get("providers") or {}).items():
         for mid in (spec or {}).get("candidates") or []:
-            other = declared.get(mid)
-            if other and other != pid:
+            provs = declared.get(mid)
+            if provs and pid not in provs:
                 warnings.append(
-                    f"'{mid}' is provider '{pid}' in config/models.yaml but "
-                    f"'{other}' in config/llm/models.yaml — catalogues disagree"
+                    f"'{mid}' is served by '{pid}' in config/models.yaml but the "
+                    f"llm catalogue declares it only under {sorted(provs)} — add "
+                    f"'{pid}' to its providers or reconcile the catalogues"
                 )
     return warnings
 

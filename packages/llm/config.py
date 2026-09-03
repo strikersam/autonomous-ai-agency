@@ -23,7 +23,7 @@ import logging
 import os
 import re
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -103,6 +103,12 @@ class ModelConfig:
 
     id: str
     provider: str = ""
+    # Providers that serve this same model id beyond the primary `provider`.
+    # A model like `openai/gpt-oss-120b` is served by NVIDIA NIM *and* Groq; the
+    # registry is keyed by id, so the extras are recorded here and surfaced by
+    # `models_for`/`for_provider`/`candidates` as provider-bound copies. Declared
+    # in models.yaml as `providers: [nvidia, groq]` (first = primary).
+    extra_providers: list[str] = field(default_factory=list)
     display_name: str = ""
     context_window: int = 8192
     max_output_tokens: int = 4096
@@ -240,7 +246,16 @@ class LLMConfig:
         return [p for p in self.providers.values() if p.enabled]
 
     def models_for(self, provider_id: str) -> list[ModelConfig]:
-        return [m for m in self.models.values() if m.provider == provider_id]
+        # A model whose primary provider is `provider_id` is returned as-is; one
+        # served via `extra_providers` is returned bound to this provider so the
+        # caller routes it to the right endpoint.
+        out: list[ModelConfig] = []
+        for m in self.models.values():
+            if m.provider == provider_id:
+                out.append(m)
+            elif provider_id in m.extra_providers:
+                out.append(replace(m, provider=provider_id))
+        return out
 
     def policy_for(self, agent: str | None) -> AgentPolicy | None:
         if not agent:
@@ -372,7 +387,18 @@ def _load_models(raw: dict[str, Any]) -> dict[str, ModelConfig]:
     for mid, body in (entries or {}).items():
         if not isinstance(body, dict):
             continue
-        out[str(mid)] = _build(ModelConfig, body, id=str(mid))
+        body = dict(body)
+        # `providers: [nvidia, groq]` is the multi-provider spelling: the first
+        # is the primary, the rest are recorded as extra_providers. It coexists
+        # with the singular `provider:`; the list wins when both are present.
+        provider_list = body.pop("providers", None)
+        overrides: dict[str, Any] = {"id": str(mid)}
+        if isinstance(provider_list, list) and provider_list:
+            names = [str(p).strip() for p in provider_list if str(p).strip()]
+            if names:
+                overrides["provider"] = names[0]
+                overrides["extra_providers"] = names[1:]
+        out[str(mid)] = _build(ModelConfig, body, **overrides)
     return out
 
 
@@ -514,7 +540,7 @@ _ENV_PROVIDERS: tuple[tuple[str, str, str, str, str, str, int, str, str], ...] =
     ("localai",   "openai",    "LOCALAI_BASE_URL",   "",                       "LOCALAI_API_KEY",  "local",   16, "LOCALAI_DEFAULT_MODEL",  ""),
     ("litellm",   "openai",    "LITELLM_BASE_URL",   "",                       "LITELLM_API_KEY",  "local",   18, "LITELLM_DEFAULT_MODEL",  ""),
     ("cerebras",  "openai",    "CEREBRAS_BASE_URL",  "https://api.cerebras.ai/v1", "CEREBRAS_API_KEY", "free", 20, "CEREBRAS_DEFAULT_MODEL", "qwen-3-coder-480b"),
-    ("groq",      "openai",    "GROQ_BASE_URL",      "https://api.groq.com/openai/v1", "GROQ_API_KEY", "free", 22, "GROQ_DEFAULT_MODEL",   "llama-3.3-70b-versatile"),
+    ("groq",      "openai",    "GROQ_BASE_URL",      "https://api.groq.com/openai/v1", "GROQ_API_KEY", "free", 22, "GROQ_DEFAULT_MODEL",   "openai/gpt-oss-120b"),
     ("nvidia",    "openai",    "NVIDIA_BASE_URL",    "https://integrate.api.nvidia.com/v1", "NVIDIA_API_KEY", "free", 24, "NVIDIA_DEFAULT_MODEL", "nvidia/nemotron-3-super-120b-a12b"),
     ("google",    "gemini",    "GEMINI_BASE_URL",    "https://generativelanguage.googleapis.com/v1beta", "GEMINI_API_KEY", "free", 26, "GEMINI_DEFAULT_MODEL", "gemini-2.5-flash"),
     ("openrouter","openai",    "OPENROUTER_BASE_URL","https://openrouter.ai/api/v1", "OPENROUTER_API_KEY", "cheap", 40, "OPENROUTER_DEFAULT_MODEL", ""),

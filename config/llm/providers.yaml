@@ -125,7 +125,7 @@ providers:
     # unmetered) after upgrading the tier; the value is the account's, not the
     # model's, which is why it lives on the provider and is env-overridable.
     tokens_per_minute: ${GROQ_TOKENS_PER_MINUTE:-12000}
-    default_model: ${GROQ_DEFAULT_MODEL:-llama-3.3-70b-versatile}
+    default_model: ${GROQ_DEFAULT_MODEL:-openai/gpt-oss-120b}
 
   nvidia:
     kind: openai

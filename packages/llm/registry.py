@@ -88,7 +88,16 @@ class ModelRegistry:
 
     def for_provider(self, provider_id: str) -> list[ModelConfig]:
         with self._lock:
-            return [m for m in self._models.values() if m.provider == provider_id]
+            models = list(self._models.values())
+        out: list[ModelConfig] = []
+        for m in models:
+            if m.provider == provider_id:
+                out.append(m)
+            elif provider_id in m.extra_providers:
+                # Same id, different provider (e.g. gpt-oss on groq as well as
+                # nvidia): hand back a copy bound to this provider.
+                out.append(replace(m, provider=provider_id))
+        return out
 
     def register(self, model: ModelConfig) -> None:
         """Add or replace a model (used by runtime discovery)."""
@@ -146,7 +155,8 @@ class ModelRegistry:
             models = list(self._models.values())
 
         def keeps(model: ModelConfig) -> bool:
-            if provider_id and model.provider != provider_id:
+            if (provider_id and model.provider != provider_id
+                    and provider_id not in model.extra_providers):
                 return False
             if require_tools and not (model.supports_tools or model.supports_function_calling):
                 return False
@@ -173,10 +183,16 @@ class ModelRegistry:
                 return False
             return True
 
-        return sorted(
+        kept = sorted(
             (m for m in models if keeps(m)),
             key=lambda m: (m.priority, m.input_cost_per_1m + m.output_cost_per_1m),
         )
+        # When a provider was requested, bind any model matched via its
+        # extra_providers to that provider so the caller routes it correctly.
+        if provider_id:
+            kept = [m if m.provider == provider_id else replace(m, provider=provider_id)
+                    for m in kept]
+        return kept
 
     def largest_context(
         self, *, allow_paid: bool = True, provider_id: str | None = None,
