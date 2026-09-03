@@ -63,6 +63,10 @@ jobs:
           python -m compileall -q .
           printf '✓ Python syntax OK\n'
 
+      - name: Model catalogue consistency
+        run: |
+          python scripts/check_model_catalog_consistency.py
+
       - name: Configure Git for test subprocess calls
         run: |
           git config --global user.email "ci@test.local"
