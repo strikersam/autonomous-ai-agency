@@ -228,3 +228,51 @@ class TestTheGatewayRegistryOffersOnlyLiveModels:
             if m.fallback_model and m.fallback_model not in known
         }
         assert not dangling, f"fallback_model points at unknown ids: {dangling}"
+
+
+class TestOneIdCanBelongToSeveralProviders:
+    """A model served by more than one provider is declared once.
+
+    ``openai/gpt-oss-120b`` is served by NVIDIA NIM *and* Groq. The registry is
+    keyed by id, so before ``ModelConfig.extra_providers`` the two collided —
+    last write won — and Groq could not be given the live model it actually
+    serves without stealing the id from NVIDIA. That collision is why the two
+    catalogues (``config/llm/models.yaml`` and ``config/models.yaml``) could not
+    be reconciled and why Groq's gateway rotation was three dead ids.
+    """
+
+    def _registry(self):
+        from packages.llm.config import reload_config
+        from packages.llm.registry import ModelRegistry
+
+        return ModelRegistry(reload_config())
+
+    def test_gpt_oss_is_declared_once_for_both_providers(self) -> None:
+        model = self._registry().get("openai/gpt-oss-120b")
+        assert model is not None
+        assert model.provider == "nvidia"                  # primary
+        assert "groq" in model.extra_providers             # and served by groq
+
+    def test_for_provider_binds_the_shared_model_to_each(self) -> None:
+        reg = self._registry()
+        for provider in ("nvidia", "groq"):
+            ids = {m.id: m for m in reg.for_provider(provider)}
+            assert "openai/gpt-oss-120b" in ids, f"{provider} missing gpt-oss"
+            # returned copy is bound to the asked-for provider, so it routes right
+            assert ids["openai/gpt-oss-120b"].provider == provider
+
+    def test_groq_offers_a_live_tool_capable_candidate(self) -> None:
+        """Groq's rotation must contain a real, tool-capable model — the three
+        ids it used to declare were all dead, so tool-calling requests silently
+        got no Groq option at all."""
+        ids = [m.id for m in self._registry().candidates(provider_id="groq", require_tools=True)]
+        assert "openai/gpt-oss-120b" in ids, ids
+
+    @pytest.mark.parametrize(
+        "dead", ["llama-3.3-70b-versatile", "deepseek-r1-distill-llama-70b",
+                 "llama-4-maverick-17b-128e-instruct"],
+    )
+    def test_the_dead_groq_ids_are_gone_from_the_gateway(self, dead: str) -> None:
+        reg = self._registry()
+        assert reg.get(dead) is None, f"{dead} is back in the gateway catalogue"
+        assert dead not in {m.id for m in reg.for_provider("groq")}

@@ -45,16 +45,18 @@ models:
     speed_tier: fast                # ~12B active params/token
 
   openai/gpt-oss-120b:
-    provider: nvidia
-    display_name: GPT-OSS 120B (NIM)
+    # Served by both NVIDIA NIM and Groq (probed live on each account). One
+    # catalogue entry, two providers — see ModelConfig.extra_providers.
+    providers: [nvidia, groq]
+    display_name: GPT-OSS 120B
     supports_tools: true            # probed: returned tool_calls[get_weather]
     supports_function_calling: true
     supports_streaming: true
     priority: 25
 
   openai/gpt-oss-20b:
-    provider: nvidia
-    display_name: GPT-OSS 20B (NIM)
+    providers: [nvidia, groq]
+    display_name: GPT-OSS 20B
     supports_tools: true            # probed: returned tool_calls[get_weather]
     supports_function_calling: true
     supports_streaming: true
@@ -101,41 +103,13 @@ models:
     max_requests_per_minute: 30
 
   # ── Groq (free, fast) ──────────────────────────────────────────────────
-
-  llama-3.3-70b-versatile:
-    provider: groq
-    display_name: Llama 3.3 70B Versatile
-    context_window: 131072
-    max_output_tokens: 32768
-    supports_tools: true
-    supports_function_calling: true
-    supports_json: true
-    supports_streaming: true
-    priority: 18
-    speed_tier: fast
-
-  deepseek-r1-distill-llama-70b:
-    provider: groq
-    display_name: DeepSeek R1 Distill 70B
-    context_window: 32768
-    max_output_tokens: 8192
-    supports_json: true
-    supports_streaming: true
-    supports_reasoning: true
-    priority: 22
-    speed_tier: fast
-
-  llama-4-maverick-17b-128e-instruct:
-    provider: groq
-    display_name: Llama 4 Maverick 17B (Groq)
-    context_window: 131072
-    max_output_tokens: 8192
-    supports_tools: true
-    supports_function_calling: true
-    supports_json: true
-    supports_streaming: true
-    priority: 8
-    speed_tier: fast
+  # Groq's live models are declared above as extra providers on the shared ids
+  # (openai/gpt-oss-120b, openai/gpt-oss-20b — probed HTTP 200 on the Groq
+  # account 2026-09-01). The three ids that used to sit here —
+  # llama-3.3-70b-versatile, deepseek-r1-distill-llama-70b,
+  # llama-4-maverick-17b-128e-instruct — are none of them in this account's
+  # catalogue and answered 404/400, so declaring them only routed work to a
+  # dead endpoint. Do not re-add an id here without a probe.
 
   # ── Google Gemini (free tier) ──────────────────────────────────────────
 

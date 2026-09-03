@@ -234,27 +234,28 @@ class TestModelRegistryUpdates:
         import packages.ai.registry as reg
         return reg
 
-    def test_llama4_maverick_groq_registered(self):
-        reg = self._reg()
-        model = reg.get("llama-4-maverick-17b-128e-instruct")
-        assert model is not None
-        assert model.provider_id == "groq"
+    def test_groq_registers_only_live_models(self):
+        # 2026-09-03: superseded. This class asserted that packages/ai/registry.py
+        # registers llama-4-maverick-17b-128e-instruct (and deepseek-r1-distill-
+        # llama-70b) on Groq. A live probe found neither id in the Groq account's
+        # catalogue (404/400), and the legacy registry re-seeds
+        # packages/llm/registry.py, so while they stayed here they kept being
+        # offered as candidates no matter what the YAML catalogues said — the same
+        # trap the NVIDIA case below hit. Both were removed.
+        #
+        # The property worth keeping is that Groq's live models are the GPT-OSS
+        # pair (served by NVIDIA NIM and Groq alike), reachable via the router's
+        # multi-provider catalogue, and that the dead ids are gone.
+        from packages.llm.registry import get_registry, reset
 
-    def test_llama4_maverick_groq_is_free(self):
         reg = self._reg()
-        model = reg.get("llama-4-maverick-17b-128e-instruct")
-        assert model.input_cost_per_1m == 0.0
-        assert model.output_cost_per_1m == 0.0
+        assert reg.get("llama-4-maverick-17b-128e-instruct") is None
+        assert reg.get("deepseek-r1-distill-llama-70b") is None
 
-    def test_llama4_maverick_groq_context_window(self):
-        reg = self._reg()
-        model = reg.get("llama-4-maverick-17b-128e-instruct")
-        assert model.context_window == 131072
-
-    def test_llama4_maverick_groq_supports_tools(self):
-        reg = self._reg()
-        model = reg.get("llama-4-maverick-17b-128e-instruct")
-        assert model.supports_tools is True
+        reset()
+        groq_ids = {m.id for m in get_registry().for_provider("groq")}
+        assert "openai/gpt-oss-120b" in groq_ids, groq_ids
+        assert "llama-4-maverick-17b-128e-instruct" not in groq_ids
 
     def test_nvidia_registers_a_probed_live_model(self):
         # 2026-08-28: superseded. This asserted that packages/ai/registry.py

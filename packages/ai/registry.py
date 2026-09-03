@@ -152,38 +152,11 @@ def _register_defaults() -> None:
         fallback_model="nvidia/nemotron-3-super-120b-a12b",
     ))
     
-    # Groq (free, fast)
-    register(ModelInfo(
-        model_id="deepseek-r1-distill-llama-70b",
-        provider_id="groq",
-        display_name="DeepSeek R1 Distill 70B",
-        supports_streaming=True,
-        context_window=32768,
-        max_output_tokens=8192,
-        speed_tier="fast",
-        input_cost_per_1m=0.0,
-        output_cost_per_1m=0.0,
-        priority=20,
-        fallback_model="nvidia/nemotron-3-super-120b-a12b",
-    ))
-    
-    # Llama 4 Maverick on Groq — MoE 17B active/128E total, fast and capable (Meta, 2025)
-    register(ModelInfo(
-        model_id="llama-4-maverick-17b-128e-instruct",
-        provider_id="groq",
-        display_name="Llama 4 Maverick 17B (Groq)",
-        supports_tools=True,
-        supports_streaming=True,
-        context_window=131072,
-        max_output_tokens=8192,
-        speed_tier="fast",
-        input_cost_per_1m=0.0,
-        output_cost_per_1m=0.0,
-        priority=8,
-        # Was llama-3.3-70b-versatile, which this registry never registered —
-        # a fallback naming an unknown id makes the chain look longer than it is.
-        fallback_model="deepseek-r1-distill-llama-70b",
-    ))
+    # Groq (free, fast). Groq's live free models are the GPT-OSS pair registered
+    # below (also served by NVIDIA NIM). The two ids that used to sit here —
+    # deepseek-r1-distill-llama-70b and llama-4-maverick-17b-128e-instruct — are
+    # not in this account's catalogue and answered 404/400, so registering them
+    # only advertised a dead endpoint. Removed; do not re-add without a probe.
 
     # GPT-OSS on NVIDIA NIM. Replaces the Llama 4 Maverick NIM registration,
     # which answered 410 when probed on 2026-08-28. Both probed live in run
