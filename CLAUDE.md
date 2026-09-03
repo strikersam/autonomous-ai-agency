@@ -43,7 +43,11 @@ legislated. See `.claude/rules-archive/` for the audit that produced this list a
 2. All LLM/provider calls go through `packages/ai/router.py` (ProviderManager). Never
    call a provider SDK or HTTP endpoint directly.
 3. Every provider implements `generate`, `chat`, `stream`, `health`, `cost`, `limits`.
-4. Failover chain is Cerebras → Groq → NVIDIA NIM → Ollama. `429` → failover plus
+4. Failover chain is NVIDIA NIM → TokenIn → Cerebras → Groq → Ollama — the
+   `recommended_priority` in `config/models.yaml`, mirrored by
+   `RECOMMENDED_PROVIDER_PRIORITY` in `packages/ai/brain_config.py` and
+   overridable per deploy by that YAML. NVIDIA leads (not Ollama) because Ollama
+   needs `OLLAMA_BASE_URL`, unset on the Render free tier. `429` → failover plus
    exponential backoff; `410` → permanent removal plus long cooldown; `419` → skip that
    model only and try the next on the same provider.
 5. Read environment variables only in config modules: `packages/ai/brain.py`,

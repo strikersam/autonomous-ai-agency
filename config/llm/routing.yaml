@@ -80,7 +80,14 @@ routing:
 
     planner:
       strategy: model_capability
-      prefer_models: [z-ai/glm-5.2, deepseek-r1-distill-llama-70b]
+      # Both ids must be live: model_capability prefers these, so a dead id here
+      # is a guaranteed failover on every planning call. The previous pair —
+      # z-ai/glm-5.2 and deepseek-r1-distill-llama-70b — are both documented dead
+      # in config/models.yaml (410 on NVIDIA; not in the Groq account catalogue),
+      # and production logged `nvidia-nim/z-ai/glm-5.2 returned 410 Gone` every
+      # cycle. These two answered HTTP 200 on the last catalogue probe (NVIDIA
+      # 2026-08-28, Groq/Cerebras 2026-08-29/09-01) and both carry a >=32k window.
+      prefer_models: [nvidia/nemotron-3-super-120b-a12b, openai/gpt-oss-120b]
       min_context_window: 32768
       priority: HIGH
 
