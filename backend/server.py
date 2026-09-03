@@ -1591,8 +1591,20 @@ def _start_in_web_bot_tasks() -> list:
                     result = await _tb.register_webhook(base_url)
                     if result.get("ok"):
                         log.info("Telegram webhook registered at %s/api/telegram/webhook", base_url)
-                    else:
-                        log.error("Telegram setWebhook failed: %s", result.get("description"))
+                        return
+                    # setWebhook failed after all retries (e.g. a persistent
+                    # Telegram-side DNS/resolve error). Never leave the bot with
+                    # no transport: fall back to the getUpdates poller. run_bot
+                    # calls deleteWebhook on startup, so any stale/partial webhook
+                    # is cleared before it long-polls — no 409 loop.
+                    log.error(
+                        "Telegram setWebhook failed after retries (%s) — "
+                        "falling back to the getUpdates poller so buttons still work.",
+                        result.get("description"),
+                    )
+                    fb = _asyncio.create_task(_telegram_bot_supervisor())
+                    _TELEGRAM_WEBHOOK_TASKS.add(fb)
+                    fb.add_done_callback(_TELEGRAM_WEBHOOK_TASKS.discard)
 
                 tasks.append(_asyncio.create_task(_register()))
                 if os.environ.get("BOT_KEEPALIVE", "true").strip().lower() in {"1", "true", "yes"}:

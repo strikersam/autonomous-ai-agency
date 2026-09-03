@@ -95,6 +95,92 @@ async def test_register_webhook_posts_secret_in_body_not_url(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_register_webhook_retries_transient_dns_failure(monkeypatch):
+    """A transient setWebhook failure (Telegram's own resolver hiccup) is
+    retried and succeeds — it must not leave the bot unregistered."""
+    import telegram_bot as tb
+
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", SECRET)
+    monkeypatch.setattr(tb, "TELEGRAM_BOT_TOKEN", "123:ABC")
+
+    async def _no_sleep(_):
+        return None
+
+    monkeypatch.setattr(tb.asyncio, "sleep", _no_sleep)
+
+    calls = {"n": 0}
+
+    class _Resp:
+        def __init__(self, payload):
+            self._p = payload
+
+        def json(self):
+            return self._p
+
+    class _FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None):
+            calls["n"] += 1
+            if calls["n"] < 3:
+                return _Resp({"ok": False, "description": "Bad Request: bad webhook: "
+                              "Failed to resolve host: Temporary failure in name resolution"})
+            return _Resp({"ok": True, "result": True})
+
+    monkeypatch.setattr(tb.httpx, "AsyncClient", _FakeClient)
+    result = await tb.register_webhook("https://x.onrender.com/", attempts=5)
+    assert result["ok"] is True
+    assert calls["n"] == 3  # failed twice, third attempt succeeded
+
+
+@pytest.mark.asyncio
+async def test_register_webhook_returns_last_error_after_exhausting_retries(monkeypatch):
+    """When every attempt fails, the last error is returned so the caller can
+    fall back to the poller."""
+    import telegram_bot as tb
+
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", SECRET)
+    monkeypatch.setattr(tb, "TELEGRAM_BOT_TOKEN", "123:ABC")
+
+    async def _no_sleep(_):
+        return None
+
+    monkeypatch.setattr(tb.asyncio, "sleep", _no_sleep)
+    calls = {"n": 0}
+
+    class _Resp:
+        def json(self):
+            return {"ok": False, "description": "Temporary failure in name resolution"}
+
+    class _FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, url, json=None):
+            calls["n"] += 1
+            return _Resp()
+
+    monkeypatch.setattr(tb.httpx, "AsyncClient", _FakeClient)
+    result = await tb.register_webhook("https://x.onrender.com/", attempts=3)
+    assert result["ok"] is False
+    assert calls["n"] == 3  # all attempts made
+    assert "name resolution" in result["description"]
+
+
+@pytest.mark.asyncio
 async def test_process_webhook_update_routes_callback_and_message(monkeypatch):
     import telegram_bot as tb
 
