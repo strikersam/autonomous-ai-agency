@@ -144,16 +144,23 @@ def test_profiles_get_defaults_uses_catalog(monkeypatch):
     """``_get_defaults()`` returns the catalog-derived defaults (not the
     hardcoded fallback table) when the catalog import succeeds."""
     monkeypatch.setenv("NVIDIA_API_KEY", "fake-nv")
-    from agents.profiles import _get_defaults, _nvidia_defaults
-    out = _get_defaults()
-    hardcoded = _nvidia_defaults()
-    # The catalog path returns the catalog preset (z-ai/glm-5.2); the
-    # hardcoded path returns meta/llama-3.3-70b-instruct. They differ —
-    # so if `out` matches the catalog, the catalog path was taken.
+    import agents.profiles as profiles
     from packages.ai.brain_config import PROVIDER_PRESETS
+    out = profiles._get_defaults()
     assert out["coder"] == PROVIDER_PRESETS["nvidia"]["executor"]
-    # Sanity: the hardcoded fallback would have returned a different value.
-    assert hardcoded["coder"] != PROVIDER_PRESETS["nvidia"]["executor"]
+
+    # Prove the catalog path is the one taken, robustly — the hardcoded fallback
+    # now names the same live model as the catalog (both nvidia/nemotron-3-super-
+    # 120b-a12b since the dead meta/llama-3.3-70b-instruct was purged), so a
+    # value comparison can no longer distinguish them. Force each branch instead:
+    sentinel = {"architect": "sentinel/catalog-model", "scout": "s", "coder": "s",
+                "reviewer": "s", "verifier": "s"}
+    monkeypatch.setattr(profiles, "_catalog_defaults", lambda: sentinel)
+    assert profiles._get_defaults() is sentinel, "catalog path must win when it resolves"
+    monkeypatch.setattr(profiles, "_catalog_defaults", lambda: None)
+    assert profiles._get_defaults() == profiles._nvidia_defaults(), (
+        "must fall back to the hardcoded table only when the catalog is unavailable"
+    )
 
 
 # ── 4-5. runtimes/adapters/{jcode,opencode}.py ────────────────────────────
