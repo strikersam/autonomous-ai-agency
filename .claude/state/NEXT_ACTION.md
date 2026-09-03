@@ -4,17 +4,31 @@ _Updated 2026-09-03._
 
 ## TOP: Provider/model central source of truth + admin-UI control (task #50)
 
-Branch `claude/provider-health-status-3gc25r`. Phase 0 shipped (see task #50).
-Next session picks up Phase 1 with these decisions **locked**:
+Branch `claude/provider-health-status-3gc25r`. **Phase 0 MERGED to master (squash
+`1e08270`, PR #1412)** — dead planner prefer_models fixed, rule 4 corrected, CI
+guard `scripts/check_model_catalog_consistency.py` live. Next: Phase 1 with these
+decisions **locked**:
 
-1. **One authoritative model catalogue** — everything derives from it. Blocker to
-   solve first: `packages/llm/registry.py:54` keys models one-provider-per-id, so
-   the same id (e.g. `openai/gpt-oss-120b` on both nvidia and groq) can't be
-   expressed centrally. Phase 1 = allow provider-qualified / multi-provider ids,
-   then collapse `config/models.yaml` into `config/llm/models.yaml` and have
-   `brain_config`/`brain_failover` derive from the one file. The new CI guard
-   (`scripts/check_model_catalog_consistency.py`) already reports the 8 divergences
-   to reconcile.
+1. **One authoritative model catalogue** — everything derives from it. Blocker
+   confirmed by reading the loader: `packages/llm/config.py::_load_models` +
+   `registry.py` key models `id → one ModelConfig` (`self._models: dict[str, ...]`,
+   `_build(ModelConfig, body, id=mid)`), so `_merge_env_defaults`/`_backfill`
+   last-wins-overwrite when two providers list the same id — `openai/gpt-oss-120b`
+   (nvidia AND groq) and `openai/gpt-oss-20b`; `qwen/qwen3.8-27b` is groq-only.
+   **Concrete Phase 1 design:** add `extra_providers: list[str]` to `ModelConfig`;
+   accept `providers: [nvidia, groq]` in models.yaml (`_load_models` sets
+   `provider=providers[0]`, `extra_providers=providers[1:]`); build a
+   per-provider index in `ModelRegistry` so `for_provider(pid)`/`candidates(
+   provider_id=pid)` return a `with_provider`-bound copy when `pid in
+   extra_providers` (keep `get(id)` returning the canonical/primary entry for
+   back-compat). Then declare groq on the gpt-oss entries, remove the 3 dead groq
+   entries (`llama-3.3-70b-versatile`, `deepseek-r1-distill-llama-70b`,
+   `llama-4-maverick-17b-128e-instruct`), collapse `config/models.yaml` into it,
+   and tighten the guard's cross-catalogue check from WARN to FAIL. Needs new
+   multi-provider tests + likely fixups in ~10 existing catalogue tests
+   (test_daily_automation_*, test_brain_failover, test_llm_router_*). **Not doable
+   in the web container — no fastapi/bcrypt/motor, and CI never calls a live
+   provider, so green CI ≠ correct routing. Must land with real `pytest -x`.**
 2. **Keys stay in Render env (rule 6 intact), updatable via the UI** using the
    Render API — "Render is the key DB". Build an admin-only endpoint that PATCHes a
    provider's key/base_url env var via the Render API (foundation:
