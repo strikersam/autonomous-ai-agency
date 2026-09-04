@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from agent.capability_registry import ToolRegistry, _register_web_reach_tools
-from agent.web_reach import WebReach, unsafe_target_reason
+from agent.web_reach import UNTRUSTED_EXTERNAL, WebReach, unsafe_target_reason
 
 
 # ---------------------------------------------------------------------------
@@ -262,6 +262,57 @@ def test_fetch_rss_parses_atom(monkeypatch: pytest.MonkeyPatch) -> None:
     result = reach.fetch_rss("https://example.com/atom.xml")
     assert result["ok"] is True
     assert result["entries"][0]["url"] == "https://example.com/entry-a"
+
+
+# ---------------------------------------------------------------------------
+# Source-level untrusted-content tagging (defence-in-depth for the #1409 spike)
+# ---------------------------------------------------------------------------
+
+def test_every_content_result_is_tagged_untrusted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every content-bearing web-reach success carries trust=untrusted-external at the
+    source, so a consumer other than the Executor prompt fence can still tell the
+    payload is attacker-influenceable external text."""
+    assert UNTRUSTED_EXTERNAL == "untrusted-external"
+    reach = WebReach()
+
+    # fetch_page (direct strategy)
+    monkeypatch.setattr(reach, "_video", lambda: _fake_video_module(is_video=False))
+    monkeypatch.setattr(reach, "_fetch_mod", lambda: _fake_fetch_module(direct_meaningful=True))
+    page = reach.fetch_page("https://example.com/article")
+    assert page["ok"] is True and page["trust"] == UNTRUSTED_EXTERNAL
+
+    # youtube_transcript
+    monkeypatch.setattr(
+        reach, "_video", lambda: _fake_video_module(is_video=True, transcript="Title\n\nwords")
+    )
+    yt = reach.youtube_transcript("https://youtu.be/abc123")
+    assert yt["ok"] is True and yt["trust"] == UNTRUSTED_EXTERNAL
+
+    # search_web
+    monkeypatch.setattr(
+        httpx, "get",
+        lambda url, params=None, headers=None, timeout=None, follow_redirects=None:
+        httpx.Response(200, text=_DDG_HTML, request=httpx.Request("GET", url)),
+    )
+    search = reach.search_web("autonomous ai agents")
+    assert search["ok"] is True and search["trust"] == UNTRUSTED_EXTERNAL
+
+    # fetch_rss
+    monkeypatch.setattr(
+        reach, "_safe_get",
+        lambda url: httpx.Response(200, content=_RSS2.encode(), request=httpx.Request("GET", url)),
+    )
+    rss = reach.fetch_rss("https://example.com/feed.xml")
+    assert rss["ok"] is True and rss["trust"] == UNTRUSTED_EXTERNAL
+
+
+def test_error_results_are_not_tagged(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The tag marks external content; a refusal/error carries no payload, so no tag —
+    consumers must not treat an error dict as trusted-or-untrusted content."""
+    reach = WebReach()
+    refused = reach.fetch_page("http://127.0.0.1:9000/secret")
+    assert refused["ok"] is False
+    assert "trust" not in refused
 
 
 def test_fetch_rss_rejects_malformed_xml(monkeypatch: pytest.MonkeyPatch) -> None:

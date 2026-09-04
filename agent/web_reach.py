@@ -50,6 +50,14 @@ _UA = (
 DEFAULT_TIMEOUT = 20.0
 MAX_CHARS = 6000
 
+# Every content-bearing result from this module carries this marker so any consumer
+# — not only the Executor prompt fence — can tell that the payload is external text
+# fetched from an attacker-influenceable source. It is DATA, never instructions
+# (rule 14 covers where it may be fetched from; this covers how it must be treated
+# once fetched). Defence-in-depth alongside the untrusted-observation fence in
+# agent/prompts.py::build_tool_prompt.
+UNTRUSTED_EXTERNAL = "untrusted-external"
+
 
 def unsafe_target_reason(url: str) -> str | None:
     """Return why *url* must not be fetched, or None if it's a safe public target.
@@ -199,6 +207,7 @@ class WebReach:
                             "url": url,
                             "final_url": url,
                             "source": "youtube_transcript",
+                            "trust": UNTRUSTED_EXTERNAL,
                             "text": transcript[:MAX_CHARS],
                         }
             except Exception as exc:  # noqa: BLE001 - fall through to page fetch
@@ -266,6 +275,7 @@ class WebReach:
             "url": url,
             "final_url": final_url,
             "source": source,
+            "trust": UNTRUSTED_EXTERNAL,
             "text": text[:MAX_CHARS],
         }
 
@@ -313,6 +323,7 @@ class WebReach:
             "url": url,
             "final_url": str(resp.url),
             "source": "httpx_direct",
+            "trust": UNTRUSTED_EXTERNAL,
             "text": text[:MAX_CHARS],
         }
 
@@ -332,7 +343,7 @@ class WebReach:
         transcript = video.fetch_transcript(url, timeout=int(self.timeout))
         if not transcript:
             return {"ok": False, "url": url, "error": "no captions available for this video"}
-        return {"ok": True, "url": url, "text": transcript[:MAX_CHARS]}
+        return {"ok": True, "url": url, "trust": UNTRUSTED_EXTERNAL, "text": transcript[:MAX_CHARS]}
 
     # ------------------------------------------------------------------
     # Web search — DuckDuckGo HTML (no API key)
@@ -371,7 +382,7 @@ class WebReach:
 
         if not results:
             return {"ok": False, "query": query, "error": "no results parsed (backend markup may have changed)"}
-        return {"ok": True, "query": query, "results": results}
+        return {"ok": True, "query": query, "trust": UNTRUSTED_EXTERNAL, "results": results}
 
     # ------------------------------------------------------------------
     # RSS / Atom feeds — stdlib XML, no new dependency
@@ -412,7 +423,7 @@ class WebReach:
 
         if not entries:
             return {"ok": False, "url": url, "error": "feed parsed but contained no entries"}
-        return {"ok": True, "url": url, "entries": entries}
+        return {"ok": True, "url": url, "trust": UNTRUSTED_EXTERNAL, "entries": entries}
 
     # ------------------------------------------------------------------
     # Diagnostics — mirrors `agent-reach doctor`

@@ -510,6 +510,14 @@ Promotes a repeated failure lesson into a standing instruction stored in
 
 ---
 
+## Knowledge graph tooling
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `GRAPHIFY_NO_AUTOINSTALL` | _(unset)_ | Set to any non-empty value to stop `.claude/hooks/graphify-refresh` from doing a one-shot best-effort `pip install graphifyy` when the `graphify` CLI is missing. Left unset, the hook self-installs the CLI in the background (once) so `graphify-out/GRAPH_REPORT.md` stops going stale in environments that didn't run `pip install -r requirements.txt`. The install is non-blocking and never fails the turn. |
+
+---
+
 ## Quick Reference — Minimal Configs
 
 ### Personal use (single key)
