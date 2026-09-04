@@ -328,11 +328,37 @@ export function mergeProviders({ routed = [], stored = [], catalogue = CATALOGUE
 
 /* ── Row ────────────────────────────────────────────────────────────────── */
 
-function ProviderRow({ row, expanded, onToggle, onDisable, onProbe, onEdit, onDelete, onTest, busy }) {
+function ProviderRow({ row, expanded, onToggle, onDisable, onProbe, onEdit, onDelete, onTest, onSetRenderKey, busy }) {
   const cfg = STATE[row.state] || STATE.unconfigured;
   const isLive = row.sources.includes('routed');
   const healthyKeys = row.keys.filter(k => k.healthy).length;
   const [testMsg, setTestMsg] = React.useState('');
+
+  // Inline key editor: writes the provider's key/base_url straight to the
+  // runtime environment (Render env) via /api/providers/{id}/render-env, so an
+  // operator can rotate a key from any row — not only DB-stored custom
+  // providers. The live brain reads keys from env, so this is what actually
+  // brings a provider online / swaps a spent key.
+  const [keyOpen, setKeyOpen] = React.useState(false);
+  const [keyVal, setKeyVal]   = React.useState('');
+  const [urlVal, setUrlVal]   = React.useState('');
+  const [keyBusy, setKeyBusy] = React.useState(false);
+  const [keyMsg, setKeyMsg]   = React.useState('');
+
+  const saveKey = async () => {
+    if (!keyVal.trim() && !urlVal.trim()) { setKeyMsg('Enter a key or a base URL.'); return; }
+    setKeyBusy(true); setKeyMsg('');
+    const payload = {};
+    if (keyVal.trim()) payload.api_key = keyVal.trim();
+    if (urlVal.trim()) payload.base_url = urlVal.trim();
+    try {
+      const { data } = await onSetRenderKey(row.stored?.provider_id || row.id, payload);
+      setKeyMsg(data?.note || 'Saved to Render.');
+      setKeyVal('');
+    } catch (e) {
+      setKeyMsg(api.fmtErr(e?.response?.data?.detail) || e?.message || 'Save failed.');
+    } finally { setKeyBusy(false); }
+  };
 
   const runTest = async () => {
     setTestMsg('testing…');
@@ -515,16 +541,48 @@ function ProviderRow({ row, expanded, onToggle, onDisable, onProbe, onEdit, onDe
                 <RowButton onClick={() => onDelete(row.stored)} disabled={busy} tone="#ff6b7d">Delete</RowButton>
               </>
             )}
-            {!isLive && !row.stored && row.keyEnv && (
-              <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-                Set <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>{row.keyEnv}</code> on the
-                server, then reload the routing config to bring this provider online.
-              </span>
+            {row.keyEnv && onSetRenderKey && (
+              <RowButton onClick={() => setKeyOpen(o => !o)} disabled={busy || keyBusy}>
+                {keyOpen ? 'Cancel' : (isLive ? 'Update key' : 'Set key')}
+              </RowButton>
             )}
             {testMsg && (
               <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{testMsg}</span>
             )}
           </div>
+
+          {/* Inline key/base-URL editor → runtime (Render env). */}
+          {keyOpen && row.keyEnv && (
+            <div style={{
+              display: 'flex', flexDirection: 'column', gap: 8, padding: '11px 12px',
+              borderRadius: 10, border: '1px solid rgba(196,181,253,0.22)', background: 'rgba(196,181,253,0.05)',
+            }}>
+              <div style={{ fontSize: 10.5, color: 'var(--text-tertiary)', lineHeight: 1.45 }}>
+                Writes <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>{row.keyEnv}</code> to the
+                server environment (Render), where the live brain reads it. Takes effect on the next deploy. Admin only.
+              </div>
+              <input
+                type="password" value={keyVal} onChange={e => setKeyVal(e.target.value)}
+                placeholder={`New value for ${row.keyEnv}`}
+                style={{ padding: '9px 11px', borderRadius: 9, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: '#fff', fontSize: 13, fontFamily: 'var(--font-mono)', outline: 'none' }}
+              />
+              <input
+                value={urlVal} onChange={e => setUrlVal(e.target.value)}
+                placeholder="Base URL (optional)"
+                style={{ padding: '9px 11px', borderRadius: 9, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: '#fff', fontSize: 13, fontFamily: 'var(--font-mono)', outline: 'none' }}
+              />
+              <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
+                <RowButton onClick={saveKey} disabled={keyBusy} tone="#c4b5fd">
+                  {keyBusy ? 'Saving…' : 'Save to Render'}
+                </RowButton>
+                {keyMsg && (
+                  <span style={{ fontSize: 11, color: /fail|error|enter|unknown|disabled|not config/i.test(keyMsg) ? '#ff6b7d' : '#46d9a4' }}>
+                    {keyMsg}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -588,6 +646,7 @@ export default function ProviderConsole({
   onEditProvider,
   onDeleteProvider,
   onTestProvider,
+  onSetRenderKey,
   policy,
   onTogglePaid,
   policyBusy,
@@ -850,6 +909,7 @@ export default function ProviderConsole({
               onEdit={onEditProvider}
               onDelete={onDeleteProvider}
               onTest={onTestProvider}
+              onSetRenderKey={onSetRenderKey}
             />
           ))}
         </div>
