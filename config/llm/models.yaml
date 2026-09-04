@@ -367,6 +367,26 @@ models:
     speed_tier: slow
     aliases: [fable5]
 
+  # Fable 5.1: revised Fable 5 release (2026-09); same gating + adaptive-thinking
+  # constraints as Fable 5, with improved instruction-following and context handling.
+  # Requires ROUTER_ALLOW_FABLE5=1.
+  claude-fable-5-1:
+    provider: anthropic
+    display_name: Claude Fable 5.1
+    context_window: 200000
+    max_output_tokens: 32000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 30.0
+    output_cost_per_1m: 120.0
+    priority: 60
+    speed_tier: slow
+    aliases: [fable5.1]
+
   # Mythos 5: same underlying model as Fable 5 with fewer dual-use safeguards.
   # Restricted to Anthropic-approved organisations; requires ROUTER_ALLOW_MYTHOS=1.
   # Adaptive thinking (no temperature, no extended thinking budget).

@@ -43,18 +43,24 @@ class Usage:
     prompt_tokens: int = 0
     completion_tokens: int = 0
     cached_tokens: int = 0
+    # Subset of completion_tokens used for internal reasoning (thinking models only).
+    # Billed at the output rate; tracked separately for observability.
+    reasoning_tokens: int = 0
 
     @property
     def total_tokens(self) -> int:
         return self.prompt_tokens + self.completion_tokens
 
     def as_dict(self) -> dict[str, int]:
-        return {
+        d: dict[str, int] = {
             "prompt_tokens": self.prompt_tokens,
             "completion_tokens": self.completion_tokens,
             "cached_tokens": self.cached_tokens,
             "total_tokens": self.total_tokens,
         }
+        if self.reasoning_tokens:
+            d["reasoning_tokens"] = self.reasoning_tokens
+        return d
 
 
 @dataclass
