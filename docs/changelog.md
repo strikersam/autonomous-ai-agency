@@ -3,6 +3,15 @@
      move the gate to root. -->
 
 ## [Unreleased]
+### Added
+- `agent/jit_harness/` — Just-in-Time Harness Generation system inspired by JIT-Agent
+  - `protocols.py` — Protocol definitions for harness generation, selection, and execution
+  - `generator.py` — HarnessGenerator: generates N candidate harnesses via meta-model (OpenAI-compatible API)
+  - `selector.py` — HarnessSelector: picks best harness via judge model or logprobs
+  - `executor.py` — HarnessExecutor: runs selected harness through agent kernel runtime
+  - `pipeline.py` — JITHarnessPipeline: end-to-end orchestration (generate → select → execute)
+  - `cli.py` — CLI entry point for running JIT pipeline
+- `tests/test_jit_harness.py` — Comprehensive test suite (19 tests passing)
 ### Security
 
 - **Web-reach results are tagged untrusted at the source** (2026-09-04). Follow-up to the #1409 spike (item 3, a risky module gated by rule 15 — reviewed with `risky-module-review`). Every content-bearing return from `agent/web_reach.py` (`fetch_page`, `youtube_transcript`, `search_web`, `fetch_rss`) now carries `"trust": "untrusted-external"`, so any consumer — not only the Executor prompt fence from the previous change — can tell the payload is attacker-influenceable external text to be treated as DATA, never instructions. Defence-in-depth only: the SSRF boundary (rule 14 — `unsafe_target_reason` + per-hop redirect re-validation in `_safe_get`) is untouched, and error/refusal results are left untagged (no payload). Security note — changed: added a constant trust marker to success returns; risk: a consumer that ignores the marker (mitigated — the prompt fence already treats every observation as untrusted, so this is purely additive); verified: the risky-module-review skill plus the existing SSRF tests still pass. 2 tests. Files: `agent/web_reach.py`, `tests/test_web_reach.py`.
