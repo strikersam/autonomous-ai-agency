@@ -230,10 +230,14 @@ function EditProviderForm({ provider, onUpdate, onClose }) {
   );
   const [busy, setBusy]   = React.useState(false);
   const [error, setError] = React.useState(null);
+  // When set, also push the key/base_url into the Render env so the runtime
+  // brain (which reads keys from the environment, not Mongo) picks them up.
+  const [pushRender, setPushRender] = React.useState(false);
+  const [renderNote, setRenderNote] = React.useState('');
 
   const submit = async () => {
     if (busy) return;
-    setBusy(true); setError(null);
+    setBusy(true); setError(null); setRenderNote('');
     const payload = {
       name: name.trim(),
       base_url: baseUrl.trim(),
@@ -248,11 +252,29 @@ function EditProviderForm({ provider, onUpdate, onClose }) {
     }
     try {
       await onUpdate(provider.provider_id, payload);
-      onClose();
     } catch (e) {
       setError(errText(e, 'Failed to update provider.'));
       setBusy(false);
+      return;
     }
+    // Optional: push key/base_url to Render env (runtime). Kept separate from
+    // the Mongo save so a Render-side failure doesn't lose the saved config.
+    if (pushRender && (apiKey.trim() || baseUrl.trim())) {
+      const rp = {};
+      if (apiKey.trim())  rp.api_key = apiKey.trim();
+      if (baseUrl.trim()) rp.base_url = baseUrl.trim();
+      try {
+        const { data } = await api.syncProviderToRender(provider.provider_id, rp);
+        setRenderNote(data?.note || 'Saved to Render.');
+        setBusy(false);
+        return;  // keep the form open so the operator sees the Render note
+      } catch (e) {
+        setError(errText(e, 'Saved to config, but Render env update failed.'));
+        setBusy(false);
+        return;
+      }
+    }
+    onClose();
   };
 
   const fld = { width:'100%', padding:'9px 12px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-main)' };
@@ -269,6 +291,14 @@ function EditProviderForm({ provider, onUpdate, onClose }) {
         <input type="password" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder={provider.api_key_masked ? `Leave blank to keep (${provider.api_key_masked})` : 'API key (optional)'} style={{ ...fld, fontFamily:'var(--font-mono)' }}/>
         <input value={model} onChange={e=>setModel(e.target.value)} placeholder="Default model" style={{ ...fld, fontFamily:'var(--font-mono)' }}/>
       </div>
+      {/* Runtime persistence: the brain reads provider keys from Render env, not
+          Mongo, so this pushes the key/base_url there. Off by default — it's a
+          production env write and requires RENDER_MCP_ALLOW_WRITES on the backend. */}
+      <label style={{ display:'flex', alignItems:'flex-start', gap:8, marginBottom:12, cursor:'pointer', fontSize:12, color:'var(--text-secondary)', lineHeight:1.45 }}>
+        <input type="checkbox" checked={pushRender} onChange={e=>setPushRender(e.target.checked)} style={{ marginTop:2 }}/>
+        <span>Also save the key / base URL to <strong>Render</strong> (runtime). The live brain reads keys from the environment — without this, the edit only updates the dashboard record. Takes effect on the next deploy.</span>
+      </label>
+      {renderNote && <div style={{ marginBottom:10, padding:'8px 12px', borderRadius:10, background:'rgba(70,217,164,0.10)', border:'1px solid rgba(70,217,164,0.25)', color:'#46d9a4', fontSize:12 }}>{renderNote}</div>}
       {error && <div style={{ marginBottom:10, padding:'8px 12px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:12 }}>{error}</div>}
       <div style={{ display:'flex', gap:8 }}>
         <button onClick={submit} disabled={busy} style={{ flex:1, padding:'10px', borderRadius:12, background:'linear-gradient(135deg,#c4b5fd,#a78bfa)', color:'#06111f', fontSize:13, fontWeight:800, border:'none', cursor:busy?'wait':'pointer', opacity:busy?0.7:1 }}>{busy ? 'Saving…' : 'Save changes'}</button>

@@ -6386,6 +6386,18 @@ class ProviderUpdate(BaseModel):
     priority: int = Field(default=None, ge=-100, le=1000)
 
 
+class ProviderRenderSync(BaseModel):
+    """Push a provider's key/base_url into the Render service environment.
+
+    At least one of ``api_key`` / ``base_url`` must be provided. The key is
+    written straight to Render env (never persisted to Mongo by this path),
+    so the runtime brain — which reads keys from the environment — picks it up
+    on the next deploy.
+    """
+    api_key: str | None = Field(default=None, max_length=8192)
+    base_url: str | None = Field(default=None, max_length=2048)
+
+
 
 # BUG-19 fix: Provider policy endpoints (paid-provider kill switch)
 @app.get("/api/providers/policy")
@@ -6489,6 +6501,96 @@ async def update_provider(
         "provider", f"Updated provider: {provider_id}", user_id=user["_id"]
     )
     return {"ok": True}
+
+
+@app.put("/api/providers/{provider_id}/render-env")
+async def sync_provider_to_render(
+    provider_id: str,
+    body: ProviderRenderSync,
+    user: dict = Depends(get_current_user),
+):
+    """Write a provider's key and/or base_url to the Render service environment.
+
+    This is the bridge the Providers UI needs: the runtime brain reads provider
+    keys from environment variables, so editing them in Mongo alone never
+    reaches the running process. Keys stay in Render (never persisted to Mongo
+    by this path); the change takes effect on Render's next deploy.
+
+    Admin-only, and gated behind ``RENDER_MCP_ALLOW_WRITES`` so a production
+    environment write is a deliberate, opted-in capability rather than one HTTP
+    call away from any admin session. The submitted value is never logged.
+    """
+    _require_admin(user)
+
+    if not (body.api_key or body.base_url):
+        raise HTTPException(status_code=422, detail="Provide api_key and/or base_url.")
+
+    from packages.config import settings
+    from packages.integrations.render_env import (
+        RenderEnvError,
+        provider_env_names,
+        update_service_env_var,
+    )
+
+    if not settings.is_render_mcp_write_allowed:
+        raise HTTPException(
+            status_code=403,
+            detail="Render writes are disabled. Set RENDER_MCP_ALLOW_WRITES=true to enable UI key updates.",
+        )
+    service_ids = settings.render_service_id_list
+    if not (settings.render_api_key and service_ids):
+        raise HTTPException(
+            status_code=503,
+            detail="Render is not configured (need RENDER_API_KEY and RENDER_SERVICE_IDS).",
+        )
+
+    env_names = provider_env_names(provider_id)
+    if env_names is None:
+        raise HTTPException(status_code=404, detail="Unknown provider — no known env mapping.")
+    key_env, base_url_env = env_names
+
+    service_id = service_ids[0]
+    updated: list[str] = []
+    try:
+        if body.api_key:
+            if not key_env:
+                raise HTTPException(status_code=422, detail="This provider has no API-key variable.")
+            await update_service_env_var(
+                service_id, key_env, body.api_key.strip(), api_key=settings.render_api_key
+            )
+            updated.append(key_env)
+        if body.base_url:
+            if not base_url_env:
+                raise HTTPException(status_code=422, detail="This provider has no base-URL variable.")
+            await update_service_env_var(
+                service_id, base_url_env, body.base_url.strip(), api_key=settings.render_api_key
+            )
+            updated.append(base_url_env)
+    except RenderEnvError as exc:
+        # Generic message to the client; cause is logged inside the helper.
+        raise HTTPException(status_code=502, detail="Render env update failed.") from exc
+
+    # Mirror the non-secret base_url into Mongo so the UI reflects it; the key is
+    # NOT stored here — it lives only in Render env (the user's chosen model).
+    if body.base_url:
+        try:
+            await get_db().providers.update_one(
+                {"provider_id": provider_id},
+                {"$set": {"base_url": body.base_url.strip(), "status": "configured"}},
+            )
+        except Exception as exc:  # noqa: BLE001 — Mongo mirror is best-effort
+            log.warning("render-env: Mongo base_url mirror failed for %s (%s)", provider_id, exc)
+
+    await log_activity(
+        "provider",
+        f"Synced provider {provider_id} to Render env ({', '.join(updated)})",
+        user_id=user["_id"],
+    )
+    return {
+        "ok": True,
+        "updated": updated,
+        "note": "Saved to Render. Takes effect on the next deploy.",
+    }
 
 
 @app.delete("/api/providers/{provider_id}")

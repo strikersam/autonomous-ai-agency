@@ -235,6 +235,10 @@ export const createProvider = (data) => API.post('/api/providers', data);
 export const updateProvider = (id, data) => API.put(`/api/providers/${id}`, data);
 export const deleteProvider = (id) => API.delete(`/api/providers/${id}`);
 export const testProvider = (id) => API.post(`/api/providers/${id}/test`);
+// Push a provider's key/base_url into the Render service environment so the
+// runtime brain (which reads keys from env, not Mongo) picks them up. Admin-only;
+// requires RENDER_MCP_ALLOW_WRITES on the backend. Takes effect on next deploy.
+export const syncProviderToRender = (id, data) => API.put(`/api/providers/${id}/render-env`, data);
 export const listProviderModels = (id) => API.get(`/api/providers/${encodeURIComponent(id)}/models`);
 
 // Models
