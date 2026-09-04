@@ -202,6 +202,47 @@ class TestAddConversationCacheBreakpoints:
         blocks = result[1]["content"]
         assert blocks[-1].get("cache_control") == {"type": "ephemeral"}
 
+    def test_single_breakpoint_covers_prefix_with_earlier_tool_turns(self):
+        """#1422 item 2 — verify (no code change): when the cache frontier lands on
+        a tool-calling turn, one positional breakpoint at messages[-stable_back]
+        caches the whole prefix, *including* earlier tool_use / tool_result turns.
+
+        The 2026 Anthropic prompt-caching guidance flagged a class of bug where
+        caching keyed to a tool_result block specifically can misbehave. It does
+        not apply here: this method places exactly one breakpoint chosen by
+        position, and Anthropic caches the contiguous prefix up to and including
+        it. So the earlier tool turns are cached transitively and must NOT each
+        carry their own cache_control — asserting that documents the design and
+        fails if anyone reintroduces per-tool-turn breakpoints.
+        """
+        msgs = [
+            {"role": "user", "content": "implement X"},              # 0
+            {"role": "assistant", "content": [                        # 1 tool_use
+                {"type": "text", "text": "reading the file"},
+                {"type": "tool_use", "id": "t1", "name": "read_file", "input": {"path": "a"}},
+            ]},
+            {"role": "user", "content": [                             # 2 tool_result
+                {"type": "tool_result", "tool_use_id": "t1", "content": "file body"},
+            ]},
+            {"role": "assistant", "content": [                        # 3 = messages[-2], frontier
+                {"type": "text", "text": "here is the plan"},
+                {"type": "tool_use", "id": "t2", "name": "write_file", "input": {"path": "a"}},
+            ]},
+            {"role": "user", "content": "now do Y"},                  # 4 = messages[-1]
+        ]
+        result = self._fn(msgs)
+
+        # Exactly one breakpoint, on the last block of the frontier turn (idx 3).
+        assert result[3]["content"][-1].get("cache_control") == {"type": "ephemeral"}
+
+        # No other message — the earlier tool_use (1) / tool_result (2) turns, the
+        # first user turn (0), or the current turn (4) — carries its own breakpoint.
+        def _has_cc(msg: dict) -> bool:
+            content = msg.get("content")
+            return isinstance(content, list) and any("cache_control" in b for b in content)
+
+        assert not any(_has_cc(result[i]) for i in (0, 1, 2, 4))
+
 
 # ── Integration: build_payload wires the breakpoints ─────────────────────────
 
