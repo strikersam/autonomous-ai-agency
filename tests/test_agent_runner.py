@@ -959,3 +959,31 @@ def test_timed_phase_still_logs_phase_end_when_the_body_raises(caplog):
     messages = [r.getMessage() for r in caplog.records]
     assert any(m.startswith("phase_start demo_phase") for m in messages)
     assert any(m.startswith("phase_end demo_phase") for m in messages)
+
+
+def test_chat_json_error_carries_attempt_count_and_bounded_snippet(tmp_path: Path):
+    """Regression for #1422 item 3: when the model never returns a JSON object,
+    the raised error must name how many attempts were made and include a bounded
+    snippet of the last raw output — not the context-free "Model did not return a
+    JSON object" that discarded every attempt's output."""
+    root = tmp_path / "repo"
+    root.mkdir()
+    runner = AgentRunner(ollama_base="http://localhost:11434", workspace_root=root)
+
+    last_raw = "sorry, here is some prose and definitely not json " * 20  # >200 chars
+
+    async def fake_chat_text(model: str, messages: list[dict[str, str]]) -> str:
+        return last_raw
+
+    runner._chat_text = fake_chat_text  # type: ignore[method-assign]
+
+    with pytest.raises(ValueError) as exc_info:
+        asyncio.run(runner._chat_json("some-model", [{"role": "user", "content": "hi"}]))
+
+    msg = str(exc_info.value)
+    # (a) attempt count present — 1 initial call + 3 reprompts.
+    assert "after 4 attempts" in msg
+    # (b) a snippet of the last raw output is included.
+    assert "sorry, here is some prose" in msg
+    # (c) the snippet is bounded to 200 chars, so the full 1000-char blob is not dumped.
+    assert last_raw not in msg

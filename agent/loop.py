@@ -2298,13 +2298,14 @@ class AgentRunner:
 
     async def _chat_json(self, model: str, messages: list[dict[str, str]]) -> dict[str, Any]:
         raw = await self._chat_text(model, messages)
+        attempts = 1
         for _ in range(3):
             try:
                 parsed = self._extract_json(raw)
                 if not isinstance(parsed, dict):
                     raise ValueError("Model did not return a JSON object")
                 return parsed
-            except Exception:  # nosec B110 -- KPI tracking is best-effort
+            except Exception:  # nosec B110 -- reprompt on any parse/shape failure
                 raw = await self._chat_text(
                     model,
                     [
@@ -2312,10 +2313,21 @@ class AgentRunner:
                         {"role": "user", "content": raw},
                     ],
                 )
-        parsed = self._extract_json(raw)
-        if not isinstance(parsed, dict):
-            raise ValueError("Model did not return a JSON object")
-        return parsed
+                attempts += 1
+        try:
+            parsed = self._extract_json(raw)
+            if not isinstance(parsed, dict):
+                raise ValueError("not a JSON object")
+            return parsed
+        except Exception as exc:
+            # Surface enough context to diagnose which model misbehaved and how,
+            # without dumping an unbounded payload. The snippet is the model's own
+            # output, bounded to 200 chars — never an env-var secret (rule 6).
+            snippet = (raw or "").strip().replace("\n", " ")[:200]
+            raise ValueError(
+                f"Model did not return a JSON object after {attempts} attempts; "
+                f"last raw output (truncated to 200 chars): {snippet!r}"
+            ) from exc
 
     def _extract_json(self, raw: str) -> Any:
         raw = raw.strip()
