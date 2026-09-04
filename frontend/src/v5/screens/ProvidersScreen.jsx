@@ -771,6 +771,7 @@ function ProvidersScreen() {
             onEditProvider={(prov) => { setEditingId(prov.provider_id); setShowAdd(false); }}
             onDeleteProvider={handleDelete}
             onTestProvider={api.testProvider}
+            onSetRenderKey={api.syncProviderToRender}
             refreshStored={refetch}
           />
 
