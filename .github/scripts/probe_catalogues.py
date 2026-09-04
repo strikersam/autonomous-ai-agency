@@ -131,7 +131,7 @@ def list_models(provider, key: str) -> list[dict]:
     return [record for record in records if isinstance(record, dict)]
 
 
-def probe_chat(provider, key: str, model_id: str) -> bool:
+def probe_chat(provider, key: str, model_id: str) -> tuple[bool, str]:
     """Send the smallest possible completion.
 
     A model can be listed and still refuse to serve — that is exactly how the
@@ -140,6 +140,10 @@ def probe_chat(provider, key: str, model_id: str) -> bool:
     Only called for kinds this script knows how to call: a skipped call must
     never be able to return ``True``, because the caller reads ``True`` as
     evidence that the provider is up.
+
+    Returns ``(ok, detail)``. ``detail`` is a short, secret-free status token
+    (``"HTTP 200"``, ``"HTTP 410"``, or an exception class name) so a scheduled
+    caller can report *which* status code a dead id answered with.
     """
     spec = _CHAT[_kind(provider)]
     payload = {
@@ -151,16 +155,16 @@ def probe_chat(provider, key: str, model_id: str) -> bool:
         body = _request(provider, spec["path"], key, payload)
     except urllib.error.HTTPError as exc:
         print(f"    {model_id}: HTTP {exc.code} — {exc.reason}")
-        return False
+        return False, f"HTTP {exc.code}"
     except Exception as exc:  # noqa: BLE001 - diagnostic, report anything
         print(f"    {model_id}: {type(exc).__name__}: {exc}")
-        return False
+        return False, type(exc).__name__
 
     choices = body.get("choices") or body.get("content") or [{}]
     first = choices[0] if isinstance(choices, list) and choices else {}
     text = (first.get("message") or {}).get("content") or first.get("text") or ""
     print(f"    {model_id}: HTTP 200 — {str(text)[:80]!r}")
-    return True
+    return True, "HTTP 200"
 
 
 _PROBE_TOOL = {
@@ -233,6 +237,10 @@ class ProviderOutcome:
     listed: bool = False
     answered: bool = False
     unservable: list[str] = field(default_factory=list)
+    # Per-failure detail for the scheduled report: {"id": "provider:model",
+    # "detail": "HTTP 410"}. Kept apart from ``unservable`` so the printed
+    # summary format never changes.
+    unservable_detail: list[dict] = field(default_factory=list)
 
     @property
     def reachable(self) -> bool:
@@ -309,8 +317,12 @@ def probe_provider(provider, key: str, args) -> ProviderOutcome:
         print(f"    (no chat route known for kind {_kind(provider)!r}; skipped)")
         targets = []
     for target in targets:
-        if not probe_chat(provider, key, target):
+        ok, detail = probe_chat(provider, key, target)
+        if not ok:
             outcome.unservable.append(f"{provider.id}:{target}")
+            outcome.unservable_detail.append(
+                {"id": f"{provider.id}:{target}", "detail": detail}
+            )
             continue
         outcome.answered = True
         if args.tools:
@@ -348,6 +360,16 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
             "catalogue itself cannot be read."
         ),
     )
+    parser.add_argument(
+        "--json",
+        default="",
+        metavar="PATH",
+        help=(
+            "also write a machine-readable summary of the run to PATH "
+            "(reachable count + unreachable/unlistable/unservable ids with status "
+            "detail). Used by the scheduled drift-report step; never prints a key."
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -358,6 +380,7 @@ def main(argv: list[str] | None = None) -> int:
     unreachable: list[str] = []
     unlistable: list[str] = []
     unservable: list[str] = []
+    unservable_detail: list[dict] = []
 
     for provider in _providers(args.provider):
         key = _resolve_key(provider)
@@ -376,6 +399,7 @@ def main(argv: list[str] | None = None) -> int:
 
         outcome = probe_provider(provider, key, args)
         unservable.extend(outcome.unservable)
+        unservable_detail.extend(outcome.unservable_detail)
         if outcome.reachable:
             reachable += 1
         else:
@@ -394,9 +418,26 @@ def main(argv: list[str] | None = None) -> int:
     if unservable:
         print(f"named but would not answer: {', '.join(unservable)}")
     # A probe that cannot reach anything must not look like a healthy one.
-    if unreachable or unservable or reachable == 0:
-        return 1
-    return 0
+    ok = not (unreachable or unservable or reachable == 0)
+
+    if args.json:
+        summary = {
+            "ok": ok,
+            "reachable": reachable,
+            "unreachable": unreachable,
+            "unlistable": unlistable,
+            "unservable": unservable,
+            "unservable_detail": unservable_detail,
+        }
+        # Best-effort: a diagnostic that cannot write its own report file must
+        # not change the probe's own pass/fail verdict.
+        try:
+            with open(args.json, "w", encoding="utf-8") as fh:
+                json.dump(summary, fh, indent=2, sort_keys=True)
+        except OSError as exc:
+            print(f"    (could not write --json {args.json!r}: {exc})")
+
+    return 0 if ok else 1
 
 
 if __name__ == "__main__":

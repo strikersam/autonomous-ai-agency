@@ -6,7 +6,16 @@ name: Provider catalogue probe
 # neither the keys nor a route to the vendors, which is why model ids in this
 # repo were guessed rather than read — and why the guesses kept rotting.
 #
-# Dispatch-only: no commits, no PRs, not part of the autonomous loop fleet.
+# Two triggers:
+#   * workflow_dispatch — manual, ad-hoc probing with the inputs below. No
+#     side effects: prints what it finds and never touches issues.
+#   * schedule (daily)  — calls the default model of each routed provider and,
+#     when one is unreachable or a named model will not answer, opens/updates a
+#     SINGLE drift-tracking issue (naming provider, model id, status code). This
+#     is what turns "found via a production 410" into "found on a cadence".
+#
+# Still never commits, pushes, or opens a PR. Catalogued in loops/registry.yaml
+# (rule 35) as a scheduled loop.
 
 on:
   workflow_dispatch:
@@ -32,14 +41,36 @@ on:
         required: false
         type: boolean
         default: false
+  schedule:
+    # Daily at 06:00 UTC — catch a retired or paywalled default model before it
+    # surfaces as a production 410/404/402, instead of after an incident.
+    - cron: "0 6 * * *"
 
 permissions:
   contents: read
+  # The scheduled run opens/updates one drift-tracking issue. Nothing else here
+  # writes; the manual dispatch path files nothing at all.
+  issues: write
 
 jobs:
   probe:
     name: Ask the providers what they serve
     runs-on: ubuntu-latest
+    env:
+      # Every provider the router knows. A key that is not set simply means that
+      # provider reports "key present: no" and is skipped. Lifted to job level so
+      # both the manual and the scheduled probe steps see the same keys.
+      NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+      NVIDIA_BASE_URL: ${{ secrets.NVIDIA_BASE_URL }}
+      CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+      # The drift-report step files the tracking issue with the scoped Actions
+      # token. Set at job level so no ${{ }} expansion is needed in a run: block
+      # after it (GITHUB_REPOSITORY is provided automatically by Actions).
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
 
@@ -50,20 +81,12 @@ jobs:
       - name: Install config dependencies
         # packages/llm/__init__ imports the router, which imports httpx, so
         # loading the provider config pulls it in even though the probe itself
-        # only uses urllib.
+        # only uses urllib. httpx is also what probe_report.py uses.
         run: python -m pip install --quiet pyyaml httpx
 
-      - name: Probe
+      - name: Probe (manual dispatch)
+        if: github.event_name == 'workflow_dispatch'
         env:
-          # Every provider the router knows. A key that is not set simply means
-          # that provider reports "key present: no" and is skipped.
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-          NVIDIA_BASE_URL: ${{ secrets.NVIDIA_BASE_URL }}
-          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           # Inputs reach the shell as environment variables, never interpolated
           # into the script text: a ${{ }} expansion inside run: is pasted in as
           # shell source, so a crafted input would execute as a command.
@@ -84,3 +107,23 @@ jobs:
           done
           if [ "$PROBE_TOOLS" = "true" ]; then args+=(--tools); fi
           python .github/scripts/probe_catalogues.py "${args[@]}"
+
+      - name: Probe (scheduled)
+        if: github.event_name == 'schedule'
+        run: |
+          # Call the default model of each routed provider (the rule-4 chain), so
+          # a retired default answers with its real status code instead of merely
+          # being listed. A provider whose key is unset is skipped, not an error.
+          # --json writes the summary the drift-report step consumes; it is
+          # written even when the probe exits non-zero on drift.
+          python .github/scripts/probe_catalogues.py \
+            --chat nvidia --chat cerebras --chat groq --chat anthropic \
+            --json /tmp/probe-summary.json
+
+      - name: File or update the drift tracker
+        # always() so this runs even when the probe step above exited non-zero on
+        # drift (that is precisely when there is something to report); gated to the
+        # scheduled run so a manual dispatch never files an issue. GITHUB_TOKEN is
+        # inherited from the job env; GITHUB_REPOSITORY is provided by Actions.
+        if: always() && github.event_name == 'schedule'
+        run: python .github/scripts/probe_report.py --json /tmp/probe-summary.json

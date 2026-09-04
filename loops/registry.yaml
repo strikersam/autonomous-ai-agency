@@ -543,3 +543,16 @@ loops:
     self_heal: true
     gate: none
     purpose: Re-run the live GitHub search queries proof/agent-built.md cites and open a PR only when the merged-PR counts have drifted from what's committed.
+
+  - id: catalogue-probe
+    name: Provider Catalogue Probe
+    pattern: infra-heartbeat
+    level: L1
+    trigger: schedule
+    cadence: daily (06:00 UTC)
+    runs_per_day: 1
+    cost: low
+    source: .github/workflows/catalogue-probe.yml
+    self_heal: false
+    gate: none
+    purpose: Call the default model of each routed provider daily and open/update a single drift-tracking issue when a configured id is unreachable or would not answer, so a dead model is caught on a cadence instead of via a production 410/404/402.
