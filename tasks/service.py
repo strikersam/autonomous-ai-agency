@@ -297,11 +297,20 @@ class TaskWorkflowService:
         )
         return task
 
-    def retry(self, task: Task, *, actor: str) -> Task:
+    def retry(self, task: Task, *, actor: str, reset_auto_retry: bool = True) -> Task:
         """Re-run a task. Permissive across every non-active state so the dashboard
         Retry button (which is always visible) never returns a 400: terminal,
         blocked, in-review and clarification-pending tasks are re-opened, while
         already-runnable tasks (todo/in_progress) are simply re-armed.
+
+        ``reset_auto_retry`` clears the dispatcher's auto-retry budget (the
+        ``auto_retry_count`` cap and the runtime-unavailable event count). It
+        MUST stay True for a human-initiated retry — a person acting on a task
+        is a fresh start. The dispatcher's own ``_auto_retry_blocked`` loop
+        passes it False: if auto-retry reset its own budget, the cap of 5 would
+        never be reached (the count resets to 0 then increments to 1 every
+        cycle) and a task that deterministically times out would be re-queued
+        forever, which is exactly what happened to poison portfolio tasks.
         """
         if task.status in {TaskStatus.TODO, TaskStatus.IN_PROGRESS}:
             # Already runnable — re-arm the agent run without an illegal self-transition.
@@ -322,13 +331,14 @@ class TaskWorkflowService:
                 message=f"Task reset for retry by {actor}",
                 pending_agent_run=True,
             )
-        task.auto_retry_count = 0  # human retry resets the auto-retry counter
-        task.add_log(
-            "Runtime-unavailable counter reset by human retry",
-            event_type="runtime_retry_reset",
-            actor=actor,
-            task_status=task.status,
-        )
+        if reset_auto_retry:
+            task.auto_retry_count = 0  # human retry resets the auto-retry counter
+            task.add_log(
+                "Runtime-unavailable counter reset by human retry",
+                event_type="runtime_retry_reset",
+                actor=actor,
+                task_status=task.status,
+            )
         task.error_message = None
         return task
 

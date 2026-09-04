@@ -196,7 +196,13 @@ class TaskDispatcher:
                 # picked up again in the same poll cycle — it waits for the next
                 # _poll_and_execute() loop iteration after the sleep interval.
                 try:
-                    self.coordinator.workflow.retry(task, actor="system:auto-retry")
+                    # reset_auto_retry=False: the dispatcher owns the auto-retry
+                    # budget here, so retry() must NOT clear it — otherwise the
+                    # count resets to 0 every cycle, never reaches _AUTO_RETRY_MAX,
+                    # and a deterministically-timing-out task loops forever.
+                    self.coordinator.workflow.retry(
+                        task, actor="system:auto-retry", reset_auto_retry=False
+                    )
                     # After retry(), the task is IN_PROGRESS with pending_agent_run=True.
                     # For the dispatcher to pick it up on the NEXT poll cycle (not the
                     # same cycle), put it back in TODO state so list_pending() sees it.
