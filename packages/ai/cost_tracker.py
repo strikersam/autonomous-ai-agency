@@ -61,7 +61,8 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "claude-opus-5": (15.0, 75.0),         # Opus 5 — most capable; planner/judge role
     "claude-sonnet-5": (3.0, 15.0),        # GA July 2026, 1M context, adaptive thinking
     "claude-sonnet-5-20260501": (3.0, 15.0),
-    "claude-fable-5": (3.0, 15.0),
+    "claude-fable-5": (30.0, 120.0),       # Fable 5 — gated flagship; matches models.yaml
+    "claude-fable-5-1": (30.0, 120.0),     # Fable 5.1 — revised release (2026-09)
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-opus-4-8": (15.0, 75.0),
     "claude-opus-4-7": (15.0, 75.0),       # Opus 4.7 — same pricing tier as 4.8
