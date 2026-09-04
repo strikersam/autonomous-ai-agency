@@ -13,8 +13,19 @@ REPORT="graphify-out/GRAPH_REPORT.md"
 cd "$ROOT" || exit 0
 
 if ! command -v graphify >/dev/null 2>&1; then
-  # Degrade silently — hooks should never fail or produce noise
-  # just because an optional tool isn't installed.
+  # graphify (the `graphifyy` dependency in requirements.txt) is absent — which is
+  # exactly how GRAPH_REPORT.md silently goes stale in an environment that never ran
+  # `pip install -r requirements.txt`. Best-effort, one-shot, backgrounded self-install
+  # so the NEXT refresh has the binary. Never blocks or fails this turn, never retries
+  # per hook (marker), and is fully opt-out via GRAPHIFY_NO_AUTOINSTALL=1.
+  MARKER="/tmp/graphify-autoinstall.done"
+  if [ -z "${GRAPHIFY_NO_AUTOINSTALL:-}" ] && [ ! -e "$MARKER" ]; then
+    : > "$MARKER" 2>/dev/null || true
+    ( python3 -m pip install --quiet --disable-pip-version-check "graphifyy>=0.9.51" \
+        >/dev/null 2>&1 || true ) &
+  fi
+  # Degrade silently for this run — hooks never fail or produce noise just because
+  # an optional tool isn't installed yet.
   exit 0
 fi
 
