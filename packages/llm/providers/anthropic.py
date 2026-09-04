@@ -42,32 +42,35 @@ _EXTENDED_CACHE_TTL_BETA = "extended-cache-ttl-2025-04-11"
 # rejected outright, so an invalid one must never be sent.
 _MIN_THINKING_BUDGET_TOKENS = 1024
 
-# Claude Sonnet 5 and Fable 5 enforce adaptive thinking; sending temperature /
-# top_p / top_k at a non-default value returns HTTP 400.  Strip those fields
-# from the payload for every model in this set.
+# Models with an adaptive-thinking layer (the Claude 4.7+ / 5 family). They
+# reject BOTH legacy sampling params (temperature / top_p / top_k) AND the legacy
+# thinking.type="enabled" budget with HTTP 400 — sampling and thinking depth are
+# controlled by output_config.effort instead. Opus 4.6 / Sonnet 4.6 and older
+# still accept both, so they are deliberately absent.
 #
-# Public because the legacy brain (packages/ai/router.py::_anthropic_payload)
-# builds its own Anthropic payload and must apply the same model-capability
-# guards — one source of truth so a new Claude model can never be added to one
-# path and forgotten in the other.
-NO_TEMPERATURE_MODELS: frozenset[str] = frozenset({
+# One canonical set, exposed under two names for the two distinct constraints it
+# currently governs, because no shipping model splits them (a model either has
+# adaptive thinking and rejects both, or is legacy and accepts both). Public
+# because the legacy brain (packages/ai/router.py::_anthropic_payload) builds its
+# own Anthropic payload and must apply the same guards — one source of truth so a
+# new Claude model can never be guarded in one path and forgotten in the other.
+ADAPTIVE_THINKING_MODELS: frozenset[str] = frozenset({
+    "claude-opus-5",
+    "claude-opus-4-8",
+    "claude-opus-4-7",
     "claude-sonnet-5",
     "claude-fable-5",
+    "claude-fable-5-1",
     "claude-mythos-5",
+    "claude-mythos-5-1",
     "claude-mythos-preview",
 })
 
-# These models use adaptive thinking and do NOT support the legacy
-# thinking.type="enabled" budget parameter — sending it returns HTTP 400.
-NO_EXTENDED_THINKING_MODELS: frozenset[str] = frozenset({
-    "claude-fable-5",
-    "claude-mythos-5",
-    "claude-mythos-preview",
-    "claude-opus-5",
-    "claude-sonnet-5",
-    "claude-opus-4-8",
-    "claude-opus-4-7",
-})
+# Sending temperature / top_p / top_k to these returns HTTP 400.
+NO_TEMPERATURE_MODELS: frozenset[str] = ADAPTIVE_THINKING_MODELS
+
+# Sending the legacy thinking.type="enabled" budget to these returns HTTP 400.
+NO_EXTENDED_THINKING_MODELS: frozenset[str] = ADAPTIVE_THINKING_MODELS
 
 # Valid effort levels accepted by output_config.effort.
 _VALID_EFFORT_LEVELS: frozenset[str] = frozenset({

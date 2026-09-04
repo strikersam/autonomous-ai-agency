@@ -194,6 +194,13 @@ class TestAnthropicPayloadModelGuards:
     the model-aware guards that stop it.
     """
 
+    def test_temperature_omitted_for_planner_opus5(self, monkeypatch):
+        # claude-opus-5 is the anthropic planner preset and the actual 400 in
+        # production: the adaptive-thinking family rejects any temperature.
+        monkeypatch.setenv("ANTHROPIC_THINKING_BUDGET", "0")
+        out = ProviderRouter._anthropic_payload(_payload(user="Plan", model="claude-opus-5"))
+        assert "temperature" not in out
+
     def test_temperature_omitted_for_no_temperature_model(self, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_THINKING_BUDGET", "0")
         out = ProviderRouter._anthropic_payload(_payload(user="Hi", model="claude-sonnet-5"))
@@ -205,14 +212,13 @@ class TestAnthropicPayloadModelGuards:
         assert "temperature" in out
 
     def test_thinking_omitted_for_adaptive_thinking_model(self, monkeypatch):
-        # Opus 5 is the anthropic planner preset — sending legacy thinking 400s it.
+        # Opus 5 is the anthropic planner preset — the legacy thinking block 400s it.
         monkeypatch.setenv("ANTHROPIC_THINKING_BUDGET", "8000")
         monkeypatch.setenv("ANTHROPIC_PROMPT_CACHING", "false")
         out = ProviderRouter._anthropic_payload(_payload(user="Plan", model="claude-opus-5"))
         assert "thinking" not in out
-        # Opus 5 is not in the no-temperature set, so temperature is untouched
-        # and must NOT be forced to 1 (that path only runs when thinking is sent).
-        assert out.get("temperature") != 1
+        # Opus 5 is in the no-temperature set, so no temperature key at all.
+        assert "temperature" not in out
 
     def test_thinking_still_sent_for_supporting_model(self, monkeypatch):
         monkeypatch.setenv("ANTHROPIC_THINKING_BUDGET", "8000")
