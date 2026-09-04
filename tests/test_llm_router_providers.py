@@ -614,6 +614,20 @@ def test_anthropic_legacy_model_still_gets_temperature():
         assert payload.get("temperature") == 0.7, f"{model} should carry temperature"
 
 
+def test_anthropic_opus_family_no_temperature():
+    """The whole adaptive-thinking Opus family (5 / 4.8 / 4.7) rejects temperature.
+
+    Opus 5 is the anthropic planner preset — the production 400 was temperature
+    sent to it. Opus was previously (incorrectly) absent from the no-temperature
+    set even though it 400s the same way Sonnet 5 / Fable 5 do.
+    """
+    p = _anthropic_provider()
+    req = LLMRequest(messages=[{"role": "user", "content": "hi"}], temperature=0.3)
+    for model in ("claude-opus-5", "claude-opus-4-8", "claude-opus-4-7"):
+        payload = p.build_payload(req, model)
+        assert "temperature" not in payload, f"{model} must not carry temperature"
+
+
 def test_anthropic_sonnet5_no_extended_thinking():
     """claude-sonnet-5 must not receive thinking.type='enabled'."""
     p = _anthropic_provider(thinking_budget=6000)

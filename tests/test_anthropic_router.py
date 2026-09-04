@@ -182,6 +182,60 @@ class TestAnthropicPayloadExtendedThinking:
         assert out["temperature"] == pytest.approx(0.7)
 
 
+# ── _anthropic_payload — model-capability guards (adaptive-thinking 400s) ─────
+
+
+class TestAnthropicPayloadModelGuards:
+    """Adaptive-thinking Claude models 400 on temperature / legacy thinking.
+
+    The legacy brain used to send both unconditionally, so every planning or
+    execution step routed to Anthropic (planner preset claude-opus-5, executor
+    claude-sonnet-5) failed with HTTP 400 on api.anthropic.com. These lock in
+    the model-aware guards that stop it.
+    """
+
+    def test_temperature_omitted_for_planner_opus5(self, monkeypatch):
+        # claude-opus-5 is the anthropic planner preset and the actual 400 in
+        # production: the adaptive-thinking family rejects any temperature.
+        monkeypatch.setenv("ANTHROPIC_THINKING_BUDGET", "0")
+        out = ProviderRouter._anthropic_payload(_payload(user="Plan", model="claude-opus-5"))
+        assert "temperature" not in out
+
+    def test_temperature_omitted_for_no_temperature_model(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_THINKING_BUDGET", "0")
+        out = ProviderRouter._anthropic_payload(_payload(user="Hi", model="claude-sonnet-5"))
+        assert "temperature" not in out
+
+    def test_temperature_present_for_ordinary_model(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_THINKING_BUDGET", "0")
+        out = ProviderRouter._anthropic_payload(_payload(user="Hi", model="claude-sonnet-4-6"))
+        assert "temperature" in out
+
+    def test_thinking_omitted_for_adaptive_thinking_model(self, monkeypatch):
+        # Opus 5 is the anthropic planner preset — the legacy thinking block 400s it.
+        monkeypatch.setenv("ANTHROPIC_THINKING_BUDGET", "8000")
+        monkeypatch.setenv("ANTHROPIC_PROMPT_CACHING", "false")
+        out = ProviderRouter._anthropic_payload(_payload(user="Plan", model="claude-opus-5"))
+        assert "thinking" not in out
+        # Opus 5 is in the no-temperature set, so no temperature key at all.
+        assert "temperature" not in out
+
+    def test_thinking_still_sent_for_supporting_model(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_THINKING_BUDGET", "8000")
+        monkeypatch.setenv("ANTHROPIC_PROMPT_CACHING", "false")
+        out = ProviderRouter._anthropic_payload(_payload(user="Reason", model="claude-3-5-sonnet-20241022"))
+        assert out.get("thinking") == {"type": "enabled", "budget_tokens": 8000}
+        assert out["temperature"] == 1
+
+    def test_sonnet5_with_thinking_budget_sends_neither(self, monkeypatch):
+        # Executor preset: in BOTH sets — no temperature and no legacy thinking.
+        monkeypatch.setenv("ANTHROPIC_THINKING_BUDGET", "8000")
+        monkeypatch.setenv("ANTHROPIC_PROMPT_CACHING", "false")
+        out = ProviderRouter._anthropic_payload(_payload(user="Do it", model="claude-sonnet-5"))
+        assert "thinking" not in out
+        assert "temperature" not in out
+
+
 # ── _anthropic_to_openai_response — cache usage fields ────────────────────────
 
 
