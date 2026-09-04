@@ -13,7 +13,9 @@ properties matter more than its output:
 """
 from __future__ import annotations
 
+import json
 import sys
+import urllib.error
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -204,14 +206,27 @@ class TestTheWorkflowIsSafeAndReadOnly:
         for block in text.split("run: |")[1:]:
             assert "${{" not in block, "workflow inputs must reach run: via env"
 
-    def test_it_only_reads(self, workflow: dict) -> None:
-        assert workflow["permissions"] == {"contents": "read"}
+    def test_it_reads_providers_and_writes_only_issues(self, workflow: dict) -> None:
+        # The scheduled run opens/updates one drift-tracking issue; nothing here
+        # writes repo contents. issues: write is the only write scope granted.
+        assert workflow["permissions"] == {"contents": "read", "issues": "write"}
 
-    def test_it_is_dispatch_only(self, workflow: dict) -> None:
+    def test_it_runs_on_schedule_and_dispatch(self, workflow: dict) -> None:
         # `on` parses as True under YAML 1.1 unless quoted; accept either key.
         triggers = workflow.get("on", workflow.get(True))
-        assert set(triggers) == {"workflow_dispatch"}, (
-            "a scheduled probe would need a loops/registry.yaml entry"
+        assert set(triggers) == {"workflow_dispatch", "schedule"}, (
+            "the probe now runs on a cadence (catalogued in loops/registry.yaml)"
+        )
+        crons = [c["cron"] for c in triggers["schedule"]]
+        assert crons, "the schedule trigger must declare a cron expression"
+
+    def test_only_the_scheduled_run_files_an_issue(self) -> None:
+        # A manual dispatch stays side-effect-free: the issue-filing step is
+        # gated to the scheduled event.
+        text = WORKFLOW.read_text(encoding="utf-8")
+        assert "probe_report.py" in text, "the drift-report step must be wired"
+        assert "github.event_name == 'schedule'" in text, (
+            "issue-filing must be gated to the scheduled event"
         )
 
     def test_it_does_not_commit_or_push(self) -> None:
@@ -414,3 +429,52 @@ class TestTheProbeIdentifiesItself:
         assert agent_at < extra_at, (
             "extra_headers must be merged after the default User-Agent"
         )
+
+
+class TestTheJsonSummary:
+    """`--json PATH` writes a machine-readable summary the scheduled drift-report
+    step consumes. It must record per-failure status detail and never a key."""
+
+    def test_a_healthy_run_writes_ok_true(self, probe, monkeypatch, tmp_path) -> None:
+        monkeypatch.setenv("ACME_API_KEY", SECRET)
+        monkeypatch.setattr(probe, "_providers", lambda only: [_provider()])
+
+        def _request(p, path, key, payload=None):
+            if payload is None:
+                return {"data": [{"id": "acme/model-1"}]}
+            return {"choices": [{"message": {"content": "ok"}}]}
+
+        monkeypatch.setattr(probe, "_request", _request)
+        out = tmp_path / "summary.json"
+        assert probe.main(["--chat", "acme", "--json", str(out)]) == 0
+
+        summary = json.loads(out.read_text(encoding="utf-8"))
+        assert summary["ok"] is True
+        assert summary["unservable"] == []
+        assert summary["unservable_detail"] == []
+
+    def test_a_dead_model_is_recorded_with_its_status_code(
+        self, probe, monkeypatch, tmp_path
+    ) -> None:
+        monkeypatch.setenv("ACME_API_KEY", SECRET)
+        monkeypatch.setattr(probe, "_providers", lambda only: [_provider()])
+
+        def _request(p, path, key, payload=None):
+            if payload is None:
+                return {"data": [{"id": "acme/model-1"}]}
+            raise urllib.error.HTTPError(
+                "https://api.acme.test/v1/chat", 410, "Gone", {}, None
+            )
+
+        monkeypatch.setattr(probe, "_request", _request)
+        out = tmp_path / "summary.json"
+        assert probe.main(["--chat", "acme", "--json", str(out)]) == 1
+
+        summary = json.loads(out.read_text(encoding="utf-8"))
+        assert summary["ok"] is False
+        assert summary["unservable"] == ["acme:acme/model-1"]
+        assert summary["unservable_detail"] == [
+            {"id": "acme:acme/model-1", "detail": "HTTP 410"}
+        ]
+        # The key never lands in the report.
+        assert SECRET not in out.read_text(encoding="utf-8")
