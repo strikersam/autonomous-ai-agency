@@ -32,6 +32,7 @@ from pathlib import Path
 # from a working tree where .github/scripts is no longer checked out.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import context_rules  # noqa: E402
+import nvidia_models  # noqa: E402 - shared NVIDIA discovery, one source of truth
 
 logging.basicConfig(level=logging.INFO, format="%(message)s", stream=sys.stdout)
 log = logging.getLogger("generate_context")
@@ -41,13 +42,14 @@ RESULT_FILE = "/tmp/context_result.json"  # nosec: B108 - predictable temp path;
 # and executed after a git branch switch removes it from the working tree.
 REPO_ROOT = Path(os.environ.get("REPO_ROOT", str(Path(__file__).parent.parent.parent)))
 
-# NVIDIA NIM models tried in order.
-# nvidia/llama-3.1-nemotron-ultra-253b-v1 removed — returns 404 on this account.
-NVIDIA_MODELS = [
-    "z-ai/glm-5.2",
-    "meta/llama-3.3-70b-instruct",
-    "qwen/qwen2.5-coder-32b-instruct",
-]
+# NVIDIA model ids come from the shared discovery module (nvidia_models) — the
+# single source of truth review_agent.py / apply_review.py already use — so a
+# NVIDIA retirement is handled by live discovery, not a hand-edit here. This
+# script previously carried its own copy; by 2026-09 all three ids in it were
+# dead (two answered 410, one was on the retired list), so context generation
+# silently produced nothing on every open issue.
+CEREBRAS_MODEL = "gpt-oss-120b"
+GROQ_MODEL = "openai/gpt-oss-120b"
 MISTRAL_MODEL = "mistral-small-latest"
 CLAUDE_MODEL = "claude-opus-4-8"
 
@@ -290,7 +292,12 @@ def _call_nvidia(prompt: str, messages: list[dict]) -> tuple[dict, str, str]:
         api_key=api_key,
     )
 
-    for model in NVIDIA_MODELS:
+    # Ask the provider which models it actually serves (memoised); the static
+    # floor in nvidia_models is only used when discovery cannot run.
+    model_ids = nvidia_models.resolve_model_ids(api_key)
+    if not model_ids:
+        raise RuntimeError("No NVIDIA models available")
+    for model in model_ids:
         log.info("Trying NVIDIA model: %s", model)
         try:
             resp = client.chat.completions.create(
@@ -307,6 +314,48 @@ def _call_nvidia(prompt: str, messages: list[dict]) -> tuple[dict, str, str]:
             time.sleep(2)
 
     raise RuntimeError("All NVIDIA models exhausted")
+
+
+def _call_openai_compatible(
+    label: str, base_url: str, api_key_env: str, model: str,
+    prompt: str, messages: list[dict],
+) -> tuple[dict, str, str]:
+    """Shared OpenAI-compatible caller for the free cloud gateways (Cerebras, Groq).
+
+    Both speak the OpenAI chat-completions shape, so the only per-provider
+    differences are the base URL, the key variable, and the model id.
+    """
+    from openai import OpenAI
+
+    api_key = os.environ.get(api_key_env, "")
+    if not api_key:
+        raise RuntimeError(f"{api_key_env} not set")
+
+    client = OpenAI(base_url=base_url, api_key=api_key)
+    log.info("Trying %s model: %s", label, model)
+    resp = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "system", "content": prompt}, *messages],
+        temperature=0.3,
+        max_tokens=2048,
+        timeout=240,
+    )
+    text = resp.choices[0].message.content or ""
+    return _parse_json(text), text, model
+
+
+def _call_cerebras(prompt: str, messages: list[dict]) -> tuple[dict, str, str]:
+    return _call_openai_compatible(
+        "Cerebras", "https://api.cerebras.ai/v1", "CEREBRAS_API_KEY",
+        CEREBRAS_MODEL, prompt, messages,
+    )
+
+
+def _call_groq(prompt: str, messages: list[dict]) -> tuple[dict, str, str]:
+    return _call_openai_compatible(
+        "Groq", "https://api.groq.com/openai/v1", "GROQ_API_KEY",
+        GROQ_MODEL, prompt, messages,
+    )
 
 
 def _call_claude(prompt: str, messages: list[dict]) -> tuple[dict, str, str]:
@@ -585,8 +634,19 @@ def main() -> None:
 
 
 def _build_caller_chain() -> list[tuple[str, object]]:
-    """Provider order: NVIDIA (free) → Mistral (free) → Claude (paid, policy-gated)."""
+    """Provider order: NVIDIA → Cerebras → Groq (the free-cloud chain, each gated
+    on its key) → Mistral (free) → Claude (paid, policy-gated).
+
+    The workflow passes CEREBRAS_API_KEY / GROQ_API_KEY, but this script used to
+    ignore them and try NVIDIA alone — so when NVIDIA's ids went 410 the whole
+    chain had nothing left. Each free link is now actually used when its key is
+    present.
+    """
     callers: list[tuple[str, object]] = [("NVIDIA NIM", _call_nvidia)]
+    if os.environ.get("CEREBRAS_API_KEY", "").strip():
+        callers.append(("Cerebras", _call_cerebras))
+    if os.environ.get("GROQ_API_KEY", "").strip():
+        callers.append(("Groq", _call_groq))
     if os.environ.get("MISTRAL_API_KEY", "").strip():
         callers.append(("Mistral", _call_mistral))
     try:

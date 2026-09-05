@@ -32,7 +32,13 @@ RETIRED_MODEL_IDS = [
     "qwen/qwen2.5-coder-32b-instruct",
 ]
 
-CONSUMERS = ["review_agent.py", "apply_review.py", "implement_agent.py"]
+CONSUMERS = [
+    "review_agent.py", "apply_review.py", "implement_agent.py",
+    # generate_context.py used to carry its own NVIDIA list (all ids dead by
+    # 2026-09), which is exactly why quick-note context generation produced
+    # nothing on open issues. It now uses the shared module like the others.
+    "generate_context.py",
+]
 
 
 def _source(name: str) -> str:
@@ -63,7 +69,9 @@ class TestOneListToFix:
         )
         assert "NVIDIA_MODEL_IDS" not in assigned
 
-    @pytest.mark.parametrize("script", ["review_agent.py", "apply_review.py"])
+    @pytest.mark.parametrize(
+        "script", ["review_agent.py", "apply_review.py", "generate_context.py"]
+    )
     def test_script_imports_the_shared_list(self, script: str) -> None:
         assert "nvidia_models" in _source(script)
 
