@@ -91,6 +91,17 @@ over HTTP; a proposed change opens a pull request that a human reviews and merge
 - `GET/POST/DELETE /api/governance/sandboxes[...]` — live sandboxes, reap, destroy
 - `GET  /api/governance/budget[/{session_id}]` — live per-session budgets
 
+### Connectors (`/api/connectors/*`, `backend/connectors_api.py`, admin-only)
+
+The connector catalogue — the first step toward a Zapier/Make-style integration
+library. Every route requires an authenticated admin (connectors reach external
+services deployment-wide). Backed by `packages/integrations/connector_registry.py`.
+
+- `GET  /api/connectors/` — list the connector catalogue (metadata only)
+- `POST /api/connectors/webhook/send` — run the webhook action: POST a JSON event
+  to a public URL. The URL clears the SSRF guard (`unsafe_target_reason`, rule 14)
+  before the first request and redirects are never followed; a non-public target
+  returns `{"ok": false, "error": "unsafe target: …"}` without reaching out.
 ### CRISPY Workflow engine (`/api/workflow/*`, `workflow/api.py`, admin-only)
 
 The plan→execute→verify workflow runtime. Every route requires an authenticated
