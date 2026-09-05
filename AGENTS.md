@@ -183,6 +183,46 @@ buckets above 80% of capacity; memory above 85%.
 
 ---
 
+## Claude Code subagents (cost-aware routing)
+
+`.claude/agents/*.md` files with **YAML frontmatter** (`name`, `description`,
+`tools`, `model`) are Claude Code project subagents — orchestrated by a human's
+Claude Code session, not by the product runtime. Do not confuse them with two
+neighbours: `agents/` above holds the 24 product specialist profiles, and the
+**frontmatter-less** files in this same directory (`planner.md`, `implementer.md`,
+`reviewer.md`, `judge.md`) are documentation of the internal
+`nvidia`-model plan→execute→verify loop, which Claude Code ignores because they
+carry no frontmatter.
+
+The routing principle: **use the smallest model that reliably passes the task's
+own evaluation.** Optimise for cost per *accepted* task, not raw token cost — a
+cheaper model whose work is reworked costs more. Model tiers map to task shape:
+
+| Subagent | Model | Tools | Why this tier |
+|----------|-------|-------|---------------|
+| `docs-auditor` | haiku | Read, Grep, Glob | Bounded, read-only doc accuracy review |
+| `codebase-explorer` | haiku | Read, Grep, Glob | Read-only discovery; explicitly overrides the built-in Explore model choice |
+| `feature-implementer` | sonnet | Read, Edit, Write, Bash, Grep, Glob | Routine scoped implementation with clear acceptance criteria |
+| `verification-reviewer` | sonnet | Read, Grep, Glob, Bash | Independent, evidence-based correctness check; runs the tests itself (rule 46) |
+| `risk-reviewer` | opus | Read, Grep, Glob | Independent ship / no-ship judgment over security, privacy, migration, rollback |
+
+Discipline for the orchestrating session (the parent task is the contract):
+
+- **Investigate before implementing.** Use `docs-auditor` / `codebase-explorer`
+  first; call `feature-implementer` only once the plan and acceptance criteria are
+  clear. Do not widen its write scope because a task "sounds small".
+- **Separate implementation from review.** After implementation, run the two
+  reviews independently and read-only. Never have multiple agents implement the
+  same feature — that multiplies cost and merge work. Parallelism is for genuinely
+  independent research or review.
+- **Reserve Opus** for difficult architecture, ambiguous failure analysis, or
+  high-risk changes where the added capability is justified by evidence — not by
+  default, and not the reverse (Haiku is not the default just because it is cheaper).
+- **Verify on evidence, not confidence** (rules 45-47). The human owns
+  consequential decisions, approvals, and final ownership (rule 40).
+
+---
+
 ## Session state
 
 Rules 43 and 44 govern what may be written where. The files:
