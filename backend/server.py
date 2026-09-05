@@ -10926,6 +10926,24 @@ try:
 except Exception as _seo_err:  # noqa: BLE001 - SEO API must not block startup
     log.warning("SEO audit API not mounted: %s", _seo_err, exc_info=True)
 
+# CRISPY Workflow Engine API (workflow/api.py) --- previously built but never
+# mounted, so its 13 endpoints and the hard `awaiting_approval` gate were
+# unreachable. The engine can write code, so this is an admin surface (rule 8):
+# the router carries no auth of its own, so the gate is applied here at mount
+# time via a router-level dependency. Guarded so a bad import never blocks boot.
+async def _require_admin_user(user: dict = Depends(get_current_user)) -> dict:
+    """FastAPI dependency: resolve the caller and 403 unless they are admin."""
+    _require_admin(user)
+    return user
+
+
+try:
+    from workflow.api import workflow_router
+    app.include_router(workflow_router, dependencies=[Depends(_require_admin_user)])
+    log.info("CRISPY workflow API mounted at /workflow (admin-gated)")
+except Exception as _workflow_err:  # noqa: BLE001 - must not block startup
+    log.warning("CRISPY workflow API not mounted: %s", _workflow_err, exc_info=True)
+
 # Workflow Orchestrator API --- canonical execution backbone
 from services.workflow_orchestrator import (
     ExecutionRequest,

@@ -1,8 +1,10 @@
 """workflow/api.py — FastAPI router for all /workflow/* endpoints.
 
-All 13 endpoints are wired here and mounted into the main proxy.py app.
-Auth reuses the existing verify_api_key dependency (imported at runtime
-from proxy.py context via FastAPI dependency injection pattern).
+All 13 endpoints are wired here and mounted into the dashboard app
+(``backend/server.py``). The engine can write code, so the router is an
+admin surface: it declares no auth of its own, and ``backend/server.py``
+applies a router-level admin dependency at mount time (rule 8). Do not add
+a second auth dependency inside these handlers.
 
 Endpoints
 ---------
