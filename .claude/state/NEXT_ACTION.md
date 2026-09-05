@@ -1,6 +1,12 @@
 # Next Action
 
-_Updated 2026-09-03._
+_Updated 2026-09-05._
+
+> **Since 2026-09-03:** issue #1422 (routine backlog W36, all four items) shipped
+> via #1424/#1425/#1426 and the issue is closed — scheduled catalogue-probe with
+> drift-issue filing, `_chat_json` failure diagnostics, an Anthropic cache-breakpoint
+> verify-test, and the stale Cerebras "Free" doc line. That work left **no new pending
+> action**; task #50 below remains the top priority for the next session.
 
 ## TOP: Provider/model central source of truth + admin-UI control (task #50)
 
