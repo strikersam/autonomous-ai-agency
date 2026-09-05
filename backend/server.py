@@ -10931,6 +10931,10 @@ except Exception as _seo_err:  # noqa: BLE001 - SEO API must not block startup
 # unreachable. The engine can write code, so this is an admin surface (rule 8):
 # the router carries no auth of its own, so the gate is applied here at mount
 # time via a router-level dependency. Guarded so a bad import never blocks boot.
+#
+# Mounted under `/api` (→ `/api/workflow/*`) so it flows through the Cloudflare
+# worker's `PROXY_PREFIXES` (worker/index.js) like every other dashboard router;
+# the router's own prefix is `/workflow`, so the effective path is `/api/workflow`.
 async def _require_admin_user(user: dict = Depends(get_current_user)) -> dict:
     """FastAPI dependency: resolve the caller and 403 unless they are admin."""
     _require_admin(user)
@@ -10939,8 +10943,10 @@ async def _require_admin_user(user: dict = Depends(get_current_user)) -> dict:
 
 try:
     from workflow.api import workflow_router
-    app.include_router(workflow_router, dependencies=[Depends(_require_admin_user)])
-    log.info("CRISPY workflow API mounted at /workflow (admin-gated)")
+    app.include_router(
+        workflow_router, prefix="/api", dependencies=[Depends(_require_admin_user)]
+    )
+    log.info("CRISPY workflow API mounted at /api/workflow (admin-gated)")
 except Exception as _workflow_err:  # noqa: BLE001 - must not block startup
     log.warning("CRISPY workflow API not mounted: %s", _workflow_err, exc_info=True)
 

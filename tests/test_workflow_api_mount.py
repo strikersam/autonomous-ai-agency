@@ -14,19 +14,19 @@ from __future__ import annotations
 
 def test_workflow_list_requires_authentication(unauth_client):
     """Anonymous callers are rejected (401), never served."""
-    resp = unauth_client.get("/workflow/")
+    resp = unauth_client.get("/api/workflow/")
     assert resp.status_code == 401
 
 
 def test_workflow_list_forbidden_for_non_admin(non_admin_client):
     """A signed-in non-admin is forbidden (403) — this is an admin surface."""
-    resp = non_admin_client.get("/workflow/")
+    resp = non_admin_client.get("/api/workflow/")
     assert resp.status_code == 403
 
 
 def test_workflow_list_ok_for_admin(app_client):
     """An admin reaches the mounted router and gets a well-formed list payload."""
-    resp = app_client.get("/workflow/")
+    resp = app_client.get("/api/workflow/")
     assert resp.status_code == 200
     body = resp.json()
     assert "runs" in body
@@ -38,5 +38,5 @@ def test_workflow_route_is_mounted_not_404(app_client):
     """A missing run returns 404 from the handler, proving the route exists
     (an unmounted router would 404 at the *routing* layer for every path,
     including ``/workflow/`` itself — covered by the admin-list test above)."""
-    resp = app_client.get("/workflow/does-not-exist")
+    resp = app_client.get("/api/workflow/does-not-exist")
     assert resp.status_code == 404
