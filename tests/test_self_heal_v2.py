@@ -290,6 +290,28 @@ async def test_telegram_no_token():
 
 
 @pytest.mark.asyncio
+async def test_telegram_webhook_mode_is_not_cleared(monkeypatch):
+    """In webhook mode, self-heal must NOT delete the webhook — that regression
+    left inline buttons dead (self_heal fought the startup registration every
+    cycle). It bails out before any getWebhookInfo/deleteWebhook call."""
+    import httpx as _httpx
+
+    from services.self_heal import _heal_telegram
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:ABC")
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_ENABLED", "true")
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_SECRET", "s3cret_ABC-123")
+
+    def _boom(*a, **k):  # any Telegram HTTP call here would be the bug
+        raise AssertionError("self_heal must not call Telegram in webhook mode")
+
+    monkeypatch.setattr(_httpx, "AsyncClient", _boom)
+
+    result = await _heal_telegram()
+    assert result == {"action": "webhook_mode_skip", "cleared": False}
+
+
+@pytest.mark.asyncio
 async def test_full_cycle_runs(monkeypatch):
     """The full self-heal cycle runs without errors."""
     from services import brain_failover
