@@ -10919,6 +10919,17 @@ from services.company_graph_store import get_company_graph_store
 import backend.company_api as company_api_module
 app.include_router(company_api_module.router)
 
+# Connector catalogue API (packages/integrations/connector_registry.py) --- the
+# first step toward a Zapier/Make-style connector catalogue. Admin-only; the
+# webhook connector reaches external URLs, SSRF-guarded (rule 14). Guarded so a
+# bad import never blocks startup.
+try:
+    from backend.connectors_api import build_connectors_router
+    app.include_router(build_connectors_router(get_current_user))
+    log.info("Connectors API mounted at /api/connectors")
+except Exception as _connectors_err:  # noqa: BLE001 - must not block startup
+    log.warning("Connectors API not mounted: %s", _connectors_err, exc_info=True)
+
 # SEO / GEO / AIO Audit API (issue #533)
 try:
     import backend.seo_api as seo_api_module
