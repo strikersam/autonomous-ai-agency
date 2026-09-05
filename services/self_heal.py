@@ -14,7 +14,9 @@ Runs periodic checks and fixes common failure modes without human intervention:
 
 3. **Telegram webhook clear**: when the Telegram bot gets a 409 conflict,
    automatically calls deleteWebhook to clear the conflict. The bot already
-   does this, but this is a backup that runs periodically.
+   does this, but this is a backup that runs periodically. Skipped entirely
+   when the bot is in webhook mode (``TELEGRAM_WEBHOOK_ENABLED``) — there the
+   webhook is the transport, not a conflict to clear.
 
 4. **Stuck task cleanup**: moves tasks that have been IN_PROGRESS for more
    than 30 minutes back to TODO (they were likely abandoned by a crashed
@@ -441,11 +443,30 @@ async def _heal_purge_backlog() -> dict[str, int]:
 
 
 async def _heal_telegram() -> dict[str, Any]:
-    """Clear Telegram webhook if the bot is getting 409 conflicts."""
+    """Clear a stray Telegram webhook so long-polling works — UNLESS the bot is
+    deliberately in webhook mode.
+
+    This remediation exists for the getUpdates poller: a leftover webhook makes
+    getUpdates return 409, so it deletes the webhook. But when
+    ``TELEGRAM_WEBHOOK_ENABLED`` is on, the webhook IS the transport — deleting
+    it every cycle is exactly what leaves inline buttons dead (Telegram has
+    nowhere to deliver taps). Bail out first in that case and never touch it.
+    """
     import httpx
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
     if not token:
         return {"action": "no_token", "cleared": False}
+
+    # Webhook mode: the webhook is intentional — leave it alone. Clearing it
+    # here is what caused the "tap does nothing" regression (self_heal fighting
+    # the startup registration every ~15 min).
+    try:
+        import telegram_bot as _tb
+
+        if _tb.webhook_mode_enabled():
+            return {"action": "webhook_mode_skip", "cleared": False}
+    except Exception:  # noqa: BLE001 — never let a self-heal check crash the loop
+        pass
 
     # Check if the bot is running
     if os.environ.get("RUN_TELEGRAM_BOT", "false").strip().lower() not in ("true", "1", "yes", "on"):
