@@ -5,11 +5,13 @@ import Spinner from '../components/ui/Spinner';
 const TaskBoardScreen = React.lazy(() => import('./TaskBoardScreen'));
 const SchedulesScreen = React.lazy(() => import('./SchedulesScreen'));
 const PortfolioScreen = React.lazy(() => import('./PortfolioScreen'));
+const WorkflowScreen = React.lazy(() => import('./WorkflowScreen'));
 
 const TABS = [
   { id: 'now', label: 'Happening now' },
   { id: 'autopilot', label: 'On autopilot' },
   { id: 'roadmap', label: 'Planned' },
+  { id: 'workflows', label: 'Workflows' },
 ];
 
 /**
@@ -25,6 +27,7 @@ export default function WorkHub({ initialTab }) {
         {tab === 'now' && <TaskBoardScreen />}
         {tab === 'autopilot' && <SchedulesScreen />}
         {tab === 'roadmap' && <PortfolioScreen />}
+        {tab === 'workflows' && <WorkflowScreen />}
       </React.Suspense>
     </div>
   );
