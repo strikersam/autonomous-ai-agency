@@ -495,6 +495,62 @@ def test_normalize_slices_and_missing_goal_together():
     assert result["steps"][0]["type"] == "analyze"
 
 
+def test_normalize_name_keyed_steps_without_id_or_description():
+    """Reproduce the production failure: a planner emits steps keyed by `name`
+    with no `id` and no `description` — 2 missing-field errors per step, which
+    surfaced as "planning: 26 validation errors for AgentPlan" and failed the
+    task on every retry. The normaliser must repair them so the plan validates.
+    """
+    from agent.models import AgentPlan
+
+    runner = _make_runner()
+    raw = {
+        "goal": "implement quick-note CLI",
+        "steps": [
+            {"name": "read_readme", "risky": False, "type": "analyze"},
+            {"name": "implement_quick_note", "risky": False, "type": "analyze"},
+            {"name": "run_tests", "risky": False, "type": "analyze"},
+        ],
+    }
+    result = runner._normalize_plan_response(raw, "implement quick-note CLI")
+    # Every step now has a sequential id and a description derived from `name`.
+    assert [s["id"] for s in result["steps"]] == [1, 2, 3]
+    assert result["steps"][0]["description"] == "read_readme"
+    assert result["steps"][2]["description"] == "run_tests"
+    # And the whole thing validates against the strict schema.
+    plan = AgentPlan.model_validate(result)
+    assert len(plan.steps) == 3
+    assert plan.steps[1].id == 2
+
+
+def test_normalize_string_steps_are_wrapped():
+    from agent.models import AgentPlan
+
+    runner = _make_runner()
+    raw = {"goal": "g", "steps": ["do the first thing", "then the second"]}
+    result = runner._normalize_plan_response(raw, "g")
+    assert result["steps"][0]["description"] == "do the first thing"
+    assert result["steps"][0]["id"] == 1
+    AgentPlan.model_validate(result)  # must not raise
+
+
+def test_normalize_files_string_coerced_to_list():
+    runner = _make_runner()
+    raw = {"goal": "g", "steps": [{"id": 1, "description": "d", "type": "edit", "files": "a.py"}]}
+    result = runner._normalize_plan_response(raw, "g")
+    assert result["steps"][0]["files"] == ["a.py"]
+
+
+def test_normalize_missing_description_falls_back_to_positional_label():
+    from agent.models import AgentPlan
+
+    runner = _make_runner()
+    raw = {"goal": "g", "steps": [{"type": "analyze"}]}  # no id, no name, no description
+    result = runner._normalize_plan_response(raw, "g")
+    assert result["steps"][0]["description"] == "Step 1"
+    AgentPlan.model_validate(result)  # must not raise
+
+
 def test_runner_succeeds_when_model_returns_slices_schema(tmp_path: Path):
     """End-to-end: model returns CRISPY-style slices, plan should still execute."""
     root = tmp_path / "repo"
