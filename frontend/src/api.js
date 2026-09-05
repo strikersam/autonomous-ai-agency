@@ -554,6 +554,20 @@ export const postLocalBrainToggle = (data)  => API.post('/admin/api/local-brain/
 // readiness score, loop-cost estimate, and drift status. Powers the Loops screen.
 export const getLoops             = ()                  => API.get('/api/loops');
 
+// CRISPY Workflow engine (admin-only, mounted at /api/workflow). The engine runs
+// a plan→execute→verify workflow that pauses at a hard `awaiting_approval` gate
+// before any code is written; approve/reject lift or fail that gate. Powers the
+// Workflow screen.
+export const getWorkflowRuns      = (status)            =>
+  API.get('/api/workflow/', { params: status ? { status } : {} });
+export const getWorkflowRun       = (runId)             => API.get(`/api/workflow/${runId}`);
+export const buildWorkflow        = (body)              => API.post('/api/workflow/build', body);
+export const approveWorkflow      = (runId, approvedBy) =>
+  API.post(`/api/workflow/${runId}/approve`, { approved_by: approvedBy });
+export const rejectWorkflow       = (runId, reason, rejectedBy) =>
+  API.post(`/api/workflow/${runId}/reject`, { reason, rejected_by: rejectedBy });
+export const cancelWorkflow       = (runId)             => API.post(`/api/workflow/${runId}/cancel`);
+
 // Provider on/off switch. `getBrainProviders` returns health AND enabled state so
 // the UI can show "online" (enabled AND breaker closed) and surface the reason a
 // provider was auto-disabled. All API calls go through this shared instance.
