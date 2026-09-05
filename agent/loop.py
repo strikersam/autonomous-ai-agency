@@ -1012,13 +1012,43 @@ class AgentRunner:
             raw = dict(raw)
             raw["goal"] = raw["goal"][:200]
 
-        # Normalise step types
+        # Coerce each step into a valid AgentStep shape. Open-weights planners
+        # frequently emit steps keyed by ``name`` with no ``id`` and no
+        # ``description`` — both of which AgentStep requires — which surfaced in
+        # production as "planning: N validation errors for AgentPlan" (two
+        # missing-field errors per step) and failed the whole task. Some models
+        # also emit steps as bare strings, or ``files`` as a single string.
+        # Repair all of these rather than reject the plan.
         steps = raw.get("steps") or []
-        normalised_steps = []
-        for step in steps:
-            step = dict(step)
+        normalised_steps: list[dict[str, Any]] = []
+        for index, step in enumerate(steps, start=1):
+            if isinstance(step, str):
+                step = {"description": step}
+            elif isinstance(step, dict):
+                step = dict(step)
+            else:
+                continue  # neither an object nor a string — nothing to salvage
+            # id: required int >= 1. Assign sequentially when missing/invalid.
+            raw_id = step.get("id")
+            if not isinstance(raw_id, int) or isinstance(raw_id, bool) or raw_id < 1:
+                step["id"] = index
+            # description: required, non-empty. Derive from the keys open-weights
+            # models actually use, else fall back to a positional label.
+            if not str(step.get("description") or "").strip():
+                for alt in ("name", "desc", "step", "task", "title", "action", "summary", "goal"):
+                    if str(step.get(alt) or "").strip():
+                        step["description"] = str(step[alt]).strip()
+                        break
+                else:
+                    step["description"] = f"Step {step['id']}"
+            # files: AgentStep expects a list of strings.
+            files = step.get("files")
+            if isinstance(files, str):
+                step["files"] = [files]
+            elif not isinstance(files, list):
+                step["files"] = []
+            # type: default to "edit" when files are listed, "analyze" otherwise.
             if step.get("type") not in _VALID_STEP_TYPES:
-                # Default to "edit" when files are listed, "analyze" otherwise
                 step["type"] = "edit" if step.get("files") else "analyze"
             normalised_steps.append(step)
         raw = dict(raw)

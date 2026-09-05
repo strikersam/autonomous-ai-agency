@@ -102,6 +102,26 @@ services deployment-wide). Backed by `packages/integrations/connector_registry.p
   to a public URL. The URL clears the SSRF guard (`unsafe_target_reason`, rule 14)
   before the first request and redirects are never followed; a non-public target
   returns `{"ok": false, "error": "unsafe target: …"}` without reaching out.
+### CRISPY Workflow engine (`/api/workflow/*`, `workflow/api.py`, admin-only)
+
+The plan→execute→verify workflow runtime. Every route requires an authenticated
+admin (the router carries no auth of its own; `backend/server.py` applies a
+router-level admin dependency at mount time — the engine can write code). A run
+pauses at the hard `awaiting_approval` gate before any code is written; no code
+path can skip it.
+
+- `POST /api/workflow/build` — create + start a run (returns 202; runs pre-gate phases async)
+- `GET  /api/workflow/` — list runs, newest first (paginated, `status` filter)
+- `GET  /api/workflow/{run_id}` — full run state (phases, slices, artifacts)
+- `POST /api/workflow/{run_id}/approve` — lift the approval gate; begin post-gate execution
+- `POST /api/workflow/{run_id}/reject` — reject the plan; the run fails
+- `POST /api/workflow/{run_id}/resume` — resume a paused/interrupted run
+- `POST /api/workflow/{run_id}/cancel` — cancel a non-terminal run
+- `GET  /api/workflow/{run_id}/slices` · `POST /api/workflow/{run_id}/slices/{slice_id}/run`
+- `GET  /api/workflow/{run_id}/artifacts[/{name}]` — artifact list / raw content
+- `GET  /api/workflow/{run_id}/checks` · `POST /api/workflow/{run_id}/verify`
+- `GET  /api/workflow/{run_id}/events` — positional, append-only event log (poll by `from_position`)
+- `GET  /api/workflow/agents` — agent team composition (coder model ≠ reviewer model invariant)
 
 ### SEO / GEO / AIO (`/api/**/seo/*`, `backend/seo_api.py`)
 
