@@ -3,10 +3,18 @@
 
 The scheduled ``catalogue-probe.yml`` writes a machine-readable summary
 (``probe_catalogues.py --json``) of what every configured provider actually
-served. This script reads that summary and, when a provider is unreachable or
-a named model would not answer, opens *one* tracking issue naming the provider,
-the model id, and the status code it answered with — or updates the existing
-open one instead of filing a duplicate. A clean run touches nothing.
+served. This script reads that summary and, when a configured model id has been
+**retired** by its provider (HTTP 404/410 — the one failure a config change in
+this repo actually fixes), opens *one* tracking issue naming the model id and
+status — or updates the existing open one instead of filing a duplicate. A clean
+run touches nothing.
+
+Everything else the probe can see — an unreachable provider, or a model that
+answered 402/400/429/5xx or timed out — is an account or transient/operational
+state that no repo edit resolves (a billing hold, an out-of-credit key, a
+provider outage). Those are printed for the operator but deliberately **not**
+opened as an issue: doing so filed unresolvable tickets that the autonomous
+implementer loop then churned on (issue #1434). Only retired ids get a ticket.
 
 It is deliberately dependency-injected: :func:`run` takes the three GitHub
 operations (list / create / update) as callables so the create-vs-update
@@ -27,7 +35,17 @@ from typing import Callable
 # human edits its title. Kept in the body, backed by a label for the API query.
 MARKER = "<!-- catalogue-probe-drift-tracker -->"
 DEFAULT_LABEL = "catalogue-drift"
-TITLE = "Provider catalogue drift: a configured model is not serving"
+TITLE = "Provider catalogue drift: a configured model has been retired"
+
+# The only provider responses that a repo config change fixes: the model id no
+# longer exists / was withdrawn. Everything else (402 billing, 400 out-of-credit,
+# 429, 5xx, timeouts, unreachable) is an account or transient state — logged, not
+# ticketed. Matched as a substring of the probe's secret-free detail token.
+RETIRED_CODES = ("HTTP 404", "HTTP 410")
+
+
+def _is_retired(detail: str) -> bool:
+    return any(code in (detail or "") for code in RETIRED_CODES)
 
 ListIssues = Callable[[], list[dict]]
 CreateIssue = Callable[[str, str, str], dict]  # (title, body, label) -> issue
@@ -51,34 +69,31 @@ def _failures(summary: dict) -> tuple[list[str], list[dict]]:
 
 
 def build_body(summary: dict, *, now: str | None = None) -> str:
-    """Render the tracking-issue body from a probe summary."""
-    unreachable, unservable = _failures(summary)
+    """Render the tracking-issue body — retired model ids only."""
+    _unreachable, unservable = _failures(summary)
+    retired = [u for u in unservable if _is_retired(u.get("detail", ""))]
     stamp = now or datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     lines = [
         MARKER,
         "",
-        "The scheduled provider catalogue probe found a configured provider or "
-        "model that is no longer serving. This is the drift the probe exists to "
-        "catch before it surfaces as a production `410`/`404`/`402`.",
+        "The scheduled provider catalogue probe found a configured model id that "
+        "its provider has **retired** (HTTP 404/410). This is a config fix in "
+        "this repo — the id no longer exists at the provider.",
         "",
         f"_Last updated by `catalogue-probe.yml` at {stamp}._",
         "",
+        "### Retired — remove or replace these ids",
     ]
-    if unservable:
-        lines.append("### Named but would not answer")
-        for item in unservable:
-            lines.append(f"- `{item.get('id', '?')}` — {item.get('detail', 'unknown')}")
-        lines.append("")
-    if unreachable:
-        lines.append("### Unreachable providers")
-        for pid in unreachable:
-            lines.append(f"- `{pid}` — no route / listing refused")
-        lines.append("")
+    for item in retired:
+        lines.append(f"- `{item.get('id', '?')}` — {item.get('detail', 'unknown')}")
+    lines.append("")
     lines.append(
-        "Re-run `Provider catalogue probe` manually (workflow_dispatch) to "
-        "reproduce, then fix the id in `config/models.yaml` / "
-        "`config/llm/models.yaml` or clear the provider's failover switch. This "
-        "issue updates itself on each scheduled run and can be closed once green."
+        "Fix the id in `config/models.yaml` / `config/llm/models.yaml` (or its "
+        "role/preset), then re-run `Provider catalogue probe` (workflow_dispatch) "
+        "to confirm. This issue updates itself on each scheduled run and can be "
+        "closed once green. Account/transient failures (402 billing, 400 "
+        "out-of-credit, 429, 5xx, timeouts, unreachable) are intentionally not "
+        "tracked here — they are operator/infra states, not catalogue drift."
     )
     return "\n".join(lines)
 
@@ -104,11 +119,24 @@ def run(
     """Reconcile the probe summary to exactly one tracking issue.
 
     Returns an action token: ``"noop"``, ``"created:#N"``, or ``"updated:#N"``.
-    A passing run (``ok``/no failures) performs no API write at all.
+    Only a retired model id (HTTP 404/410) files or updates the issue; a green
+    run — or one with only account/transient failures — performs no API write.
     """
     unreachable, unservable = _failures(summary)
-    if summary.get("ok") or (not unreachable and not unservable):
-        print("catalogue probe is green — no drift issue to file or update.")
+    retired = [u for u in unservable if _is_retired(u.get("detail", ""))]
+    if not retired:
+        other = list(unreachable) + [
+            f"{u.get('id', '?')} ({u.get('detail', 'unknown')})" for u in unservable
+        ]
+        if other:
+            # Real failures, but none repo-actionable — log for the operator,
+            # never open a churnable ticket (issue #1434).
+            print(
+                "catalogue probe saw only account/transient failures (no retired "
+                "model id); not filing a drift issue: " + ", ".join(other)
+            )
+        else:
+            print("catalogue probe is green — no drift issue to file or update.")
         return "noop"
 
     body = build_body(summary)
