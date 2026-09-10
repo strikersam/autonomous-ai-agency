@@ -217,12 +217,14 @@ class TestClaudeOpusModelCoverage:
     ]
 
     def test_opus5_input_cost(self):
+        # Corrected 2026-09-06: official price is $5/MTok (not $15).
         cost = ct.cost_for_tokens("claude-opus-5", 1_000_000, 0)
-        assert cost == pytest.approx(15.0)
+        assert cost == pytest.approx(5.0)
 
     def test_opus5_output_cost(self):
+        # Corrected 2026-09-06: official price is $25/MTok output (not $75).
         cost = ct.cost_for_tokens("claude-opus-5", 0, 1_000_000)
-        assert cost == pytest.approx(75.0)
+        assert cost == pytest.approx(25.0)
 
     def test_opus47_has_same_tier_as_opus48(self):
         cost_47 = ct.cost_for_tokens("claude-opus-4-7", 1_000_000, 1_000_000)
@@ -241,7 +243,7 @@ class TestClaudeOpusModelCoverage:
 
     def test_haiku45_short_alias_priced(self):
         cost = ct.cost_for_tokens("claude-haiku-4-5", 1_000_000, 0)
-        assert cost == pytest.approx(0.8)
+        assert cost == pytest.approx(1.0)  # $1/MTok input (corrected 2026-09-06; was Haiku 3.5's 0.8)
 
     def test_haiku45_versioned_and_alias_match(self):
         versioned = ct.cost_for_tokens("claude-haiku-4-5-20251001", 1_000_000, 1_000_000)
