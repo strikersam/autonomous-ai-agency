@@ -20,23 +20,14 @@
 
 ---
 
-### PR Evaluation Summary (Recent & Open PRs #1436 – #1465)
+### Applying the rubric to open PRs
 
-| PR# | Title / Summary | Risk | Conflicts / Surfaces | Missing | Verdict | Required Changes Before Merge |
-|---|---|---|---|---|---|---|
-| **#1465** | `chore(deps): update pymongo requirement from >=4.17.0 to >=4.18.0` | **Low** | Dependency pins in `requirements.txt` | None (automated semver patch) | **Merge** | Verified green build; safe minor dependency update. |
-| **#1462** | `chore(deps): update boto3 requirement from >=1.43.83 to >=1.43.88` | **Low** | `requirements.txt`, AWS SDK | None | **Merge** | None; automated non-breaking version bump. |
-| **#1459** | `chore(deps): update anthropic requirement from >=1.2.0 to >=1.3.0` | **Low** | `requirements.txt`, Anthropic SDK | None | **Merge** | Ensure non-temperature / adaptive thinking compatibility remains guarded (`packages/ai/router.py`). |
-| **#1458** | `chore(deps): bump all-patches group in /frontend` (5 updates) | **Low** | `frontend/package.json`, `package-lock.json` | None | **Merge** | None; frontend lockfile synchronized. |
-| **#1449** | `chore(deps): bump all-patches group in /webui/frontend` | **Low** | `webui/frontend/package.json` | None | **Merge** | None. |
-| **#1448** | `fix(agency): stop autonomous-agent workflow crashing on provider error` | **Medium** | `.github/scripts/gh_brain_failover.py`, `autonomous_agent.py` | None (10 regression tests in `test_gh_brain_failover.py`) | **Merge** | Verified multi-provider failover chain works as expected. |
-| **#1447** | `fix(agent): stop leaking raw exception text from /v2/agent/coordinate` | **Low** | `agent/coordinate.py` | None (`test_no_exception_detail_leaks.py`) | **Merge** | Replaces 500 `str(exc)` leak with generic error message. |
-| **#1446** | `feat(governance): redact SSNs and payment-card numbers in audit scrubber` | **Low** | `packages/governance/audit.py` | None (11 unit tests) | **Merge** | None; fails-closed PII scrubbing pass. |
-| **#1443** | `fix(probe): stop reporting disabled local providers as unreachable` | **Low** | `.github/scripts/probe_catalogues.py` | None (3 regression tests) | **Merge** | None. |
-| **#1442** | `chore(evals): runnable CLI + docs wiring for cost-aware routing harness` | **Medium** | `evals/cost_aware_routing/` | None (15 tests in `test_cost_aware_routing_eval.py`) | **Merge** | Ensures task evaluation uses real run logs, never synthetic samples. |
-| **#1440** | `fix(brain): exclude catalogue-listed-but-dead model from failover for cooldown` | **High** | `packages/ai/model_discovery.py`, `failover_client.py` | None (6 tests) | **Merge** | Dynamic cooldown logic verified; prevents failover loop exhaustion. |
-| **#1438** | `chore(agents): cost-aware Claude Code subagents with model-tiered routing` | **Medium** | `.claude/agents/*.md`, `AGENTS.md` | None | **Merge** | Enforces subagent frontmatter discipline and separation of implementation/review. |
-| **#1436** | `fix(telegram): stop self_heal from deleting webhook in webhook mode` | **High** | `services/self_heal.py` | None (1 regression test) | **Merge** | Stops 15-minute transport wiping cycle in webhook mode. |
+Per-PR verdicts are produced on demand against the live PR set, not frozen in
+this document — a dated triage table is stale the moment it merges and its
+"verified" claims cannot be trusted once the PRs move. To score the current
+open PRs, run the rubric above over `git log`/the open-PR list and record the
+result wherever that review lives (the PR thread, an issue), not here. This
+document is the durable *method*; the verdicts are the perishable *output*.
 
 ---
 
