@@ -1,7 +1,7 @@
 # Graph Report - autonomous-ai-agency  (2026-09-10)
 
 ## Corpus Check
-- 1501 files · ~2,173,295 words
+- 1501 files · ~2,172,957 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `1557db8b`
+- Built from commit: `58dff7f1`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -4287,7 +4287,7 @@ Nodes (6): Any, True when the history is long enough to warrant compaction., Rep
 
 ### Community 761 - "2. Critical Bugs & Exact Detection Signatures"
 Cohesion: 0.18
-Nodes (10): 1. PR Analysis Summary & Evaluation Rubric, 2. Critical Bugs & Exact Detection Signatures, 3. Architectural Refactoring Architecture, 🔴 CRITICAL — Silent Error Propagation in Agent Loop & Tool Dispatch, 🔴 CRITICAL — Unhandled Rate Limits & State Checkpointing, 🔴 CRITICAL — Unsandboxed Tool Execution & SSRF Vulnerabilities, Evaluation Rubric, Golden Path Orchestration (+2 more)
+Nodes (10): 1. PR Analysis Summary & Evaluation Rubric, 2. Critical Bugs & Exact Detection Signatures, 3. Architectural Refactoring Architecture, Applying the rubric to open PRs, 🔴 CRITICAL — Silent Error Propagation in Agent Loop & Tool Dispatch, 🔴 CRITICAL — Unhandled Rate Limits & State Checkpointing, 🔴 CRITICAL — Unsandboxed Tool Execution & SSRF Vulnerabilities, Evaluation Rubric (+2 more)
 
 ### Community 762 - "BenchmarkReport"
 Cohesion: 0.20
