@@ -57,6 +57,18 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "moonshotai/kimi-k2-instruct": (0.0, 0.0),
     # Qwen3 32B on Groq — strong coder, free tier (Aug 2026).
     "qwen-qwq-32b": (0.0, 0.0),
+    # --- Google Gemini ---
+    # Gemini 2.5 Flash: AI Studio free tier for low-RPM usage; usage through
+    # the paid API is charged at $0.075/$0.30 per MTok (non-thinking, ≤200K).
+    # This repo routes through the free tier; tracking at $0 until an account
+    # with a billing relationship is configured.
+    "gemini-2.5-flash": (0.0, 0.0),
+    "gemini-2.0-flash": (0.0, 0.0),
+    # Gemini 2.5 Pro: paid model used by the "google" BRAIN_PRESET as planner
+    # and judge. Tiered pricing — $1.25/$10.0 per MTok (≤200K-token requests),
+    # $2.50/$15.0 (>200K). Lower bound tracked here; the router does not model
+    # per-request tiers. Source: ai.google.dev/pricing, 2026-09-11.
+    "gemini-2.5-pro": (1.25, 10.0),
     # --- Anthropic (paid) — Claude 5 family + Sonnet 4.x / Opus 4.x ---
     # Prices verified from platform.claude.com/docs/en/about-claude/pricing 2026-09-06.
     "claude-opus-5": (5.0, 25.0),          # Opus 5 — $5/$25 per MTok

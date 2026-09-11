@@ -111,7 +111,16 @@ models:
   # catalogue and answered 404/400, so declaring them only routed work to a
   # dead endpoint. Do not re-add an id here without a probe.
 
-  # ── Google Gemini (free tier) ──────────────────────────────────────────
+  # ── Google Gemini ─────────────────────────────────────────────────────
+  #
+  # Gemini 2.5 Flash is available on the Google AI Studio free tier.
+  # Gemini 2.5 Pro is a paid model referenced in the "google" BRAIN_PRESET
+  # (packages/ai/brain_config.py) for the planner and judge roles.
+  # Without an explicit catalog entry a model gets supports_tools: false
+  # (the ModelConfig default in packages/llm/config.py:115), which silently
+  # filters it from every tool-calling request. Both entries here were
+  # verified against the Google generative-language API documentation
+  # (2026-09-11) before being declared.
 
   gemini-2.5-flash:
     provider: google
@@ -126,6 +135,28 @@ models:
     priority: 12
     speed_tier: fast
     max_requests_per_minute: 15
+
+  # Gemini 2.5 Pro: Google's best reasoning model (GA 2025-Q2). Used by the
+  # "google" BRAIN_PRESET as planner and judge. Tiered pricing — $1.25/$10
+  # per MTok (≤200K-token prompts), $2.50/$15 (>200K). Cost entries in
+  # cost_tracker.py use the lower bound; the router does not model tiers.
+  # `supports_reasoning: true` reflects the native thinking capability
+  # (enabled by passing thinking_config in the request).
+  gemini-2.5-pro:
+    provider: google
+    display_name: Gemini 2.5 Pro
+    context_window: 1048576
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 1.25
+    output_cost_per_1m: 10.0
+    priority: 14
+    speed_tier: medium
 
   gemini-2.0-flash:
     provider: google
