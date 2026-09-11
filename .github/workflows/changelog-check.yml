@@ -30,9 +30,16 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           # Skip if this is a chore/ci/docs/style/test-only PR
-          # (detected by PR title prefix — requires PR title convention)
+          # (detected by PR title prefix — requires PR title convention).
+          # Each prefix accepts both the bare form (docs:) and the
+          # conventional-commit scoped form (docs(state):) — only "chore"
+          # had the scoped variant, so a scoped docs:/style:/etc. PR title
+          # fell through to the changelog requirement it was meant to skip.
+          # The scope pattern requires a literal "(...)" rather than a bare
+          # wildcard, so "docstring: ..." or "testing: ..." are not
+          # accidentally swept in as exempt.
           case "$PR_TITLE" in
-            chore:*|chore*:*|docs:*|style:*|ci:*|test:*|revert:*|build:*)
+            chore:*|chore\(*\):*|docs:*|docs\(*\):*|style:*|style\(*\):*|ci:*|ci\(*\):*|test:*|test\(*\):*|revert:*|revert\(*\):*|build:*|build\(*\):*)
               echo "ℹ Exempt PR prefix detected ('$PR_TITLE') — changelog check skipped."
               exit 0
               ;;
