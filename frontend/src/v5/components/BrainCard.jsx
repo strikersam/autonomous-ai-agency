@@ -40,6 +40,7 @@ const ROLE_ORDER = ['planner', 'executor', 'verifier', 'judge'];
 const PROVIDER_LABEL_FALLBACK = {
   nvidia:    'NVIDIA NIM',
   tokenin:   'TokenIn',
+  omniroute: 'OmniRoute',
   cerebras:  'Cerebras',
   groq:      'Groq',
   ollama:    'Local Ollama',

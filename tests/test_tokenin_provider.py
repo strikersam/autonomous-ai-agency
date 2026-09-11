@@ -60,8 +60,10 @@ def test_tokenin_candidates_are_the_rotation():
 
 def test_tokenin_high_in_recommended_priority():
     assert "tokenin" in RECOMMENDED_PROVIDER_PRIORITY
-    # Preferred among the rich free set, just behind the always-on nvidia floor.
-    assert RECOMMENDED_PROVIDER_PRIORITY.index("tokenin") == 1
+    # High in the free set, behind the always-on nvidia floor (0) and the
+    # OmniRoute aggregator (1), which was promoted to the top of the free breadth
+    # tier on 2026-09-11.
+    assert RECOMMENDED_PROVIDER_PRIORITY.index("tokenin") == 2
 
 
 def test_brain_failover_registry_and_opus_alias():

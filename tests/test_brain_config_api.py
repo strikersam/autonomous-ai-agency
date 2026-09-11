@@ -89,11 +89,11 @@ def test_get_returns_config_providers_and_safe_default(app_client, monkeypatch):
     # BrainProvider Literal (server-driven UI), not just the original 4.
     # The ids must match the catalog (config/models.yaml).
     assert provider_ids == {
-        "nvidia", "tokenin", "cerebras", "groq", "ollama", "mistral",
+        "nvidia", "tokenin", "omniroute", "cerebras", "groq", "ollama", "mistral",
         "deepseek", "zhipu", "zai", "together", "dashscope",
         "moonshot", "openrouter", "anthropic", "aerolink", "google",
     }
-    assert len(provider_ids) == 16
+    assert len(provider_ids) == 17
 
     # Each provider entry has key_present + key_env_var + display_name +
     # tier + candidates, but never the key.

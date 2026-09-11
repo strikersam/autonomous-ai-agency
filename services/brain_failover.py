@@ -583,6 +583,30 @@ _PROVIDER_REGISTRY: list[dict[str, Any]] = [
         "cooldown": 45.0,
     },
     {
+        # OmniRoute (github.com/diegosouzapw/OmniRoute) — self-hosted MIT gateway
+        # fronting many free-tier providers. Gated on OMNIROUTE_API_KEY: with no
+        # token the registry build skips it, so it costs nothing until deployed.
+        # One provider, one `auto` model on purpose — OmniRoute does its own
+        # internal fan-out, and nesting it inside ours would re-amplify 429s.
+        # Promoted to the TOP of the free tier (RECOMMENDED_PROVIDER_PRIORITY has
+        # it at index 1, right behind the always-on NVIDIA floor) so once deployed
+        # it is the preferred source of breadth, with NVIDIA as the reliable
+        # fallback. See config/models.yaml and
+        # packages/ai/brain_config.PROVIDER_CANDIDATES["omniroute"].
+        "id": "omniroute",
+        "name": "OmniRoute (self-hosted free-tier aggregator)",
+        "tier": "free",
+        "key_env": "OMNIROUTE_API_KEY",
+        "base_url_env": "OMNIROUTE_BASE_URL",
+        "default_base_url": "http://localhost:20128/v1",
+        "default_model": "auto",
+        "models": ["auto"],
+        # OmniRoute is a whole rotation behind one endpoint; on a 429 it has
+        # already exhausted its own options, so cool it a little longer before
+        # this repo tries it again rather than hammering the gateway.
+        "cooldown": 60.0,
+    },
+    {
         "id": "groq",
         "name": "Groq",
         "tier": "free",

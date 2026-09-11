@@ -181,7 +181,7 @@ SAFE_DEFAULT_MODEL: str = "nvidia/nemotron-3-super-120b-a12b"
 # Provider ids the Brain card recognises. The Literal keeps the Pydantic model
 # strict so a typo in the UI ("cerebrass") fails validation instead of
 # silently storing an unusable provider.
-BrainProvider = Literal["nvidia", "tokenin", "cerebras", "groq", "ollama", "mistral", "deepseek", "zhipu", "zai", "together", "dashscope", "moonshot", "openrouter", "anthropic", "aerolink", "google"]
+BrainProvider = Literal["nvidia", "tokenin", "omniroute", "cerebras", "groq", "ollama", "mistral", "deepseek", "zhipu", "zai", "together", "dashscope", "moonshot", "openrouter", "anthropic", "aerolink", "google"]
 
 # Per-provider sensible presets surfaced by the UI's "presets" dropdown.
 # Operators can still type any model id — these are just convenience defaults.
@@ -212,6 +212,13 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
         "executor":  "myt/glm-5.3-free",
         "verifier":  "myt/glm-5.3-free",
         "judge":     "myt/deepseek-v4-pro-free",
+    },
+    "omniroute": {
+        # `auto` = let OmniRoute's own router choose; discovery refines it later.
+        "planner":   "auto",
+        "executor":  "auto",
+        "verifier":  "auto",
+        "judge":     "auto",
     },
     "ollama": {
         "planner":   "deepseek-r1:32b",
@@ -268,6 +275,7 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
 PROVIDER_KEY_ENV: dict[str, str | None] = {
     "nvidia":  "NVIDIA_API_KEY",
     "tokenin": "TOKENIN_API_KEY",
+    "omniroute": "OMNIROUTE_API_KEY",
     "cerebras": "CEREBRAS_API_KEY",
     "groq":    "GROQ_API_KEY",
     "ollama":  None,  # local — no key
@@ -292,6 +300,7 @@ PROVIDER_KEY_ENV: dict[str, str | None] = {
 PROVIDER_BASE_URL_ENV: dict[str, str | None] = {
     "nvidia":   "NVIDIA_BASE_URL",
     "tokenin":  "TOKENIN_BASE_URL",
+    "omniroute": "OMNIROUTE_BASE_URL",
     "cerebras": "CEREBRAS_BASE_URL",
     "groq":     "GROQ_BASE_URL",
     "ollama":   "OLLAMA_BASE",
@@ -313,6 +322,7 @@ PROVIDER_BASE_URL_ENV: dict[str, str | None] = {
 PROVIDER_DEFAULT_BASE_URL: dict[str, str] = {
     "nvidia":   "https://integrate.api.nvidia.com",
     "tokenin":  "https://tokenin.my.id/v1",
+    "omniroute": "http://localhost:20128/v1",
     "cerebras": "https://api.cerebras.ai",
     "groq":     "https://api.groq.com/openai/v1",
     "ollama":   "http://localhost:11434",
@@ -365,6 +375,12 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         "myt/grok-4.6-free",
         "myt/gpt-5.6-sol-free",
         "myt/claude-opus-4-8-free",
+    ],
+    # OmniRoute fans out internally, so a single `auto` is the whole list here;
+    # model-discovery replaces it with the concrete ids /v1/models reports once a
+    # call has reached the gateway.
+    "omniroute": [
+        "auto",
     ],
     "cerebras": [
         # Read off the account's own /v1/models on 2026-08-29, not from docs.
@@ -433,6 +449,7 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
 PROVIDER_DISPLAY_NAMES: dict[str, str] = {
     "nvidia":    "NVIDIA NIM (free, broad catalogue)",
     "tokenin":   "TokenIn (free frontier gateway)",
+    "omniroute":  "OmniRoute (self-hosted free-tier aggregator)",
     "cerebras":  "Cerebras (fast, free tier)",
     "groq":      "Groq (fast, free tier)",
     "ollama":    "Local Ollama (no key, private)",
@@ -455,6 +472,7 @@ PROVIDER_DISPLAY_NAMES: dict[str, str] = {
 PROVIDER_TIERS: dict[str, str] = {
     "nvidia":    "free",
     "tokenin":   "free",
+    "omniroute":  "free",
     "cerebras":  "free",
     "groq":      "free",
     "mistral":   "free",
@@ -828,7 +846,7 @@ def default_brain_config() -> BrainConfig:
 # Cerebras leads the cloud chain because it serves even the 480B Qwen3-Coder
 # at wafer-scale speed on a generous, non-expiring free tier; Groq is the fast
 # second; NIM is the always-on safe floor.
-RECOMMENDED_PROVIDER_PRIORITY: tuple[str, ...] = ("nvidia", "tokenin", "cerebras", "groq", "ollama")
+RECOMMENDED_PROVIDER_PRIORITY: tuple[str, ...] = ("nvidia", "omniroute", "tokenin", "cerebras", "groq", "ollama")
 
 
 def recommended_brain_config() -> BrainConfig:
