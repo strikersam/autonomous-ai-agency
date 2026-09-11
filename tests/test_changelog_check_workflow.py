@@ -38,7 +38,15 @@ def case_patterns() -> str:
 
 def _is_exempt(patterns: str, title: str) -> bool:
     script = f'case "$1" in\n{patterns}) exit 0 ;;\n*) exit 1 ;;\nesac\n'
-    result = subprocess.run(["bash", "-c", script, "bash", title])
+    # nosec - constant argv, list form (no shell); title is a $1 arg, never
+    # interpolated into the script text. Bare `nosec` rather than the
+    # `nosec B603,B607` form used elsewhere in this repo (e.g. agent/loop.py):
+    # bandit 1.9.4's NOSEC_COMMENT_TESTS regex only registers the *last* code
+    # in a comma-separated nosec list (its `finditer` walks one greedy match,
+    # and the capturing group inside a `+`-quantified group retains only its
+    # final iteration) — `# nosec B603,B607` suppresses B607 but leaves B603
+    # firing, verified directly against agent/loop.py's existing uses.
+    result = subprocess.run(["bash", "-c", script, "bash", title])  # nosec
     return result.returncode == 0
 
 
