@@ -229,7 +229,7 @@ def test_all_provider_ids_returns_literal_args():
     expected = set(typing.get_args(BrainProvider))
     actual = set(all_provider_ids())
     assert actual == expected
-    assert len(actual) == 16  # 16 supported providers (tokenin added 2026-08-22)
+    assert len(actual) == 17  # 17 supported providers (omniroute added 2026-09-11)
 
 
 def test_get_provider_candidates_returns_copy():

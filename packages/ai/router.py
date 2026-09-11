@@ -460,6 +460,10 @@ _FREE_CLOUD_PROVIDER_IDS = {
     # tokenin.my.id — free frontier gateway (opus/gpt/gemini/glm/deepseek/…);
     # classified FREE so the routing policy uses it before any paid escalation.
     "tokenin",
+    # OmniRoute — self-hosted gateway fronting many free-tier providers. Classified
+    # FREE so the routing policy never mistakes it for paid and gates it behind
+    # paid-escalation approval; it is opt-in via OMNIROUTE_API_KEY.
+    "omniroute",
     "deepseek",
     "groq",
     "groq-cloud",
@@ -729,6 +733,28 @@ class ProviderRouter:
                     default_model=os.environ.get("TOKENIN_MODEL")
                     or "myt/glm-5.3-free",
                     priority=22,
+                )
+            )
+
+        # ── OmniRoute — self-hosted free-tier aggregator (opt-in) ──
+        # Gated on OMNIROUTE_API_KEY: a networked OmniRoute without a token is an
+        # open LLM gateway, so no key means it is not wired at all. One `auto`
+        # model — OmniRoute fans out internally. priority=10 puts it at the TOP of
+        # the free tier (ahead of tokenin=22 and the rest) but behind the always-on
+        # NVIDIA floor at -10, which stays the reliable baseline.
+        omniroute_key = (os.environ.get("OMNIROUTE_API_KEY") or "").strip()
+        if omniroute_key:
+            omniroute_base = (
+                os.environ.get("OMNIROUTE_BASE_URL") or "http://localhost:20128/v1"
+            ).rstrip("/")
+            providers.append(
+                ProviderConfig(
+                    provider_id="omniroute",
+                    type="openai-compatible",
+                    base_url=omniroute_base,
+                    api_key=omniroute_key,
+                    default_model="auto",
+                    priority=10,
                 )
             )
 

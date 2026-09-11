@@ -126,12 +126,12 @@ def test_is_catalog_enabled_other_values_are_false(monkeypatch):
 # ── 3. _build_in_memory builds a complete catalog ──────────────────────────
 
 
-def test_build_in_memory_returns_catalog_with_all_16_providers():
+def test_build_in_memory_returns_catalog_with_all_17_providers():
     """The catalog mirror includes every provider from the BrainProvider Literal."""
     store = ModelCatalogStore()
     mirror = store._build_in_memory()
     assert isinstance(mirror, CatalogMirror)
-    assert len(mirror.providers) == 16
+    assert len(mirror.providers) == 17
     actual_ids = {p.provider_id for p in mirror.providers}
     assert actual_ids == set(all_provider_ids())
 
@@ -304,7 +304,7 @@ def test_get_catalog_models_returns_catalog_when_flag_on(app_client, monkeypatch
     assert body["enabled"] is True
     catalog = body["catalog"]
     assert catalog["catalog_version"] == 1
-    assert len(catalog["providers"]) == 16
+    assert len(catalog["providers"]) == 17
     assert catalog["safe_default"]["provider"] == "nvidia"
     # Read from the catalog: this test covers the endpoint's shape, not which
     # model the roster currently names.
@@ -356,7 +356,7 @@ def test_sync_catalog_rebuilds_when_flag_on(app_client, monkeypatch):
     assert body["ok"] is True
     assert body["enabled"] is True
     catalog = body["catalog"]
-    assert len(catalog["providers"]) == 16
+    assert len(catalog["providers"]) == 17
     assert catalog["mirrored_at"]
 
 
@@ -381,7 +381,7 @@ def test_get_catalog_never_raises_on_storage_error(monkeypatch):
     import asyncio
     catalog = asyncio.run(store.get_catalog())
     assert isinstance(catalog, CatalogMirror)
-    assert len(catalog.providers) == 16
+    assert len(catalog.providers) == 17
 
 
 def test_sync_catalog_never_raises_on_storage_error(monkeypatch):
@@ -395,7 +395,7 @@ def test_sync_catalog_never_raises_on_storage_error(monkeypatch):
     import asyncio
     catalog = asyncio.run(store.sync_catalog(actor="test"))
     assert isinstance(catalog, CatalogMirror)
-    assert len(catalog.providers) == 16
+    assert len(catalog.providers) == 17
 
 
 # ── 12. Advisory-only — doesn't affect routing ────────────────────────────

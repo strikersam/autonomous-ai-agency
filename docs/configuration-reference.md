@@ -101,6 +101,33 @@ and on a per-model `429` the failover chain rotates to the next model in
 | `TOKENIN_MODEL` | `myt/glm-5.3-free` | Default model for the `router.from_env` path when no model is requested. Role presets and the full failover list live in `config/models.yaml`. |
 | `TOKENIN_KEY_ROTATION` | `false` | Opt-in per-key rotation across `TOKENIN_API_KEY`, `_2`, `_3`… (see `<PROVIDER>_KEY_ROTATION` below). |
 
+### OmniRoute — self-hosted free-tier aggregator
+
+[OmniRoute](https://github.com/diegosouzapw/OmniRoute) is a self-hosted, MIT-licensed,
+OpenAI-compatible gateway that fronts many free-tier providers behind one endpoint and
+does its own internal fan-out and rotation. This repo treats it as a **single** free-tier
+provider so it makes exactly one attempt to OmniRoute per call — OmniRoute's own failover
+runs behind that one endpoint, and nesting it inside this repo's chain would re-amplify the
+`429`s the failover layer exists to avoid. It sits at the **back of the free tier** (not in
+`RECOMMENDED_PROVIDER_PRIORITY`), so it is a bonus, never a default.
+
+**It is inert until you deploy it.** With no `OMNIROUTE_API_KEY` set, the provider is not
+added to the chain at all — it costs zero failover attempts. To use it, run OmniRoute
+somewhere the backend can reach (its own service or a VPS — **not** a developer laptop, which
+Render cannot reach), mint a scoped token on that instance with
+`omniroute tokens create --name agency --scope read`, and set the two variables below.
+Requiring the token is also a security choice: a networked OmniRoute with no auth is an open
+LLM gateway that anyone who finds the URL can drain of your free-tier quotas.
+
+The single configured model is `auto` (OmniRoute's own router picks). Once a call has reached
+the gateway, model-discovery (`packages/ai/model_discovery.py`) reads its `/v1/models` and
+subsequent calls route to the concrete ids it actually serves.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OMNIROUTE_API_KEY` | (unset) | **Secret, env-only.** Scoped access token minted on your OmniRoute instance (`omniroute tokens create`). Presence of this key adds OmniRoute to the free-tier chain; absence keeps it out entirely. |
+| `OMNIROUTE_BASE_URL` | `http://localhost:20128/v1` | Base URL of your OmniRoute deployment. The router appends `/chat/completions`. Point this at the networked instance the backend can reach; the localhost default is for same-host dev only. |
+
 ---
 
 ## Workspace Isolation

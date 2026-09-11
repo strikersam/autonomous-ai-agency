@@ -53,6 +53,7 @@ safe_default:
 # available with NVIDIA_API_KEY. ollama stays in the chain for local dev.
 recommended_priority:
   - nvidia
+  - omniroute
   - tokenin
   - cerebras
   - groq
@@ -128,6 +129,35 @@ providers:
       - myt/grok-4.6-free
       - myt/gpt-5.6-sol-free
       - myt/claude-opus-4-8-free
+
+  # OmniRoute (github.com/diegosouzapw/OmniRoute) — a self-hosted, MIT-licensed
+  # OpenAI-compatible gateway that fronts many free-tier providers behind one
+  # endpoint and does its own internal fan-out. It is deliberately treated as a
+  # SINGLE provider here so this repo makes one attempt to it per call and never
+  # nests its failover fan-out inside ours (which would re-amplify 429s).
+  #
+  # Inert until deployed: it is gated on OMNIROUTE_API_KEY, so with no token set
+  # it is not added to the chain at all — no wasted attempts. OmniRoute must run
+  # somewhere the backend can reach (its own service / VPS, NOT a developer
+  # laptop), and its remote mode issues a scoped access token that becomes this
+  # key. Point OMNIROUTE_BASE_URL at that deployment's /v1.
+  #
+  # The single `auto` model lets OmniRoute's own router pick; once a call has hit
+  # it, model-discovery (packages/ai/model_discovery.py) reads its /v1/models and
+  # subsequent calls route to the concrete ids it actually serves.
+  omniroute:
+    display_name: OmniRoute (self-hosted free-tier aggregator)
+    tier: free
+    key_env: OMNIROUTE_API_KEY
+    base_url_env: OMNIROUTE_BASE_URL
+    default_base_url: http://localhost:20128/v1
+    role_presets:
+      planner:   auto
+      executor:  auto
+      verifier:  auto
+      judge:     auto
+    candidates:
+      - auto
 
   cerebras:
     display_name: Cerebras (fast, free tier)

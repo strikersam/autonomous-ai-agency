@@ -49,7 +49,7 @@ def test_brain_provider_status_returns_all_literal_providers(app_client):
     actual_ids = {p["provider_id"] for p in body["providers"]}
     expected_ids = set(all_provider_ids())
     assert actual_ids == expected_ids
-    assert len(actual_ids) == 16
+    assert len(actual_ids) == 17
 
 
 def test_brain_provider_status_includes_previously_filtered_providers(app_client):
