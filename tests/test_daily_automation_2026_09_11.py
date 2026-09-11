@@ -4,12 +4,12 @@ Covers the ecosystem updates applied today:
 
   1. Add ``gemini-2.5-pro`` to ``config/llm/models.yaml``.
 
-     ``gemini-2.5-pro`` is referenced in the "google" BRAIN_PRESET in
+     ``gemini-2.5-pro`` is referenced in the "google" PROVIDER_PRESET in
      ``packages/ai/brain_config.py`` as the planner and judge model.  Because
      it had no entry in the catalog, ``packages/llm/config.py::ModelConfig``
      defaulted ``supports_tools`` to ``False``; ``packages/llm/registry.py``
      line 161 then silently filtered it from every tool-calling request,
-     so the entire Google brain preset's planner/judge was unreachable when
+     so the entire Google provider preset's planner/judge was unreachable when
      any tool-calling agent ran.
 
      Fix: declare it with ``supports_tools: true``, ``supports_reasoning: true``
@@ -183,42 +183,42 @@ _skip_without_pydantic = pytest.mark.skipif(
 )
 
 
-class TestGoogleBrainPresetConsistency:
-    """Every model in the 'google' BRAIN_PRESET must be declared in models.yaml."""
+class TestGoogleProviderPresetConsistency:
+    """Every model in the 'google' PROVIDER_PRESET must be declared in models.yaml."""
 
     @_skip_without_pydantic
     def test_google_preset_models_are_all_declared(self) -> None:
-        from packages.ai.brain_config import BRAIN_PRESETS
+        from packages.ai.brain_config import PROVIDER_PRESETS
 
-        preset = BRAIN_PRESETS.get("google", {})
-        assert preset, "the 'google' BRAIN_PRESET must exist"
+        preset = PROVIDER_PRESETS.get("google", {})
+        assert preset, "the 'google' PROVIDER_PRESET must exist"
 
         cfg = _cfg()
         for role, model_id in preset.items():
             assert model_id in cfg.models, (
-                f"BRAIN_PRESETS['google'][{role!r}] = {model_id!r} is not "
+                f"PROVIDER_PRESETS['google'][{role!r}] = {model_id!r} is not "
                 f"declared in config/llm/models.yaml — it will get "
                 f"supports_tools: false by default, silently breaking the role"
             )
 
     @_skip_without_pydantic
     def test_google_preset_planner_supports_tools(self) -> None:
-        from packages.ai.brain_config import BRAIN_PRESETS
+        from packages.ai.brain_config import PROVIDER_PRESETS
 
-        planner_id = BRAIN_PRESETS["google"]["planner"]
+        planner_id = PROVIDER_PRESETS["google"]["planner"]
         m = _cfg().models[planner_id]
         assert m.supports_tools is True, (
-            f"BRAIN_PRESETS['google']['planner'] = {planner_id!r} has "
+            f"PROVIDER_PRESETS['google']['planner'] = {planner_id!r} has "
             f"supports_tools: false — it cannot serve tool-calling planner requests"
         )
 
     @_skip_without_pydantic
     def test_google_preset_judge_supports_tools(self) -> None:
-        from packages.ai.brain_config import BRAIN_PRESETS
+        from packages.ai.brain_config import PROVIDER_PRESETS
 
-        judge_id = BRAIN_PRESETS["google"].get("judge", BRAIN_PRESETS["google"]["planner"])
+        judge_id = PROVIDER_PRESETS["google"].get("judge", PROVIDER_PRESETS["google"]["planner"])
         m = _cfg().models[judge_id]
         assert m.supports_tools is True, (
-            f"BRAIN_PRESETS['google']['judge'] = {judge_id!r} has "
+            f"PROVIDER_PRESETS['google']['judge'] = {judge_id!r} has "
             f"supports_tools: false — it cannot serve tool-calling judge requests"
         )
