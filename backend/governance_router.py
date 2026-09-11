@@ -92,7 +92,7 @@ def build_governance_router(get_current_user: Callable[..., Any]) -> APIRouter:
             log.warning("Sandbox status probe failed: %s", exc)
             sandbox_status = {"backend": "unknown", "error": str(exc)}
 
-        return {
+        result = {
             "enabled": settings.governance_enabled,
             "mode": engine.mode.value,
             "enforcing": engine.mode.value == "enforce",
@@ -102,6 +102,11 @@ def build_governance_router(get_current_user: Callable[..., Any]) -> APIRouter:
             "auto_approve": settings.governance_auto_approve,
             "sandbox": sandbox_status,
         }
+        last_error = engine.last_error
+        if last_error:
+            result["last_policy_error"] = last_error
+            result["last_policy_error_at"] = engine.last_error_at
+        return result
 
     # ── Policy ───────────────────────────────────────────────────────────
 
@@ -127,13 +132,22 @@ def build_governance_router(get_current_user: Callable[..., Any]) -> APIRouter:
         engine = get_policy_engine()
         applied = engine.reload(settings.governance_policy_path)
         log.info("Governance policy reloaded (applied=%s, mode=%s)", applied, engine.mode.value)
-        return {
+        result = {
             "reloaded": applied,
             "mode": engine.mode.value,
             "source": engine.source,
             "version": engine.version,
-            "note": None if applied else "file missing or invalid — embedded default is active",
         }
+        last_error = engine.last_error
+        if last_error:
+            result["error"] = last_error
+            result["error_at"] = engine.last_error_at
+            result["note"] = "file present but invalid — embedded default is active"
+        elif not applied:
+            result["note"] = "file missing — embedded default is active"
+        else:
+            result["note"] = None
+        return result
 
     @router.post("/policy/simulate")
     async def simulate_policy(

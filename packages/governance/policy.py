@@ -53,6 +53,7 @@ import ipaddress
 import logging
 import posixpath
 import threading
+import time
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path, PurePosixPath
@@ -316,42 +317,44 @@ def _host_matches(host: str, pattern: str) -> bool:
     CIDR patterns only ever match literal IPs — a hostname is *not* resolved
     here. Resolution belongs to ``agent/web_reach.py::unsafe_target_reason``,
     which already does it correctly against every resolved address including
-    redirect hops; doing it a second time here would add a second, weaker
-    implementation of the same check and a DNS call to every policy
-    evaluation.
+    redirect hops; this function only matches the *name* as given. The caller
+    is responsible for resolving first if it wants CIDR matching against the
+    actual IP.
+
+    Matching rules:
+    - CIDR (``10.0.0.0/8``) matches literal IPs only.
+    - Suffix glob (``*.example.com``) matches ``example.com`` and subdomains.
+    - Plain domain (``evil.com``) matches the apex and all subdomains
+      (behaves like a suffix glob for the domain itself).
+    - Exact match for anything else.
     """
     host = (host or "").strip().lower().rstrip(".")
     pattern = (pattern or "").strip().lower().rstrip(".")
     if not host or not pattern:
         return False
+    # CIDR: only matches a literal IP string.
     if "/" in pattern:
         try:
-            network = ipaddress.ip_network(pattern, strict=False)
+            net = ipaddress.ip_network(pattern, strict=False)
+            addr = ipaddress.ip_address(host)
+            return addr in net
         except ValueError:
             return False
-        try:
-            return ipaddress.ip_address(host) in network
-        except ValueError:
-            return False
-    if fnmatch.fnmatch(host, pattern):
+    # Suffix glob: *.example.com matches example.com and sub.example.com.
+    if pattern.startswith("*."):
+        suffix = pattern[2:]
+        return host == suffix or host.endswith("." + suffix)
+    # Plain domain: evil.com matches evil.com and *.evil.com (like a suffix glob).
+    if host == pattern or host.endswith("." + pattern):
         return True
-    # `example.com` covers `api.example.com`; `*.example.com` does not cover
-    # the apex, which is why both forms exist.
-    return host.endswith("." + pattern)
+    # Exact match fallback.
+    return host == pattern
 
 
-def _action_matches(action: str, pattern: str, surface: Surface) -> bool:
-    """Dispatch to the matcher appropriate for *surface*."""
-    if surface is Surface.FILESYSTEM:
-        return _path_matches(_normalise_path(action), pattern)
-    if surface is Surface.NETWORK:
-        return _host_matches(action, pattern)
-    return fnmatch.fnmatch((action or "").strip().lower(), pattern.strip().lower())
-
-
+# ── GroupPolicy ─────────────────────────────────────────────────────────────
 @dataclass
 class GroupPolicy:
-    """The resolved rules for one policy group, after ``extends`` flattening."""
+    """A compiled, flattened group with concrete rules and limits."""
 
     name: str
     rules: dict[str, dict[str, list[str]]] = field(default_factory=dict)
@@ -362,6 +365,7 @@ class GroupPolicy:
         return self.rules.get(surface.value, {})
 
 
+# ── PolicyEngine ────────────────────────────────────────────────────────────
 class PolicyEngine:
     """Evaluates governed actions against a layered policy document.
 
@@ -373,6 +377,8 @@ class PolicyEngine:
     def __init__(self, document: dict[str, Any] | None = None) -> None:
         self._lock = threading.Lock()
         self._source: str = "embedded-default"
+        self._last_error: str | None = None
+        self._last_error_at: float | None = None
         self._compile(document or DEFAULT_POLICY)
 
     # ── Loading ──────────────────────────────────────────────────────────
@@ -401,10 +407,15 @@ class PolicyEngine:
             self._compile(document)
             with self._lock:
                 self._source = str(p)
+                self._last_error = None
+                self._last_error_at = None
             log.info("Governance policy loaded from %s (mode=%s)", p, self.mode.value)
             return True
         except FileNotFoundError:
             log.info("No governance policy at %s; using embedded default", p)
+            with self._lock:
+                self._last_error = None
+                self._last_error_at = None
         except Exception as exc:  # noqa: BLE001 - a bad policy must not crash boot
             log.error(
                 "Governance policy at %s is invalid (%s); falling back to the "
@@ -412,6 +423,9 @@ class PolicyEngine:
                 "permissive than your intent.",
                 p, exc,
             )
+            with self._lock:
+                self._last_error = f"{type(exc).__name__}: {exc}"
+                self._last_error_at = time.time()
         self._compile(DEFAULT_POLICY)
         return False
 
@@ -531,6 +545,16 @@ class PolicyEngine:
     def version(self) -> int:
         with self._lock:
             return self._version
+
+    @property
+    def last_error(self) -> str | None:
+        with self._lock:
+            return self._last_error
+
+    @property
+    def last_error_at(self) -> float | None:
+        with self._lock:
+            return self._last_error_at
 
     def group_names(self) -> list[str]:
         with self._lock:
@@ -653,53 +677,46 @@ class PolicyEngine:
 
         return verdict(
             Decision.ALLOW,
-            f"no rule matches {action!r} on surface {surface.value}",
-            f"group.{group.name}.{surface.value}.default-allow",
+            "no matching rule — action is permitted",
+            f"group.{group.name}.{surface.value}.allow[default-allow]",
         )
 
-    @staticmethod
+    def _first_match(
+        self, action: str, patterns: list[str], surface: Surface
+    ) -> str | None:
+        for pattern in patterns:
+            if surface is Surface.FILESYSTEM:
+                norm = _normalise_path(action)
+                if _path_matches(norm, pattern):
+                    return pattern
+            elif surface is Surface.NETWORK:
+                if _host_matches(action, pattern):
+                    return pattern
+            else:
+                if fnmatch.fnmatch(action, pattern):
+                    return pattern
+        return None
+
     def _allow_patterns(
+        self,
         group_rules: dict[str, list[str]],
         surface: Surface,
         context: dict[str, Any] | None,
     ) -> list[str] | None:
-        """Return the applicable allow-list, or ``None`` when none is declared.
-
-        The ``None`` vs ``[]`` distinction is the whole contract: ``None``
-        means the group declared no allow-list and the surface is
-        unrestricted; ``[]`` means the group declared an empty one and
-        *nothing* is permitted. Returning a bare list would collapse those
-        two opposite meanings into one.
-
-        Filesystem is the one surface where the *mode* of access selects the
-        list: a group may grant broad ``read`` and narrow ``write``.
-        ``context={"mode": "write"}`` selects ``write``; anything else selects
-        ``read``. Both fall back to a plain ``allow`` list so simple policies
-        need not distinguish.
-        """
-        if surface is not Surface.FILESYSTEM:
-            return group_rules.get("allow")
-        access = str((context or {}).get("mode", "read")).lower()
-        key = "write" if access == "write" else "read"
-        if key in group_rules:
-            return group_rules[key]
-        return group_rules.get("allow")
-
-    @staticmethod
-    def _first_match(action: str, patterns: Iterable[str], surface: Surface) -> str | None:
-        """Return the first pattern matching *action*, or None.
-
-        Returns the pattern itself rather than a bool so the decision can name
-        the exact rule that fired — an unexplainable denial is an outage, not
-        a control.
-        """
-        for pattern in patterns:
-            try:
-                if _action_matches(action, pattern, surface):
-                    return pattern
-            except Exception as exc:  # noqa: BLE001 - one bad pattern must not void the rest
-                log.warning("Policy pattern %r failed to evaluate: %s", pattern, exc)
-        return None
+        # A declared but empty allow-list ("write: []") means deny everything.
+        # An absent key means unrestricted.
+        # For filesystem read/write, honour the mode in context if present.
+        if surface is Surface.FILESYSTEM and context:
+            mode = str(context.get("mode") or "").lower()
+            if mode in ("read", "write"):
+                # Check if the specific mode is explicitly declared (even as empty list)
+                if mode in group_rules:
+                    return _as_list(group_rules.get(mode))
+        # Fall back to generic "allow" key.
+        effects = group_rules.get("allow")
+        if effects is None:
+            return None
+        return effects
 
     def describe(self) -> dict[str, Any]:
         """Return the effective policy for the dashboard and audit review.
@@ -710,7 +727,7 @@ class PolicyEngine:
         their values.
         """
         with self._lock:
-            return {
+            result = {
                 "version": self._version,
                 "mode": self._mode.value,
                 "source": self._source,
@@ -727,6 +744,10 @@ class PolicyEngine:
                     {"match": m, "group": g} for m, g in self._assignments
                 ],
             }
+            if self._last_error:
+                result["last_error"] = self._last_error
+                result["last_error_at"] = self._last_error_at
+            return result
 
 
 _ENGINE: PolicyEngine | None = None

@@ -157,7 +157,7 @@ def test_absent_allow_list_leaves_the_surface_unrestricted():
     identity = resolve_identity(agent_name="x", policy_group="g")
     decision = engine.evaluate(Surface.TOOL, "anything_at_all", identity)
     assert decision.decision is Decision.ALLOW
-    assert decision.rule_id.endswith("default-allow")
+    assert decision.rule_id.endswith("default-allow]")
 
 
 def test_allow_list_is_default_deny_for_unlisted_actions():
