@@ -285,3 +285,26 @@ class TestGhIsNotReAuthenticated:
         """Removing the login must not remove the credential."""
         step = _step(job, "Create pull request")
         assert "GH_TOKEN" in (step.get("env") or {})
+
+
+class TestImplementerQueueSkipsReportOnlyIssues:
+    """Report-only issues (digests, escalations, burn-in status, catalogue-drift
+    trackers) are not implementable work. The implementer loops must skip them,
+    or the retry handler reopens them every cycle — issue #1434 was picked up,
+    failed a 120-turn run, and self-reopened every 4 h until `catalogue-drift`
+    was added to the skip set."""
+
+    REPORT_ONLY = ["agency-escalation", "trend-digest", "crispy-burn-in", "catalogue-drift"]
+
+    def test_quick_note_selector_excludes_report_only_labels(self, workflow_text: str):
+        pick = _step(yaml.safe_load(workflow_text)["jobs"]["process"], "Find next pending")
+        run = pick["run"]
+        for label in ["quick-note:exhausted", "quick-note:rejected", *self.REPORT_ONLY]:
+            assert f'"{label}"' in run, f"selector must exclude {label!r}"
+
+    def test_autonomous_agent_selector_excludes_report_only_labels(self):
+        src = (REPO_ROOT / ".github/scripts/autonomous_agent.py").read_text(encoding="utf-8")
+        for label in self.REPORT_ONLY:
+            assert repr(label) in src or f'"{label}"' in src, (
+                f"autonomous_agent.py must skip {label!r} so it never implements a report"
+            )
