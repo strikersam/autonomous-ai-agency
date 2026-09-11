@@ -7,7 +7,9 @@ _Updated 2026-09-11._
 > (implementer loop stops consuming `catalogue-drift` trackers), from a merge
 > conflict against master. Merged to master `89eae88` at 07:24 UTC same session.
 > That PR's own follow-up ([#1476](https://github.com/strikersam/autonomous-ai-agency/pull/1476))
-> then hit two more real CI bugs, both fixed on the same PR — see tracker rows 55–56.
+> then hit two more real CI bugs, both fixed on the same PR and merged to
+> master `f7a533d` at ~14:39 UTC — see tracker rows 55–56. Nothing further
+> to do here.
 >
 > **Small follow-up flagged, not yet fixed:** `agent/loop.py`'s three
 > `# nosec B603,B607` comments (~lines 2680, 2681, 2688) do not actually
