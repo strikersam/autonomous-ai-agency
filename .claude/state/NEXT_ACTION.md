@@ -1,6 +1,24 @@
 # Next Action
 
-_Updated 2026-09-06._
+_Updated 2026-09-11._
+
+> **2026-09-11 daily automation:** no open issues (`routine-backlog` empty), so
+> today's item was rescuing the one open PR, [#1474](https://github.com/strikersam/autonomous-ai-agency/pull/1474)
+> (implementer loop stops consuming `catalogue-drift` trackers), from a merge
+> conflict against master. Merged to master `89eae88` at 07:24 UTC same session.
+> That PR's own follow-up ([#1476](https://github.com/strikersam/autonomous-ai-agency/pull/1476))
+> then hit two more real CI bugs, both fixed on the same PR — see tracker rows 55–56.
+>
+> **Small follow-up flagged, not yet fixed:** `agent/loop.py`'s three
+> `# nosec B603,B607` comments (~lines 2680, 2681, 2688) do not actually
+> suppress B603 — `bandit==1.9.4`'s nosec-list regex only honours the *last*
+> code in a comma-separated list (verified directly; #1476's tests document
+> the repro). Harmless today only because it's identical on every base and PR
+> branch scan, so the Security Gate's base-vs-PR diff never notices. Fix is a
+> three-line comment change (bare `# nosec` instead of `# nosec B603,B607`),
+> unrelated to #1476's diff so left for a future session.
+
+_Prior update 2026-09-06:_
 
 > **Since 2026-09-05:** the new scheduled catalogue-probe (#1426) filed issue #1434
 > the next morning, and its "Unreachable providers" section was itself a bug: `ollama`/

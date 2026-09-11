@@ -89,21 +89,24 @@ jobs:
             # exact source the analysis ruled out. The two labels are kept
             # distinct because they mean different things — `exhausted` is three
             # failed attempts, `rejected` is a deliberate decision not to build.
-            # Reports are not work. `agency-escalation`, `trend-digest` and
-            # `crispy-burn-in` issues are status output for a human: a digest is
-            # a list of links, an escalation is a failure record. The selector
-            # took the oldest open issue of any kind, so four escalations and a
-            # digest sat at the head of the queue for days — #1350 reached
-            # `retry:2` being "implemented" — while real work waited behind
-            # them. Every one of those five was later closed without a line of
-            # code. Excluding them here is not a filter on content; it is the
+            # Reports are not work. `agency-escalation`, `trend-digest`,
+            # `crispy-burn-in` and `catalogue-drift` issues are status output for
+            # a human: a digest is a list of links, an escalation is a failure
+            # record, a catalogue-drift tracker is an account/infra state the
+            # probe files. The selector took the oldest open issue of any kind,
+            # so four escalations and a digest sat at the head of the queue for
+            # days — #1350 reached `retry:2` being "implemented" — while real
+            # work waited behind them; the `catalogue-drift` tracker #1434 was
+            # picked up, failed a 120-turn run, and self-reopened every 4 h.
+            # Every one of those was later closed without a line of code.
+            # Excluding them here is not a filter on content; it is the
             # difference between a queue of tasks and a queue of paperwork.
             NUM=$(gh issue list \
               --repo "$REPO" \
               --state open \
               --json number,labels \
               --limit 100 \
-              --jq '[.[] | select(([(.labels // [])[].name] - ["quick-note:exhausted","quick-note:rejected","agency-escalation","trend-digest","crispy-burn-in"]) == [(.labels // [])[].name])] | sort_by(.number) | .[0].number // empty')
+              --jq '[.[] | select(([(.labels // [])[].name] - ["quick-note:exhausted","quick-note:rejected","agency-escalation","trend-digest","crispy-burn-in","catalogue-drift"]) == [(.labels // [])[].name])] | sort_by(.number) | .[0].number // empty')
           fi
           if [ -z "$NUM" ]; then
             echo "No pending quick-note issues found — nothing to do."

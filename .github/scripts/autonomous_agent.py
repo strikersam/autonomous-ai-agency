@@ -32,7 +32,20 @@ else:
         timeout=30.0,
     )
     all_issues = [i for i in resp.json() if 'pull_request' not in i]
-    actionable = [i for i in all_issues if 'quick-note:exhausted' not in [l.get('name','') for l in i.get('labels',[])]]
+    # Report-only issues are status output for a human, not implementable work:
+    # a trend digest is a list of links, an escalation/burn-in is a failure or
+    # readiness record, and a catalogue-drift tracker is an account/infra state
+    # the probe files. Implementing them wastes a full agent run and — via the
+    # retry handler — self-reopens the issue every cycle (issue #1434). Mirror
+    # the exclusion set process-quick-note.yml uses.
+    SKIP_LABELS = {
+        'quick-note:exhausted', 'quick-note:rejected', 'agency-escalation',
+        'trend-digest', 'crispy-burn-in', 'catalogue-drift',
+    }
+    actionable = [
+        i for i in all_issues
+        if not (SKIP_LABELS & {l.get('name', '') for l in i.get('labels', [])})
+    ]
     if not actionable:
         print('No open issues to process — agency is idle')
         sys.exit(0)
