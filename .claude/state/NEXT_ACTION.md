@@ -1,6 +1,26 @@
 # Next Action
 
-_Updated 2026-09-11._
+_Updated 2026-09-11 (second entry)._
+
+> **2026-09-11 daily automation (part 2 — gemini-2.5-pro):** `gemini-2.5-pro`
+> was used in `packages/ai/brain_config.py` PROVIDER_PRESETS as Google preset
+> planner and judge but was absent from `config/llm/models.yaml` — causing
+> `supports_tools` to default False and `registry.py:161` to silently filter it
+> from every tool-calling request. Added to the catalog with `supports_tools:true`,
+> `supports_reasoning:true`, 1M context, and cost entries in `cost_tracker.py`.
+> 18 tests in `test_daily_automation_2026_09_11.py`. PR [#1477](https://github.com/strikersam/autonomous-ai-agency/pull/1477)
+> squash-merged to master `606e0b5` — task 57 DONE.
+>
+> **Still open (from prior session):** PR [#1476](https://github.com/strikersam/autonomous-ai-agency/pull/1476)
+> (changelog-check scoped-prefix fix) — check its CI status next session.
+>
+> **Small follow-up flagged, not yet fixed:** `agent/loop.py`'s three
+> `# nosec B603,B607` comments (~lines 2680, 2681, 2688) do not actually
+> suppress B603 — `bandit==1.9.4`'s nosec-list regex only honours the *last*
+> code in a comma-separated list. Fix is a three-line comment change (bare
+> `# nosec`), left for a future session.
+
+_Prior update 2026-09-11 (first entry):_
 
 > **2026-09-11 daily automation:** no open issues (`routine-backlog` empty), so
 > today's item was rescuing the one open PR, [#1474](https://github.com/strikersam/autonomous-ai-agency/pull/1474)
@@ -8,15 +28,6 @@ _Updated 2026-09-11._
 > conflict against master. Merged to master `89eae88` at 07:24 UTC same session.
 > That PR's own follow-up ([#1476](https://github.com/strikersam/autonomous-ai-agency/pull/1476))
 > then hit two more real CI bugs, both fixed on the same PR — see tracker rows 55–56.
->
-> **Small follow-up flagged, not yet fixed:** `agent/loop.py`'s three
-> `# nosec B603,B607` comments (~lines 2680, 2681, 2688) do not actually
-> suppress B603 — `bandit==1.9.4`'s nosec-list regex only honours the *last*
-> code in a comma-separated list (verified directly; #1476's tests document
-> the repro). Harmless today only because it's identical on every base and PR
-> branch scan, so the Security Gate's base-vs-PR diff never notices. Fix is a
-> three-line comment change (bare `# nosec` instead of `# nosec B603,B607`),
-> unrelated to #1476's diff so left for a future session.
 
 _Prior update 2026-09-06:_
 
