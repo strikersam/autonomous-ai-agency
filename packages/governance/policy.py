@@ -54,6 +54,7 @@ import logging
 import posixpath
 import threading
 from dataclasses import dataclass, field
+from datetime import datetime
 from enum import Enum
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable
@@ -373,6 +374,8 @@ class PolicyEngine:
     def __init__(self, document: dict[str, Any] | None = None) -> None:
         self._lock = threading.Lock()
         self._source: str = "embedded-default"
+        self._last_error: str | None = None
+        self._last_error_at: datetime | None = None
         self._compile(document or DEFAULT_POLICY)
 
     # ── Loading ──────────────────────────────────────────────────────────
@@ -401,17 +404,26 @@ class PolicyEngine:
             self._compile(document)
             with self._lock:
                 self._source = str(p)
+                self._last_error = None
+                self._last_error_at = None
             log.info("Governance policy loaded from %s (mode=%s)", p, self.mode.value)
             return True
         except FileNotFoundError:
             log.info("No governance policy at %s; using embedded default", p)
+            with self._lock:
+                self._last_error = None
+                self._last_error_at = None
         except Exception as exc:  # noqa: BLE001 - a bad policy must not crash boot
+            error_msg = f"{type(exc).__name__}: {exc}"
             log.error(
                 "Governance policy at %s is invalid (%s); falling back to the "
                 "embedded default policy. Fix the file — the fallback is more "
                 "permissive than your intent.",
                 p, exc,
             )
+            with self._lock:
+                self._last_error = error_msg
+                self._last_error_at = datetime.now()
         self._compile(DEFAULT_POLICY)
         return False
 
@@ -531,6 +543,18 @@ class PolicyEngine:
     def version(self) -> int:
         with self._lock:
             return self._version
+
+    @property
+    def last_error(self) -> str | None:
+        """The last error encountered during policy reload, or None if the last reload succeeded or no file was configured."""
+        with self._lock:
+            return self._last_error
+
+    @property
+    def last_error_at(self) -> datetime | None:
+        """Timestamp of the last reload error, or None if the last reload succeeded or no file was configured."""
+        with self._lock:
+            return self._last_error_at
 
     def group_names(self) -> list[str]:
         with self._lock:

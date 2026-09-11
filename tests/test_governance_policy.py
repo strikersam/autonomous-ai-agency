@@ -277,6 +277,45 @@ def test_non_mapping_policy_root_falls_back(tmp_path):
     bad.write_text("- just\n- a\n- list\n", encoding="utf-8")
     engine = PolicyEngine.from_file(str(bad))
     assert "default" in engine.group_names()
+    # The file exists but has invalid content (list instead of dict), so last_error is set
+    assert engine.last_error is not None, "invalid YAML content should set last_error"
+    assert "ValueError" in engine.last_error or "mapping" in engine.last_error
+
+
+def test_reload_invalid_yaml_sets_last_error(tmp_path):
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("mode: [this is not a mode\n  broken: yaml: everywhere", encoding="utf-8")
+    engine = PolicyEngine.from_file(str(bad))
+    assert engine.last_error is not None, "malformed YAML should set last_error"
+    assert "ParserError" in engine.last_error or "yaml" in engine.last_error.lower()
+    assert engine.last_error_at is not None
+    # The fallback is a real policy
+    assert engine.evaluate(Surface.FILESYSTEM, ".env").would_block
+
+
+def test_reload_valid_then_invalid_clears_error(tmp_path):
+    good = tmp_path / "good.yaml"
+    good.write_text("mode: observe\ngroups: {}\n", encoding="utf-8")
+    engine = PolicyEngine.from_file(str(good))
+    assert engine.last_error is None, "valid policy should clear last_error"
+    
+    bad = tmp_path / "bad.yaml"
+    bad.write_text("mode: [not valid", encoding="utf-8")
+    engine.reload(str(bad))
+    assert engine.last_error is not None, "invalid reload should set last_error"
+    assert engine.last_error_at is not None
+
+
+def test_reload_missing_file_clears_error(tmp_path):
+    good = tmp_path / "good.yaml"
+    good.write_text("mode: observe\ngroups: {}\n", encoding="utf-8")
+    engine = PolicyEngine.from_file(str(good))
+    assert engine.last_error is None
+    
+    # Now reload a missing file
+    engine.reload(str(tmp_path / "missing.yaml"))
+    assert engine.last_error is None, "missing file should clear last_error (not an error condition)"
+    assert engine.last_error_at is None
 
 
 def test_a_broken_pattern_does_not_void_the_remaining_rules():

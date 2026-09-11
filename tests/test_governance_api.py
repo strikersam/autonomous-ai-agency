@@ -105,6 +105,52 @@ def test_policy_reload_rereads_the_file():
     assert body["mode"] == "observe"
 
 
+def test_status_includes_last_error_fields():
+    """The status endpoint should expose last_error and last_error_at."""
+    body = _client(ADMIN).get("/api/governance/status").json()
+    assert "policy_last_error" in body
+    assert "policy_last_error_at" in body
+    # With a valid policy file, these should be None
+    assert body["policy_last_error"] is None
+    assert body["policy_last_error_at"] is None
+
+
+def test_reload_returns_last_error_fields():
+    """The reload endpoint should return last_error and last_error_at."""
+    body = _client(ADMIN).post("/api/governance/policy/reload").json()
+    assert "last_error" in body
+    assert "last_error_at" in body
+    # With a valid policy file, these should be None
+    assert body["last_error"] is None
+    assert body["last_error_at"] is None
+
+
+def test_reload_with_broken_policy_returns_error(tmp_path, monkeypatch):
+    """Reloading a broken policy file should return the actual error."""
+    # Create a broken policy file
+    broken = tmp_path / "broken.yaml"
+    broken.write_text("mode: [invalid yaml", encoding="utf-8")
+    
+    # Monkeypatch the settings to point to our broken file
+    from packages.config import settings
+    monkeypatch.setattr(settings, "governance_policy_path", str(broken), raising=False)
+    
+    # Need to reset the engine to pick up the new path
+    from packages.governance.policy import reset_policy_engine, PolicyEngine
+    reset_policy_engine(PolicyEngine.from_file(str(broken)))
+    
+    body = _client(ADMIN).post("/api/governance/policy/reload").json()
+    assert body["reloaded"] is False
+    assert body["last_error"] is not None
+    assert "yaml" in body["last_error"].lower() or "parser" in body["last_error"].lower()
+    assert body["last_error_at"] is not None
+    
+    # Status should also reflect the error
+    status = _client(ADMIN).get("/api/governance/status").json()
+    assert status["policy_last_error"] is not None
+    assert status["policy_last_error_at"] is not None
+
+
 def test_there_is_no_endpoint_that_edits_policy():
     """Policy is a git-reviewed file.
 

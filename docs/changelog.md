@@ -3,6 +3,10 @@
      move the gate to root. -->
 
 ## [Unreleased]
+### Added
+- `packages/governance/policy.py` — Added `last_error` and `last_error_at` properties to `PolicyEngine` to capture detailed error information during policy reload failures
+- `backend/governance_router.py` — Enhanced `/status` and `/policy/reload` endpoints to return the actual error message and timestamp when policy reload fails, distinguishing between missing files and invalid YAML content
+- Tests — Added unit tests verifying that distinct error information is provided for missing vs invalid policy files, and that this information is properly exposed through the HTTP API
 ### Security
 
 - **Redirect `Location` headers are resolved to absolute URLs before the SSRF guard runs** (2026-09-10). In `agent/web_reach.py::_safe_get`, a relative redirect `Location` (the case where `resp.next_request` is unset) was handed to `unsafe_target_reason` as-is, so the per-hop SSRF re-validation (rule 14) could not resolve its host — a relative hop such as `/latest/meta-data/` sidestepped the host/IP checks the guard exists to apply. The next hop is now `urllib.parse.urljoin(current, raw_location)` before validation, and the refusal message names the resolved target. Behaviour change: relative redirect targets are resolved against the current URL and re-checked; absolute targets (the common `next_request` path, already absolute from httpx) are unaffected. Files: `agent/web_reach.py`.
