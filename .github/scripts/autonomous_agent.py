@@ -33,14 +33,16 @@ else:
     )
     all_issues = [i for i in resp.json() if 'pull_request' not in i]
     # Report-only issues are status output for a human, not implementable work:
-    # a trend digest is a list of links, an escalation/burn-in is a failure or
-    # readiness record, and a catalogue-drift tracker is an account/infra state
-    # the probe files. Implementing them wastes a full agent run and — via the
-    # retry handler — self-reopens the issue every cycle (issue #1434). Mirror
-    # the exclusion set process-quick-note.yml uses.
+    # a trend digest is a list of links, a routine-backlog is a weekly
+    # ecosystem-scan digest that only shortlists candidate work, an
+    # escalation/burn-in is a failure or readiness record, and a catalogue-drift
+    # tracker is an account/infra state the probe files. Implementing them wastes
+    # a full agent run and — via the retry handler — self-reopens the issue every
+    # cycle (issue #1434; the routine-backlog digest #1475 churned draft PRs
+    # #1480/#1481). Mirror the exclusion set process-quick-note.yml uses.
     SKIP_LABELS = {
         'quick-note:exhausted', 'quick-note:rejected', 'agency-escalation',
-        'trend-digest', 'crispy-burn-in', 'catalogue-drift',
+        'trend-digest', 'routine-backlog', 'crispy-burn-in', 'catalogue-drift',
     }
     actionable = [
         i for i in all_issues

@@ -289,12 +289,14 @@ class TestGhIsNotReAuthenticated:
 
 class TestImplementerQueueSkipsReportOnlyIssues:
     """Report-only issues (digests, escalations, burn-in status, catalogue-drift
-    trackers) are not implementable work. The implementer loops must skip them,
-    or the retry handler reopens them every cycle — issue #1434 was picked up,
-    failed a 120-turn run, and self-reopened every 4 h until `catalogue-drift`
-    was added to the skip set."""
+    trackers, routine-backlog scans) are not implementable work. The implementer
+    loops must skip them, or the retry handler reopens them every cycle — #1434
+    was picked up, failed a 120-turn run, and self-reopened every 4 h until
+    `catalogue-drift` was added to the skip set; the `routine-backlog` digest
+    #1475 then churned draft PRs #1480/#1481 the council refused to merge until
+    `routine-backlog` was added too."""
 
-    REPORT_ONLY = ["agency-escalation", "trend-digest", "crispy-burn-in", "catalogue-drift"]
+    REPORT_ONLY = ["agency-escalation", "trend-digest", "routine-backlog", "crispy-burn-in", "catalogue-drift"]
 
     def test_quick_note_selector_excludes_report_only_labels(self, workflow_text: str):
         pick = _step(yaml.safe_load(workflow_text)["jobs"]["process"], "Find next pending")
