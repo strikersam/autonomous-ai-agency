@@ -30,11 +30,11 @@ jest.mock('../api', () => {
 import * as api from '../api';
 import TaskBoardScreen from '../v5/screens/TaskBoardScreen';
 
-function mockBoard(tasks) {
+function mockBoard(tasks, gated = []) {
   api.API.get.mockImplementation((url) => {
     if (url === '/api/tasks/') return Promise.resolve({ data: { tasks } });
-    // awaiting-approval (pre-execution gate) list — empty for these tests.
-    return Promise.resolve({ data: { tasks: [] } });
+    // awaiting-approval (pre-execution gate) list.
+    return Promise.resolve({ data: { tasks: gated } });
   });
 }
 
@@ -68,6 +68,26 @@ test('approving a reviewed task with a pending checkpoint sends the canonical bo
     'task_abc', expect.objectContaining({ approved: true })
   );
   expect(api.updateTask).not.toHaveBeenCalled();
+});
+
+test('a gated task renders once — in the gate lane, not also in its lifecycle column', async () => {
+  // Regression: awaiting-approval tasks are runnable (status todo/in_progress),
+  // so before the fix they showed in BOTH the "To be approved" GateColumn and
+  // the "To Do" lifecycle column — the duplicate-task complaint on the board.
+  const gatedTask = {
+    task_id: 'task_gated',
+    title: 'Gated portfolio fix',
+    status: 'todo',
+    priority: 'high',
+    requires_approval: true,
+    approval_checkpoints: [],
+  };
+  mockBoard([gatedTask], [gatedTask]);
+
+  render(<TaskBoardScreen />);
+  await waitFor(() =>
+    expect(screen.getAllByText('Gated portfolio fix')).toHaveLength(1)
+  );
 });
 
 test('approving a reviewed task with no checkpoints releases it to done', async () => {

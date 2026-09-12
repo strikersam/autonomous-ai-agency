@@ -351,6 +351,12 @@ function TaskBoardScreen() {
   // these need a decision before their agent can run at all.
   const gatedTasks = data.gated?.tasks || [];
   const [pendingGate, setPendingGate] = React.useState(null);
+  // Gated tasks are runnable (status todo/in_progress), so they also match a
+  // lifecycle column. Without this set they render twice: once in the "To be
+  // approved" GateColumn and again in the To Do / Running column — the
+  // "duplicate task" the board was showing. Board view subtracts these ids
+  // from the lifecycle columns; sprint view has no gate lane and is untouched.
+  const gatedIds = new Set(gatedTasks.map(t => t.task_id));
 
   const fetchSprints = React.useCallback(() => {
     api.fetchSprints().then(r => setSprints(r.data?.data || [])).catch(() => {});
@@ -663,7 +669,9 @@ function TaskBoardScreen() {
             </div>
           ) : (
             LIFECYCLE_STAGES.map(stage => {
-              const stageTasks = filtered.filter(t => t.status === stage.id);
+              const stageTasks = filtered.filter(
+                t => t.status === stage.id && !gatedIds.has(t.task_id),
+              );
               return (
                 <StageColumn
                   key={stage.id}
