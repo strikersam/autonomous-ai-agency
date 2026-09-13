@@ -62,6 +62,37 @@ models:
     supports_streaming: true
     priority: 30
 
+  # Kimi K2: Moonshot AI MoE model hosted on Groq (Aug 2026). ~1M context,
+  # function calling supported. Free self-serve tier on Groq.
+  # Source: Groq model catalogue, 2026-09-13.
+  moonshotai/kimi-k2-instruct:
+    provider: groq
+    display_name: Kimi K2 Instruct (Groq)
+    context_window: 1000000
+    max_output_tokens: 16384
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    priority: 35
+    speed_tier: fast
+
+  # QwQ-32B: Qwen reasoning model on Groq (Aug 2026). Strong coder with
+  # chain-of-thought reasoning. Free self-serve tier on Groq.
+  # Source: Groq model catalogue, 2026-09-13.
+  qwen-qwq-32b:
+    provider: groq
+    display_name: QwQ 32B (Groq)
+    context_window: 128000
+    max_output_tokens: 32768
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    supports_reasoning: true
+    priority: 36
+    speed_tier: medium
+
   # ── Cerebras (free, fastest) ───────────────────────────────────────────
 
   # Probed 2026-08-29 (run 33259357211): the account's /v1/models returns these
@@ -169,6 +200,84 @@ models:
     supports_images: true
     supports_streaming: true
     priority: 28
+    speed_tier: fast
+
+  # Gemini 3.1 Pro: Google's frontier reasoning model (GA Aug 2026). Tiered
+  # pricing — $2.00/$12.00 per MTok (≤200K), higher above. Lower bound tracked
+  # here. `supports_reasoning: true` reflects native thinking capability.
+  # Source: ai.google.dev/pricing, 2026-09-13.
+  gemini-3.1-pro:
+    provider: google
+    display_name: Gemini 3.1 Pro
+    context_window: 1048576
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 2.0
+    output_cost_per_1m: 12.0
+    priority: 13
+    speed_tier: medium
+
+  # Gemini 3.5 Flash Lite: cheapest Gemini tier (Aug 2026). Aimed at
+  # high-volume summarisation and classification workloads. $0.30/$2.50 per MTok.
+  # Source: ai.google.dev/pricing, 2026-09-13.
+  gemini-3.5-flash-lite:
+    provider: google
+    display_name: Gemini 3.5 Flash Lite
+    context_window: 1048576
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    input_cost_per_1m: 0.30
+    output_cost_per_1m: 2.50
+    priority: 15
+    speed_tier: fast
+    max_requests_per_minute: 30
+
+  # Gemini 3.7 Flash: released Aug 2026. Introductory pricing $0.75/$3.75 per
+  # MTok through Dec 31 2026, then $1.50/$7.50. Long-horizon agent workloads.
+  # Source: ai.google.dev/pricing + changelog, 2026-09-13.
+  gemini-3.7-flash:
+    provider: google
+    display_name: Gemini 3.7 Flash
+    context_window: 1048576
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 0.75
+    output_cost_per_1m: 3.75
+    priority: 11
+    speed_tier: fast
+
+  # Gemini 3.8 Flash: released Sep 2026 — Google's latest. Introductory pricing
+  # $0.75/$3.75 per MTok through Dec 31 2026; standard $1.50/$7.50 from Jan 2027.
+  # Positioned for long-horizon software engineering and autonomous agents.
+  # Source: ai.google.dev/pricing + changelog, 2026-09-13.
+  gemini-3.8-flash:
+    provider: google
+    display_name: Gemini 3.8 Flash
+    context_window: 1048576
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 0.75
+    output_cost_per_1m: 3.75
+    priority: 10
     speed_tier: fast
 
   # ── Local ──────────────────────────────────────────────────────────────

@@ -264,7 +264,7 @@ the Render service name still carry that name.
 |----------|---------|---------|
 | NVIDIA NIM | `NVIDIA_API_KEY` | Free LLM (`nvidia/nemotron-3-super-120b-a12b`) |
 | Cerebras | `CEREBRAS_API_KEY` | Fast LLM (`gpt-oss-120b`, paid tier — see CHANGELOG 2026-08-29) |
-| Groq | `GROQ_API_KEY` | Free fast LLM (`deepseek-r1-70b`) |
+| Groq | `GROQ_API_KEY` | Free fast LLM (`gpt-oss-120b`, `kimi-k2-instruct`, `qwen-qwq-32b` — `deepseek-r1-70b` deprecated self-serve Aug 2026) |
 | Anthropic | `ANTHROPIC_API_KEY` | Paid LLM (Claude) |
 | Ollama | `OLLAMA_BASE` | Local LLM |
 | GitHub / Google OAuth | `*_CLIENT_ID` / `*_CLIENT_SECRET` | Social login (`packages/auth/oauth.py`) |

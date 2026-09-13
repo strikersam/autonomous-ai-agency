@@ -69,6 +69,15 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # $2.50/$15.0 (>200K). Lower bound tracked here; the router does not model
     # per-request tiers. Source: ai.google.dev/pricing, 2026-09-11.
     "gemini-2.5-pro": (1.25, 10.0),
+    # Gemini 3.x family (Aug–Sep 2026). Source: ai.google.dev/pricing, 2026-09-13.
+    # 3.1 Pro: frontier reasoning, $2.00/$12.00 per MTok (≤200K lower bound).
+    "gemini-3.1-pro": (2.0, 12.0),
+    # 3.5 Flash Lite: cheapest tier, $0.30/$2.50 per MTok.
+    "gemini-3.5-flash-lite": (0.30, 2.50),
+    # 3.7 Flash / 3.8 Flash: introductory $0.75/$3.75 through 2026-12-31;
+    # standard $1.50/$7.50 from 2027-01-01. Intro price tracked here.
+    "gemini-3.7-flash": (0.75, 3.75),
+    "gemini-3.8-flash": (0.75, 3.75),
     # --- Anthropic (paid) — Claude 5 family + Sonnet 4.x / Opus 4.x ---
     # Prices verified from platform.claude.com/docs/en/about-claude/pricing 2026-09-06.
     "claude-opus-5": (5.0, 25.0),          # Opus 5 — $5/$25 per MTok
