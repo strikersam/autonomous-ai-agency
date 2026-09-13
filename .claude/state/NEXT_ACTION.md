@@ -1,5 +1,16 @@
 # Next Action
 
+_Updated 2026-09-13._
+
+> **2026-09-13 daily automation:** Added Gemini 3.x models (3.8-flash, 3.7-flash,
+> 3.5-flash-lite, 3.1-pro) to `config/llm/models.yaml` and `cost_tracker.py` —
+> all four were silently excluded from tool-calling requests due to missing catalog
+> entries. Also added Groq catalog entries for `kimi-k2-instruct` and `qwen-qwq-32b`
+> (same issue — in cost table, missing catalog). Fixed stale `deepseek-r1-70b`
+> reference in `CLAUDE.md` (deprecated from Groq self-serve Aug 2026). 36 tests,
+> PR [#1485](https://github.com/strikersam/autonomous-ai-agency/pull/1485) open,
+> subscribed for CI/review events.
+
 _Updated 2026-09-11._
 
 > **2026-09-11 daily automation:** no open issues (`routine-backlog` empty), so
