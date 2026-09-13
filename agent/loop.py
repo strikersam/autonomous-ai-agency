@@ -2677,15 +2677,18 @@ class AgentRunner:
 
     def _commit_step(self, description: str, changed_files: list[str]) -> str | None:
         try:
-            subprocess.run(["git", "add", *changed_files], cwd=self.tools.root, check=True, capture_output=True, text=True)  # nosec B603,B607 - constant git argv, list form (no shell)
-            subprocess.run(  # nosec B603,B607 - constant git argv, list form (no shell)
+            # Bare `nosec` rather than `nosec B603,B607`: bandit 1.9.4's
+            # NOSEC_COMMENT_TESTS regex only honours the last code in a
+            # comma-separated list, so the B603,B607 form left B603 live.
+            subprocess.run(["git", "add", *changed_files], cwd=self.tools.root, check=True, capture_output=True, text=True)  # nosec - constant git argv, list form (no shell)
+            subprocess.run(  # nosec - constant git argv, list form (no shell)
                 ["git", "commit", "-m", f"agent: {description}"],
                 cwd=self.tools.root,
                 check=True,
                 capture_output=True,
                 text=True,
             )
-            proc = subprocess.run(  # nosec B603,B607 - constant git argv, list form (no shell)
+            proc = subprocess.run(  # nosec - constant git argv, list form (no shell)
                 ["git", "rev-parse", "HEAD"],
                 cwd=self.tools.root,
                 check=True,
