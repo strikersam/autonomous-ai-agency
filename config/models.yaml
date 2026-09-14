@@ -204,12 +204,6 @@ providers:
       - openai/gpt-oss-120b
       - openai/gpt-oss-20b
       - qwen/qwen3.8-27b
-      # Added 2026-09-14: confirmed on Groq self-serve tier (CLAUDE.md §4).
-      # kimi-k2-instruct is Moonshot AI's 1M-context MoE agent model; qwq-32b
-      # is Qwen's 32B reasoning model. Both declared in config/llm/models.yaml
-      # (PR #1485) with supports_tools: true.
-      - moonshotai/kimi-k2-instruct
-      - qwen-qwq-32b
 
   mistral:
     display_name: Mistral (free tier)

@@ -5,11 +5,15 @@ _Updated 2026-09-14._
 > **2026-09-14 daily automation (routing-candidate gaps):** PR #1485 (2026-09-13)
 > added 7 models to `config/llm/models.yaml` but did not update
 > `config/models.yaml` candidates (the `PROVIDER_CANDIDATES` failover chain).
-> All gaps closed in this session: `moonshotai/kimi-k2-instruct` and
-> `qwen-qwq-32b` added to Groq candidates; `claude-fable-5-1` (Fable 5.1) added
-> to Anthropic and Aerolink candidates; `gemini-3.8-flash`, `gemini-3.7-flash`,
+> Two of the seven gaps are real and now closed: `claude-fable-5-1` (Fable 5.1)
+> added to Anthropic and Aerolink candidates; `gemini-3.8-flash`, `gemini-3.7-flash`,
 > `gemini-3.5-flash-lite`, and `gemini-3.1-pro` added to Google candidates. The
-> hardcoded fallback in `packages/ai/brain_config.py` was updated in parallel. 25
+> hardcoded fallback in `packages/ai/brain_config.py` was updated in parallel.
+> **The other two (`moonshotai/kimi-k2-instruct`, `qwen-qwq-32b`) were NOT added
+> to Groq candidates** — both are on the `DEAD_GROQ` denylist in
+> `tests/test_brain_migration_writes_a_live_model.py`, confirmed unreachable on
+> this account by a live probe (run 33483766556, HTTP 404/400); CI caught the
+> reintroduction and the offending lines/tests were reverted before merge. 17
 > tests in `tests/test_daily_automation_2026_09_14.py` all passing. PR raised on
 > branch `claude/intelligent-gates-43m31f-sep14`.
 

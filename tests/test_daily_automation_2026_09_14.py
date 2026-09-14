@@ -2,18 +2,7 @@
 
 Covers the routing-candidate updates applied today:
 
-  1. Groq routing candidates: add moonshotai/kimi-k2-instruct and qwen-qwq-32b.
-
-     PR #1485 (2026-09-13) added both models to ``config/llm/models.yaml`` with
-     ``supports_tools: true`` so the ModelRegistry capability check passes. But
-     ``config/models.yaml``'s Groq ``candidates`` list — which drives the
-     ``PROVIDER_CANDIDATES`` failover chain in ``brain_config.py`` — was not
-     updated. Neither model was reachable via the watchdog/brain_failover path.
-
-     Fix: add both to Groq ``candidates`` in ``config/models.yaml`` and the
-     hardcoded fallback in ``packages/ai/brain_config.py``.
-
-  2. Anthropic / Aerolink routing candidates: add claude-fable-5-1.
+  1. Anthropic / Aerolink routing candidates: add claude-fable-5-1.
 
      ``claude-fable-5-1`` (Fable 5.1) is the current Fable revision. It was
      already in ``config/llm/models.yaml`` and ``cost_tracker.py`` but missing
@@ -23,7 +12,7 @@ Covers the routing-candidate updates applied today:
      Fix: add ``claude-fable-5-1`` after ``claude-fable-5`` in both providers'
      ``candidates`` lists, and in the hardcoded brain_config fallback.
 
-  3. Google routing candidates: add Gemini 3.x models.
+  2. Google routing candidates: add Gemini 3.x models.
 
      PR #1485 added ``gemini-3.8-flash``, ``gemini-3.7-flash``,
      ``gemini-3.5-flash-lite``, and ``gemini-3.1-pro`` to
@@ -70,67 +59,7 @@ def _llm_models():
     return load_config().models
 
 
-# ── 1. Groq candidates: Kimi K2 and QwQ-32B ─────────────────────────────────
-
-class TestGroqCandidatesUpdated:
-    """Kimi K2 and QwQ-32B must be in the Groq failover candidates."""
-
-    def test_kimi_k2_in_yaml_candidates(self) -> None:
-        cands = _routing_candidates().get("groq", [])
-        assert "moonshotai/kimi-k2-instruct" in cands, (
-            "moonshotai/kimi-k2-instruct missing from groq candidates in "
-            "config/models.yaml — watchdog failover chain cannot reach it"
-        )
-
-    def test_qwq_32b_in_yaml_candidates(self) -> None:
-        cands = _routing_candidates().get("groq", [])
-        assert "qwen-qwq-32b" in cands, (
-            "qwen-qwq-32b missing from groq candidates in config/models.yaml"
-        )
-
-    def test_kimi_k2_in_brain_config_source(self) -> None:
-        src = _brain_config_source()
-        assert '"moonshotai/kimi-k2-instruct"' in src, (
-            "moonshotai/kimi-k2-instruct missing from hardcoded PROVIDER_CANDIDATES "
-            "in packages/ai/brain_config.py"
-        )
-
-    def test_qwq_32b_in_brain_config_source(self) -> None:
-        src = _brain_config_source()
-        assert '"qwen-qwq-32b"' in src, (
-            "qwen-qwq-32b missing from hardcoded PROVIDER_CANDIDATES in brain_config.py"
-        )
-
-    def test_groq_primary_candidates_preserved(self) -> None:
-        """Original proven candidates must still be first in the list."""
-        cands = _routing_candidates().get("groq", [])
-        assert cands[0] == "openai/gpt-oss-120b", (
-            "openai/gpt-oss-120b must remain the primary Groq candidate "
-            "(confirmed tool-calling via probe run 33483861221)"
-        )
-
-    def test_new_groq_candidates_after_primary(self) -> None:
-        """New models must follow the proven primary, not displace it."""
-        cands = _routing_candidates().get("groq", [])
-        primary_idx = cands.index("openai/gpt-oss-120b")
-        kimi_idx = cands.index("moonshotai/kimi-k2-instruct")
-        qwq_idx = cands.index("qwen-qwq-32b")
-        assert primary_idx < kimi_idx, "kimi-k2 must follow the primary"
-        assert primary_idx < qwq_idx, "qwq-32b must follow the primary"
-
-    def test_kimi_k2_catalog_entry_present(self) -> None:
-        """LLM catalog must also have the entry (ensures no dangling candidate)."""
-        assert "moonshotai/kimi-k2-instruct" in _llm_models(), (
-            "moonshotai/kimi-k2-instruct must be declared in config/llm/models.yaml"
-        )
-
-    def test_qwq_32b_catalog_entry_present(self) -> None:
-        assert "qwen-qwq-32b" in _llm_models(), (
-            "qwen-qwq-32b must be declared in config/llm/models.yaml"
-        )
-
-
-# ── 2. Anthropic / Aerolink candidates: Fable 5.1 ───────────────────────────
+# ── 1. Anthropic / Aerolink candidates: Fable 5.1 ───────────────────────────
 
 class TestFable51CandidatesUpdated:
     """claude-fable-5-1 must be in the anthropic and aerolink failover candidates."""
@@ -182,7 +111,7 @@ class TestFable51CandidatesUpdated:
         assert cands[1] == "claude-sonnet-5", "claude-sonnet-5 must remain second"
 
 
-# ── 3. Google candidates: Gemini 3.x models ─────────────────────────────────
+# ── 2. Google candidates: Gemini 3.x models ─────────────────────────────────
 
 class TestGemini3xCandidatesUpdated:
     """Gemini 3.x models must be in the Google provider failover candidates."""
@@ -240,7 +169,7 @@ class TestGemini3xCandidatesUpdated:
             )
 
 
-# ── 4. No dangling candidates (cross-check) ──────────────────────────────────
+# ── 3. No dangling candidates (cross-check) ──────────────────────────────────
 
 class TestNoDanglingCandidates:
     """Every newly-added candidate must also be declared in the LLM catalog."""
@@ -248,8 +177,6 @@ class TestNoDanglingCandidates:
     def test_all_new_candidates_in_llm_catalog(self) -> None:
         all_models = set(_llm_models().keys())
         new_cands = {
-            "moonshotai/kimi-k2-instruct",
-            "qwen-qwq-32b",
             "claude-fable-5-1",
             "gemini-3.8-flash",
             "gemini-3.7-flash",

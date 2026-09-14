@@ -397,11 +397,6 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         "openai/gpt-oss-120b",
         "openai/gpt-oss-20b",
         "qwen/qwen3.8-27b",
-        # Added 2026-09-14: kimi-k2-instruct (Moonshot AI, 1M context, tools)
-        # and qwq-32b (Qwen reasoning) confirmed Groq self-serve models (CLAUDE.md
-        # §4). Added to config/llm/models.yaml in PR #1485.
-        "moonshotai/kimi-k2-instruct",
-        "qwen-qwq-32b",
     ],
     "mistral": [
         "mistral-small-latest",

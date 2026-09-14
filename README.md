@@ -148,7 +148,7 @@ Guide, gap analysis, and threat model: [docs/governance/](docs/governance/README
 
 ## What's New (2026-09-14)
 
-**Routing failover chain completed for Gemini 3.x, Fable 5.1, Kimi K2, and QwQ-32B.** Seven models added to `config/llm/models.yaml` across two daily automation runs (Sep 13–14) were reachable for capability checks but unreachable via the `PROVIDER_CANDIDATES` watchdog/brain_failover chain — the routing config that handles 404/410/timeout failover. All gaps are now closed: `moonshotai/kimi-k2-instruct` and `qwen-qwq-32b` added to Groq candidates; `claude-fable-5-1` (Fable 5.1) added to Anthropic and Aerolink candidates; `gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.5-flash-lite`, and `gemini-3.1-pro` added to Google candidates. New entries are placed after proven primaries so primary routing is unchanged.
+**Routing failover chain completed for Gemini 3.x and Fable 5.1.** `claude-fable-5-1` and four Gemini 3.x models added to `config/llm/models.yaml` on Sep 13 were reachable for capability checks but unreachable via the `PROVIDER_CANDIDATES` watchdog/brain_failover chain — the routing config that handles 404/410/timeout failover. Both gaps are now closed: `claude-fable-5-1` (Fable 5.1) added to Anthropic and Aerolink candidates; `gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.5-flash-lite`, and `gemini-3.1-pro` added to Google candidates. New entries are placed after proven primaries so primary routing is unchanged. (`moonshotai/kimi-k2-instruct` and `qwen-qwq-32b` were **not** added to Groq candidates — both are confirmed unreachable on this account by a live probe and are on the repo's `DEAD_GROQ` denylist.)
 
 ---
 
