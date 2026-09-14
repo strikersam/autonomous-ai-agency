@@ -42,6 +42,16 @@ log = logging.getLogger("mcp-server")
 
 app = FastAPI(title="MCP Server", version="1.0.0")
 
+# Handshake version returned by `initialize`. This is the newest spec
+# revision whose features this server actually implements (structured
+# content, MCP spec 2025-11-25) — NOT 2026-07-28, which replaces the
+# stateful initialize/Mcp-Session-Id handshake this server still uses with a
+# stateless core; adopting that is a breaking protocol change tracked
+# separately (see CLAUDE.md rule 40). `tests/test_mcp_protocol_version.py`
+# pins this against `agent.mcp_client.MCP_PROTOCOL_VERSION` so client and
+# server can't drift apart again silently.
+MCP_PROTOCOL_VERSION = "2025-11-25"
+
 _SECRET_TOKEN: str | None = os.environ.get("MCP_SECRET_TOKEN") or None
 
 
@@ -314,7 +324,7 @@ async def mcp_dispatch(request: Request) -> JSONResponse:
     # ── initialize ───────────────────────────────────────────────────────
     if method == "initialize":
         return JSONResponse(_ok(req_id, {
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": MCP_PROTOCOL_VERSION,
             "capabilities": {"tools": {"listChanged": False}},
             "serverInfo": {"name": "local-llm-mcp-server", "version": "1.0.0"},
         }))

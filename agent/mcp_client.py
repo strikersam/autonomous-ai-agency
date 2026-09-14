@@ -104,6 +104,16 @@ _CB_RECOVERY_TIMEOUT = 30.0  # seconds before trying again (half-open)
 # When the server omits ``ttlMs`` fall back to this env-configurable default.
 _DEFAULT_TOOLS_TTL_MS = int(os.environ.get("MCP_TOOLS_LIST_DEFAULT_TTL_MS", "60000"))
 
+# Handshake version sent in `initialize()`. This is the newest spec revision
+# whose features this client actually implements (structured content, MCP
+# spec 2025-11-25) — NOT 2026-07-28, which replaces the stateful
+# initialize/Mcp-Session-Id handshake this client still uses with a stateless
+# core; adopting that is a breaking protocol change tracked separately
+# (see CLAUDE.md rule 40). `tests/test_mcp_protocol_version.py` pins this
+# against `mcp_server.server.MCP_PROTOCOL_VERSION` so client and server can't
+# drift apart again silently.
+MCP_PROTOCOL_VERSION = "2025-11-25"
+
 
 class MCPUnavailableError(RuntimeError):
     """Raised when the MCP server is unreachable or the circuit is open."""
@@ -466,7 +476,7 @@ class MCPClient:
     async def initialize(self) -> dict[str, Any]:
         """Perform MCP handshake. Optional — tools/call works without it."""
         return await self._rpc("initialize", {
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": MCP_PROTOCOL_VERSION,
             "capabilities": {},
             "clientInfo": {"name": "local-llm-server", "version": "1.0.0"},
         })
