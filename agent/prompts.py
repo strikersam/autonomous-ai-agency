@@ -110,6 +110,7 @@ def build_tool_prompt(
                 "- read_file(path)\n"
                 "- list_files(path='.', limit=200)\n"
                 "- search_code(query, limit=20)\n"
+                "- get_current_time(): Current UTC date/time in ISO-8601 — use before reasoning about dates or recency\n"
                 "WEB REACH (zero-key internet access — use to research, verify facts, or\n"
                 "  self-heal by looking up an error message before guessing a fix):\n"
                 "- fetch_url(url): Read a web page as plain text (also extracts YouTube transcripts)\n"

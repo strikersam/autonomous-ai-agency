@@ -20,6 +20,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from packages.config.mcp_protocol import MCP_PROTOCOL_VERSION
+
 
 def _make_client(base_url: str = "http://mcp:8008") -> "MCPClient":
     from agent.mcp_client import MCPClient
@@ -76,7 +78,7 @@ class TestMcpMethodHeader:
         client = _make_client()
         headers = _captured_request_headers(
             MagicMock(), client, "initialize",
-            params={"protocolVersion": "2024-11-05", "capabilities": {}, "clientInfo": {}},
+            params={"protocolVersion": MCP_PROTOCOL_VERSION, "capabilities": {}, "clientInfo": {}},
         )
         assert headers.get("Mcp-Method") == "initialize"
 

@@ -23,6 +23,8 @@ from fastapi.testclient import TestClient
 # Make sure repo root is on path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from packages.config.mcp_protocol import MCP_PROTOCOL_VERSION
+
 
 # ── Workspace tests ───────────────────────────────────────────────────────────
 
@@ -161,7 +163,7 @@ class TestMCPServer:
     def test_initialize(self, mcp_client):
         resp = self._rpc(mcp_client, "initialize")
         assert "result" in resp
-        assert resp["result"]["protocolVersion"] == "2024-11-05"
+        assert resp["result"]["protocolVersion"] == MCP_PROTOCOL_VERSION
         assert "tools" in resp["result"]["capabilities"]
 
     def test_tools_list(self, mcp_client):
@@ -333,6 +335,14 @@ class TestMCPClient:
         client = MCPClient("http://localhost:19999")
         with pytest.raises(MCPUnavailableError):
             asyncio.run(client._rpc("tools/list"))
+
+    def test_initialize_sends_shared_protocol_version(self):
+        from agent.mcp_client import MCPClient
+        client = MCPClient("http://localhost:19999")
+        with patch.object(client, "_rpc", AsyncMock(return_value={})) as mock_rpc:
+            asyncio.run(client.initialize())
+        _, sent_params = mock_rpc.call_args[0]
+        assert sent_params["protocolVersion"] == MCP_PROTOCOL_VERSION
 
     def test_call_tool_parses_text_content(self):
         from agent.mcp_client import MCPClient

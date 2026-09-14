@@ -37,6 +37,7 @@ from fastapi.responses import JSONResponse
 
 from mcp_server import governance
 from mcp_server.workspace import Workspace
+from packages.config.mcp_protocol import MCP_PROTOCOL_VERSION
 
 log = logging.getLogger("mcp-server")
 
@@ -314,7 +315,7 @@ async def mcp_dispatch(request: Request) -> JSONResponse:
     # ── initialize ───────────────────────────────────────────────────────
     if method == "initialize":
         return JSONResponse(_ok(req_id, {
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": MCP_PROTOCOL_VERSION,
             "capabilities": {"tools": {"listChanged": False}},
             "serverInfo": {"name": "local-llm-mcp-server", "version": "1.0.0"},
         }))

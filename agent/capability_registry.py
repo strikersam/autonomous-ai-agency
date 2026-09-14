@@ -393,6 +393,7 @@ def _register_builtin_tools(registry: ToolRegistry, workspace_root: str | None =
 
     _register_web_reach_tools(registry)
     _register_browser_tools(registry)
+    _register_time_tools(registry)
 
     @registry.agent_tool(
         name="read_file",
@@ -546,6 +547,20 @@ def _register_browser_tools(registry: ToolRegistry) -> None:
     )
     async def _browse_page_tool(url: str) -> dict:
         return await browse_page(url)
+
+
+def _register_time_tools(registry: ToolRegistry) -> None:
+    """Register the current-time capability (agent/time_tool.py)."""
+    from agent.time_tool import get_current_time
+
+    @registry.agent_tool(
+        name="get_current_time",
+        description="Get the current UTC date/time in ISO-8601. Use this before reasoning about dates or recency windows.",
+        parameters={"type": "object", "properties": {}, "required": []},
+        capabilities=["time"],
+    )
+    def _get_current_time_tool() -> dict:
+        return get_current_time()
 
 
 def _register_web_reach_tools(registry: ToolRegistry) -> None:

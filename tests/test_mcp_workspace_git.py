@@ -24,6 +24,8 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from packages.config.mcp_protocol import MCP_PROTOCOL_VERSION
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -161,12 +163,12 @@ class TestMCPServerProtocol:
 
     def test_initialize_handshake(self, client: TestClient) -> None:
         result = _rpc(client, "initialize", {
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": MCP_PROTOCOL_VERSION,
             "capabilities": {},
             "clientInfo": {"name": "test", "version": "0"},
         })
         info = result["result"]
-        assert info["protocolVersion"] == "2024-11-05"
+        assert info["protocolVersion"] == MCP_PROTOCOL_VERSION
         assert "tools" in info["capabilities"]
 
     def test_tools_list_contains_all_git_tools(self, client: TestClient) -> None:

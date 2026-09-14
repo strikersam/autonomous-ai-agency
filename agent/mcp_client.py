@@ -94,6 +94,8 @@ from typing import Any
 
 import httpx
 
+from packages.config.mcp_protocol import MCP_PROTOCOL_VERSION
+
 log = logging.getLogger("qwen-proxy")
 
 # Circuit breaker constants
@@ -466,7 +468,7 @@ class MCPClient:
     async def initialize(self) -> dict[str, Any]:
         """Perform MCP handshake. Optional — tools/call works without it."""
         return await self._rpc("initialize", {
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": MCP_PROTOCOL_VERSION,
             "capabilities": {},
             "clientInfo": {"name": "local-llm-server", "version": "1.0.0"},
         })
