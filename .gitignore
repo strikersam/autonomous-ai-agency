@@ -127,6 +127,7 @@ memory/test_credentials.md
 
 # Ephemeral audit / triage artifacts — do not commit
 bandit-report.json
+bandit-results.json
 gucci-audit/
 triage-sweep-*.bundle
 triage-sweep-*.patch
