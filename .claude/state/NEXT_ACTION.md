@@ -17,7 +17,8 @@ _Updated 2026-09-14._
 > that's issue #1499 item 4, explicitly flagged for a human decision.
 > 4 new tests + 2 existing assertions updated. PR
 > [#1503](https://github.com/strikersam/autonomous-ai-agency/pull/1503) →
-> `claude/upbeat-goodall-y5xvbg`, auto-merge armed. **Not done today:**
+> `claude/upbeat-goodall-y5xvbg`, all CI green, auto-merge fired — squash-merged
+> to master as `6807130`. **Not done today:**
 > issue #1499 items 2 (optional domain allow/block list for
 > `agent/web_reach.py` — touches the rule-14 SSRF boundary, worth its own
 > focused session) and 3 (a `get_current_time` capability-registry tool) —
