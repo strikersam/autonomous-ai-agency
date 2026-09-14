@@ -1,15 +1,17 @@
 # Next Action
 
-_Updated 2026-09-13._
+_Updated 2026-09-14._
+
+> **2026-09-14 open-PR sweep:** Two PRs were open. (1) [#1486](https://github.com/strikersam/autonomous-ai-agency/pull/1486) (draft, "OpenClaw auto-fix security alerts") was declined and closed: its diff mislabelled two deliberately-authored, safe 400/404 `ValueError` messages (`backend/governance_router.py`, `backend/platform_controls_router.py`) as `"Internal server error"` — same regression class already caught once before in #1444 — and separately committed a 14,751-line `bandit-results.json` scan artifact because `.gitignore` had `bandit-report.json` (different filename) but not this one. Root-caused in `.github/workflows/openclaw-auto-fix.yml`, the weekly (Sun 03:00 UTC) source of both bugs: new `.github/scripts/openclaw_str_e_fix.py` replaces the inline blanket regex with an AST-based fixer that only rewrites `str(exc)` when the exception is a genuinely broad `except Exception`/`except BaseException` catch (never a specific type) *and* the response is a real 5xx (never 4xx); bandit's scan output now goes to `$RUNNER_TEMP`, never the repo, and `git add -A` explicitly excludes both bandit output filenames as defense in depth. 16 new tests. Fixed and merged as [#1487](https://github.com/strikersam/autonomous-ai-agency/pull/1487) → squash `0b7da0d`. (2) [#1485](https://github.com/strikersam/autonomous-ai-agency/pull/1485) (Gemini 3.x + Groq catalog daily automation, see below) was green but stale against master through three rounds of `.claude/state/*`/changelog/graph-report conflicts as #1487 and its own predecessor (#1484) landed in between; resolved each round, re-verified (36/36 tests, compileall, changelog parity, loop-registry audit all green each time) and merged → squash `acbbedd`. **Zero open PRs after this sweep.**
 
 > **2026-09-13 daily automation:** Added Gemini 3.x models (3.8-flash, 3.7-flash,
 > 3.5-flash-lite, 3.1-pro) to `config/llm/models.yaml` and `cost_tracker.py` —
 > all four were silently excluded from tool-calling requests due to missing catalog
 > entries. Also added Groq catalog entries for `kimi-k2-instruct` and `qwen-qwq-32b`
 > (same issue — in cost table, missing catalog). Fixed stale `deepseek-r1-70b`
-> reference in `CLAUDE.md` (deprecated from Groq self-serve Aug 2026). 36 tests,
-> PR [#1485](https://github.com/strikersam/autonomous-ai-agency/pull/1485) open,
-> subscribed for CI/review events.
+> reference in `CLAUDE.md` (deprecated from Groq self-serve Aug 2026). 36 tests.
+> Merged as PR [#1485](https://github.com/strikersam/autonomous-ai-agency/pull/1485)
+> → squash `acbbedd`.
 
 > **2026-09-13 daily automation (earlier the same day):** no open issues, no
 > `routine-backlog` items, no open PRs, CI green on master `627e98b`. Today's
