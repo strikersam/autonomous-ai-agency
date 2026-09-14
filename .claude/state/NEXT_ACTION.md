@@ -2,6 +2,38 @@
 
 _Updated 2026-09-14._
 
+> **2026-09-14 daily automation (this run):** No open PRs and one
+> `routine-backlog` issue (#1499, "Routine backlog — 2026-W38", 4 items) at
+> session start. Picked item 1 — `agent/mcp_client.py::initialize()` and
+> `mcp_server/server.py`'s `initialize` handler both hardcoded
+> `protocolVersion: "2024-11-05"`, the oldest MCP spec revision that exists,
+> while `agent/mcp_client.py`'s own docstring documents support for four
+> later revisions (2025-03-26, 2025-11-05, 2025-11-25, 2026-07-28 RC).
+> Verified directly before touching anything. Both sides now declare
+> `"2025-11-25"` via a named `MCP_PROTOCOL_VERSION` constant (declared
+> separately on each side — `mcp_server/` ships in its own Docker image that
+> doesn't include `agent/` — with a regression test pinning them together).
+> 2026-07-28's breaking move to a stateless handshake is **not** adopted;
+> that's issue #1499 item 4, explicitly flagged for a human decision.
+> 4 new tests + 2 existing assertions updated. PR
+> [#1503](https://github.com/strikersam/autonomous-ai-agency/pull/1503) →
+> `claude/upbeat-goodall-y5xvbg`, auto-merge armed. **Not done today:**
+> issue #1499 items 2 (optional domain allow/block list for
+> `agent/web_reach.py` — touches the rule-14 SSRF boundary, worth its own
+> focused session) and 3 (a `get_current_time` capability-registry tool) —
+> left for a future session, item 1 was the single highest-value pick per
+> the daily mission's own priority order.
+>
+> **Sandbox constraint hit again, same as rows 53/55/58/60:** full
+> `pytest -x` cannot load here — `tests/conftest.py` imports
+> `backend.server` → `jwt` → `cryptography.hazmat.bindings._rust`, which
+> panics on import in this container regardless of any code change here.
+> Verified the two directly-relevant test files with
+> `pytest --noconftest` instead (56/56 passed, including 4 new + 2 updated).
+> A future session with a working full stack should confirm the full suite
+> too, though the change is narrow enough (2 one-line handshake values) that
+> this is unlikely to surface anything the targeted run didn't.
+
 > **2026-09-14 open-PR sweep:** Two PRs were open. (1) [#1486](https://github.com/strikersam/autonomous-ai-agency/pull/1486) (draft, "OpenClaw auto-fix security alerts") was declined and closed: its diff mislabelled two deliberately-authored, safe 400/404 `ValueError` messages (`backend/governance_router.py`, `backend/platform_controls_router.py`) as `"Internal server error"` — same regression class already caught once before in #1444 — and separately committed a 14,751-line `bandit-results.json` scan artifact because `.gitignore` had `bandit-report.json` (different filename) but not this one. Root-caused in `.github/workflows/openclaw-auto-fix.yml`, the weekly (Sun 03:00 UTC) source of both bugs: new `.github/scripts/openclaw_str_e_fix.py` replaces the inline blanket regex with an AST-based fixer that only rewrites `str(exc)` when the exception is a genuinely broad `except Exception`/`except BaseException` catch (never a specific type) *and* the response is a real 5xx (never 4xx); bandit's scan output now goes to `$RUNNER_TEMP`, never the repo, and `git add -A` explicitly excludes both bandit output filenames as defense in depth. 16 new tests. Fixed and merged as [#1487](https://github.com/strikersam/autonomous-ai-agency/pull/1487) → squash `0b7da0d`. (2) [#1485](https://github.com/strikersam/autonomous-ai-agency/pull/1485) (Gemini 3.x + Groq catalog daily automation, see below) was green but stale against master through three rounds of `.claude/state/*`/changelog/graph-report conflicts as #1487 and its own predecessor (#1484) landed in between; resolved each round, re-verified (36/36 tests, compileall, changelog parity, loop-registry audit all green each time) and merged → squash `acbbedd`. **Zero open PRs after this sweep.**
 
 > **2026-09-13 daily automation:** Added Gemini 3.x models (3.8-flash, 3.7-flash,
