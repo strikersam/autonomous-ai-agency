@@ -23,7 +23,8 @@ _Updated 2026-09-15._
 > `pytest -x` still can't load here (same `jwt`→`cryptography` sandbox
 > panic as rows 53/55/58/60/61). `compileall` clean, changelog parity OK.
 > PR [#1510](https://github.com/strikersam/autonomous-ai-agency/pull/1510)
-> → `claude/upbeat-goodall-jyvu14`. **Not done today:** issue #1499 item 2
+> → `claude/upbeat-goodall-jyvu14`, all CI green, auto-merge fired —
+> squash-merged to master as `a919ff1`. **Not done today:** issue #1499 item 2
 > (`web_reach.py` domain allow/block list — SSRF-security-relevant, worth
 > its own focused session) and item 4 (MCP 2026-07-28 stateless-core
 > migration — explicitly rule-40 gated). PR #1502's merge conflict is also
