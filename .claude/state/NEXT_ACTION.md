@@ -1,8 +1,35 @@
 # Next Action
 
-_Updated 2026-09-14._
+_Updated 2026-09-15._
 
-> **2026-09-14 daily automation (this run):** No open PRs and one
+> **2026-09-15 daily automation (this run):** Two open PRs and one
+> `routine-backlog` issue (#1499, 3 items remaining) at session start.
+> #1506 (draft, "reject: CRISPY burn-in status update") is a correctly
+> auto-generated no-op — left alone. #1502 ("close routing-candidate gaps
+> for Groq Kimi K2/QwQ-32B, Fable 5.1, and Gemini 3.x", CI-green when
+> opened) now shows `mergeable_state: dirty` against current master; this
+> session's branch policy only permits pushing to
+> `claude/upbeat-goodall-jyvu14`, so it was **not** touched — flagged here
+> for whichever session owns that branch next.
+>
+> Picked issue #1499 item 3: added a `get_current_time` capability-registry
+> tool (`agent/time_tool.py`) so the plan-execute-verify loop — which runs
+> on open-weights models with no harness system prompt — has a source of
+> the current date/time; `agent/trend_watcher.py` already computes recency
+> windows from wall-clock time it never exposed to the model. Registered
+> via capability-registry path B in `agent/capability_registry.py` and
+> advertised in `agent/prompts.py::build_tool_prompt()` (rule 19). 3 new
+> tests, `pytest --noconftest tests/test_time_tool.py` 3/3 passed; full
+> `pytest -x` still can't load here (same `jwt`→`cryptography` sandbox
+> panic as rows 53/55/58/60/61). `compileall` clean, changelog parity OK.
+> PR [#1510](https://github.com/strikersam/autonomous-ai-agency/pull/1510)
+> → `claude/upbeat-goodall-jyvu14`. **Not done today:** issue #1499 item 2
+> (`web_reach.py` domain allow/block list — SSRF-security-relevant, worth
+> its own focused session) and item 4 (MCP 2026-07-28 stateless-core
+> migration — explicitly rule-40 gated). PR #1502's merge conflict is also
+> outstanding — see above.
+
+> **2026-09-14 daily automation:** No open PRs and one
 > `routine-backlog` issue (#1499, "Routine backlog — 2026-W38", 4 items) at
 > session start. Picked item 1 — `agent/mcp_client.py::initialize()` and
 > `mcp_server/server.py`'s `initialize` handler both hardcoded
