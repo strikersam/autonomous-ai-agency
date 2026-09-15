@@ -1,4 +1,4 @@
-# Graph Report - autonomous-ai-agency  (2026-09-14)
+# Graph Report - autonomous-ai-agency  (2026-09-15)
 
 ## Corpus Check
 - 1510 files · ~2,189,643 words
@@ -10,7 +10,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `54b0ec21`
+- Built from commit: `2349cde8`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
