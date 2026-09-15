@@ -164,6 +164,26 @@ class TestRetryDoesNotOverrideADeliberateClosure:
         assert "exit 0" in following
 
 
+class TestRetryDoesNotOverrideAPlanGateRejection:
+    """The context plan's own reject verdict (step 7b's plan_gate) is a second
+    deliberate-stop path with the same failure mode as the not_planned
+    closure above. Issue #1505 hit it live: `plan_blocked` correctly labeled
+    it quick-note:rejected and commented "Not implemented — the context plan
+    says not to" — then the retry handler reopened it for retry in the same
+    run, because `steps.implement` never ran (its `if:` requires
+    plan_gate.outputs.may_implement == 'true'), leaving `success` empty,
+    and empty != 'True' satisfied the retry condition anyway."""
+
+    def test_retry_step_checks_plan_blocked_outcome(self, job: dict) -> None:
+        condition = _step(job, "Handle failure")["if"]
+        assert "steps.plan_blocked.outcome" in condition, (
+            "the retry handler must not fire when the context plan's own "
+            "gate already rejected and labeled the issue — otherwise a "
+            "clean, deliberate stop gets reopened as if it were a failure"
+        )
+        assert "!= 'success'" in condition
+
+
 # A "full-suite" pytest run: `pytest` (or `python -m pytest`) whose arguments are
 # all flags. Nothing narrows the collection, so it picks up the Mongo-backed
 # regression tests and needs the service to have any chance of passing.

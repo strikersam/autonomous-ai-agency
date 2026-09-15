@@ -1017,6 +1017,15 @@ jobs:
       # spuriously retry when the pipeline completed normally but the close step
       # had a transient hiccup — in that case pr_number is set and no failure
       # occurred.
+      #
+      #   c) The context plan itself says not to build (step 7b's plan_gate) —
+      #      `plan_blocked` labels the issue quick-note:rejected and comments,
+      #      a clean and deliberate stop. But `steps.implement` never ran, so
+      #      its `success` output is empty (empty != 'True' is true) and this
+      #      step's condition was satisfied anyway: issue #1505 got rejected,
+      #      correctly labeled, and reopened for retry in the same run,
+      #      because nothing here checked plan_blocked's own outcome.
+      #      `steps.plan_blocked.outcome != 'success'` closes that gap.
       - name: Handle failure — reopen for retry
         id: retry
         if: >
@@ -1024,6 +1033,7 @@ jobs:
           steps.pick.outputs.found == 'true' &&
           steps.close_success.outcome != 'success' &&
           steps.close_no_changes.outcome != 'success' &&
+          steps.plan_blocked.outcome != 'success' &&
           steps.review.outputs.verdict != 'FAIL' &&
           steps.pr.outputs.pr_number == '' &&
           (failure() || steps.implement.outputs.success != 'True')
