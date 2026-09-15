@@ -357,6 +357,10 @@ providers:
       - claude-opus-5
       - claude-sonnet-5
       - claude-fable-5
+      # Added 2026-09-14: Fable 5.1 is the latest Fable revision (system env
+      # confirms model id claude-fable-5-1). Declared in config/llm/models.yaml
+      # with full capability flags. Placed after claude-fable-5 as a fallback.
+      - claude-fable-5-1
       - claude-opus-4-8
       - claude-haiku-4-5-20251001
       - claude-sonnet-4-6
@@ -379,6 +383,8 @@ providers:
       - claude-opus-4-7
       - claude-opus-4-6
       - claude-fable-5
+      # Added 2026-09-14: Fable 5.1 (claude-fable-5-1) as a failover.
+      - claude-fable-5-1
       - claude-sonnet-4-6
       - claude-haiku-4-5-20251001
 
@@ -397,6 +403,13 @@ providers:
       - gemini-2.5-flash
       - gemini-2.5-pro
       - gemini-2.0-flash
+      # Added 2026-09-14: Gemini 3.x models added to llm catalog in PR #1485.
+      # Placed after proven 2.5 entries until live-probed; flash variants then
+      # lite tier then flagship pro. Context: 1M tokens each, supports_tools true.
+      - gemini-3.8-flash
+      - gemini-3.7-flash
+      - gemini-3.5-flash-lite
+      - gemini-3.1-pro
       - gemini-1.5-pro
       - gemini-1.5-flash
 

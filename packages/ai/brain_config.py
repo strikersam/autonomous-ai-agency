@@ -422,6 +422,8 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         "claude-opus-5",
         "claude-sonnet-5",
         "claude-fable-5",
+        # Added 2026-09-14: Fable 5.1 (confirmed model id from system env).
+        "claude-fable-5-1",
         "claude-opus-4-8",
         "claude-haiku-4-5-20251001",
         "claude-sonnet-4-6",
@@ -433,6 +435,8 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         "claude-opus-4-7",
         "claude-opus-4-6",
         "claude-fable-5",
+        # Added 2026-09-14: Fable 5.1 as a failover on the Aerolink gateway.
+        "claude-fable-5-1",
         "claude-sonnet-4-6",
         "claude-haiku-4-5-20251001",
     ],

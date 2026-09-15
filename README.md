@@ -146,6 +146,12 @@ review, not from the dashboard.
 
 Guide, gap analysis, and threat model: [docs/governance/](docs/governance/README.md).
 
+## What's New (2026-09-14)
+
+**Routing failover chain completed for Gemini 3.x and Fable 5.1.** `claude-fable-5-1` and four Gemini 3.x models added to `config/llm/models.yaml` on Sep 13 were reachable for capability checks but unreachable via the `PROVIDER_CANDIDATES` watchdog/brain_failover chain — the routing config that handles 404/410/timeout failover. Both gaps are now closed: `claude-fable-5-1` (Fable 5.1) added to Anthropic and Aerolink candidates; `gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.5-flash-lite`, and `gemini-3.1-pro` added to Google candidates. New entries are placed after proven primaries so primary routing is unchanged. (`moonshotai/kimi-k2-instruct` and `qwen-qwq-32b` were **not** added to Groq candidates — both are confirmed unreachable on this account by a live probe and are on the repo's `DEAD_GROQ` denylist.)
+
+---
+
 ## What's New (2026-09-01)
 
 **Anthropic server-side refusal fallbacks.** The Anthropic provider now sends `fallbacks: {"mode": "default"}` in the request body when `server_fallback: true` is set in the provider config (opt-in, default off). Paired with the existing `server-side-fallback-2026-07-01` beta header, this tells Anthropic's inference layer to automatically re-run content-refused requests on a recommended alternative model without a client-side round-trip. The legacy `ProviderRouter` also emits the parameter when `ANTHROPIC_SERVER_FALLBACK_BETA` is truthy (the default).

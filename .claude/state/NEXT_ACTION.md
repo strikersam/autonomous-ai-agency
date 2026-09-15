@@ -81,6 +81,21 @@ _Updated 2026-09-15._
 > too, though the change is narrow enough (2 one-line handshake values) that
 > this is unlikely to surface anything the targeted run didn't.
 
+> **2026-09-14 daily automation (routing-candidate gaps):** PR #1485 (2026-09-13)
+> added 7 models to `config/llm/models.yaml` but did not update
+> `config/models.yaml` candidates (the `PROVIDER_CANDIDATES` failover chain).
+> Two of the seven gaps are real and now closed: `claude-fable-5-1` (Fable 5.1)
+> added to Anthropic and Aerolink candidates; `gemini-3.8-flash`, `gemini-3.7-flash`,
+> `gemini-3.5-flash-lite`, and `gemini-3.1-pro` added to Google candidates. The
+> hardcoded fallback in `packages/ai/brain_config.py` was updated in parallel.
+> **The other two (`moonshotai/kimi-k2-instruct`, `qwen-qwq-32b`) were NOT added
+> to Groq candidates** — both are on the `DEAD_GROQ` denylist in
+> `tests/test_brain_migration_writes_a_live_model.py`, confirmed unreachable on
+> this account by a live probe (run 33483766556, HTTP 404/400); CI caught the
+> reintroduction and the offending lines/tests were reverted before merge. 17
+> tests in `tests/test_daily_automation_2026_09_14.py` all passing. PR raised on
+> branch `claude/intelligent-gates-43m31f-sep14`.
+
 > **2026-09-14 open-PR sweep:** Two PRs were open. (1) [#1486](https://github.com/strikersam/autonomous-ai-agency/pull/1486) (draft, "OpenClaw auto-fix security alerts") was declined and closed: its diff mislabelled two deliberately-authored, safe 400/404 `ValueError` messages (`backend/governance_router.py`, `backend/platform_controls_router.py`) as `"Internal server error"` — same regression class already caught once before in #1444 — and separately committed a 14,751-line `bandit-results.json` scan artifact because `.gitignore` had `bandit-report.json` (different filename) but not this one. Root-caused in `.github/workflows/openclaw-auto-fix.yml`, the weekly (Sun 03:00 UTC) source of both bugs: new `.github/scripts/openclaw_str_e_fix.py` replaces the inline blanket regex with an AST-based fixer that only rewrites `str(exc)` when the exception is a genuinely broad `except Exception`/`except BaseException` catch (never a specific type) *and* the response is a real 5xx (never 4xx); bandit's scan output now goes to `$RUNNER_TEMP`, never the repo, and `git add -A` explicitly excludes both bandit output filenames as defense in depth. 16 new tests. Fixed and merged as [#1487](https://github.com/strikersam/autonomous-ai-agency/pull/1487) → squash `0b7da0d`. (2) [#1485](https://github.com/strikersam/autonomous-ai-agency/pull/1485) (Gemini 3.x + Groq catalog daily automation, see below) was green but stale against master through three rounds of `.claude/state/*`/changelog/graph-report conflicts as #1487 and its own predecessor (#1484) landed in between; resolved each round, re-verified (36/36 tests, compileall, changelog parity, loop-registry audit all green each time) and merged → squash `acbbedd`. **Zero open PRs after this sweep.**
 
 > **2026-09-13 daily automation:** Added Gemini 3.x models (3.8-flash, 3.7-flash,
