@@ -124,6 +124,46 @@ class TestBarrenRunIsVisible:
         assert "ISSUE_NUM" in run
 
 
+class TestRetryDoesNotOverrideADeliberateClosure:
+    """A long implementation attempt can outlive a decision made on the same
+    issue while it was in flight. Issue #1500 was closed not_planned at 07:14
+    ("cannot verify this model exists — declining to build"), but a run that
+    had already been implementing it since before that close finished and
+    failed at 07:37, then reopened the issue unconditionally — the rejection
+    was steamrolled 23 minutes after it was made, and repeated on every retry
+    cycle after, since the retry handler never re-checked the issue's live
+    state before reopening it."""
+
+    def test_retry_step_checks_live_issue_state_before_reopening(self, job: dict) -> None:
+        run = _step(job, "Handle failure")["run"]
+        assert "stateReason" in run, (
+            "the retry handler must re-check the issue's current state before "
+            "acting — its if: condition is evaluated at job start and does not "
+            "see a closure that happened while a long implementation attempt "
+            "was still running"
+        )
+        assert "NOT_PLANNED" in run
+
+    def test_the_check_precedes_every_reopen_call(self, job: dict) -> None:
+        run = _step(job, "Handle failure")["run"]
+        check_at = run.index("NOT_PLANNED")
+        reopen_positions = [
+            m.start() for m in re.finditer(r"gh issue reopen", run)
+        ]
+        assert reopen_positions, "expected at least one gh issue reopen call"
+        assert all(check_at < pos for pos in reopen_positions), (
+            "the not_planned check must run before any reopen call, not after"
+        )
+
+    def test_the_check_exits_without_reopening(self, job: dict) -> None:
+        run = _step(job, "Handle failure")["run"]
+        check_at = run.index("NOT_PLANNED")
+        # The guard's own branch must exit before falling through to the
+        # label/reopen logic below it.
+        following = run[check_at:check_at + 400]
+        assert "exit 0" in following
+
+
 # A "full-suite" pytest run: `pytest` (or `python -m pytest`) whose arguments are
 # all flags. Nothing narrows the collection, so it picks up the Mongo-backed
 # regression tests and needs the service to have any chance of passing.

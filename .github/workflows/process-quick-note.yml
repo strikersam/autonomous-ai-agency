@@ -1038,6 +1038,26 @@ jobs:
           MAX_RETRIES=3
           ISSUE="$ISSUE_NUM"
 
+          # A long implementation attempt (up to 120 turns) can outlive a
+          # human/agent decision made on the same issue while it was
+          # in flight: #1500 was closed not_planned at 07:14 ("cannot verify
+          # this model exists — declining to build") but a run that had
+          # already been implementing it since before that close finished
+          # and failed at 07:37, then reopened the issue unconditionally —
+          # the deliberate rejection was steamrolled 23 minutes after it was
+          # made, and repeated every retry cycle after. This step used to
+          # trust `steps.pick.outputs.found` (evaluated at job start) for the
+          # rest of the run; re-check the issue's *current* state here, right
+          # before acting on it. A not_planned closure is a decision, not a
+          # stalled attempt — never reopen over it.
+          CURRENT=$(gh issue view "$ISSUE" --repo "$REPO" --json state,stateReason 2>/dev/null || echo '{}')
+          CUR_STATE=$(echo "$CURRENT" | jq -r '.state // empty')
+          CUR_REASON=$(echo "$CURRENT" | jq -r '.stateReason // empty')
+          if [ "$CUR_STATE" = "CLOSED" ] && [ "$CUR_REASON" = "NOT_PLANNED" ]; then
+            echo "Issue #$ISSUE was closed not_planned while this run was in flight — respecting that decision, not reopening."
+            exit 0
+          fi
+
           # Remove old retry label (best-effort)
           gh issue edit "$ISSUE" \
             --repo "$REPO" \
