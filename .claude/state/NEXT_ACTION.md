@@ -37,6 +37,10 @@ _Updated 2026-09-15._
 > expose `get_current_time`. **Lesson for next time:** grep the whole repo
 > (and the CHANGELOG) before concluding something doesn't exist — a
 > substring-heavy pattern scoped to one directory is not a negative proof.
+> PR #1511 merged clean as `09c3d44` — required CI green, no review threads
+> left open. Master is correct as of this session: `get_current_time` is
+> dispatched once (`agent/loop.py`) and advertised once
+> (`agent/prompts.py::build_tool_prompt()`).
 > **Not done today:** issue #1499 item 2 (`web_reach.py` domain allow/block
 > list — SSRF-security-relevant, worth its own focused session) and item 4
 > (MCP 2026-07-28 stateless-core migration — explicitly rule-40 gated). PR
