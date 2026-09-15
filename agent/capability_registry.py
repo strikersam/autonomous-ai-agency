@@ -393,6 +393,7 @@ def _register_builtin_tools(registry: ToolRegistry, workspace_root: str | None =
 
     _register_web_reach_tools(registry)
     _register_browser_tools(registry)
+    _register_time_tools(registry)
 
     @registry.agent_tool(
         name="read_file",
@@ -546,6 +547,26 @@ def _register_browser_tools(registry: ToolRegistry) -> None:
     )
     async def _browse_page_tool(url: str) -> dict:
         return await browse_page(url)
+
+
+def _register_time_tools(registry: ToolRegistry) -> None:
+    """Register the current-time capability (agent/time_tool.py): the only
+    way the plan-execute-verify loop can ground date-relative reasoning,
+    since it runs with no harness system prompt (CLAUDE.md §2 header)."""
+    from agent.time_tool import get_current_time
+
+    @registry.agent_tool(
+        name="get_current_time",
+        description=(
+            "Get the current date/time in UTC. Use this before reasoning about "
+            "recency, deadlines, or 'how long ago' — the model has no other "
+            "source of the current date."
+        ),
+        parameters={"type": "object", "properties": {}, "required": []},
+        capabilities=["time", "read"],
+    )
+    def _get_current_time_tool() -> dict:
+        return get_current_time()
 
 
 def _register_web_reach_tools(registry: ToolRegistry) -> None:
