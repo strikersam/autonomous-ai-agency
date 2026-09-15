@@ -161,12 +161,12 @@ class TestMCPServerProtocol:
 
     def test_initialize_handshake(self, client: TestClient) -> None:
         result = _rpc(client, "initialize", {
-            "protocolVersion": "2024-11-05",
+            "protocolVersion": "2025-11-25",
             "capabilities": {},
             "clientInfo": {"name": "test", "version": "0"},
         })
         info = result["result"]
-        assert info["protocolVersion"] == "2024-11-05"
+        assert info["protocolVersion"] == "2025-11-25"
         assert "tools" in info["capabilities"]
 
     def test_tools_list_contains_all_git_tools(self, client: TestClient) -> None:

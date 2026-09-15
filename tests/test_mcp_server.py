@@ -161,7 +161,7 @@ class TestMCPServer:
     def test_initialize(self, mcp_client):
         resp = self._rpc(mcp_client, "initialize")
         assert "result" in resp
-        assert resp["result"]["protocolVersion"] == "2024-11-05"
+        assert resp["result"]["protocolVersion"] == "2025-11-25"
         assert "tools" in resp["result"]["capabilities"]
 
     def test_tools_list(self, mcp_client):

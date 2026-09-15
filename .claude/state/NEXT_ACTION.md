@@ -1,6 +1,85 @@
 # Next Action
 
-_Updated 2026-09-14._
+_Updated 2026-09-15._
+
+> **2026-09-15 daily automation (this run):** Two open PRs and one
+> `routine-backlog` issue (#1499, 3 items remaining) at session start.
+> #1506 (draft, "reject: CRISPY burn-in status update") is a correctly
+> auto-generated no-op — left alone. #1502 ("close routing-candidate gaps
+> for Groq Kimi K2/QwQ-32B, Fable 5.1, and Gemini 3.x", CI-green when
+> opened) now shows `mergeable_state: dirty` against current master; this
+> session's branch policy only permits pushing to
+> `claude/upbeat-goodall-jyvu14`, so it was **not** touched — flagged here
+> for whichever session owns that branch next.
+>
+> Picked issue #1499 item 3: added a `get_current_time` capability-registry
+> tool (`agent/time_tool.py`), CI green, squash-merged as PR
+> [#1510](https://github.com/strikersam/autonomous-ai-agency/pull/1510) →
+> `a919ff1`. **This was wrong — self-corrected same session, see tracker row
+> 62 for the full account.** Verification before building it was inadequate:
+> grepped only `agent/` with a pattern broad enough to hit 5 files on noise
+> alone, then concluded "no existing tool" without checking why each file
+> matched. `agent/loop.py::_dispatch_tool` had dispatched `get_current_time`
+> since 2026-07-09 (`{utc, unix_timestamp, date, day_of_week}`) all along —
+> documented in this repo's own CHANGELOG. The registry is checked before
+> the hardcoded dispatch chain, so the new tool silently shadowed the old
+> one's response shape for every caller (a real rule-1 violation, not
+> cosmetic) — caught immediately by a **required CI failure** on the very
+> next PR (#1511, `tests/test_daily_automation_2026_07_09.py::
+> TestGetCurrentTimeTool::test_returns_utc_string`). Fixed by deleting the
+> duplicate (`agent/time_tool.py`, `tests/test_time_tool.py`,
+> `_register_time_tools()`) and pushing to #1511. **The real fix from #1510
+> stands, untouched:** the existing tool was simply never advertised in
+> `agent/prompts.py::build_tool_prompt()` (rule 19), making it dead code —
+> that one-line addition is the actual resolution of issue #1499 item 3.
+> Verified: `TestGetCurrentTimeTool` 4/4 passing (was 1 failing on master),
+> compileall clean, changelog parity OK, registry confirmed to no longer
+> expose `get_current_time`. **Lesson for next time:** grep the whole repo
+> (and the CHANGELOG) before concluding something doesn't exist — a
+> substring-heavy pattern scoped to one directory is not a negative proof.
+> PR #1511 merged clean as `09c3d44` — required CI green, no review threads
+> left open. Master is correct as of this session: `get_current_time` is
+> dispatched once (`agent/loop.py`) and advertised once
+> (`agent/prompts.py::build_tool_prompt()`).
+> **Not done today:** issue #1499 item 2 (`web_reach.py` domain allow/block
+> list — SSRF-security-relevant, worth its own focused session) and item 4
+> (MCP 2026-07-28 stateless-core migration — explicitly rule-40 gated). PR
+> #1502's merge conflict is also outstanding — this session's branch policy
+> only permits pushing to `claude/upbeat-goodall-jyvu14`, not another
+> session's branch, so it was flagged rather than touched.
+
+> **2026-09-14 daily automation:** No open PRs and one
+> `routine-backlog` issue (#1499, "Routine backlog — 2026-W38", 4 items) at
+> session start. Picked item 1 — `agent/mcp_client.py::initialize()` and
+> `mcp_server/server.py`'s `initialize` handler both hardcoded
+> `protocolVersion: "2024-11-05"`, the oldest MCP spec revision that exists,
+> while `agent/mcp_client.py`'s own docstring documents support for four
+> later revisions (2025-03-26, 2025-11-05, 2025-11-25, 2026-07-28 RC).
+> Verified directly before touching anything. Both sides now declare
+> `"2025-11-25"` via a named `MCP_PROTOCOL_VERSION` constant (declared
+> separately on each side — `mcp_server/` ships in its own Docker image that
+> doesn't include `agent/` — with a regression test pinning them together).
+> 2026-07-28's breaking move to a stateless handshake is **not** adopted;
+> that's issue #1499 item 4, explicitly flagged for a human decision.
+> 4 new tests + 2 existing assertions updated. PR
+> [#1503](https://github.com/strikersam/autonomous-ai-agency/pull/1503) →
+> `claude/upbeat-goodall-y5xvbg`, all CI green, auto-merge fired — squash-merged
+> to master as `6807130`. **Not done today:**
+> issue #1499 items 2 (optional domain allow/block list for
+> `agent/web_reach.py` — touches the rule-14 SSRF boundary, worth its own
+> focused session) and 3 (a `get_current_time` capability-registry tool) —
+> left for a future session, item 1 was the single highest-value pick per
+> the daily mission's own priority order.
+>
+> **Sandbox constraint hit again, same as rows 53/55/58/60:** full
+> `pytest -x` cannot load here — `tests/conftest.py` imports
+> `backend.server` → `jwt` → `cryptography.hazmat.bindings._rust`, which
+> panics on import in this container regardless of any code change here.
+> Verified the two directly-relevant test files with
+> `pytest --noconftest` instead (56/56 passed, including 4 new + 2 updated).
+> A future session with a working full stack should confirm the full suite
+> too, though the change is narrow enough (2 one-line handshake values) that
+> this is unlikely to surface anything the targeted run didn't.
 
 > **2026-09-14 daily automation (routing-candidate gaps):** PR #1485 (2026-09-13)
 > added 7 models to `config/llm/models.yaml` but did not update
