@@ -102,6 +102,45 @@ def unsafe_target_reason(url: str) -> str | None:
     return _egress_policy_reason(host)
 
 
+def _domain_matches(host: str, pattern: str) -> bool:
+    """Return True if *host* is *pattern* or a subdomain of it."""
+    h = host.lower().rstrip(".")
+    p = pattern.lower().strip().rstrip(".")
+    return h == p or h.endswith("." + p)
+
+
+def _parse_domain_list(raw: str) -> list[str]:
+    """Split a comma-separated env var into a normalised domain list."""
+    return [d.strip().lower() for d in raw.split(",") if d.strip()]
+
+
+def _domain_list_reason(host: str) -> str | None:
+    """Return why the env-var domain policy blocks *host*, or None.
+
+    Checks WEB_REACH_BLOCKED_DOMAINS first (explicit deny), then
+    WEB_REACH_ALLOWED_DOMAINS (deny-if-not-listed). Both default to empty,
+    which leaves Web Reach's behaviour unchanged for existing deploys.
+    """
+    try:
+        from packages.config import settings as _s
+
+        blocked_raw = _s.web_reach_blocked_domains
+        if blocked_raw:
+            for domain in _parse_domain_list(blocked_raw):
+                if _domain_matches(host, domain):
+                    return f"blocked by WEB_REACH_BLOCKED_DOMAINS ({domain})"
+
+        allowed_raw = _s.web_reach_allowed_domains
+        if allowed_raw:
+            for domain in _parse_domain_list(allowed_raw):
+                if _domain_matches(host, domain):
+                    return None  # explicitly allowed
+            return "not in WEB_REACH_ALLOWED_DOMAINS allow-list"
+    except Exception as exc:  # noqa: BLE001 - domain policy must never break web reach
+        log.debug("Domain list policy check skipped for %s: %s", host, exc)
+    return None
+
+
 def _egress_policy_reason(host: str) -> str | None:
     """Return why governance policy blocks *host*, or None.
 
@@ -118,7 +157,16 @@ def _egress_policy_reason(host: str) -> str | None:
     behaviour exactly as it was. The would-block signal is still recorded in
     the audit trail by the policy engine, which is how an operator sees what
     an egress allow-list would have caught before turning it on.
+
+    Also enforces the lightweight env-var domain allow/block list
+    (WEB_REACH_ALLOWED_DOMAINS / WEB_REACH_BLOCKED_DOMAINS) before delegating
+    to the full governance engine — both lists default to empty, so the shipped
+    default is unchanged.
     """
+    reason = _domain_list_reason(host)
+    if reason:
+        return reason
+
     try:
         from packages.governance.enforcement import governance_enabled
 
