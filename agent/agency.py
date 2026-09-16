@@ -607,6 +607,15 @@ class Agency:
                 ctx["self_healing"] = {"recent_events": healer.get_events()[-5:]}
         except Exception:
             pass
+        # Episodic memory: what the CEO has already concluded, so it does not
+        # re-decide work it recently drove to closure or abandoned.
+        try:
+            from services.ceo_ledger import get_ceo_ledger
+            decisions = get_ceo_ledger().recent_decisions(limit=8)
+            if decisions:
+                ctx["past_decisions"] = decisions
+        except Exception:
+            pass
         return ctx
 
     # ── CEO: LLM-powered assessment ───────────────────────────────────────────
@@ -734,6 +743,33 @@ class Agency:
             parts.append("All systems nominal")
 
         return " | ".join(parts), directives
+
+    # ── C-suite business advisory ─────────────────────────────────────────────
+
+    async def consult_executives(
+        self,
+        question: str,
+        *,
+        company_context: Any = None,
+        roles: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Ask the C-suite advisory layer a business question.
+
+        This is the CEO's bridge from *engineering* orchestration to *business*
+        judgement: pricing, GTM, fundraising, legal risk and the like. It is
+        opt-in — never run per cycle — so it adds no background token cost.
+        Returns the advisory result as a dict; never raises.
+        """
+        try:
+            from agent.executive_advisory import get_executive_advisory
+            result = await get_executive_advisory().advise(
+                question, company_context=company_context, roles=roles,
+            )
+            return result.as_dict()
+        except Exception as exc:  # noqa: BLE001 — advisory is best-effort
+            log.warning("Agency.consult_executives failed: %s", exc)
+            return {"question": question, "consulted": [], "opinions": [],
+                    "answer": ""}
 
     # ── Dispatch ──────────────────────────────────────────────────────────────
 
@@ -905,6 +941,7 @@ Respond ONLY with a valid JSON array. Each directive:
 - Quick-note GitHub issues (not exhausted) = high-priority user requests; always address before trend work
 - After any failing test cycle: first directive must be the test fix, nothing else until green
 - Recent git commits in the state show what changed — use them to spot regressions or opportunities
+- The "Past Decisions" block (when present) is your memory of concluded work — never re-issue a directive for a goal shown there unless new evidence shows it regressed
 
 ## Instruction quality bar
 A good instruction tells the agent:
@@ -998,6 +1035,22 @@ def _build_ceo_prompt(state: dict[str, Any], cycle: int) -> str:
             lines.append(f"  #{i['number']} [{labels}] {i['title'][:80]}")
     if qn.get("exhausted_closed"):
         lines.append(f"\nAuto-closed {qn['exhausted_closed']} completed quick-note issue(s).")
+
+    # ── Past decisions (episodic memory) ───────────────────────────────────
+    decisions = state.get("past_decisions", [])
+    if decisions:
+        lines.append(f"\n## Past Decisions (last {len(decisions)} concluded)")
+        lines.append(
+            "Do NOT re-open work already concluded here unless new evidence "
+            "shows it regressed."
+        )
+        for d in decisions[:8]:
+            mark = "✓" if d.get("state") == "closed" else "✗"
+            line = f"  {mark} [{d.get('state','?')}] {str(d.get('goal',''))[:80]}"
+            verdict = str(d.get("verdict") or "").strip()
+            if verdict:
+                line += f" — {verdict[:100]}"
+            lines.append(line)
 
     lines.append(
         "\n## Instructions\n"

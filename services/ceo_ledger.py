@@ -508,6 +508,32 @@ class CEOLedger:
             ]
         return [GoalRecord.from_dict(d) for d in docs]
 
+    def recent_decisions(self, *, limit: int = 8) -> list[dict[str, Any]]:
+        """Return recently *concluded* goals as compact decision records.
+
+        Episodic memory for the CEO's assessment prompt: only terminal goals
+        (``closed`` / ``abandoned``) carry a usable verdict, so open goals are
+        skipped. Feeding these back stops the CEO from re-opening work it has
+        already driven to closure or deliberately abandoned. Newest first.
+        """
+        out: list[dict[str, Any]] = []
+        # recent() is already ordered newest-updated first; over-sample so the
+        # limit still fills up when the tail contains open (skipped) goals.
+        for g in self.recent(limit=max(limit * 4, limit)):
+            if g.state not in CLOSED_STATES:
+                continue
+            out.append(
+                {
+                    "goal": g.goal[:160],
+                    "state": g.state,
+                    "verdict": (g.verdict or "")[:240],
+                    "updated_at": g.updated_at,
+                }
+            )
+            if len(out) >= limit:
+                break
+        return out
+
     def claim_intervention(self, goal_id: str, *, expected: int) -> bool:
         """Atomically bump ``interventions`` from *expected* to *expected + 1*.
 
