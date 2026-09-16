@@ -1,6 +1,31 @@
 # Next Action
 
-_Updated 2026-09-15._
+_Updated 2026-09-16._
+
+> **2026-09-16 daily automation (this run):** One open PR at session start —
+> [#1516](https://github.com/strikersam/autonomous-ai-agency/pull/1516)
+> ("web_reach domain allow/block list", issue #1499 item 2) had been opened
+> by another run just minutes before this session started, already complete
+> (13 tests, changelog, risky-module-review done) with CI still in progress —
+> not duplicated. `routine-backlog` issue #1499 now has only item 4 left
+> (MCP 2026-07-28 stateless-core migration), explicitly rule-40-gated and not
+> for autonomous pickup. With the backlog otherwise spoken for, picked
+> Bug Log #18 instead (`.claude/state/active-tasks.md`, `BUG_FOUND` since
+> 2026-07-22, never fixed): `CompanyGraphPanel` in `KnowledgeScreen.jsx`
+> re-validated the persisted `COMPANY_ID_KEY` against `listCompanies()`'s
+> default `limit=100` page **unconditionally**, unlike `CompanyScreen.jsx`
+> (PR #962), which only does that when there is no stored ID at all. An
+> admin/owner with >100 companies whose stored ID fell outside the first page
+> got it wrongly cleared and replaced with `list[0]`. Fixed by mirroring
+> `CompanyScreen.jsx`'s gating (`if (!selectedCompanyId && list.length > 0)`).
+> 1 new regression test (verified failing against the pre-fix condition
+> first, rule 31); full frontend suite 24/24 suites, 158/158 tests passing;
+> `CI=true npm run build` clean; `compileall` clean; changelog parity OK.
+> PR [#1517](https://github.com/strikersam/autonomous-ai-agency/pull/1517) →
+> `routine/daily-2026-09-16`, auto-merge armed, subscribed. **Check on
+> next session:** whether #1516 and #1517 both merged cleanly, and whether
+> #1499 should be closed once #1516 lands (item 4 stays open/flagged for a
+> human either way).
 
 > **2026-09-15 daily automation (this run):** Two open PRs and one
 > `routine-backlog` issue (#1499, 3 items remaining) at session start.
