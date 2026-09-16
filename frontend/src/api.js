@@ -451,6 +451,10 @@ export const pauseOnboarding = (id) => API.post(`/api/company/${id}/onboarding/p
 export const resumeOnboarding = (id) => API.post(`/api/company/${id}/onboarding/resume`);
 export const cancelOnboarding = (id) => API.post(`/api/company/${id}/onboarding/cancel`);
 export const deleteCompany = (id) => API.delete(`/api/company/${id}`);
+
+// C-suite advisory (backend/executive_advisory_api.py)
+export const listExecutives = () => API.get('/api/executives');
+export const consultExecutives = (payload) => API.post('/api/executives/consult', payload);
 export const getPublicDoctorReport = () => API.get('/api/company/doctor/public');
 
 // ── SEO / GEO / AIO Audit (v5.1) ──────────────────────────────────────────────
