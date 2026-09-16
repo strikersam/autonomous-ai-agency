@@ -316,6 +316,12 @@ local headless Chromium, which does.
 | `BROWSERBASE_API_KEY` | (empty) | Browserbase API key. When set, agents use the remote cloud browser (no local Chromium). Secret — env-only, never committed. |
 | `BROWSERBASE_PROJECT_ID` | (empty) | Optional Browserbase project ID, appended to the CDP connect URL. |
 | `PLAYWRIGHT_MCP_URL` | (empty) | Optional external Playwright MCP server (`npx @playwright/mcp --port <n>`). Set this instead of Browserbase to route browser tools through an MCP server. |
+| `WEB_REACH_ALLOWED_DOMAINS` | (empty) | Comma-separated list of domains (and their subdomains) that agents may fetch via the `fetch_url`, `search_web`, and `fetch_rss` tools. **Default empty = all public hosts allowed** (existing behaviour). When set, any URL whose host is not in this list is refused before the network request is made. Example: `example.com,github.com`. |
+| `WEB_REACH_BLOCKED_DOMAINS` | (empty) | Comma-separated list of domains (and their subdomains) that agents are always denied, regardless of the allow list. **Default empty = no extra blocks**. Evaluated before the allow list. Example: `ads.example.com`. |
+
+Both checks run inside `agent/web_reach.py::_egress_policy_reason()` *after* the
+SSRF guard — a permissive allow-list can never open a loopback or private-network
+hole, because the private-address SSRF check runs unconditionally first.
 
 On **Providers → MCP**, the `playwright` row reflects this: a reachable
 `PLAYWRIGHT_MCP_URL` shows `connected`; otherwise an enabled Browserbase setup

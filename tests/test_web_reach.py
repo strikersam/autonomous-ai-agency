@@ -7,7 +7,14 @@ import httpx
 import pytest
 
 from agent.capability_registry import ToolRegistry, _register_web_reach_tools
-from agent.web_reach import UNTRUSTED_EXTERNAL, WebReach, unsafe_target_reason
+from agent.web_reach import (
+    UNTRUSTED_EXTERNAL,
+    WebReach,
+    _domain_list_reason,
+    _domain_matches,
+    _parse_domain_list,
+    unsafe_target_reason,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -411,3 +418,139 @@ def test_capability_registry_fetch_url_tool_is_callable(monkeypatch: pytest.Monk
     result = tool.handler(url="http://127.0.0.1/blocked")
     assert result["ok"] is False
     assert "refused" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# Domain allow/block list — WEB_REACH_ALLOWED_DOMAINS / WEB_REACH_BLOCKED_DOMAINS
+# ---------------------------------------------------------------------------
+
+def test_domain_matches_exact() -> None:
+    assert _domain_matches("example.com", "example.com") is True
+
+
+def test_domain_matches_subdomain() -> None:
+    assert _domain_matches("sub.example.com", "example.com") is True
+    assert _domain_matches("a.b.example.com", "example.com") is True
+
+
+def test_domain_matches_does_not_match_suffix() -> None:
+    """notexample.com must not match example.com."""
+    assert _domain_matches("notexample.com", "example.com") is False
+
+
+def test_parse_domain_list_normalises() -> None:
+    result = _parse_domain_list(" Example.COM , other.io , ")
+    assert result == ["example.com", "other.io"]
+
+
+def test_domain_list_reason_both_empty(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Default (empty both lists) must leave all public hosts unrestricted."""
+    import packages.config as _cfg
+    monkeypatch.setattr(_cfg.settings, "web_reach_blocked_domains", "")
+    monkeypatch.setattr(_cfg.settings, "web_reach_allowed_domains", "")
+    assert _domain_list_reason("example.com") is None
+    assert _domain_list_reason("github.com") is None
+
+
+def test_domain_list_reason_blocked_exact(monkeypatch: pytest.MonkeyPatch) -> None:
+    import packages.config as _cfg
+    monkeypatch.setattr(_cfg.settings, "web_reach_blocked_domains", "evil.com")
+    monkeypatch.setattr(_cfg.settings, "web_reach_allowed_domains", "")
+    reason = _domain_list_reason("evil.com")
+    assert reason is not None and "WEB_REACH_BLOCKED_DOMAINS" in reason
+
+
+def test_domain_list_reason_blocked_subdomain(monkeypatch: pytest.MonkeyPatch) -> None:
+    import packages.config as _cfg
+    monkeypatch.setattr(_cfg.settings, "web_reach_blocked_domains", "evil.com")
+    monkeypatch.setattr(_cfg.settings, "web_reach_allowed_domains", "")
+    assert _domain_list_reason("sub.evil.com") is not None
+
+
+def test_domain_list_reason_blocked_does_not_affect_unlisted(monkeypatch: pytest.MonkeyPatch) -> None:
+    import packages.config as _cfg
+    monkeypatch.setattr(_cfg.settings, "web_reach_blocked_domains", "evil.com")
+    monkeypatch.setattr(_cfg.settings, "web_reach_allowed_domains", "")
+    assert _domain_list_reason("safe.com") is None
+
+
+def test_domain_list_reason_allowed_exact(monkeypatch: pytest.MonkeyPatch) -> None:
+    import packages.config as _cfg
+    monkeypatch.setattr(_cfg.settings, "web_reach_allowed_domains", "example.com,github.com")
+    monkeypatch.setattr(_cfg.settings, "web_reach_blocked_domains", "")
+    assert _domain_list_reason("example.com") is None
+    assert _domain_list_reason("github.com") is None
+
+
+def test_domain_list_reason_allowed_subdomain(monkeypatch: pytest.MonkeyPatch) -> None:
+    import packages.config as _cfg
+    monkeypatch.setattr(_cfg.settings, "web_reach_allowed_domains", "example.com")
+    monkeypatch.setattr(_cfg.settings, "web_reach_blocked_domains", "")
+    assert _domain_list_reason("docs.example.com") is None
+
+
+def test_domain_list_reason_allowed_refuses_unlisted(monkeypatch: pytest.MonkeyPatch) -> None:
+    import packages.config as _cfg
+    monkeypatch.setattr(_cfg.settings, "web_reach_allowed_domains", "example.com")
+    monkeypatch.setattr(_cfg.settings, "web_reach_blocked_domains", "")
+    reason = _domain_list_reason("unlisted.com")
+    assert reason is not None and "WEB_REACH_ALLOWED_DOMAINS" in reason
+
+
+def test_domain_list_reason_blocked_wins_over_allowed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Blocked list is checked before allowed list — explicit deny beats explicit allow."""
+    import packages.config as _cfg
+    monkeypatch.setattr(_cfg.settings, "web_reach_allowed_domains", "example.com")
+    monkeypatch.setattr(_cfg.settings, "web_reach_blocked_domains", "example.com")
+    reason = _domain_list_reason("example.com")
+    assert reason is not None and "WEB_REACH_BLOCKED_DOMAINS" in reason
+
+
+def test_ssrf_guard_not_bypassed_by_allowed_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SSRF checks run before the domain-list policy — a private host that happens
+    to be on the allow list is still refused."""
+    import packages.config as _cfg
+    monkeypatch.setattr(_cfg.settings, "web_reach_allowed_domains", "localhost,127.0.0.1")
+    monkeypatch.setattr(_cfg.settings, "web_reach_blocked_domains", "")
+    # unsafe_target_reason resolves via socket; localhost resolves to 127.0.0.1
+    # which is loopback — the SSRF check must fire regardless of the allow list.
+    reason = unsafe_target_reason("http://localhost/")
+    assert reason is not None
+
+
+def test_fetch_page_refuses_blocked_domain(monkeypatch: pytest.MonkeyPatch) -> None:
+    """fetch_page returns ok=False when the target domain is in the blocked list.
+
+    socket.getaddrinfo is mocked to return a public IP so the SSRF guard
+    passes (the domain-list check runs after the SSRF check).
+    """
+    import socket
+    import packages.config as _cfg
+    monkeypatch.setattr(_cfg.settings, "web_reach_blocked_domains", "denied-target.test")
+    monkeypatch.setattr(_cfg.settings, "web_reach_allowed_domains", "")
+    monkeypatch.setattr(socket, "getaddrinfo", lambda host, port: [(None, None, None, None, ("93.184.216.34", 0))])
+
+    def _boom(*a, **k):
+        raise AssertionError("must not attempt network I/O for a refused target")
+
+    monkeypatch.setattr(httpx, "get", _boom)
+    reach = WebReach()
+    result = reach.fetch_page("https://denied-target.test/page")
+    assert result["ok"] is False
+    assert "WEB_REACH_BLOCKED_DOMAINS" in result["error"]
+
+
+def test_fetch_page_refuses_unlisted_when_allowlist_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    """fetch_page returns ok=False when the allow list is set and the target is not in it."""
+    import packages.config as _cfg
+    monkeypatch.setattr(_cfg.settings, "web_reach_allowed_domains", "safe.example.com")
+    monkeypatch.setattr(_cfg.settings, "web_reach_blocked_domains", "")
+
+    def _boom(*a, **k):
+        raise AssertionError("must not attempt network I/O for a refused target")
+
+    monkeypatch.setattr(httpx, "get", _boom)
+    reach = WebReach()
+    result = reach.fetch_page("https://other.com/page")
+    assert result["ok"] is False
+    assert "WEB_REACH_ALLOWED_DOMAINS" in result["error"]

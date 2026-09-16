@@ -255,6 +255,29 @@ class Settings:
         self.browserbase_api_key: str = os.environ.get("BROWSERBASE_API_KEY", "")
         self.browserbase_project_id: str = os.environ.get("BROWSERBASE_PROJECT_ID", "")
 
+        # ── Web Reach egress domain policy (agent/web_reach.py) ─────────────
+        # Optional comma-separated domain lists for agent web-access policy.
+        # Both default to empty, which preserves the existing fully-open
+        # behaviour so no existing deploy is affected by adding these fields.
+        #
+        # WEB_REACH_ALLOWED_DOMAINS — when non-empty, only requests whose
+        #   resolved host matches a listed domain (exact or subdomain) are
+        #   permitted. An LLM-fetched URL whose host isn't in this list is
+        #   refused before any network call.
+        # WEB_REACH_BLOCKED_DOMAINS — when non-empty, requests whose resolved
+        #   host matches a listed domain are refused regardless of the allow
+        #   list. Evaluated after the SSRF guard and before allowed-list check,
+        #   so it can never suppress the SSRF guard.
+        # Both checks run inside _egress_policy_reason() in web_reach.py, which
+        # is consulted AFTER the SSRF checks — a permissive allow-list can never
+        # open a private-address hole, because the private-address check runs first.
+        self.web_reach_allowed_domains: str = os.environ.get(
+            "WEB_REACH_ALLOWED_DOMAINS", ""
+        )
+        self.web_reach_blocked_domains: str = os.environ.get(
+            "WEB_REACH_BLOCKED_DOMAINS", ""
+        )
+
         # ── Operational-incident tracker (agent/operational_incidents.py) ────
         # Operational failures (timeouts, "all runtimes failed", rate limits)
         # never become code-fix tasks — an LLM editing source cannot fix a
