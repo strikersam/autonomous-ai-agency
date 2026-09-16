@@ -23,11 +23,16 @@ _Updated 2026-09-16._
 > frontend suite 24/24 suites, 158/158 tests passing; `CI=true npm run build`
 > clean; `compileall` clean; changelog parity OK. PR
 > [#1517](https://github.com/strikersam/autonomous-ai-agency/pull/1517) →
-> `routine/daily-2026-09-16`, auto-merge armed, subscribed. **Update:** #1516
-> merged to master as `80bbb03` while this PR was open — merged master back
-> into this branch, resolving conflicts in `.claude/state/*` and
-> `graphify-out/GRAPH_REPORT.md` (no code conflicts). Issue #1499 can be
-> closed once this PR also merges (items 1-3 done, item 4 deferred to human).
+> `routine/daily-2026-09-16`. **#1516 merged to master as `80bbb03`** while
+> this PR was open — merged master back into this branch, resolving
+> conflicts in `.claude/state/*` and `graphify-out/GRAPH_REPORT.md` (no code
+> conflicts). CI green on the merge commit, auto-merge fired —
+> **squash-merged to master as `dbfb5d6`.** Both of today's PRs (#1516,
+> #1517) are done. **Not done today, still open:** issue #1499 item 4 (MCP
+> 2026-07-28 stateless-core migration) — explicitly rule-40 gated, needs a
+> human decision on whether/how to adopt the breaking protocol change;
+> issue #1499 itself can be closed once that decision is made, or left open
+> as the tracker for it.
 
 > **2026-09-16 daily automation:** One open `routine-backlog` issue (#1499) and
 > no open PRs at session start. Items 1 and 3 were already done (rows 61, 62);
