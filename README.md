@@ -7,6 +7,10 @@ Then let the agency that produced it go to work — on your infrastructure.**
 
 Self-hosted · MIT · Your servers, your models, your data
 
+<a href="brag-output/brag.mp4"><img src="brag-output/brag.jpg" alt="Autonomous AI Agency — paste a URL, get a CTO-grade audit, keep the whole agency. 323 of 906 merged PRs were written by the agents themselves." width="760" /></a>
+
+_▶ **[Watch the 20-second tour](brag-output/brag.mp4)** — paste a URL → 102-check audit → 35 specialist families → the proof: 323 of 906 merged PRs written by the agents themselves._
+
 [![Version](https://img.shields.io/badge/version-5.0.0-blue.svg)](https://github.com/strikersam/autonomous-ai-agency/releases/tag/v5.0.0)
 [![CI](https://github.com/strikersam/autonomous-ai-agency/actions/workflows/ci.yml/badge.svg)](https://github.com/strikersam/autonomous-ai-agency/actions/workflows/ci.yml)
 [![Deploy](https://github.com/strikersam/autonomous-ai-agency/actions/workflows/deploy-backend.yml/badge.svg)](https://github.com/strikersam/autonomous-ai-agency/actions/workflows/deploy-backend.yml)
@@ -14,16 +18,6 @@ Self-hosted · MIT · Your servers, your models, your data
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 **[Try it live — free sandbox, resets every 24h](https://autonomous-ai-agency.strikersam.workers.dev/) · [See the proof](proof/README.md) · [Need assistance?](#need-assistance)**
-
-</div>
-
-<div align="center">
-
-### The 20-second tour
-
-<a href="brag-output/brag.mp4"><img src="brag-output/brag.jpg" alt="Autonomous AI Agency — paste a URL, get a CTO-grade audit, keep the whole agency. 323 of 906 merged PRs were written by the agents themselves." width="760" /></a>
-
-_▶ **[Watch the video](brag-output/brag.mp4)** — paste a URL → 102-check audit → 35 specialist families → the proof: 323 of 906 merged PRs written by the agents themselves._
 
 </div>
 
