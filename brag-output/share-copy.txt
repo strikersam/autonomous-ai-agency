@@ -1,0 +1,1 @@
+Most "autonomous agent" repos ship a demo video. We shipped 323 of 906 merged PRs written by the agents themselves — then made the video. Autonomous AI Agency: paste a URL, get a CTO-grade audit in minutes, keep the whole agency running 24×7 on your own hardware. Self-hosted, MIT.

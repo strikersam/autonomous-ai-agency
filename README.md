@@ -17,6 +17,16 @@ Self-hosted · MIT · Your servers, your models, your data
 
 </div>
 
+<div align="center">
+
+### The 20-second tour
+
+<a href="brag-output/brag.mp4"><img src="brag-output/brag.jpg" alt="Autonomous AI Agency — paste a URL, get a CTO-grade audit, keep the whole agency. 323 of 906 merged PRs were written by the agents themselves." width="760" /></a>
+
+_▶ **[Watch the video](brag-output/brag.mp4)** — paste a URL → 102-check audit → 35 specialist families → the proof: 323 of 906 merged PRs written by the agents themselves._
+
+</div>
+
 ---
 
 <details>
