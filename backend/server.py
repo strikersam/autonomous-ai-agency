@@ -10846,6 +10846,10 @@ import backend.spec_router as spec_router_module  # noqa: E402
 app.include_router(spec_router_module.build_spec_router(get_current_user))
 import backend.ceo_router as ceo_router_module  # noqa: E402
 app.include_router(ceo_router_module.build_ceo_router(get_current_user))
+import backend.executive_advisory_api as executive_advisory_api_module  # noqa: E402
+app.include_router(
+    executive_advisory_api_module.build_executive_advisory_router(get_current_user)
+)
 
 # Platform controls: the dashboard surface for the feature switches and
 # multi-option settings that used to be Render-environment-only. Admin-gated

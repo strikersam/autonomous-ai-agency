@@ -141,6 +141,16 @@ company-scoped route additionally checks access to that company via
 - `POST /api/company/{company_id}/seo/audits/{audit_id}/pipeline` — audit → portfolio → roadmap → sprint in one call
 - `POST /api/company/{company_id}/seo/fix` — repo-aware auto-fixer against the company's workspace checkout
 
+### Executive advisory (`/api/executives/*`, `backend/executive_advisory_api.py`)
+
+The intelligent C-suite business-advisory layer (`agent/executive_advisory.py`):
+CFO/CSO/COO/CMO/CPO/General-Counsel personas that ground answers in real web
+research and prior-advice memory. Every model call goes through the router path
+(rule 2).
+
+- `GET  /api/executives` — list the C-suite personas (any authenticated user)
+- `POST /api/executives/consult` — ask a business question; body `{question, company_id?, roles?, ground?, remember?}`. **Admin-only** because it starts real provider work (research + one call per executive + a synthesis), mirroring the budget-spending routes in `backend/ceo_router.py`. A `company_id` pulls that company's profile from the company graph as context. Returns the per-executive opinions, the synthesised recommendation, and the grounding sources.
+
 This backend is typically used with:
 - `frontend/` on port `3000`
 - `backend/server.py` on port `8001`
