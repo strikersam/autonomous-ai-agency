@@ -750,26 +750,35 @@ class Agency:
         self,
         question: str,
         *,
+        company_id: str | None = None,
         company_context: Any = None,
         roles: list[str] | None = None,
+        ground: bool = True,
+        remember: bool = True,
     ) -> dict[str, Any]:
         """Ask the C-suite advisory layer a business question.
 
         This is the CEO's bridge from *engineering* orchestration to *business*
-        judgement: pricing, GTM, fundraising, legal risk and the like. It is
-        opt-in — never run per cycle — so it adds no background token cost.
-        Returns the advisory result as a dict; never raises.
+        judgement: pricing, GTM, fundraising, legal risk and the like. The
+        executives ground their answers in real web research and remember prior
+        advice; pass a *company_id* to have the managed company's profile pulled
+        from the company graph and injected as context. It is opt-in — never run
+        per cycle — so it adds no background token cost. Returns the advisory
+        result as a dict; never raises.
         """
         try:
+            if company_context is None and company_id:
+                company_context = await _company_advisory_context(company_id)
             from agent.executive_advisory import get_executive_advisory
             result = await get_executive_advisory().advise(
                 question, company_context=company_context, roles=roles,
+                ground=ground, remember=remember,
             )
             return result.as_dict()
         except Exception as exc:  # noqa: BLE001 — advisory is best-effort
             log.warning("Agency.consult_executives failed: %s", exc)
             return {"question": question, "consulted": [], "opinions": [],
-                    "answer": ""}
+                    "answer": "", "grounding": {"text": "", "sources": []}}
 
     # ── Dispatch ──────────────────────────────────────────────────────────────
 
@@ -974,6 +983,32 @@ def _collect_recent_git_context() -> str:
     except Exception:
         pass
     return ""
+
+
+async def _company_advisory_context(company_id: str) -> dict[str, Any] | None:
+    """Pull a compact company profile for the C-suite advisory, or None.
+
+    Best-effort: a missing company or an unreachable store degrades to no
+    context rather than failing the consult.
+    """
+    try:
+        from services.company_graph_store import get_company_graph_store
+        company = await get_company_graph_store().get_company(company_id)
+    except Exception as exc:  # noqa: BLE001 — context is optional
+        log.warning("Agency: company context fetch failed for %s: %s", company_id, exc)
+        return None
+    if company is None:
+        return None
+    return {
+        "name": getattr(company, "name", ""),
+        "domain": getattr(company, "domain", ""),
+        "category": getattr(company, "business_category", ""),
+        "description": getattr(company, "description", ""),
+        "tagline": getattr(company, "tagline", ""),
+        "priorities": ", ".join(getattr(company, "priorities", []) or []),
+        "employee_count": getattr(company, "employee_count", None),
+        "revenue_range": getattr(company, "revenue_range", None),
+    }
 
 
 def _build_ceo_prompt(state: dict[str, Any], cycle: int) -> str:
