@@ -6,10 +6,12 @@ const CompanyScreen = React.lazy(() => import('./CompanyScreen'));
 const AgentsScreen = React.lazy(() => import('./AgentsScreen'));
 const KnowledgeScreen = React.lazy(() => import('./KnowledgeScreen'));
 const OnboardingScreen = React.lazy(() => import('./OnboardingScreen'));
+const ExecutiveAdvisoryScreen = React.lazy(() => import('./ExecutiveAdvisoryScreen'));
 
 const TABS = [
   { id: 'overview', label: 'Overview' },
   { id: 'team', label: 'Your team' },
+  { id: 'advisory', label: 'C-Suite' },
   { id: 'knowledge', label: 'Knowledge' },
   { id: 'setup', label: 'Setup' },
 ];
@@ -35,6 +37,7 @@ export default function CompanyHub({ initialTab, onNavigate, isAdmin }) {
             onNavigateToTasks={() => onNavigate('work')}
           />
         )}
+        {tab === 'advisory' && <ExecutiveAdvisoryScreen isAdmin={isAdmin} />}
         {tab === 'knowledge' && <KnowledgeScreen />}
         {tab === 'setup' && <OnboardingScreen onComplete={() => setTab('overview')} isAdmin={isAdmin} />}
       </React.Suspense>
