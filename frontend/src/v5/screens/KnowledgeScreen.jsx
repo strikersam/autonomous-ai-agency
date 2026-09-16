@@ -277,9 +277,13 @@ function CompanyGraphPanel() {
 
   // Companies the current user can see — backend scopes this by owner/admin
   // (see list_companies in backend/company_api.py), so no client-side filtering needed.
-  // Mirrors CompanyScreen.jsx's stale-ID handling (PR #962): the persisted
-  // COMPANY_ID_KEY may point at a company from a previous DB/deploy that no
-  // longer exists, so it must be validated against the live list, not trusted.
+  // Mirrors CompanyScreen.jsx's stale-ID handling (PR #962): only fall back to
+  // validating against this (paginated, default limit=100) list when there is
+  // no stored ID to begin with. A stored ID is trusted here and instead
+  // validated by the direct per-ID getCompanyGraph() lookup below, whose own
+  // 404 handler self-heals — otherwise an admin/owner with more companies than
+  // fit on one page would have a perfectly valid stored ID outside that page
+  // wrongly treated as stale and silently replaced with list[0].
   React.useEffect(() => {
     (async () => {
       try {
@@ -287,7 +291,7 @@ function CompanyGraphPanel() {
         if (!mounted.current) return;
         const list = data.companies || [];
         setCompanies(list);
-        if (list.length > 0) {
+        if (!selectedCompanyId && list.length > 0) {
           const match = storedId ? list.find(c => c.id === storedId) : null;
           if (match) {
             setSelectedCompanyId(match.id);
@@ -296,7 +300,7 @@ function CompanyGraphPanel() {
             setSelectedCompanyId(list[0].id);
             try { localStorage.setItem(COMPANY_ID_KEY, list[0].id); } catch {}
           }
-        } else {
+        } else if (list.length === 0) {
           setLoading(false);
         }
       } catch (e) {

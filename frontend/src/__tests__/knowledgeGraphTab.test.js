@@ -49,9 +49,21 @@ describe('Knowledge screen — Company Graph tab stale-ID recovery (regression)'
   // in CompanyGraphPanel, because unlike CompanyScreen.jsx (PR #962) it trusted
   // the stored ID without validating it against the live company list or
   // self-healing on a 404 from GET /api/company/{id}/graph.
-  test('validates the persisted COMPANY_ID_KEY against the live company list on mount', () => {
+  test('falls back to validating against the live company list only when there is no stored ID', () => {
     expect(src).toMatch(/list\.find\(c => c\.id === storedId\)/);
     expect(src).toMatch(/localStorage\.removeItem\(COMPANY_ID_KEY\)/);
+  });
+
+  // Bug Log #18: listCompanies() defaults to limit=100 (backend/company_api.py).
+  // The mount-time effect used to re-validate an already-trusted stored ID
+  // against that single (possibly truncated) page unconditionally — an
+  // admin/owner with more than 100 accessible companies whose stored ID fell
+  // outside the first page had it wrongly treated as stale and silently
+  // replaced with list[0], even though the ID was perfectly valid. A stored ID
+  // must be trusted here (mirroring CompanyScreen.jsx) and left to the direct
+  // per-ID getCompanyGraph() lookup — and its own 404 self-heal — to validate.
+  test('does not re-validate an already-trusted stored ID against a possibly-paginated company list', () => {
+    expect(src).toMatch(/if \(!selectedCompanyId && list\.length > 0\) \{/);
   });
 
   test('self-heals on a 404 from getCompanyGraph instead of leaving a permanent error', () => {
