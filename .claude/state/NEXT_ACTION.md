@@ -1,6 +1,27 @@
 # Next Action
 
-_Updated 2026-09-16._
+_Updated 2026-09-18._
+
+> **2026-09-18 daily automation (this run):** No open PRs and no
+> `routine-backlog` issues at session start (issue #1499 fully drained — see
+> 2026-09-16 note below). CI green on master (`d01bae0`). Reviewed scheduled
+> workflow run history and found `.github/workflows/catalogue-probe.yml`
+> failing on every scheduled run since at least 2026-09-13 — pure noise: the
+> follow-up `probe_report.py` step already correctly classified every failure
+> as account/transient (cerebras billing hold, nvidia 503, anthropic 400) and
+> deliberately did not file a drift issue, but the probe step's own exit code
+> still turned the whole job red daily. Fixed with `continue-on-error: true`
+> on the scheduled step only (manual dispatch untouched). PR opened on
+> `routine/daily-2026-09-18`; see `.claude/state/active-tasks.md` row 66 for
+> full detail, including the one documented non-blocking trade-off (masks a
+> genuine script crash in that step too, not only the transient case).
+>
+> **Correction:** issue #1499 itself is `closed` (`state_reason: completed`,
+> closed by the maintainer on 2026-09-16) — not open as a prior NEXT_ACTION
+> note implied. Item 4 (MCP 2026-07-28 stateless-core migration) was never
+> implemented; whether the closure means the maintainer decided against it
+> or simply closed the tracker with it still on record is not something this
+> session can infer — left as-is, no further action taken on it.
 
 > **2026-09-16 daily automation (this run):** One open PR at session start —
 > [#1516](https://github.com/strikersam/autonomous-ai-agency/pull/1516)
