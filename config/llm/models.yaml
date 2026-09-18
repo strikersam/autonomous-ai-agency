@@ -142,6 +142,26 @@ models:
   # catalogue and answered 404/400, so declaring them only routed work to a
   # dead endpoint. Do not re-add an id here without a probe.
 
+  # Qwen 3.8 27B: Alibaba Qwen multimodal MoE on Groq, released Aug 2026.
+  # Accepts images + text; supports tool calling and thinking mode switching.
+  # Context: 131,072 tokens. Pricing: $0.80/$4.00 per MTok.
+  # Speed: ~450 tok/s on Groq hardware. Source: console.groq.com/docs/model/qwen/qwen3.8-27b, 2026-09-18.
+  qwen/qwen3.8-27b:
+    provider: groq
+    display_name: Qwen 3.8 27B (Groq)
+    context_window: 131072
+    max_output_tokens: 16384
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 0.80
+    output_cost_per_1m: 4.00
+    priority: 32
+    speed_tier: fast
+
   # ── Google Gemini ─────────────────────────────────────────────────────
   #
   # Gemini 2.5 Flash is available on the Google AI Studio free tier.
@@ -571,3 +591,83 @@ models:
     priority: 59
     speed_tier: slow
     aliases: [mythos5.1]
+
+  # ── DeepSeek API (deepseek.com) ─────────────────────────────────────────
+  #
+  # DeepSeek's direct API. Candidates without catalog entries get
+  # supports_tools: false by default, silently dropping them from all
+  # tool-calling requests. Entries below fix that.
+  #
+  # Cost tiers use peak pricing as the conservative floor.
+  # Source: api-docs.deepseek.com/quick_start/pricing, 2026-09-18.
+
+  # DeepSeek V3 / DeepSeek-Chat: general-purpose chat + coding model.
+  # Supports function calling (tool_choice + tool_calls).
+  deepseek-chat:
+    provider: deepseek
+    display_name: DeepSeek Chat (V3)
+    context_window: 65536
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.27
+    output_cost_per_1m: 1.10
+    priority: 45
+    speed_tier: medium
+
+  # DeepSeek Coder: code-specialised variant of DeepSeek V3.
+  # Supports tool calling; higher quality on code-generation tasks.
+  deepseek-coder:
+    provider: deepseek
+    display_name: DeepSeek Coder
+    context_window: 65536
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.27
+    output_cost_per_1m: 1.10
+    priority: 44
+    speed_tier: medium
+
+  # DeepSeek-R1: reasoning model (chain-of-thought). Does NOT support
+  # tool calls — R1's reasoning trace is incompatible with tool_calls
+  # output format. supports_reasoning: true enables the thinking display.
+  deepseek-reasoner:
+    provider: deepseek
+    display_name: DeepSeek Reasoner (R1)
+    context_window: 65536
+    max_output_tokens: 8192
+    supports_tools: false
+    supports_function_calling: false
+    supports_json: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 0.55
+    output_cost_per_1m: 2.19
+    priority: 46
+    speed_tier: slow
+
+  # DeepSeek V4.1-Flash: newest DeepSeek model (released 2026-09-10).
+  # 552B MoE, 1M-token context, multimodal (images + text), MIT licence.
+  # Model ID on deepseek.com API: "deepseek-flash".
+  # Peak pricing (conservative floor): $0.30/$1.20 per MTok.
+  # Max output: 384K tokens. Source: api-docs.deepseek.com, 2026-09-18.
+  deepseek-flash:
+    provider: deepseek
+    display_name: DeepSeek V4.1-Flash
+    context_window: 1000000
+    max_output_tokens: 384000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 0.30
+    output_cost_per_1m: 1.20
+    priority: 20
+    speed_tier: fast

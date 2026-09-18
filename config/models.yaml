@@ -229,11 +229,15 @@ providers:
     base_url_env: DEEPSEEK_BASE_URL
     default_base_url: https://api.deepseek.com/v1
     role_presets:
-      planner:   deepseek-chat
+      planner:   deepseek-flash
       executor:  deepseek-coder
-      verifier:  deepseek-chat
-      judge:     deepseek-chat
+      verifier:  deepseek-flash
+      judge:     deepseek-flash
     candidates:
+      # deepseek-flash: DeepSeek V4.1-Flash (released 2026-09-10). 552B MoE,
+      # 1M context, multimodal, MIT licence. Placed first as the best current
+      # general-purpose model on this provider.
+      - deepseek-flash
       - deepseek-chat
       - deepseek-reasoner
       - deepseek-coder

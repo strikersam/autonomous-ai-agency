@@ -23,6 +23,25 @@ _Updated 2026-09-18._
 > or simply closed the tracker with it still on record is not something this
 > session can infer — left as-is, no further action taken on it.
 
+> **2026-09-18 daily automation (a separate, parallel run):** Three model catalog gaps closed —
+> (1) `deepseek-flash` (DeepSeek V4.1-Flash, released 2026-09-10): 1M context,
+> multimodal, MIT licence, $0.30/$1.20/MTok; added as first DeepSeek candidate and
+> planner/verifier/judge preset across `config/models.yaml`, `packages/ai/brain_config.py`,
+> and `packages/ai/cost_tracker.py`; (2) `qwen/qwen3.8-27b`: already in Groq
+> candidates since 2026-09-14 but no `config/llm/models.yaml` entry, causing
+> `supports_tools: false` default and silent exclusion from every tool-calling request;
+> (3) `deepseek-chat`, `deepseek-coder`, `deepseek-reasoner`: same catalog-gap issue;
+> `deepseek-reasoner` correctly set to `supports_tools: false` (R1's reasoning-trace
+> format is incompatible with `tool_calls` output).
+> 32 new tests in `tests/test_daily_automation_2026_09_18.py` — all pass.
+> `check_model_catalog_consistency.py` → `CATALOGUE OK: 47 declared ids, no drift`.
+> `compileall` clean. Changelog parity OK.
+> PR opened on `claude/intelligent-gates-frwr3p`, auto-merge enabled (SQUASH).
+> **Not done today:** MCP 2026-07-28 stateless-core migration (issue #1499 item 4) —
+> rule 40 gated, needs human decision.
+
+_Previous (2026-09-16):_
+
 > **2026-09-16 daily automation (this run):** One open PR at session start —
 > [#1516](https://github.com/strikersam/autonomous-ai-agency/pull/1516)
 > ("web_reach domain allow/block list", issue #1499 item 2) had been opened

@@ -233,10 +233,10 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
         "judge":     "mistral-large-latest",
     },
     "deepseek": {
-        "planner":   "deepseek-chat",
+        "planner":   "deepseek-flash",
         "executor":  "deepseek-coder",
-        "verifier":  "deepseek-chat",
-        "judge":     "deepseek-chat",
+        "verifier":  "deepseek-flash",
+        "judge":     "deepseek-flash",
     },
     "zai": {
         "planner":   "glm-5.2",
@@ -404,7 +404,7 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         "codestral-latest",
         "mistral-nemo",
     ],
-    "deepseek": ["deepseek-chat", "deepseek-reasoner", "deepseek-coder"],
+    "deepseek": ["deepseek-flash", "deepseek-chat", "deepseek-reasoner", "deepseek-coder"],
     "zhipu": ["glm-5.2", "glm-5.1", "glm-4", "glm-4-flash", "glm-4-air"],
     "zai": ["glm-5.2", "glm-5.1", "glm-4-flash", "glm-4", "glm-4-air"],
     "together": [
