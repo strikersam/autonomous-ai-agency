@@ -11,10 +11,13 @@ _Updated 2026-09-18._
 > as account/transient (cerebras billing hold, nvidia 503, anthropic 400) and
 > deliberately did not file a drift issue, but the probe step's own exit code
 > still turned the whole job red daily. Fixed with `continue-on-error: true`
-> on the scheduled step only (manual dispatch untouched). PR opened on
-> `routine/daily-2026-09-18`; see `.claude/state/active-tasks.md` row 66 for
-> full detail, including the one documented non-blocking trade-off (masks a
-> genuine script crash in that step too, not only the transient case).
+> on the scheduled step only (manual dispatch untouched). PR
+> [#1525](https://github.com/strikersam/autonomous-ai-agency/pull/1525)
+> → `routine/daily-2026-09-18`, squash-merged to master as `63a6e0d`; see
+> `.claude/state/active-tasks.md` row 67 for full detail, including the one
+> documented non-blocking trade-off (masks a genuine script crash in that
+> step too, not only the transient case) and the merge-conflict resolution
+> against the other same-day session's PR (#1524, row 66).
 >
 > **Correction:** issue #1499 itself is `closed` (`state_reason: completed`,
 > closed by the maintainer on 2026-09-16) — not open as a prior NEXT_ACTION
