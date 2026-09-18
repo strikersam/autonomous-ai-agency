@@ -7,9 +7,9 @@ Then let the agency that produced it go to work — on your infrastructure.**
 
 Self-hosted · MIT · Your servers, your models, your data
 
-<a href="brag-output/brag.mp4"><img src="brag-output/brag.jpg" alt="Autonomous AI Agency — paste a URL, get a CTO-grade audit, keep the whole agency. 323 of 906 merged PRs were written by the agents themselves." width="760" /></a>
+<a href="brag-output/brag.mp4"><img src="brag-output/brag.jpg" alt="Autonomous AI Agency — paste a URL, get a CTO-grade audit, and stand up a CEO-coordinated fleet of 35 specialist families that run 24×7 on your own hardware." width="760" /></a>
 
-_▶ **[Watch the 20-second tour](brag-output/brag.mp4)** — paste a URL → 102-check audit → 35 specialist families → the proof: 323 of 906 merged PRs written by the agents themselves._
+_▶ **[Watch the tour](brag-output/brag.mp4)** — paste a URL → stack scan → CTO-grade audit → 35 specialist families → Plan · Execute · Verify → your approval gate → 24×7, self-hosted._
 
 [![Version](https://img.shields.io/badge/version-5.0.0-blue.svg)](https://github.com/strikersam/autonomous-ai-agency/releases/tag/v5.0.0)
 [![CI](https://github.com/strikersam/autonomous-ai-agency/actions/workflows/ci.yml/badge.svg)](https://github.com/strikersam/autonomous-ai-agency/actions/workflows/ci.yml)

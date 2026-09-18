@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=1920, height=1080" />
-    <!-- Fonts (Outfit, IBM Plex Mono) are injected as deterministic @font-face by the Hyperframes compiler from the font-family usage below; no external stylesheet link needed. -->
+    <!-- Fonts (Outfit, IBM Plex Mono) are injected as deterministic @font-face by the Hyperframes compiler from the font-family usage below. -->
     <script src="assets/vendor/gsap.min.js"></script>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -14,120 +14,100 @@
         color: #f7f9fc;
       }
       #root { position: relative; width: 100%; height: 100%; background: #020304; }
-
-      /* subtle radial accent wash */
       .bg-glow {
         position: absolute; inset: 0;
-        background: radial-gradient(1200px 700px at 50% 42%, rgba(93,162,255,0.10), transparent 70%);
+        background: radial-gradient(1200px 720px at 50% 42%, rgba(93,162,255,0.10), transparent 70%);
         pointer-events: none;
       }
-
       .scene {
         position: absolute; inset: 0;
         display: flex; flex-direction: column;
         align-items: center; justify-content: center;
-        padding: 120px;
-        opacity: 0;
+        padding: 110px; opacity: 0;
       }
       .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
-      .muted { color: #a8b3c2; }
-      .dim { color: #8a94a3; }
+      .kick { font-size: 26px; letter-spacing: 0.14em; text-transform: uppercase; color: #5da2ff; font-weight: 600; margin-bottom: 26px; }
+      h2.title { font-size: 62px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.05; text-align: center; }
+      h2.title .hl { color: #5da2ff; }
+      h2.title .g { color: #46d9a4; }
+      .cap { font-size: 29px; color: #a8b3c2; margin-top: 34px; text-align: center; max-width: 1250px; }
+      .cap b { color: #f7f9fc; font-weight: 600; }
 
-      /* Scene 1 — terminal hook */
-      .term {
-        width: 1180px; background: #0a0c0f;
-        border: 1px solid rgba(255,255,255,0.09);
-        border-radius: 20px;
-        box-shadow: 0 22px 70px rgba(0,0,0,0.45);
-        padding: 0 0 54px 0; overflow: hidden;
-      }
-      .term-bar {
-        display: flex; align-items: center; gap: 10px;
-        padding: 20px 26px; border-bottom: 1px solid rgba(255,255,255,0.07);
-      }
-      .dot { width: 13px; height: 13px; border-radius: 50%; }
-      .term-body { padding: 46px 52px 8px; }
-      .kicker { font-size: 24px; letter-spacing: 0.02em; margin-bottom: 26px; }
-      .prompt { font-size: 60px; font-weight: 500; letter-spacing: -0.01em; }
-      .prompt .sig { color: #5da2ff; }
-      .caret {
-        display: inline-block; width: 26px; height: 60px;
-        background: #5da2ff; margin-left: 8px; transform: translateY(9px);
-        border-radius: 3px;
-      }
-
-      /* Scene 2 — audit */
-      .audit-wrap { display: flex; align-items: center; gap: 110px; }
-      .dial { position: relative; width: 360px; height: 360px; }
-      .dial svg { transform: rotate(-90deg); }
-      .score-num {
-        position: absolute; inset: 0; display: flex; flex-direction: column;
-        align-items: center; justify-content: center;
-      }
-      .score-num .n { font-size: 128px; font-weight: 700; letter-spacing: -0.03em; }
-      .score-num .d { font-size: 30px; color: #a8b3c2; margin-top: 2px; }
-      .audit-right { display: flex; flex-direction: column; gap: 26px; max-width: 720px; }
-      .audit-right h2 { font-size: 54px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.05; }
-      .pillars { display: flex; flex-wrap: wrap; gap: 14px; max-width: 640px; }
-      .pill {
-        font-size: 28px; font-weight: 500;
-        padding: 12px 22px; border-radius: 999px;
-        background: rgba(93,162,255,0.12); color: #cfe0ff;
-        border: 1px solid rgba(93,162,255,0.28);
-      }
-      .audit-cap { font-size: 30px; color: #a8b3c2; }
-      .audit-cap b { color: #f7f9fc; font-weight: 600; }
-
-      /* Scene 3 — assemble */
-      .assemble { display: flex; flex-direction: column; align-items: center; gap: 40px; }
-      .assemble h2 { font-size: 60px; font-weight: 700; letter-spacing: -0.02em; }
-      .assemble h2 .hl { color: #5da2ff; }
-      .chips { display: flex; flex-wrap: wrap; gap: 18px; justify-content: center; max-width: 1300px; }
+      /* chips */
+      .chips { display: flex; flex-wrap: wrap; gap: 16px; justify-content: center; max-width: 1400px; margin-top: 44px; }
       .chip {
-        font-size: 30px; font-weight: 500;
-        padding: 16px 30px; border-radius: 16px;
-        background: #0e1116; border: 1px solid rgba(255,255,255,0.10);
-        color: #eef3fa; opacity: 0;
+        font-size: 30px; font-weight: 500; padding: 15px 28px; border-radius: 14px;
+        background: #0e1116; border: 1px solid rgba(255,255,255,0.10); color: #eef3fa; opacity: 0;
         box-shadow: 0 10px 30px rgba(0,0,0,0.25);
       }
-      .chip .g { color: #46d9a4; }
-      .pipe { display: flex; align-items: center; gap: 26px; margin-top: 14px; }
-      .stage {
-        font-size: 34px; font-weight: 600; letter-spacing: 0.01em;
-        padding: 14px 30px; border-radius: 14px;
-        border: 1px solid rgba(93,162,255,0.30); background: rgba(93,162,255,0.10);
-        color: #dbe8ff; opacity: 0;
-      }
+      .chip.acc { border-color: rgba(93,162,255,0.32); background: rgba(93,162,255,0.10); color: #cfe0ff; }
+
+      /* Scene 1 terminal */
+      .term { width: 1180px; background: #0a0c0f; border: 1px solid rgba(255,255,255,0.09); border-radius: 20px; box-shadow: 0 22px 70px rgba(0,0,0,0.45); overflow: hidden; padding-bottom: 54px; }
+      .term-bar { display: flex; align-items: center; gap: 10px; padding: 20px 26px; border-bottom: 1px solid rgba(255,255,255,0.07); }
+      .dot { width: 13px; height: 13px; border-radius: 50%; }
+      .term-body { padding: 42px 52px 6px; }
+      .term-kick { font-size: 24px; letter-spacing: 0.02em; color: #a8b3c2; margin-bottom: 24px; }
+      .prompt { font-size: 60px; font-weight: 500; }
+      .prompt .sig { color: #5da2ff; }
+      .caret { display: inline-block; width: 26px; height: 58px; background: #5da2ff; margin-left: 8px; transform: translateY(9px); border-radius: 3px; }
+
+      /* Scene 3 dial */
+      .audit-wrap { display: flex; align-items: center; gap: 100px; }
+      .dial { position: relative; width: 340px; height: 340px; }
+      .dial svg { transform: rotate(-90deg); }
+      .score-num { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+      .score-num .n { font-size: 120px; font-weight: 700; letter-spacing: -0.03em; }
+      .score-num .d { font-size: 27px; color: #a8b3c2; margin-top: 2px; }
+      .audit-right { display: flex; flex-direction: column; gap: 24px; max-width: 720px; }
+      .pillars { display: flex; flex-wrap: wrap; gap: 13px; max-width: 660px; }
+      .pill { font-size: 27px; font-weight: 500; padding: 11px 20px; border-radius: 999px; background: rgba(93,162,255,0.12); color: #cfe0ff; border: 1px solid rgba(93,162,255,0.28); }
+
+      /* pipeline (loop) */
+      .pipe { display: flex; align-items: center; gap: 24px; margin-top: 46px; }
+      .stage { font-size: 34px; font-weight: 600; padding: 16px 34px; border-radius: 14px; border: 1px solid rgba(93,162,255,0.30); background: rgba(93,162,255,0.10); color: #dbe8ff; opacity: 0; }
       .arrow { font-size: 40px; color: #6e7786; opacity: 0; }
-      .assemble-cap { font-size: 30px; color: #a8b3c2; margin-top: 12px; }
+      .loopback { font-size: 24px; color: #46d9a4; margin-top: 24px; opacity: 0; letter-spacing: 0.02em; }
 
-      /* Scene 4 — proof */
-      .proof { display: flex; flex-direction: column; align-items: center; gap: 30px; }
-      .proof .big {
-        font-size: 224px; font-weight: 800; letter-spacing: -0.04em; line-height: 1;
-        display: flex; align-items: baseline; gap: 0; height: 232px;
-      }
-      .proof .big .num { color: #5da2ff; display: inline-block; transform-origin: center bottom; }
-      .proof .big .slash { color: #6e7786; font-weight: 600; font-size: 132px; margin: 0 10px; }
-      .proof .big .den { color: #a8b3c2; font-weight: 600; font-size: 132px; }
-      .proof .lbl { font-size: 44px; font-weight: 600; color: #f7f9fc; margin-top: 6px; }
-      .proof .sub { font-size: 30px; color: #a8b3c2; }
+      /* HITL card */
+      .card { width: 900px; background: #0a0c0f; border: 1px solid rgba(255,255,255,0.10); border-radius: 20px; padding: 40px 44px; box-shadow: 0 22px 70px rgba(0,0,0,0.45); margin-top: 40px; opacity: 0; }
+      .card .row1 { display: flex; align-items: center; gap: 14px; font-size: 34px; font-weight: 600; }
+      .card .tag { font-size: 22px; font-weight: 600; padding: 6px 14px; border-radius: 8px; background: rgba(255,189,102,0.16); color: #ffbd66; border: 1px solid rgba(255,189,102,0.3); }
+      .card .sub { font-size: 25px; color: #a8b3c2; margin: 16px 0 30px; }
+      .btns { display: flex; gap: 16px; }
+      .btn { font-size: 27px; font-weight: 600; padding: 14px 30px; border-radius: 12px; opacity: 0; }
+      .btn.ok { background: #46d9a4; color: #04140d; }
+      .btn.no { background: transparent; color: #ff8391; border: 1px solid rgba(255,107,125,0.4); }
+      .btn.re { background: transparent; color: #7ab1ff; border: 1px solid rgba(93,162,255,0.4); }
 
-      /* Scene 5 — outro */
+      /* schedules */
+      .sched { display: flex; flex-direction: column; gap: 14px; margin-top: 42px; width: 1080px; }
+      .srow { display: flex; align-items: center; justify-content: space-between; padding: 18px 28px; border-radius: 14px; background: #0e1116; border: 1px solid rgba(255,255,255,0.09); opacity: 0; }
+      .srow .name { font-size: 30px; font-weight: 500; }
+      .srow .cad { font-size: 24px; color: #46d9a4; font-weight: 600; }
+      .srow .dotlive { width: 11px; height: 11px; border-radius: 50%; background: #46d9a4; margin-right: 16px; box-shadow: 0 0 12px rgba(70,217,164,0.7); }
+
+      /* provider chain */
+      .chain { display: flex; align-items: center; gap: 20px; margin-top: 46px; flex-wrap: wrap; justify-content: center; }
+      .prov { font-size: 32px; font-weight: 600; padding: 16px 30px; border-radius: 14px; background: #0e1116; border: 1px solid rgba(255,255,255,0.12); color: #eef3fa; opacity: 0; }
+      .prov.lead { border-color: rgba(70,217,164,0.4); background: rgba(70,217,164,0.10); color: #bff2df; }
+      .fo { font-size: 24px; color: #6e7786; opacity: 0; }
+
+      /* outro */
       .outro { display: flex; flex-direction: column; align-items: center; gap: 26px; }
       .wordmark { font-size: 92px; font-weight: 800; letter-spacing: -0.03em; }
       .wordmark .a { color: #5da2ff; }
       .rule { width: 0; height: 4px; background: #5da2ff; border-radius: 3px; }
-      .tagline { font-size: 34px; color: #d9e0ea; font-weight: 500; }
-      .url { font-size: 30px; color: #a8b3c2; }
+      .tagline { font-size: 33px; color: #d9e0ea; font-weight: 500; }
+      .url { font-size: 29px; color: #a8b3c2; }
     </style>
   </head>
   <body>
-    <div id="root" data-composition-id="main" data-start="0" data-duration="20" data-width="1920" data-height="1080">
+    <div id="root" data-composition-id="main" data-start="0" data-duration="44" data-width="1920" data-height="1080">
       <div class="bg-glow" id="glow"></div>
 
-      <!-- Scene 1 -->
-      <section class="scene clip" id="s1" data-start="0" data-duration="3.2">
+      <!-- S1 Hook 0-3.5 -->
+      <section class="scene clip" id="s1" data-start="0" data-duration="3.5">
         <div class="term">
           <div class="term-bar">
             <span class="dot" style="background:#ff6b7d"></span>
@@ -135,184 +115,258 @@
             <span class="dot" style="background:#46d9a4"></span>
           </div>
           <div class="term-body">
-            <div class="kicker mono muted">the entry point is read-only</div>
+            <div class="term-kick mono">one URL · a whole AI team</div>
             <div class="prompt mono"><span class="sig">$</span> <span id="typed"></span><span class="caret" id="caret"></span></div>
           </div>
         </div>
       </section>
 
-      <!-- Scene 2 -->
-      <section class="scene clip" id="s2" data-start="3.2" data-duration="4.8">
+      <!-- S2 Scan 3.5-8.5 -->
+      <section class="scene clip" id="s2" data-start="3.5" data-duration="5.0">
+        <div class="kick" id="s2k">Step 1 — it scans your stack</div>
+        <h2 class="title">It reads your site and <span class="hl">detects what you run</span></h2>
+        <div class="chips" id="s2chips">
+          <span class="chip acc">Shopify</span>
+          <span class="chip acc">Stripe</span>
+          <span class="chip acc">GitHub</span>
+          <span class="chip acc">Analytics</span>
+          <span class="chip acc">Intercom</span>
+          <span class="chip acc">Salesforce</span>
+        </div>
+        <div class="cap" id="s2cap">Playwright + HTTP fingerprinting → <b>AI-generated onboarding questions</b>, not a generic form.</div>
+      </section>
+
+      <!-- S3 Audit 8.5-13.5 -->
+      <section class="scene clip" id="s3" data-start="8.5" data-duration="5.0">
         <div class="audit-wrap">
           <div class="dial">
-            <svg width="360" height="360" viewBox="0 0 360 360">
-              <circle cx="180" cy="180" r="150" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="22" />
-              <circle id="arc" cx="180" cy="180" r="150" fill="none" stroke="#5da2ff" stroke-width="22"
-                      stroke-linecap="round" stroke-dasharray="942.48" stroke-dashoffset="942.48" />
+            <svg width="340" height="340" viewBox="0 0 340 340">
+              <circle cx="170" cy="170" r="142" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="20" />
+              <circle id="arc" cx="170" cy="170" r="142" fill="none" stroke="#5da2ff" stroke-width="20" stroke-linecap="round" stroke-dasharray="892.21" stroke-dashoffset="892.21" />
             </svg>
-            <div class="score-num">
-              <div class="n mono" id="score">0</div>
-              <div class="d mono">/ 100 health</div>
-            </div>
+            <div class="score-num"><div class="n mono" id="score">0</div><div class="d mono">/ 100 health</div></div>
           </div>
           <div class="audit-right">
-            <h2 id="s2h">Paste a URL.<br />Get a CTO-grade audit.</h2>
-            <div class="pillars" id="pillars">
-              <span class="pill">Technical</span>
-              <span class="pill">Content</span>
-              <span class="pill">Security</span>
-              <span class="pill">Social</span>
-              <span class="pill">GEO</span>
-              <span class="pill">AIO</span>
+            <div class="kick">Step 2 — a CTO-grade audit</div>
+            <h2 class="title" style="text-align:left">A read-only audit,<br />in minutes.</h2>
+            <div class="pillars" id="s3pillars">
+              <span class="pill">Technical</span><span class="pill">Content</span><span class="pill">Security</span>
+              <span class="pill">Social</span><span class="pill">GEO</span><span class="pill">AIO</span>
             </div>
-            <div class="audit-cap"><b>102 checks</b> · six pillars · minutes, not weeks</div>
+            <div class="cap" id="s3cap" style="text-align:left;margin-top:8px"><b>100+ checks</b> · six pillars · findings priced as revenue-at-risk.</div>
           </div>
         </div>
       </section>
 
-      <!-- Scene 3 -->
-      <section class="scene clip" id="s3" data-start="8.0" data-duration="5.0">
-        <div class="assemble">
-          <h2><span class="hl">35</span> specialist families — provisioned from one URL</h2>
-          <div class="chips" id="chips">
-            <span class="chip">SEO</span>
-            <span class="chip">Security</span>
-            <span class="chip">DevOps</span>
-            <span class="chip">Frontend</span>
-            <span class="chip">Backend</span>
-            <span class="chip">Data</span>
-            <span class="chip">Growth</span>
-          </div>
-          <div class="pipe">
-            <span class="stage" id="st1">Plan</span>
-            <span class="arrow" id="ar1">→</span>
-            <span class="stage" id="st2">Execute</span>
-            <span class="arrow" id="ar2">→</span>
-            <span class="stage" id="st3">Verify</span>
-          </div>
-          <div class="assemble-cap mono">running 24×7 · human approval gate on anything that ships</div>
+      <!-- S4 Fleet 13.5-19.5 -->
+      <section class="scene clip" id="s4" data-start="13.5" data-duration="6.0">
+        <div class="kick" id="s4k">Step 3 — the fleet assembles</div>
+        <h2 class="title"><span class="hl">35</span> specialist families — auto-provisioned, <span class="g">CEO-coordinated</span></h2>
+        <div class="chips" id="s4chips">
+          <span class="chip">Engineering</span><span class="chip">Security</span><span class="chip">DevOps</span>
+          <span class="chip">SEO</span><span class="chip">Content</span><span class="chip">Support</span>
+          <span class="chip">E-commerce</span><span class="chip">Data</span><span class="chip">Research</span>
         </div>
+        <div class="cap" id="s4cap">Exactly the agents your business needs — each with typed I/O, a runtime, and bound skills.</div>
       </section>
 
-      <!-- Scene 4 -->
-      <section class="scene clip" id="s4" data-start="12.8" data-duration="4.2">
-        <div class="proof">
-          <div class="big mono">
-            <span class="num" id="prf">0</span>
-            <span class="slash">/</span>
-            <span class="den">906</span>
-          </div>
-          <div class="lbl">merged PRs written by the agents themselves</div>
-          <div class="sub mono">not a demo — the public commit history</div>
+      <!-- S5 Loop 19.5-25.0 -->
+      <section class="scene clip" id="s5" data-start="19.5" data-duration="5.5">
+        <div class="kick" id="s5k">How every task runs</div>
+        <h2 class="title">Plan → Execute → <span class="hl">Verify</span></h2>
+        <div class="pipe">
+          <span class="stage" id="st1">Plan</span>
+          <span class="arrow" id="ar1">→</span>
+          <span class="stage" id="st2">Execute</span>
+          <span class="arrow" id="ar2">→</span>
+          <span class="stage" id="st3">Verify</span>
         </div>
+        <div class="loopback mono" id="loopback">↺ failures become lessons the planner reuses — not repeats</div>
+        <div class="cap" id="s5cap">The verifier must pass before anything is applied. Every result carries its evidence.</div>
       </section>
 
-      <!-- Scene 5 -->
-      <section class="scene clip" id="s5" data-start="17.0" data-duration="3.0">
+      <!-- S6 HITL 25.0-30.5 -->
+      <section class="scene clip" id="s6" data-start="25.0" data-duration="5.5">
+        <div class="kick" id="s6k">You stay in control</div>
+        <h2 class="title">Nothing ships <span class="hl">without your sign-off</span></h2>
+        <div class="card" id="s6card">
+          <div class="row1"><span class="tag">AWAITING APPROVAL</span> Draft PR #142 — fix the memory leak</div>
+          <div class="sub mono">+38 −12 · 3 files · CI green · specialist: Engineering</div>
+          <div class="btns">
+            <span class="btn ok" id="b-ok">✓ Approve</span>
+            <span class="btn no" id="b-no">✕ Deny</span>
+            <span class="btn re" id="b-re">↩ Redirect</span>
+          </div>
+        </div>
+        <div class="cap" id="s6cap">Auto-approve the trivial. Gate the production. Agents never merge, deploy, or message without you.</div>
+      </section>
+
+      <!-- S7 24x7 30.5-36.0 -->
+      <section class="scene clip" id="s7" data-start="30.5" data-duration="5.5">
+        <div class="kick" id="s7k">And it never goes idle</div>
+        <h2 class="title">Runs <span class="hl">24×7</span> — even while you sleep</h2>
+        <div class="sched" id="s7rows">
+          <div class="srow"><span class="name"><span class="dotlive" style="display:inline-block"></span>Website health scan</span><span class="cad mono">every 30 min</span></div>
+          <div class="srow"><span class="name"><span class="dotlive" style="display:inline-block"></span>Security &amp; CVE audit</span><span class="cad mono">daily</span></div>
+          <div class="srow"><span class="name"><span class="dotlive" style="display:inline-block"></span>Trend watch</span><span class="cad mono">every 6 hrs</span></div>
+          <div class="srow"><span class="name"><span class="dotlive" style="display:inline-block"></span>Doc-sync</span><span class="cad mono">on every push</span></div>
+          <div class="srow"><span class="name"><span class="dotlive" style="display:inline-block"></span>Company graph sync</span><span class="cad mono">every 30 min</span></div>
+        </div>
+        <div class="cap" id="s7cap">Agents find it, fix it, open the PR — then brief you. Not at 3 AM when the site is down.</div>
+      </section>
+
+      <!-- S8 Routing 36.0-41.0 -->
+      <section class="scene clip" id="s8" data-start="36.0" data-duration="5.0">
+        <div class="kick" id="s8k">On infrastructure you own</div>
+        <h2 class="title">Your servers. Your models. <span class="g">Your data.</span></h2>
+        <div class="chain" id="s8chain">
+          <span class="prov lead" id="p1">NVIDIA NIM</span>
+          <span class="fo" id="f1">⇢</span>
+          <span class="prov" id="p2">Cerebras</span>
+          <span class="fo" id="f2">⇢</span>
+          <span class="prov" id="p3">Groq</span>
+          <span class="fo" id="f3">⇢</span>
+          <span class="prov" id="p4">Ollama</span>
+        </div>
+        <div class="cap" id="s8cap">Multi-provider routing with <b>automatic failover</b> · OpenAI-compatible proxy · switch models with no redeploy.</div>
+      </section>
+
+      <!-- S9 Outro 41.0-44.0 -->
+      <section class="scene clip" id="s9" data-start="41.0" data-duration="3.0">
         <div class="outro">
           <div class="wordmark">Autonomous <span class="a">AI</span> Agency</div>
           <div class="rule" id="rule"></div>
-          <div class="tagline">Self-hosted · MIT · Your servers, your models, your data</div>
+          <div class="tagline">Self-hosted · MIT · One URL → a working AI team</div>
           <div class="url mono">autonomous-ai-agency.strikersam.workers.dev</div>
         </div>
       </section>
 
       <!-- Audio -->
-      <audio id="bg-music" data-start="0" data-duration="20" data-track-index="10" data-volume="0.3"
-             src="assets/music/happy-beats-business-moves-vol-12-by-ende-dot-app.mp3"></audio>
-      <audio id="key-1" data-start="0.25" data-duration="0.2" data-track-index="11" data-volume="0.5" src="assets/sfx/keyboard/keypress-001.wav"></audio>
-      <audio id="key-2" data-start="0.55" data-duration="0.2" data-track-index="12" data-volume="0.5" src="assets/sfx/keyboard/keypress-012.wav"></audio>
-      <audio id="key-3" data-start="0.85" data-duration="0.2" data-track-index="13" data-volume="0.5" src="assets/sfx/keyboard/keypress-005.wav"></audio>
-      <audio id="key-4" data-start="1.15" data-duration="0.2" data-track-index="14" data-volume="0.5" src="assets/sfx/keyboard/keypress-020.wav"></audio>
-      <!-- score settles -->
-      <audio id="sfx-score" data-start="6.7" data-duration="0.12" data-track-index="11" data-volume="0.55" src="assets/sfx/interface/drop_001.ogg"></audio>
-      <!-- chips (thinned: first, middle, last) -->
-      <audio id="sfx-chip-1" data-start="8.65" data-duration="0.2" data-track-index="12" data-volume="0.5" src="assets/sfx/interface/drop_002.ogg"></audio>
-      <audio id="sfx-chip-2" data-start="9.95" data-duration="0.12" data-track-index="13" data-volume="0.5" src="assets/sfx/interface/drop_001.ogg"></audio>
-      <audio id="sfx-chip-3" data-start="11.25" data-duration="0.2" data-track-index="14" data-volume="0.5" src="assets/sfx/interface/drop_002.ogg"></audio>
-      <!-- proof payoff bell — beat-locked: 15.84s -->
-      <audio id="sfx-bell" data-start="15.84" data-duration="1.5" data-track-index="11" data-volume="0.7" src="assets/sfx/impact/impactBell_heavy_000.ogg"></audio>
+      <audio id="bg-music" data-start="0" data-duration="44" data-track-index="10" data-volume="0.26" src="assets/music/happy-beats-business-moves-vol-1-by-ende-dot-app.mp3"></audio>
+      <audio id="key-1" data-start="0.35" data-duration="0.2" data-track-index="11" data-volume="0.45" src="assets/sfx/keyboard/keypress-001.wav"></audio>
+      <audio id="key-2" data-start="0.7" data-duration="0.2" data-track-index="12" data-volume="0.45" src="assets/sfx/keyboard/keypress-012.wav"></audio>
+      <audio id="key-3" data-start="1.05" data-duration="0.2" data-track-index="13" data-volume="0.45" src="assets/sfx/keyboard/keypress-005.wav"></audio>
+      <audio id="key-4" data-start="1.4" data-duration="0.2" data-track-index="14" data-volume="0.45" src="assets/sfx/keyboard/keypress-020.wav"></audio>
+      <!-- scan chips -->
+      <audio id="sfx-s2a" data-start="4.3" data-duration="0.11" data-track-index="11" data-volume="0.4" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="sfx-s2b" data-start="5.3" data-duration="0.2" data-track-index="12" data-volume="0.4" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <!-- audit settle -->
+      <audio id="sfx-s3" data-start="11.2" data-duration="0.12" data-track-index="11" data-volume="0.5" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <!-- fleet chips -->
+      <audio id="sfx-s4a" data-start="14.4" data-duration="0.2" data-track-index="12" data-volume="0.4" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="sfx-s4b" data-start="16.0" data-duration="0.11" data-track-index="13" data-volume="0.4" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <!-- loop verify -->
+      <audio id="sfx-s5" data-start="22.3" data-duration="0.18" data-track-index="11" data-volume="0.5" src="assets/sfx/impact/impactSoft_medium_001.ogg"></audio>
+      <!-- approve click -->
+      <audio id="sfx-s6" data-start="28.2" data-duration="0.1" data-track-index="12" data-volume="0.55" src="assets/sfx/interface/click_001.ogg"></audio>
+      <!-- 24x7 rows -->
+      <audio id="sfx-s7" data-start="31.6" data-duration="0.2" data-track-index="13" data-volume="0.38" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <!-- outro bell -->
+      <audio id="sfx-out" data-start="41.2" data-duration="1.48" data-track-index="11" data-volume="0.62" src="assets/sfx/impact/impactBell_heavy_000.ogg"></audio>
     </div>
 
     <script>
       window.__timelines = window.__timelines || {};
       const tl = gsap.timeline({ paused: true });
-      // stable resting state for the accent wash (baseline before any tween)
       gsap.set('#glow', { opacity: 0.9 });
 
-      // helper: seek-safe integer counter
       function counter(el, from, to, start, dur, ease) {
         const o = { v: from };
-        tl.to(o, {
-          v: to, duration: dur, ease: ease || 'power1.out',
-          onUpdate: () => { el.textContent = Math.round(o.v); }
-        }, start);
+        tl.to(o, { v: to, duration: dur, ease: ease || 'power1.out', onUpdate: () => { el.textContent = Math.round(o.v); } }, start);
+      }
+      // fade a scene in at `t`, out at `t+dur-0.4`
+      function scene(id, t, dur) {
+        tl.to(id, { opacity: 1, duration: 0.45 }, t);
+        tl.to(id, { opacity: 0, duration: 0.4 }, t + dur - 0.4);
       }
 
-      // ---------- Scene 1 : 0 - 3.2 ----------
-      tl.to('#s1', { opacity: 1, duration: 0.4 }, 0);
-      // type "paste your website URL"
+      // S1 0-3.5
+      scene('#s1', 0, 3.5);
       const full = 'paste your website URL';
       const typed = document.getElementById('typed');
-      const t = { c: 0 };
-      tl.to(t, {
-        c: full.length, duration: 1.25, ease: 'none',
-        onUpdate: () => { typed.textContent = full.slice(0, Math.round(t.c)); }
-      }, 0.3);
-      // steady caret pulse (deterministic yoyo)
-      tl.to('#caret', { opacity: 0.15, duration: 0.5, repeat: 3, yoyo: true, ease: 'power1.inOut' }, 1.7);
-      tl.to('#s1', { opacity: 0, duration: 0.4 }, 2.9);
+      const tc = { c: 0 };
+      tl.to(tc, { c: full.length, duration: 1.3, ease: 'none', onUpdate: () => { typed.textContent = full.slice(0, Math.round(tc.c)); } }, 0.35);
+      tl.to('#caret', { opacity: 0.15, duration: 0.5, repeat: 3, yoyo: true, ease: 'power1.inOut' }, 1.9);
 
-      // ---------- Scene 2 : 3.2 - 8.0 ----------
-      tl.to('#s2', { opacity: 1, duration: 0.5 }, 3.2);
-      tl.from('#s2h', { opacity: 0, y: 26, duration: 0.6, ease: 'power2.out' }, 3.5);
-      // dial arc 0 -> 74% : offset from 942.48 to 942.48*(1-0.74)=245.04
-      tl.to('#arc', { strokeDashoffset: 245.04, duration: 2.2, ease: 'power2.out' }, 3.7);
-      counter(document.getElementById('score'), 0, 74, 3.7, 2.2, 'power2.out');
-      // accent glow breathe on the dial settle
-      tl.to('#glow', { opacity: 1.05, duration: 0.5, yoyo: true, repeat: 1, ease: 'sine.inOut' }, 5.6);
-      // pillars stagger up
-      tl.from('#pillars .pill', { opacity: 0, y: 18, duration: 0.45, stagger: 0.11, ease: 'power2.out' }, 4.6);
-      tl.from('.audit-cap', { opacity: 0, duration: 0.5 }, 6.0);
-      tl.to('#s2', { opacity: 0, duration: 0.45 }, 7.65);
-
-      // ---------- Scene 3 : 8.0 - 13.0 ----------
-      tl.to('#s3', { opacity: 1, duration: 0.5 }, 8.0);
-      tl.from('.assemble h2', { opacity: 0, y: 22, duration: 0.55, ease: 'power2.out' }, 8.1);
-      // 7 chips, beat-grid ~0.42s apart from 8.6  // beat-grid: 8.60..11.12
-      const chips = document.querySelectorAll('#chips .chip');
-      chips.forEach((c, i) => {
-        tl.to(c, { opacity: 1, y: 0, duration: 0.4, ease: 'back.out(1.6)' }, 8.6 + i * 0.42);
-        tl.from(c, { y: 20, duration: 0.4, ease: 'back.out(1.6)' }, 8.6 + i * 0.42);
+      // S2 3.5-8.5
+      scene('#s2', 3.5, 5.0);
+      tl.from('#s2k', { opacity: 0, y: 16, duration: 0.4 }, 3.7);
+      tl.from('#s2 h2', { opacity: 0, y: 22, duration: 0.5, ease: 'power2.out' }, 3.9);
+      document.querySelectorAll('#s2chips .chip').forEach((c, i) => {
+        tl.to(c, { opacity: 1, duration: 0.35, ease: 'power2.out' }, 4.3 + i * 0.28);
+        tl.from(c, { y: 18, duration: 0.35, ease: 'back.out(1.6)' }, 4.3 + i * 0.28);
       });
-      // pipeline draws in
-      tl.to('#st1', { opacity: 1, duration: 0.35 }, 11.3);
-      tl.to('#ar1', { opacity: 1, duration: 0.25 }, 11.55);
-      tl.to('#st2', { opacity: 1, duration: 0.35 }, 11.75);
-      tl.to('#ar2', { opacity: 1, duration: 0.25 }, 12.0);
-      tl.to('#st3', { opacity: 1, duration: 0.35 }, 12.2);
-      tl.from('.assemble-cap', { opacity: 0, duration: 0.5 }, 12.3);
-      tl.to('#s3', { opacity: 0, duration: 0.4 }, 12.75);
+      tl.from('#s2cap', { opacity: 0, duration: 0.5 }, 6.4);
 
-      // ---------- Scene 4 : 12.8 - 17.0 ----------
-      tl.to('#s4', { opacity: 1, duration: 0.5 }, 12.85);
-      tl.from('.proof .lbl', { opacity: 0, y: 20, duration: 0.6, ease: 'power2.out' }, 13.1);
-      tl.from('.proof .sub', { opacity: 0, duration: 0.6 }, 13.4);
-      // 0 -> 323 counting, completes at strong cue 15.84  // beat-locked: 15.84s
-      counter(document.getElementById('prf'), 0, 323, 13.2, 2.6, 'power2.out');
-      // number pop + glow on landing
-      tl.to('#prf', { scale: 1.06, duration: 0.22, ease: 'power2.out', overwrite: 'auto' }, 15.72);
-      tl.to('#prf', { scale: 1.0, duration: 0.34, ease: 'power2.inOut', overwrite: 'auto' }, 15.96);
-      tl.to('#glow', { opacity: 1.15, duration: 0.35, yoyo: true, repeat: 1, ease: 'sine.inOut' }, 15.84);
-      tl.to('#s4', { opacity: 0, duration: 0.45 }, 16.7);
+      // S3 8.5-13.5
+      scene('#s3', 8.5, 5.0);
+      tl.from('#s3 .kick', { opacity: 0, y: 14, duration: 0.4 }, 8.8);
+      tl.from('#s3 h2', { opacity: 0, y: 20, duration: 0.5 }, 9.0);
+      tl.to('#arc', { strokeDashoffset: 232.0, duration: 2.1, ease: 'power2.out' }, 9.1);   // ~74%
+      counter(document.getElementById('score'), 0, 74, 9.1, 2.1, 'power2.out');
+      tl.from('#s3pillars .pill', { opacity: 0, y: 16, duration: 0.4, stagger: 0.1, ease: 'power2.out' }, 9.8);
+      tl.from('#s3cap', { opacity: 0, duration: 0.5 }, 11.4);
+      tl.to('#glow', { opacity: 1.05, duration: 0.5, yoyo: true, repeat: 1, ease: 'sine.inOut' }, 11.1);
 
-      // ---------- Scene 5 : 17.0 - 20.0 ----------
-      tl.to('#s5', { opacity: 1, duration: 0.5 }, 17.0);
-      tl.from('.wordmark', { opacity: 0, y: 24, duration: 0.7, ease: 'power2.out' }, 17.1);
-      tl.to('#rule', { width: 360, duration: 0.7, ease: 'power2.inOut' }, 17.6);
-      tl.from('.tagline', { opacity: 0, y: 16, duration: 0.6, ease: 'power2.out' }, 17.9);
-      tl.from('.url', { opacity: 0, duration: 0.6 }, 18.3);
-      // hold to 20
+      // S4 13.5-19.5
+      scene('#s4', 13.5, 6.0);
+      tl.from('#s4k', { opacity: 0, y: 14, duration: 0.4 }, 13.7);
+      tl.from('#s4 h2', { opacity: 0, y: 22, duration: 0.5 }, 13.9);
+      document.querySelectorAll('#s4chips .chip').forEach((c, i) => {
+        tl.to(c, { opacity: 1, duration: 0.3, ease: 'power2.out' }, 14.4 + i * 0.22);
+        tl.from(c, { y: 18, scale: 0.9, duration: 0.3, ease: 'back.out(1.7)' }, 14.4 + i * 0.22);
+      });
+      tl.from('#s4cap', { opacity: 0, duration: 0.5 }, 16.8);
+
+      // S5 19.5-25.0
+      scene('#s5', 19.5, 5.5);
+      tl.from('#s5k', { opacity: 0, y: 14, duration: 0.4 }, 19.7);
+      tl.from('#s5 h2', { opacity: 0, y: 20, duration: 0.5 }, 19.9);
+      tl.to('#st1', { opacity: 1, duration: 0.35 }, 20.6);
+      tl.to('#ar1', { opacity: 1, duration: 0.25 }, 20.95);
+      tl.to('#st2', { opacity: 1, duration: 0.35 }, 21.2);
+      tl.to('#ar2', { opacity: 1, duration: 0.25 }, 21.55);
+      tl.to('#st3', { opacity: 1, duration: 0.35 }, 21.8);   // verify lands ~22.15
+      tl.to('#loopback', { opacity: 1, duration: 0.5 }, 22.5);
+      tl.from('#s5cap', { opacity: 0, duration: 0.5 }, 23.0);
+
+      // S6 25.0-30.5
+      scene('#s6', 25.0, 5.5);
+      tl.from('#s6k', { opacity: 0, y: 14, duration: 0.4 }, 25.2);
+      tl.from('#s6 h2', { opacity: 0, y: 20, duration: 0.5 }, 25.4);
+      tl.to('#s6card', { opacity: 1, duration: 0.5, ease: 'power2.out' }, 26.0);
+      tl.from('#s6card', { y: 24, duration: 0.5, ease: 'power2.out' }, 26.0);
+      tl.to('#b-ok', { opacity: 1, duration: 0.3 }, 27.0);
+      tl.to('#b-no', { opacity: 1, duration: 0.3 }, 27.25);
+      tl.to('#b-re', { opacity: 1, duration: 0.3 }, 27.5);
+      tl.to('#b-ok', { scale: 1.08, duration: 0.16, yoyo: true, repeat: 1, ease: 'power2.inOut' }, 28.2);  // approve pulse
+      tl.from('#s6cap', { opacity: 0, duration: 0.5 }, 28.4);
+
+      // S7 30.5-36.0
+      scene('#s7', 30.5, 5.5);
+      tl.from('#s7k', { opacity: 0, y: 14, duration: 0.4 }, 30.7);
+      tl.from('#s7 h2', { opacity: 0, y: 20, duration: 0.5 }, 30.9);
+      document.querySelectorAll('#s7rows .srow').forEach((r, i) => {
+        tl.to(r, { opacity: 1, duration: 0.35, ease: 'power2.out' }, 31.5 + i * 0.32);
+        tl.from(r, { x: -24, duration: 0.35, ease: 'power2.out' }, 31.5 + i * 0.32);
+      });
+      tl.from('#s7cap', { opacity: 0, duration: 0.5 }, 33.9);
+
+      // S8 36.0-41.0
+      scene('#s8', 36.0, 5.0);
+      tl.from('#s8k', { opacity: 0, y: 14, duration: 0.4 }, 36.2);
+      tl.from('#s8 h2', { opacity: 0, y: 20, duration: 0.5 }, 36.4);
+      ['#p1','#f1','#p2','#f2','#p3','#f3','#p4'].forEach((sel, i) => {
+        tl.to(sel, { opacity: 1, duration: 0.3, ease: 'power2.out' }, 37.0 + i * 0.28);
+      });
+      tl.from('#s8cap', { opacity: 0, duration: 0.5 }, 39.0);
+
+      // S9 41.0-44.0
+      tl.to('#s9', { opacity: 1, duration: 0.5 }, 41.0);
+      tl.from('.wordmark', { opacity: 0, y: 22, duration: 0.7, ease: 'power2.out' }, 41.1);
+      tl.to('#rule', { width: 360, duration: 0.7, ease: 'power2.inOut' }, 41.6);
+      tl.from('.tagline', { opacity: 0, y: 14, duration: 0.6 }, 41.9);
+      tl.from('.url', { opacity: 0, duration: 0.6 }, 42.3);
 
       window.__timelines['main'] = tl;
       tl.seek(0);
