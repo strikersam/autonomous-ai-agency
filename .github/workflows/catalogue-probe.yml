@@ -110,6 +110,15 @@ jobs:
 
       - name: Probe (scheduled)
         if: github.event_name == 'schedule'
+        # probe_catalogues.py exits non-zero on *any* unreachable provider or
+        # unservable model, retired or not — right for a human running it via
+        # workflow_dispatch. But probe_report.py (next step) already draws the
+        # actionable line: only a retired id (HTTP 404/410) opens or updates
+        # the tracking issue; an account/transient failure (billing hold,
+        # 5xx, timeout) is deliberately logged, not ticketed (issue #1434).
+        # Without this, that same non-actionable class turns the whole job
+        # red every day, defeating the tracker issue as the real signal.
+        continue-on-error: true
         run: |
           # Call the default model of each routed provider (the rule-4 chain), so
           # a retired default answers with its real status code instead of merely

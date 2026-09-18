@@ -296,6 +296,30 @@ class TestTheWorkflowIsSafeAndReadOnly:
         for forbidden in ("git commit", "git push", "create_pull_request", "gh pr"):
             assert forbidden not in text
 
+    def test_scheduled_probe_does_not_fail_the_job_on_its_own(
+        self, workflow: dict
+    ) -> None:
+        """probe_report.py already draws the actionable/non-actionable line:
+        only a retired model id (HTTP 404/410) opens or updates the tracking
+        issue, and account/transient failures (billing hold, 5xx, timeouts,
+        unreachable) are deliberately logged, not ticketed (issue #1434). But
+        `probe_catalogues.py::main()` returns non-zero on *any* unservable
+        model or unreachable provider, retired or not — by design, so a human
+        running it via workflow_dispatch sees a failure. Without
+        `continue-on-error`, that same exit code turns the scheduled job red
+        every day for the exact class of failure the drift-report step just
+        decided is not worth a human's attention, defeating the tracker issue
+        as the real signal and training the operator to ignore the red job.
+        The manual-dispatch step is untouched: a human invoking it directly
+        should still see the failure.
+        """
+        steps = workflow["jobs"]["probe"]["steps"]
+        scheduled = next(s for s in steps if s.get("name") == "Probe (scheduled)")
+        assert scheduled.get("continue-on-error") is True
+
+        manual = next(s for s in steps if s.get("name") == "Probe (manual dispatch)")
+        assert "continue-on-error" not in manual
+
 
 class TestTheWorkflowInstallsWhatTheImportNeeds:
     """The first real run died in 10 seconds on ModuleNotFoundError: httpx.
