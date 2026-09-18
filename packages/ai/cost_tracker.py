@@ -110,6 +110,13 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # --- DeepSeek ---
     "deepseek-chat": (0.27, 1.10),
     "deepseek-coder": (0.27, 1.10),
+    "deepseek-reasoner": (0.55, 2.19),
+    # DeepSeek V4.1-Flash (released 2026-09-10): $0.30/$1.20 per MTok peak.
+    # Off-peak is half; cache-hit is 1/50th. Using peak as the conservative floor.
+    # Source: api-docs.deepseek.com/quick_start/pricing, 2026-09-18.
+    "deepseek-flash": (0.30, 1.20),
+    # --- Groq: Qwen 3.8 27B (added 2026-09-18) ---
+    "qwen/qwen3.8-27b": (0.80, 4.00),
 }
 
 
