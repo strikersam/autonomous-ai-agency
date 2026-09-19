@@ -224,10 +224,15 @@ jobs:
             exit 0
           fi
 
-          # Count failure types
-          CONSOLE_ERRORS=$(grep -c "console error" "$FAILURE_LOG" 2>/dev/null || echo 0)
-          CRUD_FAILURES=$(grep -c "could not create\|could not find\|navigation error\|empty page" "$FAILURE_LOG" 2>/dev/null || echo 0)
-          SERVER_ERRORS=$(grep -c "500\|503\|Internal Server Error" "$FAILURE_LOG" 2>/dev/null || echo 0)
+          # Count failure types. `grep -c` already prints "0" and exits 1 on no
+          # match, so a `$(grep -c ... || echo 0)` fallback fires *in addition*
+          # to that printed "0", concatenating "0\n0" into the variable and
+          # breaking the `-gt` comparisons below ("integer expression expected").
+          # Falling back on the assignment itself (not inside the substitution)
+          # avoids ever mixing two stdout streams into one variable.
+          CONSOLE_ERRORS=$(grep -c "console error" "$FAILURE_LOG" 2>/dev/null) || CONSOLE_ERRORS=0
+          CRUD_FAILURES=$(grep -c "could not create\|could not find\|navigation error\|empty page" "$FAILURE_LOG" 2>/dev/null) || CRUD_FAILURES=0
+          SERVER_ERRORS=$(grep -c "500\|503\|Internal Server Error" "$FAILURE_LOG" 2>/dev/null) || SERVER_ERRORS=0
 
           echo "console_errors=$CONSOLE_ERRORS" >> $GITHUB_OUTPUT
           echo "crud_failures=$CRUD_FAILURES" >> $GITHUB_OUTPUT
