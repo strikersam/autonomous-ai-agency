@@ -280,7 +280,12 @@ class TestMistralApiEntries:
 def test_catalog_consistency_script_passes():
     """The check_model_catalog_consistency.py gate reports no drift."""
     import subprocess
-    result = subprocess.run(
+    # nosec - constant argv, list form (no shell). Bare `nosec` rather than the
+    # `nosec B603,B607` form used elsewhere in this repo (e.g. agent/loop.py):
+    # bandit 1.9.4's NOSEC_COMMENT_TESTS regex only registers the *last* code
+    # in a comma-separated nosec list, so `# nosec B603,B607` suppresses B607
+    # but leaves B603 firing (see tests/test_changelog_check_workflow.py).
+    result = subprocess.run(  # nosec
         ["python", "scripts/check_model_catalog_consistency.py"],
         capture_output=True,
         text=True,
