@@ -18,8 +18,8 @@ _Updated 2026-09-19._
 > assignment itself. 5 new regression tests run the actual shell from the
 > workflow file; 4/5 fail against the pre-fix script. PR
 > [#1530](https://github.com/strikersam/autonomous-ai-agency/pull/1530) →
-> `routine/daily-2026-09-19-nightly-regression-fix`, auto-merge enabled
-> (SQUASH). See `.claude/state/active-tasks.md` row 68 for full detail.
+> `routine/daily-2026-09-19-nightly-regression-fix`, **merged to master as
+> `e0e9960`.** See `.claude/state/active-tasks.md` row 68 for full detail.
 >
 > **Branch-name collision mid-session:** first pushed this work to
 > `routine/daily-2026-09-19` as PR #1529, but a second, independent same-day
