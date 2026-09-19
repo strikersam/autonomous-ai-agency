@@ -117,6 +117,19 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "deepseek-flash": (0.30, 1.20),
     # --- Groq: Qwen 3.8 27B (added 2026-09-18) ---
     "qwen/qwen3.8-27b": (0.80, 4.00),
+    # --- Mistral API (added 2026-09-19) ---
+    # Pricing approximate; verify at mistral.ai/pricing before billing-sensitive use.
+    "mistral-large-latest": (3.00, 9.00),   # Mistral Large 2 — $3/$9 per MTok
+    "mistral-small-latest": (0.10, 0.30),   # Mistral Small 3 — $0.10/$0.30 per MTok
+    "codestral-latest": (0.30, 0.90),       # Codestral — $0.30/$0.90 per MTok
+    "mistral-nemo": (0.15, 0.15),           # NeMo 12B — free/ultra-cheap tier
+    # --- Together AI (free tier, added 2026-09-19) ---
+    "Llama-3.3-70B-Instruct-Turbo-Free": (0.0, 0.0),
+    "Mixtral-8x7B-Instruct-v0.1-Free": (0.0, 0.0),
+    # --- Google Gemini 1.5 (added 2026-09-19) ---
+    # Pricing from ai.google.dev/pricing, 2026-09-19 (≤128K-token tier).
+    "gemini-1.5-flash": (0.075, 0.30),     # Gemini 1.5 Flash
+    "gemini-1.5-pro": (1.25, 5.00),        # Gemini 1.5 Pro
 }
 
 

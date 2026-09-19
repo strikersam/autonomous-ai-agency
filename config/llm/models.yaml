@@ -62,6 +62,34 @@ models:
     supports_streaming: true
     priority: 30
 
+  # Mistral NeMo-Tron: Mistral NeMo 12B fine-tuned by NVIDIA for instruction
+  # following. Available on NVIDIA NIM free tier. Not yet live-probed for tool
+  # calls on this account — declared to unblock routing; `supports_tools: false`
+  # is the safe default until probed. Source: build.nvidia.com, 2026-09-19.
+  mistralai/mistral-nemotron:
+    provider: nvidia
+    display_name: Mistral NeMo-Tron (NVIDIA NIM)
+    context_window: 131072
+    supports_tools: false           # not probed — conservative default
+    supports_function_calling: false
+    supports_streaming: true
+    priority: 33
+    speed_tier: fast
+
+  # Nemotron 3 Ultra 550B: NVIDIA's largest NIM model. 550B MoE parameters.
+  # Listed as intermittent — 404'd at 17:02/17:05 on 2026-08-28 but answered
+  # HTTP 200 with a real tool_call at 23:25. Placed behind default as fallback.
+  # Not freshly probed on 2026-09-19 — conservative `supports_tools: false`
+  # declared to enable routing without claiming unverified tool capability.
+  nvidia/nemotron-3-ultra-550b-a55b:
+    provider: nvidia
+    display_name: Nemotron 3 Ultra 550B-a55b (NVIDIA NIM)
+    supports_tools: false           # not freshly probed
+    supports_function_calling: false
+    supports_streaming: true
+    priority: 34
+    speed_tier: slow
+
   # Kimi K2: Moonshot AI MoE model hosted on Groq (Aug 2026). ~1M context,
   # function calling supported. Free self-serve tier on Groq.
   # Source: Groq model catalogue, 2026-09-13.
@@ -161,6 +189,45 @@ models:
     output_cost_per_1m: 4.00
     priority: 32
     speed_tier: fast
+
+  # ── Together AI (free tier) ────────────────────────────────────────────
+  #
+  # Together AI hosts open-source models on a free self-serve tier. The two
+  # entries below are in `config/models.yaml`'s `together` candidates list
+  # but had no llm/models.yaml entry, causing both to default to
+  # `supports_tools: false` and be silently excluded from tool-calling requests.
+  # Capabilities declared from Together AI documentation (together.ai/docs),
+  # 2026-09-19.
+
+  # LLaMA 3.3 70B Instruct Turbo (free tier). Meta's latest 70B instruction
+  # model (Dec 2024). 128K context, native tool calling confirmed in Together
+  # API docs. Free tier has rate limits; see together.ai/pricing.
+  Llama-3.3-70B-Instruct-Turbo-Free:
+    provider: together
+    display_name: LLaMA 3.3 70B Instruct Turbo (Together, free)
+    context_window: 131072
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    priority: 37
+    speed_tier: fast
+
+  # Mixtral 8×7B Instruct v0.1 (free tier). Mistral's MoE instruction model
+  # (Dec 2023). 32K context. The v0.1 checkpoint predates standardised
+  # tool-calling support — declared `false` until probed.
+  Mixtral-8x7B-Instruct-v0.1-Free:
+    provider: together
+    display_name: Mixtral 8×7B Instruct v0.1 (Together, free)
+    context_window: 32768
+    max_output_tokens: 8192
+    supports_tools: false           # v0.1 predates standardised tool calling
+    supports_function_calling: false
+    supports_json: true
+    supports_streaming: true
+    priority: 63
+    speed_tier: medium
 
   # ── Google Gemini ─────────────────────────────────────────────────────
   #
@@ -300,6 +367,43 @@ models:
     priority: 10
     speed_tier: fast
 
+  # Gemini 1.5 Flash: Google's 1M-context multimodal model (GA May 2024).
+  # Predecessor to 2.5 Flash; still listed as a Google candidate fallback.
+  # Free tier: 15 RPM, 1M TPM. Source: ai.google.dev/pricing, 2026-09-19.
+  gemini-1.5-flash:
+    provider: google
+    display_name: Gemini 1.5 Flash
+    context_window: 1048576
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    priority: 16
+    speed_tier: fast
+    max_requests_per_minute: 15
+
+  # Gemini 1.5 Pro: Google's 2M-context multimodal model (GA May 2024).
+  # Predecessor to 2.5 Pro; listed as a Google candidate fallback.
+  # Paid model. $1.25/$5.00 per MTok (≤128K-token prompts; higher above).
+  # Source: ai.google.dev/pricing, 2026-09-19.
+  gemini-1.5-pro:
+    provider: google
+    display_name: Gemini 1.5 Pro
+    context_window: 2097152
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 1.25
+    output_cost_per_1m: 5.00
+    priority: 17
+    speed_tier: medium
+
   # ── Local ──────────────────────────────────────────────────────────────
 
   qwen3-coder:30b:
@@ -360,6 +464,84 @@ models:
     supports_chat: false        # embeddings only — never route chat here
     input_cost_per_1m: 0.02
     priority: 60
+
+  # ── Mistral API (api.mistral.ai) ─────────────────────────────────────────
+  #
+  # All four entries below are in `config/models.yaml`'s `mistral` candidates
+  # list but had no llm/models.yaml entry, causing them to default to
+  # `supports_tools: false` and be silently excluded from every tool-calling
+  # request. Capabilities declared from Mistral documentation (docs.mistral.ai),
+  # 2026-09-19. Pricing from mistral.ai/pricing, 2026-09-19 (approximate — may
+  # differ from current rates; verify before billing-sensitive deploys).
+
+  # Mistral Large (latest checkpoint). Best Mistral model for complex reasoning,
+  # coding, and multilingual tasks. 128K context, native function calling.
+  # $3.00/$9.00 per MTok (estimated; verify at mistral.ai/pricing).
+  mistral-large-latest:
+    provider: mistral
+    display_name: Mistral Large (latest)
+    context_window: 131072
+    max_output_tokens: 4096
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 3.00
+    output_cost_per_1m: 9.00
+    priority: 61
+    speed_tier: medium
+
+  # Mistral Small 3 (latest checkpoint). Efficient model for classification,
+  # extraction, and RAG. 128K context, native function calling.
+  # $0.10/$0.30 per MTok (estimated; verify at mistral.ai/pricing).
+  mistral-small-latest:
+    provider: mistral
+    display_name: Mistral Small (latest)
+    context_window: 131072
+    max_output_tokens: 4096
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.10
+    output_cost_per_1m: 0.30
+    priority: 62
+    speed_tier: fast
+
+  # Codestral (latest checkpoint). Specialised for code generation, completion,
+  # and fill-in-the-middle. 256K context, function calling supported.
+  # $0.30/$0.90 per MTok (estimated; verify at mistral.ai/pricing).
+  codestral-latest:
+    provider: mistral
+    display_name: Codestral (latest)
+    context_window: 262144
+    max_output_tokens: 4096
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.30
+    output_cost_per_1m: 0.90
+    priority: 64
+    speed_tier: fast
+
+  # Mistral NeMo (12B). Open-weights (Apache 2.0) checkpoint jointly developed
+  # with NVIDIA. 128K context, function calling. Free self-serve tier on
+  # api.mistral.ai for low-RPM usage.
+  # Source: mistral.ai/news/mistral-nemo/, 2024-07-18.
+  mistral-nemo:
+    provider: mistral
+    display_name: Mistral NeMo (12B)
+    context_window: 131072
+    max_output_tokens: 4096
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.15
+    output_cost_per_1m: 0.15
+    priority: 65
+    speed_tier: fast
 
   # ── Anthropic — Claude 4 Opus family ────────────────────────────────────
   # Opus 4.8: latest Claude 4 Opus checkpoint. Adds output_config.effort
