@@ -17,9 +17,20 @@ _Updated 2026-09-19._
 > touching the workflow. Fixed by moving the `|| echo 0` fallback onto the
 > assignment itself. 5 new regression tests run the actual shell from the
 > workflow file; 4/5 fail against the pre-fix script. PR
-> [#1529](https://github.com/strikersam/autonomous-ai-agency/pull/1529) →
-> `routine/daily-2026-09-19`, auto-merge enabled (SQUASH). See
-> `.claude/state/active-tasks.md` row 68 for full detail.
+> [#1530](https://github.com/strikersam/autonomous-ai-agency/pull/1530) →
+> `routine/daily-2026-09-19-nightly-regression-fix`, auto-merge enabled
+> (SQUASH). See `.claude/state/active-tasks.md` row 68 for full detail.
+>
+> **Branch-name collision mid-session:** first pushed this work to
+> `routine/daily-2026-09-19` as PR #1529, but a second, independent same-day
+> session derived the identical branch name from the standard convention
+> and, on its own push, fetched/merged this branch into theirs — silently
+> carrying these commits into their PR (unrelated model-catalog work) and
+> overwriting its title/body. Recovered onto a distinctly-named branch and
+> reopened as #1530; #1529 was left alone (commented explaining what
+> happened) rather than force-pushed over, since it's a still-active
+> session's PR. Worth a naming-convention fix (e.g. append a short session
+> id to `routine/daily-YYYY-MM-DD`) so two same-day sessions can't collide.
 >
 > **Not done today, flagged for a human/future session:** the underlying
 > `405 Method Not Allowed` that the crashing step was trying to classify —
