@@ -1,6 +1,39 @@
 # Next Action
 
-_Updated 2026-09-18._
+_Updated 2026-09-19._
+
+> **2026-09-19 daily automation (this run):** No open PRs and no
+> `routine-backlog` issues at session start (CI green on master `b6731be4`).
+> Reviewed recent workflow run history (not just the latest push) and found
+> a real, reproducible bug: `.github/workflows/nightly-regression.yml`'s
+> "Analyze failures" step — the step whose whole job is to classify and act
+> on a real regression failure — crashes on the common case of a failure
+> with no console/CRUD/server-error markers, because a `grep -c PATTERN
+> FILE 2>/dev/null || echo 0` idiom doubles its own output whenever grep
+> finds zero matches (grep -c already prints "0" and exits 1). Since that
+> job only runs after a regression failure, this has been silently
+> disabling both auto-fix and issue-filing for every real nightly
+> regression failure. Reproduced directly in a sandbox script before
+> touching the workflow. Fixed by moving the `|| echo 0` fallback onto the
+> assignment itself. 5 new regression tests run the actual shell from the
+> workflow file; 4/5 fail against the pre-fix script. PR
+> [#1529](https://github.com/strikersam/autonomous-ai-agency/pull/1529) →
+> `routine/daily-2026-09-19`, auto-merge enabled (SQUASH). See
+> `.claude/state/active-tasks.md` row 68 for full detail.
+>
+> **Not done today, flagged for a human/future session:** the underlying
+> `405 Method Not Allowed` that the crashing step was trying to classify —
+> `backend/server.py`'s catch-all SPA route `@app.get("/{full_path:path}")`
+> (registered after `task_router`) intercepts Starlette's trailing-slash
+> redirect for any bare `POST /api/tasks` (the router only registers
+> `/api/tasks/`), so callers get a `405` instead of a `307` redirect.
+> `tests/e2e/test_telegram_approval_e2e.py::_seed_requires_approval_task`
+> hits this directly. Documented in the PR body as a follow-up; not fixed
+> here since today's fix (the analyze-step crash) was the higher-value,
+> better-scoped single item and both together would have widened the PR
+> beyond one focused change.
+
+_Previous (2026-09-18):_
 
 > **2026-09-18 daily automation (this run):** No open PRs and no
 > `routine-backlog` issues at session start (issue #1499 fully drained — see
