@@ -7,7 +7,7 @@ PYTHON  ?= .venv/bin/python
 PYTEST  ?= .venv/bin/pytest
 UVICORN ?= .venv/bin/uvicorn
 
-.PHONY: help install dev test test-fast test-verbose lint hooks-install
+.PHONY: help up quickstart install dev test test-fast test-verbose lint hooks-install
 .PHONY: changelog-check ai-start ai-status ai-resume ai-stop ai-logs
 .PHONY: manifest summary audit ui-docs ci-parity doctor agent-readiness
 .PHONY: eval-routing
@@ -18,6 +18,7 @@ help:
 	@echo ""
 	@echo "local-llm-server — developer targets"
 	@echo ""
+	@echo "  make up              Run the whole agency locally (one command)"
 	@echo "  make install         Install dependencies into .venv"
 	@echo "  make dev             Start proxy in hot-reload mode"
 	@echo "  make test            Run full test suite"
@@ -41,6 +42,9 @@ help:
 	@echo ""
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
+
+up quickstart: ## Configure, build, and run the full agency locally on http://localhost:8001
+	@bash scripts/quickstart.sh
 
 install:
 	python3 -m venv .venv

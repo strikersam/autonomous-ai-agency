@@ -1,6 +1,11 @@
 # Feature Guide
 
-This document explains every implemented feature in the qwen-server, what it does, why it exists, how to enable it, and its limitations.
+This document explains every implemented feature of the Autonomous AI Agency
+platform — what it does, why it exists, how to enable it, and its limitations.
+
+For the platform tour and architecture, see
+[platform-guide.md](platform-guide.md); for the fastest way to run it, see
+[local-setup.md](local-setup.md).
 
 ---
 

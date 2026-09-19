@@ -7,9 +7,9 @@ Then let the agency that produced it go to work — on your infrastructure.**
 
 Self-hosted · MIT · Your servers, your models, your data
 
-<a href="brag-output/brag.mp4"><img src="brag-output/brag.jpg" alt="Autonomous AI Agency — paste a URL, get a CTO-grade audit, and stand up a CEO-coordinated fleet of 35 specialist families that run 24×7 on your own hardware." width="760" /></a>
+<a href="brag-output/brag.mp4"><img src="brag-output/brag.jpg" alt="Autonomous AI Agency — paste a URL, get a CTO-grade audit, and stand up a CEO-coordinated fleet of specialist agents that run 24×7 on your own hardware." width="760" /></a>
 
-_▶ **[Watch the tour](brag-output/brag.mp4)** — paste a URL → stack scan → CTO-grade audit → 35 specialist families → Plan · Execute · Verify → your approval gate → 24×7, self-hosted._
+_▶ **[Watch the tour](brag-output/brag.mp4)** — paste a URL → stack scan → CTO-grade audit → specialist fleet → Plan · Execute · Verify → your approval gate → 24×7, self-hosted._
 
 [![Version](https://img.shields.io/badge/version-5.0.0-blue.svg)](https://github.com/strikersam/autonomous-ai-agency/releases/tag/v5.0.0)
 [![CI](https://github.com/strikersam/autonomous-ai-agency/actions/workflows/ci.yml/badge.svg)](https://github.com/strikersam/autonomous-ai-agency/actions/workflows/ci.yml)
@@ -17,25 +17,55 @@ _▶ **[Watch the tour](brag-output/brag.mp4)** — paste a URL → stack scan �
 [![Python](https://img.shields.io/badge/python-3.13-blue)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
-**[Try it live — free sandbox, resets every 24h](https://autonomous-ai-agency.strikersam.workers.dev/) · [See the proof](proof/README.md) · [Need assistance?](#need-assistance)**
+**[▶ Try it live — free sandbox](https://autonomous-ai-agency.strikersam.workers.dev/) · [🔬 See the proof](proof/README.md) · [⚡ Run it locally](#-run-it-locally-in-one-command) · [💬 Need a hand?](#need-assistance)**
 
 </div>
+
+---
+
+## ⚡ Run it locally in one command
+
+No cloud account, no database server, no Docker. SQLite storage, the dashboard,
+and the 24×7 autonomy loops — all in one process.
+
+```bash
+git clone https://github.com/strikersam/autonomous-ai-agency.git
+cd autonomous-ai-agency
+./scripts/quickstart.sh          # or: make up
+```
+
+Then open **http://localhost:8001/** and sign in with the credentials the script
+prints. The script is idempotent — it writes a local `.env` with safe defaults,
+sets up a virtualenv, builds the dashboard, and launches everything. First run
+takes a few minutes; later runs start in seconds.
+
+> Want top-tier output? Drop a **free** [NVIDIA NIM](https://build.nvidia.com) key
+> (`NVIDIA_API_KEY=nvapi-...`) into `.env` and restart — no GPU required. Full
+> options, the Docker Compose path, and troubleshooting are in
+> **[docs/local-setup.md](docs/local-setup.md)**.
+
+**Requirements:** Python 3.11+ and Node 20+ (Node only for building the UI; use
+`--api-only` to skip it).
 
 ---
 
 <details>
 <summary><strong>Contents</strong></summary>
 
+- [Run it locally in one command](#-run-it-locally-in-one-command)
 - [Don't trust it — check the proof](#dont-trust-it--check-the-proof)
 - [What it is](#what-it-is)
+- [Everything it does](#everything-it-does)
 - [Who this is for](#who-this-is-for)
 - [Start with the audit](#start-with-the-audit--no-signup-no-repo-access-no-trust-required)
 - [Then the agency takes over](#then-the-agency-takes-over--at-your-pace)
 - [How the agents keep themselves honest](#how-the-agents-keep-themselves-honest)
+- [How the agents are governed](#how-the-agents-are-governed)
 - [Honest model economics](#honest-model-economics)
-- [Setup (self-hosted)](#setup-self-hosted)
 - [Screens](#screens)
 - [Architecture, security, license](#architecture-security-license)
+- [What's new](#whats-new)
+- [Need assistance?](#need-assistance)
 - [Contributing](#contributing)
 
 </details>
@@ -46,7 +76,7 @@ Most "autonomous agent" projects show you a demo video. Here are artifacts inste
 
 | Proof | What it shows |
 |---|---|
-| [**This repo is maintained by its own agents**](proof/agent-built.md) | **323 of the 906 merged pull requests** in this repository were opened by the agent fleet — self-healing systems, provider failover, CI hardening, releases. Not a demo: the public commit history, verifiable with one GitHub search. |
+| [**This repo is maintained by its own agents**](proof/agent-built.md) | A large share of the merged pull requests in this repository were opened by the agent fleet — self-healing systems, provider failover, CI hardening, releases. Not a demo: the public commit history, verifiable with one GitHub search. |
 | [**Real audit output**](proof/audits/) | The SEO/GEO/AIO audit engine run against this project's own site — findings, scores, and the agent delegation plan, committed unedited (yes, including our own imperfect score). |
 | [**24-hour live sandbox**](https://autonomous-ai-agency.strikersam.workers.dev/) | Onboard any site, watch specialists get provisioned, talk to the CEO agent. The environment resets every 24 hours. No signup wall, nothing to uninstall. |
 
@@ -54,14 +84,79 @@ Most "autonomous agent" projects show you a demo video. Here are artifacts inste
 
 ## What it is
 
-Autonomous AI Agency is a **self-hosted platform that turns one website URL into a working AI operations team**. It scans your site's tech stack, provisions the specialist agents your business actually needs (from 35 families), and runs them 24x7 on hardware you control — with human approval gates on anything that ships. Under the hood: an OpenAI-compatible proxy, multi-provider model routing with automatic failover, a three-role plan → execute → verify agent loop, and full observability. MIT licensed.
+Autonomous AI Agency is a **self-hosted platform that turns one website URL into a
+working AI operations team**. It scans your site's tech stack, provisions the
+specialist agents your business actually needs, and runs them 24×7 on hardware you
+control — with human approval gates on anything that ships. Under the hood: an
+OpenAI-compatible proxy, multi-provider model routing with automatic failover, a
+three-role plan → execute → verify agent loop, a governance layer, and full
+observability. MIT licensed.
 
-This page is the short version — the full tour (every screen, schedule, runtime, and config variable) lives in [**docs/platform-guide.md**](docs/platform-guide.md).
+This page is the short version — the full tour (every screen, schedule, runtime,
+and config variable) lives in [**docs/platform-guide.md**](docs/platform-guide.md).
+
+## Everything it does
+
+The headline capabilities, each with a deeper page. Nothing here is only prose —
+every row links to the module, doc, or test that implements it.
+
+### 🧠 The AI gateway
+
+| Capability | What it is | More |
+|---|---|---|
+| **OpenAI-compatible proxy** | Drop-in `/v1/*` for any OpenAI SDK client, with Bearer-token auth, rate limiting, and CORS in front of your models. | [features.md](docs/features.md) · [api-surfaces.md](docs/api-surfaces.md) |
+| **Anthropic + Ollama surfaces** | The same proxy also speaks Anthropic `/v1/messages` and native Ollama `/api/*` — three API shapes, one gateway. | [features.md](docs/features.md) |
+| **Multi-provider routing + failover** | Task-aware model selection across NVIDIA NIM, TokenIn, Cerebras, Groq, Ollama, Anthropic, OpenAI-compatible endpoints and AWS Bedrock, with automatic failover, backoff, and cooldown on `429`/`410`. | [model-routing.md](docs/model-routing.md) |
+| **Reasoning-budget control** | `reasoning_budget: low\|medium\|high\|max` on any request maps to the right per-provider thinking budget — one readable field, any supported model. | [features.md](docs/features.md) |
+| **Context pruning** | Long chats are auto-trimmed before forwarding, so you don't hit context-limit errors on multi-turn sessions. | [request-flow.md](docs/request-flow.md) |
+
+### 🏢 The agency
+
+| Capability | What it is | More |
+|---|---|---|
+| **URL → agency onboarding** | Scan a site's stack and stand up the specialist agents that business needs, in minutes. | [platform-guide.md](docs/platform-guide.md) |
+| **CEO-coordinated specialist fleet** | A CEO agent decomposes plain-English goals and delegates to a roster of specialists, each with its own model, runtime, and guardrails. | [specialists-skills-matrix.md](docs/specialists-skills-matrix.md) |
+| **Plan → Execute → Verify loop** | A three-role agent loop that byte-compiles and tests its own changes before accepting them — not an LLM grading its own diff. | [`agent/loop.py`](agent/loop.py) · [autonomy/](docs/autonomy/) |
+| **C-suite business advisory** | A grounded CFO/CSO/COO/CMO/CPO/Counsel layer that researches, cites, and remembers — for pricing, GTM, and risk questions, not just code. | [`agent/executive_advisory.py`](agent/executive_advisory.py) |
+| **Autonomous loops + scheduler** | Standing schedules (health, security, stack-drift, code-quality, trend watch, docs sync) run themselves on a durable APScheduler store. | [loops/registry.yaml](loops/registry.yaml) · [autonomy/](docs/autonomy/) |
+| **Self-healing & self-improvement** | The fleet researches its own errors, files fix tasks against itself, and mines past sessions for recurring friction. | [`agent/self_healing.py`](agent/self_healing.py) |
+| **Zero-key web reach** | Every agent gets read-only, SSRF-guarded internet access — fetch, search, RSS, YouTube transcripts — no API keys. | [`agent/web_reach.py`](agent/web_reach.py) |
+| **Runtime adapters** | Hand work to Hermes, goose, aider and other runtimes through one interface, all under the same policy and budget. | [platform-guide.md](docs/platform-guide.md) |
+
+### 🔎 The audit engine
+
+| Capability | What it is | More |
+|---|---|---|
+| **SEO / GEO / AIO audit** | Deterministic checks across Technical SEO, Content, Security, Social, **GEO** (generative-engine) and **AIO** (answer-engine) — a 0–100 score, revenue-at-risk pricing, and CTO-grade PDF. | [seo-audit.md](docs/seo-audit.md) · [proof/audits/](proof/audits/) |
+| **Screaming-Frog-compatible exports** | CSV exports that drop into existing SEO workflows. | [seo-audit.md](docs/seo-audit.md) |
+| **Repo-aware auto-fix** | Connect a repo and the agent proposes dry-run diffs for fixable findings; `apply=true` writes them. | [seo-audit.md](docs/seo-audit.md) |
+
+### 🛡 Governance, safety & ops
+
+| Capability | What it is | More |
+|---|---|---|
+| **Three-tier trust model** | Read-only → dry-run → gated writes. Nothing merges, deploys, or messages externally without your approval. | [platform-controls.md](docs/platform-controls.md) |
+| **Governance layer** | Agent identity, a declarative policy engine over 14 surfaces, enforced cost ceilings, TTL approval gates, and a redacted audit trail. | [governance/](docs/governance/README.md) |
+| **Hardened sandboxes + supply chain** | Least-privilege container profiles, image/dependency CVE scanning, CycloneDX SBOM, and a CI posture guard. | [governance/](docs/governance/README.md) |
+| **Observability** | Every LLM call — tokens, latency, cost, decision context — with Langfuse integration. | [langfuse-observability.md](docs/langfuse-observability.md) |
+| **Persistent memory** | Cross-session memory so the agency compounds context instead of starting cold. | [persistent-memory-system.md](docs/persistent-memory-system.md) |
+| **Knowledge graph** | The codebase itself is a queryable graph, so agent sessions query structure instead of re-reading source. | `graphify query "..."` (see [CLAUDE.md](CLAUDE.md)) |
+
+### 💻 Interfaces
+
+| Capability | What it is | More |
+|---|---|---|
+| **React dashboard** | Chat, Tasks, Agents, Schedules, Skills, Portfolio, Intelligence, Knowledge, Providers, Logs, GitHub, Company, Onboarding, Loops, Doctor, Admin — plus a responsive mobile layout. | [Screens](#screens) |
+| **Telegram bot control** | Drive the agency from your phone. | [telegram-bot.md](docs/telegram-bot.md) |
+| **GitHub integration** | Connect repos; agents open PRs, and CI is where the agents ship their own code. | [proof/agent-built.md](proof/agent-built.md) |
+| **Use it from Claude Code / any OpenAI client** | Point your existing tools at the proxy. | [claude-code-setup.md](docs/claude-code-setup.md) |
+
+Full, exhaustive reference: [**docs/features.md**](docs/features.md) · [**docs/platform-guide.md**](docs/platform-guide.md).
 
 ## Who this is for
 
 - **You're paying per-seat for an AI dev/ops tool** and want the same leverage on infrastructure you control, with no usage metering and no vendor lock-in.
-- **You need AI agents that write to production systems** but every tool you've tried either has no approval gates (too risky) or requires a human in the loop for everything (too slow). The three-tier trust model below is built for exactly this middle ground.
+- **You need AI agents that write to production systems** but every tool you've tried either has no approval gates (too risky) or requires a human in the loop for everything (too slow). The three-tier trust model is built for exactly this middle ground.
 - **You're evaluating "autonomous coding agent" platforms** and want to see one running on its own codebase in public, with its own PR history as evidence, rather than a demo video.
 - **You care where your data goes.** Self-hosted means your code, your customer data, and your prompts never transit a third-party inference relay.
 
@@ -71,10 +166,10 @@ If none of those describe you, this is probably more platform than you need — 
 
 The entry point is deliberately the lowest-risk thing an agency can do: **read-only analysis**.
 
-- **102 deterministic checks** across six pillars: Technical SEO, Content, Security headers, Social, **GEO** (generative-engine optimization: llms.txt, AI-crawler access, citable anchors) and **AIO** (answer-engine optimization: JSON-LD structured data, E-E-A-T markup)
+- **Deterministic checks** across six pillars: Technical SEO, Content, Security headers, Social, **GEO** (generative-engine optimization: llms.txt, AI-crawler access, citable anchors) and **AIO** (answer-engine optimization: JSON-LD structured data, E-E-A-T markup)
 - **0–100 health score**, overall and per pillar
 - **Revenue-at-risk quantification** — pass your monthly organic revenue and every finding is priced (a clearly-labeled model estimate, never a fabricated loss)
-- **Screaming Frog-compatible CSV exports** — drops into existing SEO workflows
+- **Screaming-Frog-compatible CSV exports** — drops into existing SEO workflows
 - **Repo-aware auto-fix** — connect a repo later and the agent proposes dry-run diffs for fixable findings (`apply=true` writes them)
 - **An agent-ready delegation plan** — every finding comes back as a WSJF-prioritized work package assigned to a specialist. That's the handoff from "audit" to "agency."
 
@@ -94,7 +189,7 @@ Trust is granted in steps, never all at once:
 2. **Dry-run** — agents propose diffs, draft PRs, draft replies. You read everything before it exists anywhere real.
 3. **Gated writes** — agents open PRs, update docs, triage tickets. Nothing merges, deploys, or messages externally without your explicit approval. High-stakes actions always pause; you choose which low-risk classes of work to auto-approve.
 
-After onboarding, the standing schedules run themselves: website health every 30 minutes, security audit daily, stack-change detection daily, code-quality scan daily, trend watch every 6 hours, docs sync on every push. You talk to a CEO agent in plain English ("fix the memory leak in issue #142"); it decomposes the job, delegates to the right specialist, and returns results with evidence — PR link, test output, reasoning trace.
+After onboarding, the standing schedules run themselves: website health, security audit, stack-change detection, code-quality scan, trend watch, and docs sync. You talk to a CEO agent in plain English ("fix the memory leak in issue #142"); it decomposes the job, delegates to the right specialist, and returns results with evidence — PR link, test output, reasoning trace.
 
 Full roster, screens, loop engineering, and configuration: [docs/platform-guide.md](docs/platform-guide.md).
 
@@ -129,7 +224,7 @@ and adapted to this platform's topology.
 | **Cost ceilings** | Six enforced per-session limits — tool calls, spend, tokens, duration, recursion depth, retries. A policy file cannot stop a runaway loop; a counter can. | [`packages/governance/enforcement.py`](packages/governance/enforcement.py) |
 | **Approval gates** | High-risk actions (merge, delete, deploy, container build) hold for a human. TTL-bounded, and expiry **denies**. | [`packages/governance/approvals.py`](packages/governance/approvals.py) |
 | **Audit trail** | Who / what / when / why / where / cost — 20 fields, secrets redacted *before* storage, SIEM-shippable as one-line JSON. | [`packages/governance/audit.py`](packages/governance/audit.py) |
-| **Hardened sandboxes** | Eight least-privilege profiles: all capabilities dropped, non-root, no-new-privileges, read-only rootfs and no network by default. Docker locally, Firecracker micro-VMs in production. | [`config/sandbox_profiles.yaml`](config/sandbox_profiles.yaml) |
+| **Hardened sandboxes** | Least-privilege profiles: all capabilities dropped, non-root, no-new-privileges, read-only rootfs and no network by default. Docker locally, Firecracker micro-VMs in production. | [`config/sandbox_profiles.yaml`](config/sandbox_profiles.yaml) |
 | **Supply chain** | Image CVE scanning, dependency CVEs, CycloneDX SBOM, Dockerfile lint, and a posture guard that fails CI on a privileged container or a mounted Docker socket. | [`.github/workflows/supply-chain.yml`](.github/workflows/supply-chain.yml) |
 
 **It ships in observe mode.** Rules are evaluated and audited; nothing is
@@ -137,91 +232,16 @@ blocked until an operator deliberately switches to enforcement, after watching
 what the rules *would* have caught. `GET /api/governance/status` reports what is
 actually in force — including `isolation: none` when no sandbox backend is
 available — because a dashboard that overstates containment is worse than none.
-
-Enforcement covers **every execution path**, not only in-process tool calls:
-work an agent hands to a runtime adapter passes through the same policy and the
-same session budget before the adapter runs, so a restriction cannot be routed
-around by dispatching instead of running locally. This layer graduated to
-**stable** on 2026-08-22: the six ceilings and expiry-denies above are now
-enforced on all paths and covered by tests that fail CI if the claim stops
-being true. The policy-authoring UI is tracked separately as beta — rules are
-edited in [`config/agent_policy.yaml`](config/agent_policy.yaml) under git
-review, not from the dashboard.
+Enforcement covers **every execution path**, not only in-process tool calls, so a
+restriction cannot be routed around by dispatching to a runtime instead.
 
 Guide, gap analysis, and threat model: [docs/governance/](docs/governance/README.md).
-
-## What's New (2026-09-14)
-
-**Routing failover chain completed for Gemini 3.x and Fable 5.1.** `claude-fable-5-1` and four Gemini 3.x models added to `config/llm/models.yaml` on Sep 13 were reachable for capability checks but unreachable via the `PROVIDER_CANDIDATES` watchdog/brain_failover chain — the routing config that handles 404/410/timeout failover. Both gaps are now closed: `claude-fable-5-1` (Fable 5.1) added to Anthropic and Aerolink candidates; `gemini-3.8-flash`, `gemini-3.7-flash`, `gemini-3.5-flash-lite`, and `gemini-3.1-pro` added to Google candidates. New entries are placed after proven primaries so primary routing is unchanged. (`moonshotai/kimi-k2-instruct` and `qwen-qwq-32b` were **not** added to Groq candidates — both are confirmed unreachable on this account by a live probe and are on the repo's `DEAD_GROQ` denylist.)
-
----
-
-## What's New (2026-09-01)
-
-**Anthropic server-side refusal fallbacks.** The Anthropic provider now sends `fallbacks: {"mode": "default"}` in the request body when `server_fallback: true` is set in the provider config (opt-in, default off). Paired with the existing `server-side-fallback-2026-07-01` beta header, this tells Anthropic's inference layer to automatically re-run content-refused requests on a recommended alternative model without a client-side round-trip. The legacy `ProviderRouter` also emits the parameter when `ANTHROPIC_SERVER_FALLBACK_BETA` is truthy (the default).
-
-**Refusal observability.** When Anthropic returns `stop_reason: "refusal"`, a `WARNING` log is now emitted with the refusal category (`cyber`, `bio`, or `unknown`) and explanation. Previously, these refusals arrived as silent empty-text responses with no operator-visible signal.
-
----
-
-## What's New (2026-08-21)
-
-**Claude 5 family in the YAML model catalog.** `claude-sonnet-5`, `claude-sonnet-5-20260501`, `claude-opus-5`, and `claude-haiku-4-5-20251001` are now declared in `config/llm/models.yaml`, the catalog that drives capability filtering, context-window checks, and per-token cost tracking for every routed request. Sonnet 5's 1M-token context window and introductory pricing ($2/$10 per MTok — cheaper than Sonnet 4.6's $3/$15) are now visible to the YAML-driven code paths. The Anthropic provider default is promoted from `claude-sonnet-4-6` to `claude-sonnet-5`; new deployments that set only `ANTHROPIC_API_KEY` now route to Sonnet 5 automatically.
-
-**`anthropic-workspace-id` observability.** The Anthropic provider now captures the `anthropic-workspace-id` response header and surfaces it in `LLMResponse.raw["_anthropic_workspace_id"]`. Multi-workspace deployments can see which workspace is serving each call; Langfuse and other observability consumers that read `raw` pick it up automatically.
-
----
-
-## What's New (2026-08-16)
-
-**Claude Sonnet 5 and Opus 5 routing.** Both Anthropic GA models are now registered in the model router. `claude-sonnet-5` brings a 1M-token context window with adaptive (extended) thinking; `claude-opus-5` is the new flagship for planning and reasoning. Any OpenAI-compat client that sets `"model": "claude-sonnet-5"` or `"model": "claude-opus-5"` now routes correctly through the proxy instead of falling back to the heuristic default.
-
-**`reasoning_budget` shorthand.** Clients calling `/v1/chat/completions` can now pass `"reasoning_budget": "low"|"medium"|"high"|"max"` alongside their request. The proxy maps it to the appropriate `thinking_token_budget` value (512 → 2048 → 8192 → 32768) before forwarding — so you control reasoning depth and token spend on any supported model (DeepSeek-R1, Qwen3, Nemotron, Claude 3.7+) with a single readable field, without learning each provider's raw parameter.
-
-**Chat-path context pruning.** The 3-phase context pruner that has been protecting the agent loop for months is now also active on direct `/v1/chat/completions` requests. Conversations that grow past ~80k tokens are automatically trimmed (think-tag stripping → per-role backward walk → XML wrapping of older turns) before being forwarded — no more context-limit errors on long multi-turn sessions. Disable with `PROXY_CONTEXT_PRUNING_ENABLED=false` if you prefer raw pass-through.
-
----
-
-## What's New (2026-07-24)
-
-**Structured output strict mode + refusal handling.** The OpenAI `json_schema` + `strict: true` pattern is now the preferred way to request schema-conformant JSON from any model (replacing the legacy `json_object` mode). The proxy translates strict-mode requests into a tighter system-prompt constraint for Anthropic and other providers that don't natively support it, and detects model refusals (`choices[0].message.refusal`) so callers get a clear error instead of empty/garbled JSON.
-
-**MCP tools/list TTL caching.** The agent's MCP client now respects the `ttlMs` field from `tools/list` responses (per the MCP spec 2026-07-28 RC), eliminating redundant round-trips to stable tool registries. Configurable default: 60 s.
-
-**New model catalog entries.** The cost-attribution table now includes the July 2026 model releases: **GPT-5.6 Sol/Terra/Luna** (OpenAI's o3 successors, GA July 9), **Claude Sonnet 5** (1M context, adaptive thinking), and **o3** (with deprecation flag for late August). Provider cost breakdowns on the Observability screen update automatically.
-
----
 
 ## Honest model economics
 
 - The **free 24h sandbox** runs on free-tier models (Cerebras, Groq, NVIDIA NIM) with automatic failover. It demonstrates the orchestration loop end to end; it is *not* the output quality you'd run a company on.
 - **Production runs on your infrastructure with your keys.** Anthropic Claude, OpenAI-compatible endpoints, AWS Bedrock, NVIDIA NIM, Groq, Cerebras, DeepSeek, and local Ollama are all supported by the same router — point the brain at a top-tier model from the Providers screen and every specialist upgrades instantly, no redeploy.
 - **No data leaves your server.** No cloud relay, no usage telemetry, no shared inference endpoint, no per-seat pricing.
-
-## Need assistance?
-
-The software is free and always will be (MIT). If you'd like a hand putting it to work — or advice on AI adoption in general — I'm happy to assist.
-
-> I built this platform end-to-end: multi-provider LLM routing with failover, multi-agent orchestration, human-approval workflows, observability, and a CI pipeline where the agents themselves ship the code ([proof](proof/agent-built.md)). I consult on AI strategy and agentic automation, and I can assist with deploying this platform on your own infrastructure with top-tier models (Claude, GPT — all supported), onboarding your company, and tuning the specialist fleet to your stack. A hands-on 2-week pilot is the usual starting point; early design partners get generous terms in exchange for a public case study.
-
-- 📧 **strikersam@gmail.com** — tell me your URL and what you'd like automated first
-- 📋 [**Request a pilot / ask a question**](https://github.com/strikersam/autonomous-ai-agency/issues/new?template=pilot-request.yml) — public form, answered within 48 hours
-- Or simply [run the audit on your own site](#start-with-the-audit--no-signup-no-repo-access-no-trust-required) and send me the report — I'll walk you through what the fleet would do about it, free.
-
-## Setup (self-hosted)
-
-Python 3.13+, Node 20+, and either [Ollama](https://ollama.com/) or a free [NVIDIA NIM](https://build.nvidia.com/) API key. No Kubernetes, no cloud account — SQLite mode needs no database server at all.
-
-```bash
-git clone https://github.com/strikersam/autonomous-ai-agency.git && cd autonomous-ai-agency
-python -m venv .venv && source .venv/bin/activate
-pip install -r backend/requirements.txt
-cp .env.example .env    # minimum: STORAGE_BACKEND=sqlite, SECRET_KEY, ADMIN_EMAIL/PASSWORD, NVIDIA_API_KEY
-uvicorn backend.server:app --host 0.0.0.0 --port 8001
-cd frontend && npm install && REACT_APP_BACKEND_URL=http://localhost:8001 npm start
-```
-
-Then open http://localhost:3000, paste your company URL, and onboard. Full setup, cloud deployment (Render + Cloudflare + GitHub Pages), and every configuration variable: [docs/platform-guide.md](docs/platform-guide.md#setup) · [docs/configuration-reference.md](docs/configuration-reference.md)
 
 ---
 
@@ -355,11 +375,37 @@ Security posture: no secrets in source (env-only, validated at startup) · JWT B
 
 MIT — see [LICENSE](LICENSE)
 
----
+## What's new
+
+The latest change log lives in [**docs/changelog.md**](docs/changelog.md). Recent highlights:
+
+- **Routing failover chain completed for Gemini 3.x and Fable 5.1** (2026-09-14) — `claude-fable-5-1` and four Gemini 3.x models are now reachable through the watchdog/failover chain, not just capability checks.
+- **Anthropic server-side refusal fallbacks + refusal observability** (2026-09-01) — opt-in server-side re-run of content-refused requests, and a `WARNING` log with the refusal category instead of a silent empty response.
+- **Claude 5 family in the model catalog & router** (2026-08) — `claude-sonnet-5` (1M context, adaptive thinking) and `claude-opus-5` route correctly through the proxy; new deployments that set only `ANTHROPIC_API_KEY` default to Sonnet 5.
+
+<details>
+<summary>More releases</summary>
+
+- **`reasoning_budget` shorthand** — `low\|medium\|high\|max` maps to per-provider thinking budgets on any supported model.
+- **Chat-path context pruning** — long `/v1/chat/completions` conversations are auto-trimmed before forwarding.
+- **Structured output strict mode + refusal handling** — the OpenAI `json_schema` + `strict: true` pattern, translated for providers that don't support it natively.
+- **MCP `tools/list` TTL caching** — honours the `ttlMs` field to cut redundant round-trips.
+
+</details>
+
+## Need assistance?
+
+The software is free and always will be (MIT). If you'd like a hand putting it to work — or advice on AI adoption in general — I'm happy to assist.
+
+> I built this platform end-to-end: multi-provider LLM routing with failover, multi-agent orchestration, human-approval workflows, observability, and a CI pipeline where the agents themselves ship the code ([proof](proof/agent-built.md)). I consult on AI strategy and agentic automation, and I can assist with deploying this platform on your own infrastructure with top-tier models (Claude, GPT — all supported), onboarding your company, and tuning the specialist fleet to your stack. A hands-on 2-week pilot is the usual starting point; early design partners get generous terms in exchange for a public case study.
+
+- 📧 **strikersam@gmail.com** — tell me your URL and what you'd like automated first
+- 📋 [**Request a pilot / ask a question**](https://github.com/strikersam/autonomous-ai-agency/issues/new?template=pilot-request.yml) — public form, answered within 48 hours
+- Or simply [run the audit on your own site](#start-with-the-audit--no-signup-no-repo-access-no-trust-required) and send me the report — I'll walk you through what the fleet would do about it, free.
 
 ## Contributing
 
-Issues and PRs are welcome. [**CONTRIBUTING.md**](CONTRIBUTING.md) covers dev setup, coding standards, and the PR checklist; [**SECURITY.md**](SECURITY.md) covers vulnerability disclosure. Since [roughly a third of merged PRs here are agent-authored](proof/agent-built.md), the fastest way to see the expected quality bar is to read a few recent ones.
+Issues and PRs are welcome. [**CONTRIBUTING.md**](CONTRIBUTING.md) covers dev setup, coding standards, and the PR checklist; [**SECURITY.md**](SECURITY.md) covers vulnerability disclosure. Since [a large share of merged PRs here are agent-authored](proof/agent-built.md), the fastest way to see the expected quality bar is to read a few recent ones.
 
 If you'd rather point an agent at a specific gap than write the fix yourself, [open an issue](https://github.com/strikersam/autonomous-ai-agency/issues/new) describing it — the fleet's own inbound-issue triage may pick it up.
 
