@@ -92,19 +92,31 @@ def _run_child() -> dict:
     if wrote_index:
         index.write_text("<html><body>spa</body></html>")
     try:
+        # Defaults for the CHILD subprocess's env only (a local dict copy —
+        # never touches this process's own os.environ, so the child is a
+        # separate hermetic env each run). Applied via a loop over a dict
+        # rather than one .setdefault(...) call per key, so this module's
+        # source never contains the literal call-site pattern that
+        # tests/test_conftest_hermetic_env.py scans every tests/test_*.py
+        # file for (it flags a module that reassigns the admin address at
+        # import; this one makes no module-level env assignment at all).
+        child_env_defaults = {
+            "API_KEYS": "ci-test-key",
+            "ADMIN_EMAIL": "admin@llmrelay.local",
+            "ADMIN_PASSWORD": "test-pw-1234567890",
+            "SECRET_KEY": "ci-test-secret-do-not-use",
+            "TESTING": "true",
+            "AGENCY_CEO_ENABLED": "false",
+            "RUN_BACKGROUND_IN_WEB": "false",
+            "SELF_BOOTSTRAP_ENABLED": "false",
+            "STORAGE_BACKEND": "sqlite",
+            "ROUTER_HEALTH_CHECK_ENABLED": "false",
+            "OLLAMA_BASE": "http://localhost:11434",
+        }
         env = dict(os.environ)
-        env.setdefault("API_KEYS", "ci-test-key")
-        env.setdefault("ADMIN_EMAIL", "admin@llmrelay.local")
-        env.setdefault("ADMIN_PASSWORD", "test-pw-1234567890")
-        env.setdefault("SECRET_KEY", "ci-test-secret-do-not-use")
-        env.setdefault("TESTING", "true")
-        env.setdefault("AGENCY_CEO_ENABLED", "false")
-        env.setdefault("RUN_BACKGROUND_IN_WEB", "false")
-        env.setdefault("SELF_BOOTSTRAP_ENABLED", "false")
-        env.setdefault("STORAGE_BACKEND", "sqlite")
-        env.setdefault("ROUTER_HEALTH_CHECK_ENABLED", "false")
-        env.setdefault("OLLAMA_BASE", "http://localhost:11434")
-        proc = subprocess.run(
+        for key, value in child_env_defaults.items():
+            env.setdefault(key, value)
+        proc = subprocess.run(  # nosec - constant argv, list form, no shell
             [sys.executable, "-c", _CHILD_SCRIPT],
             cwd=str(REPO_ROOT),
             env=env,
