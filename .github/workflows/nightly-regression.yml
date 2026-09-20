@@ -95,13 +95,32 @@ jobs:
           for i in $(seq 1 60); do
             if curl -sf http://localhost:8001/api/ping > /dev/null 2>&1; then
               echo "Backend ready after ${i}s"
-              exit 0
+              break
             fi
             sleep 1
+            if [ "$i" = 60 ]; then
+              echo "Backend failed to start"
+              docker logs llm-relay-nightly
+              exit 1
+            fi
           done
-          echo "Backend failed to start"
-          docker logs llm-relay-nightly
-          exit 1
+
+          # /api/ping only proves the ASGI app is accepting connections, not
+          # that the deferred admin/index bootstrap (login's own
+          # _bootstrap_within_budget, budget 3s) has run. Two nightly runs
+          # (35414763080, 35483469060) failed with test_regression.py's
+          # browser_login() silently stuck on /login — root-caused live via
+          # a since-added diagnostic (see browser_login in
+          # tests/e2e/test_regression.py) to the DESKTOP viewport's login
+          # being the very first real request into a cold container:
+          # Playwright's 15s networkidle wait didn't cover it, while the
+          # MOBILE viewport's login — hitting an already-warm process right
+          # after — succeeded immediately every time. One throwaway login
+          # here pays that one-time cost outside the timed browser run.
+          curl -sf -X POST http://localhost:8001/api/auth/login \
+            -H "Content-Type: application/json" \
+            -d "{\"email\":\"$E2E_ADMIN_EMAIL\",\"password\":\"$E2E_ADMIN_PASSWORD\"}" \
+            > /dev/null 2>&1 || echo "Warm-up login did not return 2xx — proceeding anyway, the real test will surface a genuine failure"
 
       - name: Run regression suite
         id: regression
