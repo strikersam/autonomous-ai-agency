@@ -11168,16 +11168,41 @@ if _FRONTEND_BUILD.exists():
         "/static", StaticFiles(directory=str(_FRONTEND_BUILD / "static")), name="static"
     )
 
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def serve_spa(full_path: str):
-        # API/auth paths that reached the catch-all have no upstream handler —
-        # return 404 JSON rather than leaking the SPA shell to a protected route.
-        if any(full_path.startswith(p) for p in SPA_PROTECTED_PREFIXES):
-            return JSONResponse({"detail": "Not Found"}, status_code=404)
-        index = _FRONTEND_BUILD / "index.html"
-        if index.exists():
-            return HTMLResponse(index.read_text())
-        return JSONResponse({"detail": "Frontend not built"}, status_code=404)
+    # Installed as the router's fallback (app.router.default), NOT as an
+    # `@app.get("/{full_path:path}")` route. A route whose path regex matches
+    # everything wins a Match.PARTIAL for any non-GET method on ANY path —
+    # including one whose real handler is registered only with a trailing
+    # slash, e.g. `POST /api/tasks/`. Starlette's Router.app() serves that
+    # PARTIAL match (a 405) before it ever reaches its own trailing-slash
+    # redirect check, so a bare `POST /api/tasks` 405'd instead of
+    # 307-redirecting to the real handler. `router.default` only runs after
+    # every route AND the redirect-slash check have failed to match, so it no
+    # longer preempts them.
+    _spa_fallback_not_found = app.router.default
+
+    async def serve_spa(scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await _spa_fallback_not_found(scope, receive, send)
+            return
+        full_path = scope["path"].lstrip("/")
+        # A non-GET/HEAD method reaching here has no handler under any
+        # method for this path (a real match, or a trailing-slash variant of
+        # one, would have been served already) — same 404 a plain ASGI app
+        # gives for an unrecognised path, folded into the same branch as the
+        # protected-prefix guard below since both cases read as "no route".
+        if scope["method"] not in ("GET", "HEAD") or any(
+            full_path.startswith(p) for p in SPA_PROTECTED_PREFIXES
+        ):
+            response = JSONResponse({"detail": "Not Found"}, status_code=404)
+        else:
+            index = _FRONTEND_BUILD / "index.html"
+            if index.exists():
+                response = HTMLResponse(index.read_text())
+            else:
+                response = JSONResponse({"detail": "Frontend not built"}, status_code=404)
+        await response(scope, receive, send)
+
+    app.router.default = serve_spa
 
 # Force rebuild Thu Jun 25 14:08:14 UTC 2026
 # Force rebuild Thu Jun 25 14:22:25 UTC 2026

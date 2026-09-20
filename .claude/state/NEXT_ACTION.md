@@ -3,6 +3,40 @@
 _Updated 2026-09-20._
 
 > **2026-09-20 daily automation (this run):** No open PRs and no
+> `routine-backlog` issues at session start. CI fully green on master
+> `250b4d0` — checked workflow run history (not just the latest push) and
+> confirmed both previously-known scheduled-workflow bugs (nightly-regression
+> login-timing flakiness, the catalogue-probe daily red) were already fixed
+> by other sessions earlier the same day (PRs #1533/#1534 and #1525
+> respectively; latest runs of each are green).
+>
+> Picked up the one still-open, explicitly documented follow-up instead:
+> the `POST /api/tasks` `405` that the 2026-09-19 and 2026-09-20 CHANGELOG
+> entries both named and explicitly left unfixed. Root cause:
+> `backend/server.py`'s SPA fallback was registered as
+> `@app.get("/{full_path:path}")` — a route matching every path — which
+> Starlette's router treats as a same-path/wrong-method partial match on any
+> non-GET request, and serves that (a 405) *before* its own trailing-slash
+> redirect check ever runs. This affected every router in the app whose
+> handler is registered with a trailing slash, not only `/api/tasks`. Fixed
+> by installing the fallback as `app.router.default` instead of a route, so
+> it only runs after routing and the redirect-slash check have both already
+> failed. Verified against the real `backend.server` module with a temporary
+> `frontend/build` (this code path is otherwise unexercised by CI's own
+> `pytest` job, which never builds the frontend): `POST /api/tasks` (no
+> slash) `405` → `307` → real handler (`401`, not 404/405); protected-orphan
+> `GET` and legitimate SPA `GET` routes unchanged. Documented trade-off: a
+> non-GET/HEAD request to a genuinely unmatched path now reads `404` instead
+> of `405`. 6 new regression tests, 3/6 verified failing against the pre-fix
+> code. PR opened on `routine/daily-2026-09-20-spa-trailing-slash`. See
+> `.claude/state/active-tasks.md` row 69 for full detail.
+>
+> **Not done today:** the older, still-`IN_PROGRESS` rows (2, 6, 8, 11, 27,
+> 32, 50, 53) were not re-verified this session — today's pick was the
+> single highest-value, best-scoped item per the daily-automation mandate
+> (one focused fix, not a backlog sweep).
+
+> **2026-09-20 daily automation (a separate, parallel run):** No open PRs and no
 > `routine-backlog` issues at session start. CI green on master (`250b4d0`).
 > Identified the highest-value catalog gap: three Chinese AI provider families
 > — ZhipuAI/GLM (`zhipu` + `zai`), DashScope/Qwen (`dashscope`), and
@@ -21,12 +55,11 @@ _Updated 2026-09-20._
 > 28 new tests in `tests/test_daily_automation_2026_09_20.py` — 28/28 pass.
 > `compileall` clean. Changelog parity OK. `graphify update .` ran.
 >
-> PR open on `claude/intelligent-gates-96h8vs`, auto-merge to be enabled.
+> PR [#1536](https://github.com/strikersam/autonomous-ai-agency/pull/1536) on
+> `claude/intelligent-gates-96h8vs`, auto-merge enabled (SQUASH).
 >
 > **Not done today:** no rule-40 items surfaced; no open PRs inherited from
 > previous sessions.
-
-_Previous (2026-09-19):_
 
 > **2026-09-19 health-check (this run):** No red CI on master (all checks on
 > HEAD `79937c82` green). One open routine-owned PR,
