@@ -1,7 +1,7 @@
 # Graph Report - local-llm-server  (2026-09-20)
 
 ## Corpus Check
-- 1529 files · ~2,225,349 words
+- 1529 files · ~2,225,609 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 54 file(s) not represented in the graph (top: (none) 16, .bat 5, .css 5)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `250b4d0d`
+- Built from commit: `4938fc27`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
