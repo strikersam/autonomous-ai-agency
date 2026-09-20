@@ -2,13 +2,14 @@
 
 _Updated 2026-09-20._
 
-> **2026-09-20 daily automation (this run):** No open PRs and no
-> `routine-backlog` issues at session start. CI fully green on master
-> `250b4d0` — checked workflow run history (not just the latest push) and
-> confirmed both previously-known scheduled-workflow bugs (nightly-regression
-> login-timing flakiness, the catalogue-probe daily red) were already fixed
-> by other sessions earlier the same day (PRs #1533/#1534 and #1525
-> respectively; latest runs of each are green).
+> **2026-09-20 daily automation — final state (supersedes the entry this
+> replaces, written mid-session before the regression below was found):**
+> No open PRs and no `routine-backlog` issues at session start. CI fully
+> green on master `250b4d0` — checked workflow run history (not just the
+> latest push) and confirmed both previously-known scheduled-workflow bugs
+> (nightly-regression login-timing flakiness, the catalogue-probe daily red)
+> were already fixed by other sessions earlier the same day (PRs #1533/#1534
+> and #1525 respectively; latest runs of each are green).
 >
 > Picked up the one still-open, explicitly documented follow-up instead:
 > the `POST /api/tasks` `405` that the 2026-09-19 and 2026-09-20 CHANGELOG
@@ -17,24 +18,51 @@ _Updated 2026-09-20._
 > `@app.get("/{full_path:path}")` — a route matching every path — which
 > Starlette's router treats as a same-path/wrong-method partial match on any
 > non-GET request, and serves that (a 405) *before* its own trailing-slash
-> redirect check ever runs. This affected every router in the app whose
-> handler is registered with a trailing slash, not only `/api/tasks`. Fixed
-> by installing the fallback as `app.router.default` instead of a route, so
-> it only runs after routing and the redirect-slash check have both already
-> failed. Verified against the real `backend.server` module with a temporary
-> `frontend/build` (this code path is otherwise unexercised by CI's own
-> `pytest` job, which never builds the frontend): `POST /api/tasks` (no
-> slash) `405` → `307` → real handler (`401`, not 404/405); protected-orphan
-> `GET` and legitimate SPA `GET` routes unchanged. Documented trade-off: a
-> non-GET/HEAD request to a genuinely unmatched path now reads `404` instead
-> of `405`. 6 new regression tests, 3/6 verified failing against the pre-fix
-> code. PR opened on `routine/daily-2026-09-20-spa-trailing-slash`. See
-> `.claude/state/active-tasks.md` row 69 for full detail.
+> redirect check ever runs. Fixed by installing the fallback as
+> `app.router.default` instead of a route. PR #1535 opened, local checks
+> green, auto-merge (squash) enabled.
+>
+> **Auto-merge race:** #1535's auto-merge fired on its *second* push (the
+> first fix plus a CI-driven bandit/hermetic-env follow-up) before its
+> *third* push — a fix for a regression CI had just caught in the second —
+> could be evaluated. Branch protection's required checks don't include the
+> Playwright job that caught it, so that failure never blocked the merge.
+> Master briefly carried a real regression: any frontend SPA route sharing a
+> bare path with an API router's GET-only trailing-slash listing endpoint
+> (e.g. `/runtimes` vs. `runtimes/api.py`'s `GET /runtimes/`) 307-redirected
+> into that API's raw JSON instead of rendering the SPA, because leaving
+> Starlette's own `redirect_slashes` on let a bare GET fall through to its
+> redirect check and find the API route there. Confirmed live via
+> `tests/e2e/test_browser.py`'s "Runtimes — empty page title" Playwright
+> failure, then directly via `git show origin/master:backend/server.py`.
+>
+> Per the already-merged-PR protocol: restarted
+> `routine/daily-2026-09-20-spa-trailing-slash` from the new `origin/master`
+> and cherry-picked the fix (`app.router.redirect_slashes = False`,
+> reimplemented scoped to non-GET/HEAD only — restores pre-#1535 GET/HEAD
+> behavior exactly) rather than reusing #1535. Opened PR #1537; this time
+> deliberately did **not** enable auto-merge — waited for every check,
+> including both Playwright job instances, to complete green
+> (`mergeable_state: clean`) before merging manually. Merged as `e32a948`.
+> Master's `backend/server.py` verified post-merge to contain the
+> `redirect_slashes` fix.
+>
+> 8 regression tests total in `tests/test_spa_trailing_slash_redirect.py`
+> (6 for the original bug, 2 for the `/runtimes`-class regression); the
+> `/runtimes` test verified failing against the incomplete first fix. Also
+> fixed on the way: a missing `# nosec` on the new test's own
+> `subprocess.run` (one new Bandit alert) and a per-key
+> `env.setdefault("ADMIN_EMAIL", ...)` in that same test file tripping
+> `tests/test_conftest_hermetic_env.py`'s repo-wide textual guard (restructured
+> into a loop). Full detail in `.claude/state/active-tasks.md` row 69.
 >
 > **Not done today:** the older, still-`IN_PROGRESS` rows (2, 6, 8, 11, 27,
 > 32, 50, 53) were not re-verified this session — today's pick was the
 > single highest-value, best-scoped item per the daily-automation mandate
-> (one focused fix, not a backlog sweep).
+> (one focused fix, not a backlog sweep). **Worth flagging to a human:**
+> branch protection's required-checks set doesn't include the Playwright
+> browser job, which is how a real regression reached master via auto-merge
+> today — may be worth adding it to required checks.
 
 > **2026-09-19 health-check (this run):** No red CI on master (all checks on
 > HEAD `79937c82` green). One open routine-owned PR,
