@@ -270,7 +270,7 @@ class TestCatalogTotals:
         """check_model_catalog_consistency.py must report no drift."""
         import subprocess
         import sys
-        result = subprocess.run(
+        result = subprocess.run(  # nosec
             [sys.executable, "scripts/check_model_catalog_consistency.py"],
             cwd=str(_ROOT),
             capture_output=True,
