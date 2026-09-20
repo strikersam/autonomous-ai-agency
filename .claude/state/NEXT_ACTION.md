@@ -1,6 +1,32 @@
 # Next Action
 
-_Updated 2026-09-19._
+_Updated 2026-09-20._
+
+> **2026-09-20 daily automation (this run):** No open PRs and no
+> `routine-backlog` issues at session start. CI green on master (`250b4d0`).
+> Identified the highest-value catalog gap: three Chinese AI provider families
+> — ZhipuAI/GLM (`zhipu` + `zai`), DashScope/Qwen (`dashscope`), and
+> Moonshot/Kimi (`moonshot`) — all had routing candidates in `config/models.yaml`
+> but zero entries in `config/llm/models.yaml`. Without catalog entries,
+> `packages/llm/registry.py` defaults `supports_tools: false` for all of them,
+> silently excluding every model from tool-calling requests despite GLM-4+,
+> Qwen2.5, and Moonshot all implementing the OpenAI function-calling protocol.
+>
+> Added 12 catalog entries: 5 GLM models (glm-5.2/5.1/4/4-flash/4-air),
+> 4 Qwen models (qwen-plus/max/turbo/coder-plus), 3 Moonshot models
+> (moonshot-v1-8k/32k/128k). All declared `supports_tools: true`. Cost rows
+> added for all 12 in `packages/ai/cost_tracker.py` (GLM at $0 free-credits
+> tier; Qwen at approximate CNY→USD floors; Moonshot at approximate pricing).
+> `check_model_catalog_consistency.py` → `CATALOGUE OK: 69 declared ids, no drift`.
+> 28 new tests in `tests/test_daily_automation_2026_09_20.py` — 28/28 pass.
+> `compileall` clean. Changelog parity OK. `graphify update .` ran.
+>
+> PR open on `claude/intelligent-gates-96h8vs`, auto-merge to be enabled.
+>
+> **Not done today:** no rule-40 items surfaced; no open PRs inherited from
+> previous sessions.
+
+_Previous (2026-09-19):_
 
 > **2026-09-19 health-check (this run):** No red CI on master (all checks on
 > HEAD `79937c82` green). One open routine-owned PR,
