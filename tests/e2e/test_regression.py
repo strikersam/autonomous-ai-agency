@@ -187,7 +187,13 @@ class APIClient:
 
 def browser_login(page: Page) -> bool:
     """Log in through the browser UI. Returns True on success."""
-    page.goto(f"{BASE_URL}/login", wait_until="networkidle", timeout=15000)
+    # 30s (not the usual 15s) on both waits in this function: whichever
+    # viewport's browser happens to run its first real page load against a
+    # freshly-started nightly container can occasionally outlast 15s under
+    # CI runner contention — observed alternating between desktop and
+    # mobile across runs 35483469060/35491246666/35491888836, so it is
+    # runner timing, not a bug tied to either viewport.
+    page.goto(f"{BASE_URL}/login", wait_until="networkidle", timeout=30000)
     page.wait_for_timeout(500)
 
     if "login" not in page.url.lower():
@@ -218,7 +224,7 @@ def browser_login(page: Page) -> bool:
     else:
         pw_el.press("Enter")
 
-    page.wait_for_load_state("networkidle", timeout=15000)
+    page.wait_for_load_state("networkidle", timeout=30000)
     page.wait_for_timeout(500)
     if "login" in page.url.lower():
         # Swallowed-failure trap: a caller checking `if not browser_login(page)`
