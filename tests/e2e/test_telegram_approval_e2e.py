@@ -277,11 +277,18 @@ def _seed_requires_approval_task(client: httpx.Client, jwt: str) -> dict[str, An
         "tags": ["e2e", "telegram-approval-fix"],
     }
     headers = {"Authorization": f"Bearer {jwt}"}
-    r = client.post(f"{AGENCY_BASE_URL}/api/tasks", json=body, headers=headers, timeout=20)
+    # Trailing slash is load-bearing: task_router only registers POST "/" under
+    # its "/api/tasks" prefix (tasks/api.py), so "/api/tasks" (no slash) either
+    # 307-redirects or 405s depending on what else in the app happens to match
+    # that literal path — either way httpx.Client() here does not follow it
+    # (follow_redirects defaults to False), so the bare path never succeeds.
+    r = client.post(f"{AGENCY_BASE_URL}/api/tasks/", json=body, headers=headers, timeout=20)
     assert r.status_code in (200, 201), (
         f"task seed failed: status={r.status_code} body={r.text[:300]}"
     )
-    return r.json()
+    # create_task (tasks/api.py) wraps the task under a "task" key
+    # ({"task": {...}}), not the flat dict this function's docstring promises.
+    return r.json()["task"]
 
 
 def _delete_task(client: httpx.Client, jwt: str, task_id: str) -> None:

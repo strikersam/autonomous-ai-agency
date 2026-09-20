@@ -163,7 +163,10 @@ class APIClient:
         return self._post("/api/schedules", {"name": name, "cron": cron, "instruction": "E2E regression test"})
 
     def create_task(self, title: str) -> dict:
-        return self._post("/api/tasks", {"title": title, "description": "E2E test", "prompt": "Test"})
+        # Trailing slash required — task_router only registers POST "/" under
+        # its "/api/tasks" prefix; the bare path does not reliably succeed
+        # (see tests/e2e/test_telegram_approval_e2e.py::_seed_requires_approval_task).
+        return self._post("/api/tasks/", {"title": title, "description": "E2E test", "prompt": "Test"})
 
     def scan_website(self, cid: str, url: str = "https://example.com") -> dict:
         return self._post(f"/api/company/{cid}/scan/website", {"website_url": url})
@@ -217,7 +220,16 @@ def browser_login(page: Page) -> bool:
 
     page.wait_for_load_state("networkidle", timeout=15000)
     page.wait_for_timeout(500)
-    return "login" not in page.url.lower()
+    if "login" in page.url.lower():
+        # Swallowed-failure trap: a caller checking `if not browser_login(page)`
+        # got a bare False here with no Report.fail — two consecutive nightly
+        # runs (see CI history) failed at exactly this point with zero
+        # diagnostic output, because nothing downstream of this ever printed
+        # why. Report the URL so the next occurrence is actionable instead of
+        # silent.
+        Report.fail("login", f"still on {page.url} after submit — bad credentials or slow backend bootstrap")
+        return False
+    return True
 
 
 # ─── Helper: collect console errors ───────────────────────────────────────────
