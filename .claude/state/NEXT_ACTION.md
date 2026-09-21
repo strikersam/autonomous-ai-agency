@@ -1,6 +1,65 @@
 # Next Action
 
-_Updated 2026-09-20._
+_Updated 2026-09-21._
+
+> **2026-09-21 daily automation (this run):** Session-start HEAD already
+> matched `origin/master` (`7b52c77d`) exactly — nothing to fast-forward.
+> 12 open PRs: 11 routine Dependabot security-update PRs (`#1541`-`#1551`,
+> left to the existing hourly Dependabot-sweep automation) and one stale
+> catalog PR (`#1536`, CI green since 2026-09-20, not opened by this run,
+> left for a human/future session). One `routine-backlog` issue, `#1552`
+> ("Routine backlog — 2026-W39"), already had an auto-generated **draft**
+> context-plan PR `#1553` attached that explicitly flags its own source as
+> unfetched/unverified — left alone, not built on top of; read `#1552`'s own
+> body instead, which does real `git grep`-verified root-causing.
+>
+> `#1552` shortlists two items. **Picked item 2** (Bedrock provider forcing
+> empty-string static credentials onto every `boto3.client()` call, which
+> disables boto3's own default credential chain — env vars, shared
+> credentials file, SSO profile, or an IAM instance/task role) as the
+> single highest-value, best-scoped fix; item 1 (Langfuse session-header
+> propagation, a larger multi-path feature-completion task) left open.
+>
+> Root-caused beyond the issue's own framing: `_post_bedrock_converse`
+> (`packages/ai/router.py` ~line 2017) is the actual bug (fixed here), but
+> `ProviderRouter.from_env()` (~line 1013) separately never registers a
+> `bedrock` provider *at all* unless both `AWS_ACCESS_KEY_ID`/
+> `BEDROCK_ACCESS_KEY` and the matching secret env var are set — so an
+> instance-role-only deployment still can't reach Bedrock via the env
+> bootstrap after this fix, only via an admin-configured DB provider
+> record (`from_provider_records`) with no key. Documented as a follow-up
+> in the CHANGELOG entry and the PR body rather than fixed here: widening
+> `from_env()`'s gating needs a new explicit opt-in env var (rule 37), a
+> separate design decision.
+>
+> Fix: `_post_bedrock_converse` now only passes `aws_access_key_id`/
+> `aws_secret_access_key` to `boto3.client()` when both `provider.api_key`
+> and the `X-Bedrock-Secret` header are actually set — matching the
+> existing `bool(api_key and secret)` convention already used one function
+> away at `health_check`. 2 new regression tests, verified failing against
+> the pre-fix code first. Verified: `pytest --noconftest
+> tests/test_bedrock_provider.py` 39/39 relevant tests passed (3 unrelated
+> pre-existing sandbox-dependency failures, reproduced identically against
+> unmodified master); `compileall` clean; `check_changelog_parity.py`
+> PARITY OK; `loop_registry.py audit --check` no drift. **Could not run:**
+> full `pytest -x` (same recurring sandbox constraint — no full `motor`/
+> `fastapi` app stack here; ran the directly relevant test file instead).
+> PR [#1555](https://github.com/strikersam/autonomous-ai-agency/pull/1555)
+> → `routine/daily-2026-09-21`, squash auto-merge armed (diff fully within
+> the daily-automation guardrails: not a risky module, no migration, no
+> breaking change, ≤5 files, no security-header/CORS change). Subscribed
+> to PR activity. `.claude/state/active-tasks.md` row 70 has full detail.
+>
+> **Not done today, flagged for a human/future session:** issue `#1552`
+> item 1 (Langfuse session-header propagation + the false changelog claim
+> it corrects); the `from_env()` Bedrock-without-static-keys gap above;
+> PR `#1536` (12-model catalog addition, CI green, sitting unmerged since
+> 2026-09-20 — not opened by this run, left for a human or a future
+> session to land); the still-open older `IN_PROGRESS` rows (2, 6, 8, 11,
+> 27, 32, 50, 53) — not re-verified this session, per the same
+> single-focused-item rationale as prior daily runs.
+
+_Previous (2026-09-20):_
 
 > **2026-09-20 daily automation — final state (supersedes the entry this
 > replaces, written mid-session before the regression below was found):**
