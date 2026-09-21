@@ -47,8 +47,9 @@ _Updated 2026-09-21._
 > PR [#1555](https://github.com/strikersam/autonomous-ai-agency/pull/1555)
 > → `routine/daily-2026-09-21`, squash auto-merge armed (diff fully within
 > the daily-automation guardrails: not a risky module, no migration, no
-> breaking change, ≤5 files, no security-header/CORS change). Subscribed
-> to PR activity. `.claude/state/active-tasks.md` row 70 has full detail.
+> breaking change, ≤5 files, no security-header/CORS change). **All required
+> checks passed and auto-merge fired: squash-merged to master as `90b1eb7`
+> at 07:32 UTC.** `.claude/state/active-tasks.md` row 70 has full detail.
 >
 > **Not done today, flagged for a human/future session:** issue `#1552`
 > item 1 (Langfuse session-header propagation + the false changelog claim
