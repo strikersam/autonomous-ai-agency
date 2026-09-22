@@ -506,6 +506,77 @@ class TestPostBedrockConverse:
         assert captured_kwargs["aws_secret_access_key"] == "test_secret_key/test+test"
         assert captured_kwargs["region_name"] == "us-east-1"
 
+    async def test_omits_credential_kwargs_when_keys_unset(self):
+        """No static keys configured (e.g. an EC2/ECS instance role) must let
+        boto3's own default credential chain resolve auth, not be handed
+        explicit empty-string credentials that short-circuit it."""
+        provider = ProviderConfig(
+            provider_id="bedrock",
+            type="bedrock",
+            base_url="https://bedrock-runtime.us-east-1.amazonaws.com",
+            api_key=None,
+            default_model="us.anthropic.claude-opus-4-7",
+            priority=15,
+            headers={"X-Bedrock-Region": "us-east-1"},
+        )
+        payload = {
+            "model": "us.anthropic.claude-opus-4-7",
+            "messages": [{"role": "user", "content": "Test"}],
+        }
+        mock_client = MagicMock()
+        mock_client.converse.return_value = _bedrock_api_response()
+        captured_kwargs: dict[str, Any] = {}
+
+        mock_boto3_mod = MagicMock()
+
+        def mock_boto3_client(service: str, **kwargs: Any) -> MagicMock:
+            captured_kwargs.update(kwargs)
+            return mock_client
+
+        mock_boto3_mod.client.side_effect = mock_boto3_client
+        original = sys.modules.get("boto3")
+        sys.modules["boto3"] = mock_boto3_mod  # type: ignore[assignment]
+        try:
+            router = ProviderRouter([provider])
+            await router._post_bedrock_converse(provider, payload, 30.0)
+        finally:
+            if original is not None:
+                sys.modules["boto3"] = original
+            else:
+                sys.modules.pop("boto3", None)
+
+        assert "aws_access_key_id" not in captured_kwargs
+        assert "aws_secret_access_key" not in captured_kwargs
+        assert captured_kwargs["region_name"] == "us-east-1"
+
+    async def test_omits_credential_kwargs_when_only_secret_missing(self):
+        """A partial credential (access key set, secret unset) is not a usable
+        static credential pair either — fall back to the default chain rather
+        than passing a key with no matching secret."""
+        provider = ProviderConfig(
+            provider_id="bedrock",
+            type="bedrock",
+            base_url="https://bedrock-runtime.us-east-1.amazonaws.com",
+            api_key="AKIATEST1234567890AB",
+            default_model="us.anthropic.claude-opus-4-7",
+            priority=15,
+            headers={"X-Bedrock-Region": "us-east-1"},  # no X-Bedrock-Secret
+        )
+        payload = {
+            "model": "us.anthropic.claude-opus-4-7",
+            "messages": [{"role": "user", "content": "Test"}],
+        }
+        mock_client = MagicMock()
+        mock_client.converse.return_value = _bedrock_api_response()
+
+        with _mock_boto3(mock_client) as mock_boto3_mod:
+            router = ProviderRouter([provider])
+            await router._post_bedrock_converse(provider, payload, 30.0)
+
+        _, captured_kwargs = mock_boto3_mod.client.call_args
+        assert "aws_access_key_id" not in captured_kwargs
+        assert "aws_secret_access_key" not in captured_kwargs
+
     async def test_system_prompt_passed_only_when_present(self):
         provider = _bedrock_provider()
         payload_no_system = {
