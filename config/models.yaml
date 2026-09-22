@@ -99,6 +99,10 @@ providers:
       - mistralai/mistral-nemotron
       - openai/gpt-oss-120b
       - openai/gpt-oss-20b
+      # DeepSeek V4.1-Flash on NIM — detected in the NIM catalogue 2026-09-22.
+      # Not yet live-probed on this account; placed last as a conservative fallback.
+      # Per catalog: supports_tools: false until probed.
+      - deepseek-ai/deepseek-v4.1-flash
 
   # tokenin.my.id — free OpenAI-compatible gateway fronting a rotating pool of
   # frontier models (GPT-5.6, Claude Opus 4.8, Gemini 3.5 Flash, GLM 5.3,
