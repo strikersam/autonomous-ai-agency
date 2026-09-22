@@ -13,9 +13,12 @@ Daily automation 2026-09-22 complete. PR #1560 open with auto-merge armed (squas
 - `gemini-omni-1.1-flash` added to catalog (no routing candidates — video model)
 - 21/21 tests pass; consistency/parity/compile gates all clean
 
+## Recently merged
+
+- **#1554** `fix(cost-tracker): fill 9 missing model entries including paid claude-sonnet-4-5` — merged 2026-09-22 as `12565bb`. Adds `openai/gpt-oss-120b`, `openai/gpt-oss-20b`, `claude-sonnet-4-5` ($3/$15), and 7 others plus local Ollama entries. Merge conflict with PR #1560 resolved (cost_tracker end-of-table section, state files).
+
 ## Outstanding PRs (not this session's)
 
-- **#1554** `fix(cost-tracker): fill 9 missing model entries including paid claude-sonnet-4-5` — open, non-draft, `mergeable_state: blocked`. Contains `openai/gpt-oss-120b` and `openai/gpt-oss-20b` at $0.00 (free), `claude-sonnet-4-5` at $3/$15, and 7 others. Not this session's branch — left for CI to gate.
 - **#1553** draft context plan for issue #1552 (W39 backlog) — draft, explicitly unfetched/unverified (R1 unmet). Not merged.
 - **#1536** 12 ZhipuAI/DashScope/Moonshot model entries — CI green since 2026-09-20, but not opened by this session and not in the daily-automation backlog. Left for human or future session.
 
@@ -24,4 +27,5 @@ Daily automation 2026-09-22 complete. PR #1560 open with auto-merge armed (squas
 - Check if #1560 merged; if CI fails address it.
 - Check for new models from DeepSeek, Google, Groq, Anthropic.
 - Issue #1552 (W39 backlog) still has `quick-note:rejected` label from the draft plan — re-read the issue body directly (not the draft PR) for actionable items.
-- If #1554 is still open: investigate the `mergeable_state: blocked` cause.
+- Consider landing PR #1536 (12 ZhipuAI/DashScope/Moonshot entries, CI green since 2026-09-20).
+- Consider a `TestPaidModelsCostTrackerCoverage`-style invariant for models in routing candidates but absent from the llm catalog.
