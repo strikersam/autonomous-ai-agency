@@ -57,8 +57,10 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "llama-3.3-70b-versatile": (0.0, 0.0),
     "deepseek-r1-distill-llama-70b": (0.0, 0.0),
     "llama-3.1-8b-instant": (0.0, 0.0),
-    # Kimi K2 on Groq — Moonshot AI MoE, ~1M context (Aug 2026).
-    "moonshotai/kimi-k2-instruct": (0.0, 0.0),
+    # Kimi K2 on Groq — Moonshot AI MoE, ~1M context. Groq self-serve pricing:
+    # $1.00/$3.00 per MTok (most expensive self-serve model on Groq Sep 2026).
+    # Source: Groq pricing aggregators, 2026-09-22.
+    "moonshotai/kimi-k2-instruct": (1.0, 3.0),
     # Qwen3 32B on Groq — strong coder, free tier (Aug 2026).
     "qwen-qwq-32b": (0.0, 0.0),
     # GPT-OSS 120B / 20B — served on both NVIDIA NIM and Groq free tier.
@@ -144,6 +146,12 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "deepseek-r1:32b": (0.0, 0.0),          # DeepSeek R1 32B (local Ollama)
     "qwen3-coder:30b": (0.0, 0.0),          # Qwen3 Coder 30B (local Ollama)
     "nomic-embed-text": (0.0, 0.0),         # Nomic Embed Text (local Ollama, embeddings)
+    # --- Google Gemini Omni 1.1 Flash (added 2026-09-22) ---
+    # Video generation / editing model — pricing not yet published; tracked at $0.
+    "gemini-omni-1.1-flash": (0.0, 0.0),
+    # --- NVIDIA NIM: DeepSeek V4.1-Flash (added 2026-09-22) ---
+    # Same model as deepseek-flash on the DeepSeek API, served via NIM for free.
+    "deepseek-ai/deepseek-v4.1-flash": (0.0, 0.0),
 }
 
 
