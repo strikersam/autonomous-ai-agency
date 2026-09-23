@@ -1,176 +1,50 @@
 # Next Action
 
-_Updated 2026-09-23._
+**Updated:** 2026-09-23
 
-> **2026-09-23 daily automation (this run):** Session-start HEAD matched
-> `origin/master` (`b40fbde9`) exactly (the 2026-09-22 `#1554` rescue had
-> already merged). Picked up issue `#1552` item 1 — the Langfuse
-> `X-Claude-Code-Session-Id` / `X-Session-Id` → `sessionId` propagation that
-> was shortlisted but skipped by the 2026-09-21 session.
->
-> Root cause confirmed: `emit_chat_observation` in `langfuse_obs.py` accepted
-> `session_id: str | None = None` since v4.1.0, and both `_emit_sdk` and
-> `_emit_langfuse_http_sync` had the same parameter, but `emit_chat_observation`
-> never forwarded it to either internal emitter. None of the three API entry
-> points (`chat_handlers.py`, `handlers/anthropic_compat.py`, `proxy.py`) ever
-> extracted the session header from the request. Every Langfuse trace had an
-> empty `sessionId` regardless of what the client sent. The v4.1.0 CHANGELOG
-> entry claiming it was done was false.
->
-> Full fix committed as `e81b4bc` on `claude/intelligent-gates-ml5763`:
-> `langfuse_obs.py` now passes `session_id=session_id` to both internal
-> emitters; all three entry-point handlers extract the header (prefer
-> `X-Claude-Code-Session-Id`, fall back to `X-Session-Id`) and thread it
-> through streaming and non-streaming paths; `X-Claude-Code-Agent-Type` and
-> `X-Claude-Code-Request-Class` are captured into `routing_meta`. 26
-> source-inspection tests in `tests/test_daily_automation_2026_09_23.py`.
-> Changelog parity verified OK. PR pending.
->
-> **Not done today:** issue `#1552` item 1 is now complete; item 4 (MCP
-> stateless-core migration) remains rule-40 gated; PR `#1536` (12-model
-> catalog addition) still open, CI green, still not picked up by any daily
-> run.
+## Current state
 
-_Previous (2026-09-22 daily automation):_
+Daily automation 2026-09-23: PR #1560 (yesterday's daily automation) was CI red on
+`Test (Python 3.13)` at session start, not auto-merging as row 72's note assumed. Fixed
+and pushed to the same PR branch (`claude/intelligent-gates-akgaus`, commit `27a8996`);
+CI should re-run on the new head. Subscribed to PR activity.
 
-> **2026-09-22 daily automation (this run):** Session-start HEAD matched
-> `origin/master` (`b40fbde9`) exactly. Open PRs at session start: five —
-> `#1554` (cost-tracker gap fill, opened 2026-09-21, CI green,
-> `mergeable_state: dirty` against current master — a real conflict, not a
-> flake, since master had advanced with `#1555`/`#1556` and 8 Dependabot
-> bumps in the meantime), `#1553` (draft, self-flagged unfetched/unverified
-> context plan for issue `#1552`, correctly left alone), `#1536` (stale
-> catalog PR, CI green since 2026-09-20, still not opened by any daily run,
-> still left for a human), and two routine Dependabot security-update PRs
-> (`#1541`, `#1544`, left to the existing hourly sweep). No open
-> `routine-backlog` issues (`#1552` carries only `quick-note:rejected` now).
->
-> Rather than starting new work, rescued `#1554`: a real, small, tested fix
-> (`packages/ai/cost_tracker.py`, 14 lines — 9 model ids present in
-> `config/llm/models.yaml` but absent from the cost table, including the
-> paid `claude-sonnet-4-5` at $3/$15 per MTok silently billing as $0) that
-> had been sitting open with green CI for over 24h purely because of a
-> **row-70 numbering collision** in `.claude/state/active-tasks.md`: two
-> independent 2026-09-21 sessions (this one and the Bedrock-fix session,
-> `#1555`) both wrote a new row 70, and whichever merged first — the
-> Bedrock one — made every subsequent commit on `#1554`'s branch conflict
-> on the state files it touches (`NEXT_ACTION.md`, `active-tasks.md`,
-> `graphify-out/GRAPH_REPORT.md`), even though **`cost_tracker.py` itself
-> had zero code conflicts** — confirmed via
-> `git log 7b52c77d..origin/master -- packages/ai/cost_tracker.py
-> tests/test_daily_automation_2026_09_21.py config/llm/models.yaml`
-> (empty). Merged `origin/master` into `claude/intelligent-gates-0ia6n2`,
-> resolved the three state-file conflicts (this file, `active-tasks.md`
-> renumbered to row 71, `GRAPH_REPORT.md` regenerated fresh rather than
-> merged by hand), re-ran the full local check set against the merged
-> tree, and pushed. See `.claude/state/active-tasks.md` row 71 for the
-> rescue detail and row 70 (Bedrock, `#1555`) for what it collided with.
+## PR #1560 — daily-2026-09-22 catalog updates + 2026-09-23 CI fix
 
-_Previous (2026-09-21, Bedrock credential fix):_
+- `deepseek-ai/deepseek-v4.1-flash` added to NVIDIA NIM candidates (last position, conservative `supports_tools:false`)
+- `moonshotai/kimi-k2-instruct` pricing corrected $0.00 → $1.00/$3.00 per MTok
+- `gemini-omni-1.1-flash` added to catalog (no routing candidates — video model)
+- **2026-09-23 fix:** the NVIDIA candidate addition above was never mirrored into
+  `packages/ai/brain_config.py`'s hardcoded `PROVIDER_CANDIDATES["nvidia"]`, which
+  `tests/test_one_model_catalogue.py::TestTheCopiesMayNotDriftFurther` requires to stay
+  reconciled with `config/models.yaml` (rule 4). That's what was actually failing CI.
+  Fixed by adding the same id in the same position to the Python list. 81/81 relevant
+  tests pass (`test_one_model_catalogue.py` + `test_nvidia_default_model.py` +
+  `test_daily_automation_2026_09_22.py`); consistency/parity/compile/loop-registry gates
+  all clean. See `.claude/state/active-tasks.md` row 73 for full detail.
+- **Check next session:** did CI go green on `27a8996` and did the PR merge (auto-merge
+  was not armed by this session — verify the repo's branch protection / auto-merge
+  settings before assuming it will merge unattended)?
 
-> **2026-09-21 daily automation (this run):** Session-start HEAD already
-> matched `origin/master` (`7b52c77d`) exactly — nothing to fast-forward.
-> 12 open PRs: 11 routine Dependabot security-update PRs (`#1541`-`#1551`,
-> left to the existing hourly Dependabot-sweep automation) and one stale
-> catalog PR (`#1536`, CI green since 2026-09-20, not opened by this run,
-> left for a human/future session). One `routine-backlog` issue, `#1552`
-> ("Routine backlog — 2026-W39"), already had an auto-generated **draft**
-> context-plan PR `#1553` attached that explicitly flags its own source as
-> unfetched/unverified — left alone, not built on top of; read `#1552`'s own
-> body instead, which does real `git grep`-verified root-causing.
->
-> `#1552` shortlists two items. **Picked item 2** (Bedrock provider forcing
-> empty-string static credentials onto every `boto3.client()` call, which
-> disables boto3's own default credential chain — env vars, shared
-> credentials file, SSO profile, or an IAM instance/task role) as the
-> single highest-value, best-scoped fix; item 1 (Langfuse session-header
-> propagation, a larger multi-path feature-completion task) left open.
->
-> Root-caused beyond the issue's own framing: `_post_bedrock_converse`
-> (`packages/ai/router.py` ~line 2017) is the actual bug (fixed here), but
-> `ProviderRouter.from_env()` (~line 1013) separately never registers a
-> `bedrock` provider *at all* unless both `AWS_ACCESS_KEY_ID`/
-> `BEDROCK_ACCESS_KEY` and the matching secret env var are set — so an
-> instance-role-only deployment still can't reach Bedrock via the env
-> bootstrap after this fix, only via an admin-configured DB provider
-> record (`from_provider_records`) with no key. Documented as a follow-up
-> in the CHANGELOG entry and the PR body rather than fixed here: widening
-> `from_env()`'s gating needs a new explicit opt-in env var (rule 37), a
-> separate design decision.
->
-> Fix: `_post_bedrock_converse` now only passes `aws_access_key_id`/
-> `aws_secret_access_key` to `boto3.client()` when both `provider.api_key`
-> and the `X-Bedrock-Secret` header are actually set — matching the
-> existing `bool(api_key and secret)` convention already used one function
-> away at `health_check`. 2 new regression tests, verified failing against
-> the pre-fix code first. Verified: `pytest --noconftest
-> tests/test_bedrock_provider.py` 39/39 relevant tests passed (3 unrelated
-> pre-existing sandbox-dependency failures, reproduced identically against
-> unmodified master); `compileall` clean; `check_changelog_parity.py`
-> PARITY OK; `loop_registry.py audit --check` no drift. **Could not run:**
-> full `pytest -x` (same recurring sandbox constraint — no full `motor`/
-> `fastapi` app stack here; ran the directly relevant test file instead).
-> PR [#1555](https://github.com/strikersam/autonomous-ai-agency/pull/1555)
-> → `routine/daily-2026-09-21`, squash auto-merge armed (diff fully within
-> the daily-automation guardrails: not a risky module, no migration, no
-> breaking change, ≤5 files, no security-header/CORS change). **All required
-> checks passed and auto-merge fired: squash-merged to master as `90b1eb7`
-> at 07:32 UTC.** `.claude/state/active-tasks.md` row 70 has full detail.
->
-> **Not done today, flagged for a human/future session:** issue `#1552`
-> item 1 (Langfuse session-header propagation + the false changelog claim
-> it corrects); the `from_env()` Bedrock-without-static-keys gap above;
-> PR `#1536` (12-model catalog addition, CI green, sitting unmerged since
-> 2026-09-20 — not opened by this run, left for a human or a future
-> session to land); the still-open older `IN_PROGRESS` rows (2, 6, 8, 11,
-> 27, 32, 50, 53) — not re-verified this session, per the same
-> single-focused-item rationale as prior daily runs.
+## Recently merged
 
-_Previous (2026-09-21, cost-tracker gap fill):_
+- **#1554** `fix(cost-tracker): fill 9 missing model entries including paid claude-sonnet-4-5` — merged 2026-09-22 as `12565bb`. Adds `openai/gpt-oss-120b`, `openai/gpt-oss-20b`, `claude-sonnet-4-5` ($3/$15), and 7 others plus local Ollama entries. Merge conflict with PR #1560 resolved (cost_tracker end-of-table section, state files).
 
-> **2026-09-21 daily automation — final state:**
->
-> No open PRs at session start; CI green on master `7b52c77d`.
->
-> Found 9 models in `config/llm/models.yaml` with no entry in
-> `packages/ai/cost_tracker.py` — `cost_for_tokens()` silently returns 0.0
-> for any model not in its table. Critical: `claude-sonnet-4-5` is a paid
-> model at $3/$15/MTok that was never tracked.
->
-> Fixed all 9 gaps. New invariant test `TestPaidModelsCostTrackerCoverage`
-> prevents this class of regression: CI fails if any paid catalog model
-> has no cost_tracker entry.
->
-> PR [#1554](https://github.com/strikersam/autonomous-ai-agency/pull/1554)
-> opened on `claude/intelligent-gates-0ia6n2`, CI green same day. Went
-> stale (`mergeable_state: dirty`) once `#1555` merged first and claimed
-> the same `active-tasks.md` row number — rescued the next day, see the
-> 2026-09-22 entry above.
+## Outstanding PRs (not this session's)
 
-_Previous (2026-09-20):_
+- **#1553** draft context plan for issue #1552 (W39 backlog) — draft, explicitly unfetched/unverified (R1 unmet). Not merged.
+- **#1536** 12 ZhipuAI/DashScope/Moonshot model entries — CI green since 2026-09-20 (checked again 2026-09-23, still green modulo an old, likely-unrelated Playwright failure from that date not re-investigated this session), still not opened by any daily run. Left for human or future session — consider landing.
 
-## Carry-over items (from prior sessions)
+## Next daily run (2026-09-24)
 
-- Row 53 (`IN_PROGRESS`): catalogue probe fix for disabled local providers.
-  Branch `claude/upbeat-goodall-gm78vl`, PR [#1443](https://github.com/strikersam/autonomous-ai-agency/pull/1443).
-  Auto-merge may have fired — verify.
-
-- Row 50 (`IN_PROGRESS`): central provider/model source of truth. Phase 0
-  done. P1–P4 require the full pytest suite (real MongoDB).
-
-- Rows 2, 6, 8, 11, 27, 32: stale `IN_PROGRESS` from June–July 2026.
-  Branches may be merged or abandoned. Verify before picking up.
-
-## Routine to pick up next session
-
-- PR #1554 rescued and pushed 2026-09-22 — check CI on the merge commit;
-  merge if green (see the 2026-09-22 entry above for the row-70 collision
-  it recovered from).
-- PR #1536 (12-model catalog addition) still open, CI green since
-  2026-09-20, still not picked up by any daily run — consider landing it.
-- Consider: a `TestPaidModelsCostTrackerCoverage`-style invariant for models
-  in routing candidates but absent from the llm catalog (the inverse of the
-  catalogue probe — ensures new candidates are always declared).
-- Consider a branch-naming convention that includes a short session id, to
-  avoid the `routine/daily-YYYY-MM-DD` collisions documented in rows 68/69,
-  and this session's `active-tasks.md` row-70 collision.
+- Confirm PR #1560 merged (or address any new CI failure on it — this is the second
+  round of CI catching a real gap on this PR, so re-verify carefully rather than
+  assuming green).
+- Check for new models from DeepSeek, Google, Groq, Anthropic.
+- Issue #1552 (W39 backlog) still has `quick-note:rejected` label from the draft plan — re-read the issue body directly (not the draft PR) for actionable items; item 1 (Langfuse session-header propagation) is still open and unimplemented.
+- Consider landing PR #1536 (12 ZhipuAI/DashScope/Moonshot entries, CI green since 2026-09-20 — now 3+ daily runs without being picked up).
+- Consider a `TestPaidModelsCostTrackerCoverage`-style invariant for models in routing candidates but absent from the llm catalog.
+- Consider extending `TestTheCopiesMayNotDriftFurther`-style CI feedback earlier: a
+  pre-commit or PR-description checklist item for "if you touch a reconciled provider's
+  candidates in `config/models.yaml`, also update `packages/ai/brain_config.py`" would
+  have caught today's bug before it ever reached CI.

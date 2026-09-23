@@ -360,6 +360,9 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         "mistralai/mistral-nemotron",
         "openai/gpt-oss-120b",
         "openai/gpt-oss-20b",
+        # DeepSeek V4.1-Flash on NIM — detected in the NIM catalogue 2026-09-22.
+        # Not yet live-probed on this account; placed last as a conservative fallback.
+        "deepseek-ai/deepseek-v4.1-flash",
     ],
     # tokenin.my.id — free frontier gateway. Ordered highest-RPM first so the
     # rotation prefers the models that 429 least; opus is last so it stays a
