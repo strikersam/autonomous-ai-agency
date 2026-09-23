@@ -39,11 +39,12 @@ def _script() -> str:
 def _run(tmp_path: Path, alerts: list[dict]) -> list[dict]:
     trends = tmp_path / "trends.json"
     trends.write_text(json.dumps(alerts), encoding="utf-8")
-    script = _script().replace("/tmp/trends.json", str(trends))
+    # The workflow's own path, replaced here with a pytest tmp_path.
+    script = _script().replace("/tmp/trends.json", str(trends))  # nosec B108
     js = tmp_path / "run.js"
     js.write_text(_HARNESS % script, encoding="utf-8")
-    out = subprocess.run(  # nosec B603 — fixed argv
-        ["node", str(js)], capture_output=True, text=True, check=True, timeout=30
+    out = subprocess.run(  # nosec B603 B607 — fixed argv
+        ["node", str(js)], capture_output=True, text=True, check=True, timeout=30,
     )
     return json.loads(out.stdout.strip().splitlines()[-1])
 

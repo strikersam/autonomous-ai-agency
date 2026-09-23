@@ -18,7 +18,7 @@ pytestmark = pytest.mark.skipif(shutil.which("git") is None, reason="git not ins
 
 
 def _git(cwd: Path, *args: str) -> subprocess.CompletedProcess:
-    return subprocess.run(  # nosec B603 — fixed argv
+    return subprocess.run(  # nosec B603 B607 — fixed argv
         ["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
         cwd=cwd, capture_output=True, text=True, check=False,
     )
