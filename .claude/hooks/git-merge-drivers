@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+# git-merge-drivers — register the custom merge drivers named in .gitattributes.
+# Drivers live in git config, not in the repo, so each clone needs this once.
+# Idempotent and silent; never fails a session.
+set -u
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$ROOT" || exit 0
+# %A = our version (result goes here), %B = the other side. Taking the other
+# side is safe because GRAPH_REPORT.md is regenerated after every merge.
+git config merge.graph-report.name "take incoming GRAPH_REPORT.md; regenerated after merge" 2>/dev/null || true
+git config merge.graph-report.driver "cp %B %A" 2>/dev/null || true
+exit 0

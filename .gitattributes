@@ -26,3 +26,16 @@
 *.pdf           binary
 *.zip           binary
 *.tar.gz        binary
+
+# ── Merge strategy for generated / multi-writer state files ────────────────────
+# Every open PR on 2026-09-23 conflicted on these three files and nothing else
+# (#1536, #1554, #1561): each session appends a tracker row and rewrites the
+# graph report, so any two PRs collide. `union` keeps both sides' lines, which
+# is exactly how those conflicts were being resolved by hand. The graph report
+# is regenerated from source after any merge (Stop hook / rule 39), so either
+# side will do; `graph-report` takes the incoming side. That driver needs
+# `.claude/hooks/git-merge-drivers` to have run in the clone (SessionStart does
+# it); without it git falls back to a normal text merge.
+.claude/state/active-tasks.md merge=union
+.claude/state/NEXT_ACTION.md merge=union
+graphify-out/GRAPH_REPORT.md merge=graph-report
