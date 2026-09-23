@@ -211,9 +211,25 @@ class TestSnapshotLeaksNothing:
         assert all(len(d["id"]) == 8 for d in snap["detail"])
 
     def test_digest_is_stable_and_not_reversible(self) -> None:
-        assert kp._digest("abc") == kp._digest("abc")
-        assert kp._digest("abc") != kp._digest("abd")
-        assert "abc" not in kp._digest("abc")
+        # The key must contain a non-hex character. With "abc" the last check
+        # failed whenever the per-process random salt produced a digest that
+        # happened to contain "abc" — about 1 run in 700 (#1563).
+        key = "sk-live-xyz"
+        assert kp._digest(key) == kp._digest(key)
+        assert kp._digest(key) != kp._digest("sk-live-xya")
+        assert key not in kp._digest(key)
+
+    def test_digest_check_holds_for_a_salt_whose_digest_contains_hex_text(
+        self, monkeypatch
+    ) -> None:
+        """Regression for #1563: under this salt the digest of "abc" contains
+        "abc", so the old assertion failed; the check above must not."""
+        salt = bytes.fromhex(
+            "6dee681ee188412331966abd316b80dc2552b0c3686fd60a5db5f2d3cc99ecb4"
+        )
+        monkeypatch.setattr(kp, "_DIGEST_SALT", salt)
+        assert "abc" in kp._digest("abc")
+        self.test_digest_is_stable_and_not_reversible()
 
 
 # ---------------------------------------------------------------------------
