@@ -2014,12 +2014,11 @@ class ProviderRouter:
         bedrock_payload = self._openai_to_bedrock_converse(payload)
 
         def _sync_call() -> dict[str, Any]:
-            client = boto3.client(
-                "bedrock-runtime",
-                region_name=aws_region,
-                aws_access_key_id=provider.api_key,
-                aws_secret_access_key=aws_secret,
-            )
+            client_kwargs: dict[str, Any] = {"region_name": aws_region}
+            if provider.api_key and aws_secret:
+                client_kwargs["aws_access_key_id"] = provider.api_key
+                client_kwargs["aws_secret_access_key"] = aws_secret
+            client = boto3.client("bedrock-runtime", **client_kwargs)
             kwargs: dict[str, Any] = {
                 "modelId": model_id,
                 "messages": bedrock_payload["messages"],

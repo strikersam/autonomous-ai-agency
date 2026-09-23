@@ -13,9 +13,24 @@ check — so a bare `POST /api/tasks` (the real handler is registered only at
 (which works around it by posting to the fully-qualified `/api/tasks/`).
 
 Fixed by installing the SPA fallback as `app.router.default` instead of an
-`@app.get` route: `router.default` only runs after every route *and*
-Starlette's own redirect-slash check have failed to find a match, so it can
-no longer shadow that check for any router mounted anywhere in the app.
+`@app.get` route: `router.default` only runs after every route has failed to
+match, so it no longer preempts routing.
+
+Second bug, found live in CI on this fix's own first push (`tests/e2e/
+test_browser.py`'s "Runtimes — empty page title" Playwright failure):
+leaving Starlette's own `redirect_slashes` turned on isn't right either. Many
+frontend SPA routes share a bare path with an API router that registers only
+the trailing-slash form for its own GET listing endpoint — e.g. the
+`/runtimes` page vs. `runtimes/api.py`'s `GET /runtimes/`. With
+`redirect_slashes` on, a GET to the bare SPA path finds no route match,
+falls through to Starlette's own redirect check, finds the API's `GET .../`
+route there, and 307-redirects into its raw JSON instead of serving the SPA
+shell. Fixed by turning `redirect_slashes` off and reimplementing the same
+redirect inside `serve_spa`, scoped to non-GET/HEAD methods only — the class
+of request this file's main bug is about — so a GET to a bare SPA-shaped
+path always renders the SPA (`test_bare_get_to_an_api_shaped_path_still_
+serves_the_spa` below), while non-GET/HEAD still gets the trailing-slash
+redirect it needs.
 
 Documented, deliberate side effect: a non-GET/HEAD request to a path with no
 handler under *any* method now reads as 404 instead of 405 (verified via
@@ -79,6 +94,19 @@ results["put_unmatched_status"] = r5.status_code
 follow_client = TestClient(server.app, follow_redirects=True)
 r6 = follow_client.post("/api/tasks")
 results["post_bare_followed_status"] = r6.status_code
+
+# /runtimes: a bare frontend SPA route (frontend/src route table) that
+# shares its path with runtimes/api.py's GET-only "/runtimes/" listing
+# endpoint. A GET here must render the SPA, not 307 into that API's JSON.
+r7 = client.get("/runtimes")
+results["get_runtimes_bare_status"] = r7.status_code
+results["get_runtimes_bare_content_type"] = r7.headers.get("content-type", "")
+
+# The real API route at the trailing-slash path must stay reachable and
+# unaffected (still auth-gated, still its own handler — not the SPA).
+r8 = client.get("/runtimes/")
+results["get_runtimes_slash_status"] = r8.status_code
+results["get_runtimes_slash_content_type"] = r8.headers.get("content-type", "")
 
 print(json.dumps(results))
 """
@@ -180,3 +208,18 @@ def test_unmatched_non_get_path_now_reads_as_404_not_405(spa_results: dict) -> N
     # longer distinguish "wrong method" from "no such path" once it stops
     # being a route match itself.
     assert spa_results["put_unmatched_status"] == 404
+
+
+def test_bare_get_to_an_api_shaped_path_still_serves_the_spa(spa_results: dict) -> None:
+    # Second bug (see module docstring): with Starlette's own
+    # redirect_slashes left on, this GET would 307 into runtimes/api.py's
+    # GET /runtimes/ JSON instead of rendering the SPA shell.
+    assert spa_results["get_runtimes_bare_status"] == 200, spa_results
+    assert "text/html" in spa_results["get_runtimes_bare_content_type"]
+
+
+def test_trailing_slash_api_route_is_unaffected(spa_results: dict) -> None:
+    # The real API endpoint at the trailing-slash path must still be its
+    # own handler (401 unauthenticated JSON), not the SPA and not a redirect.
+    assert spa_results["get_runtimes_slash_status"] == 401
+    assert "text/html" not in spa_results["get_runtimes_slash_content_type"]

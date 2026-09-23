@@ -319,7 +319,7 @@ jobs:
               --title "fix(ci): auto-fix nightly regression — ${REASON_TITLE}" \
               --body-file /tmp/regression_pr_body.md \
               --base master \
-              --label "auto-fix,regression"
+              --label "bug"
             echo "✅ Auto-fix PR created: $BRANCH"
           else
             echo "No auto-fix changes needed (failures are not locator/timing related)"
@@ -359,7 +359,7 @@ jobs:
           gh issue create \
             --title "fix: nightly regression failures — ${REASON_ISSUE}" \
             --body-file /tmp/issue-body.md \
-            --label "bug,regression,nightly" \
+            --label "bug" \
             --assignee "${{ github.actor }}"
         env:
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}

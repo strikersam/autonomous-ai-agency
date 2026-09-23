@@ -47,6 +47,7 @@ from llm_providers import (
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.routing import Match
 
 # Feature routers — agents, runtimes, tasks
 from agents.api import agent_router
@@ -11176,23 +11177,49 @@ if _FRONTEND_BUILD.exists():
     # PARTIAL match (a 405) before it ever reaches its own trailing-slash
     # redirect check, so a bare `POST /api/tasks` 405'd instead of
     # 307-redirecting to the real handler. `router.default` only runs after
-    # every route AND the redirect-slash check have failed to match, so it no
-    # longer preempts them.
+    # every route has failed to match, so it no longer preempts routing.
+    #
+    # Starlette's own redirect_slashes is turned OFF (not just bypassed) and
+    # reimplemented below, scoped to non-GET/HEAD only. Leaving it on doesn't
+    # work either: many frontend SPA routes share a bare path with an API
+    # router that registers only the trailing-slash form for its own GET
+    # listing endpoint (e.g. the `/runtimes` page vs. `runtimes/api.py`'s
+    # `GET /runtimes/`). With Starlette's own redirect_slashes on, a GET to
+    # the bare SPA path finds no route match, falls through to the redirect
+    # check, finds the API's `GET .../` route there, and 307-redirects into
+    # its raw JSON instead of serving the SPA shell — caught live via
+    # tests/e2e/test_browser.py's "Runtimes — empty page title" failure
+    # before this landed. Redirecting is still correct and wanted for
+    # non-GET/HEAD (that's the bug this fix exists for), just not for GET/HEAD
+    # requests to what may be a client-side route the SPA owns.
+    app.router.redirect_slashes = False
     _spa_fallback_not_found = app.router.default
 
     async def serve_spa(scope, receive, send) -> None:
         if scope["type"] != "http":
             await _spa_fallback_not_found(scope, receive, send)
             return
-        full_path = scope["path"].lstrip("/")
-        # A non-GET/HEAD method reaching here has no handler under any
-        # method for this path (a real match, or a trailing-slash variant of
-        # one, would have been served already) — same 404 a plain ASGI app
-        # gives for an unrecognised path, folded into the same branch as the
-        # protected-prefix guard below since both cases read as "no route".
-        if scope["method"] not in ("GET", "HEAD") or any(
-            full_path.startswith(p) for p in SPA_PROTECTED_PREFIXES
-        ):
+        method = scope["method"]
+        path = scope["path"]
+        if method not in ("GET", "HEAD"):
+            if not path.endswith("/"):
+                candidate_path = path + "/"
+                candidate_scope = dict(scope)
+                candidate_scope["path"] = candidate_path
+                for route in app.router.routes:
+                    if route.matches(candidate_scope)[0] != Match.NONE:
+                        query = scope.get("query_string", b"").decode("latin-1")
+                        target = candidate_path + (f"?{query}" if query else "")
+                        response = RedirectResponse(url=target, status_code=307)
+                        await response(scope, receive, send)
+                        return
+            # No handler under any method for this path (a real match, or
+            # its trailing-slash variant, would have been served already) —
+            # the same 404 a plain ASGI app gives for an unrecognised path.
+            response = JSONResponse({"detail": "Not Found"}, status_code=404)
+        elif any(path.lstrip("/").startswith(p) for p in SPA_PROTECTED_PREFIXES):
+            # API/auth paths that reached the catch-all have no upstream
+            # handler — 404 JSON rather than leaking the SPA shell.
             response = JSONResponse({"detail": "Not Found"}, status_code=404)
         else:
             index = _FRONTEND_BUILD / "index.html"

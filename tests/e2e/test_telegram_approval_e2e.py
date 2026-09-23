@@ -407,55 +407,57 @@ def _open_dashboard(page: Page, jwt: str) -> None:
     """
     # Inject the JWT into the localStorage key the SPA reads from BEFORE any
     # page-load's script runs. Configurable via ADMIN_JWT_LOCALSTORAGE_KEY
-    # because deployments vary.
+    # because deployments vary. Playwright's Python API has no JS-side
+    # argument-passing for add_init_script() (unlike the Node API's
+    # `addInitScript(fn, arg)`), so the value is embedded into the script
+    # text itself as a JSON literal and the function is invoked inline.
     page.add_init_script(
+        f"""
+        (() => {{
+            try {{ window.localStorage.setItem({json.dumps(ADMIN_JWT_LOCALSTORAGE_KEY)}, {json.dumps(jwt)}); }} catch (e) {{}}
+        }})();
         """
-        ([key, value]) => {
-            try { window.localStorage.setItem(key, value); } catch (e) {}
-        }
-        """,
-        [ADMIN_JWT_LOCALSTORAGE_KEY, jwt],
     )
     # Also attach Bearer header to every window.fetch / XHR by default so
     # the SPA does not need to know about that injection point.
     page.add_init_script(
-        """
-        (token) => {
-            try {
+        f"""
+        (() => {{
+            const token = {json.dumps(jwt)};
+            try {{
                 const _fetch = window.fetch;
-                window.fetch = (input, init) => {
-                    init = init || {};
-                    const headers = new Headers(init.headers || {});
-                    if (!headers.has('Authorization')) {
+                window.fetch = (input, init) => {{
+                    init = init || {{}};
+                    const headers = new Headers(init.headers || {{}});
+                    if (!headers.has('Authorization')) {{
                         headers.set('Authorization', 'Bearer ' + token);
-                    }
-                    return _fetch(input, Object.assign({}, init, { headers }));
-                };
+                    }}
+                    return _fetch(input, Object.assign({{}}, init, {{ headers }}));
+                }};
                 const _open = XMLHttpRequest.prototype.open;
-                XMLHttpRequest.prototype.open = function (...a) {
+                XMLHttpRequest.prototype.open = function (...a) {{
                     this._injectBearer = true;
                     return _open.apply(this, a);
-                };
+                }};
                 const _setHeader = XMLHttpRequest.prototype.setRequestHeader;
-                XMLHttpRequest.prototype.setRequestHeader = function (k, v) {
-                    if (k.toLowerCase() === 'authorization') {
+                XMLHttpRequest.prototype.setRequestHeader = function (k, v) {{
+                    if (k.toLowerCase() === 'authorization') {{
                         this._injectBearer = false;
-                    }
+                    }}
                     return _setHeader.apply(this, [k, v]);
-                };
+                }};
                 const _send = XMLHttpRequest.prototype.send;
-                XMLHttpRequest.prototype.send = function (...a) {
-                    if (this._injectBearer) {
-                        try {
+                XMLHttpRequest.prototype.send = function (...a) {{
+                    if (this._injectBearer) {{
+                        try {{
                             _setHeader.apply(this, ['Authorization', 'Bearer ' + token]);
-                        } catch (e) {}
-                    }
+                        }} catch (e) {{}}
+                    }}
                     return _send.apply(this, a);
-                };
-            } catch (e) {}
-        }
-        """,
-        jwt,
+                }};
+            }} catch (e) {{}}
+        }})();
+        """
     )
     page.goto(f"{AGENCY_BASE_URL}/admin/tasks", wait_until="networkidle", timeout=30000)
 
