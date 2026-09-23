@@ -1,6 +1,37 @@
 # Next Action
 
-_Updated 2026-09-22._
+_Updated 2026-09-23._
+
+> **2026-09-23 daily automation (this run):** Session-start HEAD matched
+> `origin/master` (`b40fbde9`) exactly (the 2026-09-22 `#1554` rescue had
+> already merged). Picked up issue `#1552` item 1 — the Langfuse
+> `X-Claude-Code-Session-Id` / `X-Session-Id` → `sessionId` propagation that
+> was shortlisted but skipped by the 2026-09-21 session.
+>
+> Root cause confirmed: `emit_chat_observation` in `langfuse_obs.py` accepted
+> `session_id: str | None = None` since v4.1.0, and both `_emit_sdk` and
+> `_emit_langfuse_http_sync` had the same parameter, but `emit_chat_observation`
+> never forwarded it to either internal emitter. None of the three API entry
+> points (`chat_handlers.py`, `handlers/anthropic_compat.py`, `proxy.py`) ever
+> extracted the session header from the request. Every Langfuse trace had an
+> empty `sessionId` regardless of what the client sent. The v4.1.0 CHANGELOG
+> entry claiming it was done was false.
+>
+> Full fix committed as `e81b4bc` on `claude/intelligent-gates-ml5763`:
+> `langfuse_obs.py` now passes `session_id=session_id` to both internal
+> emitters; all three entry-point handlers extract the header (prefer
+> `X-Claude-Code-Session-Id`, fall back to `X-Session-Id`) and thread it
+> through streaming and non-streaming paths; `X-Claude-Code-Agent-Type` and
+> `X-Claude-Code-Request-Class` are captured into `routing_meta`. 26
+> source-inspection tests in `tests/test_daily_automation_2026_09_23.py`.
+> Changelog parity verified OK. PR pending.
+>
+> **Not done today:** issue `#1552` item 1 is now complete; item 4 (MCP
+> stateless-core migration) remains rule-40 gated; PR `#1536` (12-model
+> catalog addition) still open, CI green, still not picked up by any daily
+> run.
+
+_Previous (2026-09-22 daily automation):_
 
 > **2026-09-22 daily automation (this run):** Session-start HEAD matched
 > `origin/master` (`b40fbde9`) exactly. Open PRs at session start: five —
