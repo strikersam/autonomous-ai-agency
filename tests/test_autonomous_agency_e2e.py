@@ -45,7 +45,23 @@ class TestBackgroundAgentRetryLogic:
 
         import asyncio as _asyncio
         import inspect as _inspect
+        import threading as _threading
+        import time as _time
         _real_asyncio_run = _asyncio.run
+        _real_sleep = _time.sleep
+        test_thread = _threading.get_ident()
+        sleep_args: list[float] = []
+
+        def mock_sleep(seconds):
+            """Record only this thread's backoff sleeps.
+
+            ``agent.background.time`` is the global ``time`` module, so patching
+            its ``sleep`` also intercepts daemon threads left running by other
+            tests; counting those made this test flaky in the full suite (#1559).
+            """
+            if _threading.get_ident() != test_thread:
+                return _real_sleep(seconds)
+            sleep_args.append(seconds)
 
         run_attempts: list[int] = []
         def mock_asyncio_run(coro):
@@ -59,7 +75,7 @@ class TestBackgroundAgentRetryLogic:
             coroutine straight through to the real ``asyncio.run`` so only the
             intended retry calls are counted.
             """
-            if _inspect.iscoroutine(coro):
+            if _inspect.iscoroutine(coro) or _threading.get_ident() != test_thread:
                 return _real_asyncio_run(coro)
             run_attempts.append(len(run_attempts))
             if len(run_attempts) <= 2:
@@ -76,16 +92,37 @@ class TestBackgroundAgentRetryLogic:
         )
 
         with patch("asyncio.run", side_effect=mock_asyncio_run), \
-             patch("agent.background.time.sleep") as mock_sleep:
+             patch("agent.background.time.sleep", side_effect=mock_sleep):
             bg._handle(task)
 
         assert task.status == "done", f"Expected done, got {task.status}"
         assert len(run_attempts) == 3, f"Expected 3 attempts (1+2 retries), got {len(run_attempts)}"
         assert task.retry_count == 2, f"Expected retry_count=2, got {task.retry_count}"
         # Verify exponential backoff sleep calls: 5s, 10s
-        assert mock_sleep.call_count == 2, f"Expected 2 sleep calls, got {mock_sleep.call_count}"
-        sleep_args = [call.args[0] for call in mock_sleep.call_args_list]
         assert sleep_args == [5.0, 10.0], f"Expected [5.0, 10.0] backoff, got {sleep_args}"
+
+    def test_backoff_assertions_ignore_other_threads(self):
+        """Regression for #1559: a concurrent sleeper must not skew the counts."""
+        import sys
+        import threading
+        import time
+
+        old_interval = sys.getswitchinterval()
+        sys.setswitchinterval(1e-6)
+        stop = threading.Event()
+
+        def sleeper():
+            while not stop.is_set():
+                time.sleep(0.0005)
+
+        t = threading.Thread(target=sleeper, daemon=True)
+        t.start()
+        try:
+            self.test_background_agent_retries_with_exponential_backoff()
+        finally:
+            stop.set()
+            t.join(1)
+            sys.setswitchinterval(old_interval)
 
     def test_retry_delay_configurable(self):
         """Verify retry delay is configurable via environment variable."""
