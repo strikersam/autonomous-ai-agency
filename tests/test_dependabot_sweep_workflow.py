@@ -217,3 +217,32 @@ class TestSweepStillCannotForceAnything:
         assert workflow["jobs"]["sweep-stranded"]["if"].strip() == (
             "github.event_name != 'pull_request'"
         )
+
+
+class TestLockfileRepair:
+    """#1541: a grouped npm bump shipped a lockfile `npm ci` rejects, so CI
+    was red before a single test ran and nothing in the loop could fix it."""
+
+    @staticmethod
+    def _step(workflow: dict) -> dict:
+        steps = workflow["jobs"]["sweep-stranded"]["steps"]
+        return next(s for s in steps if "lockfile" in (s.get("name") or "").lower())
+
+    def test_runs_before_the_merge_sweep(self, workflow: dict) -> None:
+        names = [s.get("name") or "" for s in workflow["jobs"]["sweep-stranded"]["steps"]]
+        repair = next(i for i, n in enumerate(names) if "lockfile" in n.lower())
+        unblock = next(i for i, n in enumerate(names) if n.startswith("Unblock"))
+        assert repair < unblock
+
+    def test_detects_with_npm_ci_and_regenerates_lock_only(self, workflow: dict) -> None:
+        run = self._step(workflow)["run"]
+        assert "npm ci --dry-run" in run
+        assert "npm install --package-lock-only --ignore-scripts" in run
+
+    def test_pushes_with_gh_pat_or_not_at_all(self, workflow: dict) -> None:
+        """A GITHUB_TOKEN push would not re-run CI (root cause 3 above)."""
+        step = self._step(workflow)
+        assert step["env"]["GH_PAT"] == "${{ secrets.GH_PAT }}"
+        assert 'if [ -z "$GH_PAT" ]' in step["run"]
+        assert "gh auth setup-git" in step["run"]
+        assert "x-access-token" not in step["run"], "rule 42: no token in the remote URL"

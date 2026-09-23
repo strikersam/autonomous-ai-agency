@@ -105,6 +105,60 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+
+      # A grouped npm update can leave frontend/package-lock.json out of sync
+      # with package.json (#1541: "Missing: yaml@2.9.1 from lock file"), so
+      # `npm ci` fails before any test runs and the PR sits red forever —
+      # Dependabot does not regenerate it on its own. Regenerate the lockfile
+      # and push with GH_PAT so CI re-runs (a GITHUB_TOKEN push would not).
+      # After a foreign commit Dependabot refuses `@dependabot rebase`, so the
+      # DIRTY path below would stall on such a PR; Dependabot recreates it on
+      # its next update run, which drops this commit and re-applies the fix.
+      - name: Repair out-of-sync frontend lockfiles
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -u
+          if [ -z "$GH_PAT" ]; then
+            echo "GH_PAT unset — a GITHUB_TOKEN push would not re-run CI; skipping."
+            exit 0
+          fi
+          BRANCHES=$(gh pr list --repo "$REPO" --state open --author "app/dependabot" \
+                       --json headRefName \
+                       --jq '.[].headRefName | select(startswith("dependabot/npm_and_yarn/frontend/"))')
+          [ -z "$BRANCHES" ] && { echo "No open frontend npm PRs."; exit 0; }
+          git config user.name "dependabot-lockfile-repair"
+          git config user.email "noreply@github.com"
+          # Credential helper, not a token in the remote URL (CLAUDE.md rule 42).
+          # actions/checkout leaves a GITHUB_TOKEN auth header that would win
+          # over the helper and make the push one that never triggers CI.
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          gh auth setup-git
+          for b in $BRANCHES; do
+            echo "::group::$b"
+            git fetch -q origin "$b" && git checkout -q -B lockfix "origin/$b" || { echo "::endgroup::"; continue; }
+            if (cd frontend && npm ci --dry-run --ignore-scripts --no-audit --no-fund >/dev/null 2>&1); then
+              echo "Lockfile in sync."
+            else
+              (cd frontend && npm install --package-lock-only --ignore-scripts --no-audit --no-fund)
+              if git diff --quiet -- frontend/package-lock.json; then
+                echo "::warning::npm ci fails on $b but regenerating the lockfile changed nothing."
+              else
+                git add frontend/package-lock.json
+                git commit -q -m "chore(deps): regenerate frontend lockfile so npm ci resolves"
+                git push -q origin "HEAD:$b" || echo "::warning::push to $b failed."
+              fi
+            fi
+            echo "::endgroup::"
+          done
+          git checkout -q "$GITHUB_SHA"
+
       - name: Unblock every open Dependabot PR
         env:
           # NOT the GITHUB_TOKEN the job above must use. That job runs on a

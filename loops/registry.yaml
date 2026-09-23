@@ -436,7 +436,7 @@ loops:
     source: .github/workflows/dependabot-auto-merge.yml
     self_heal: true
     gate: none
-    purpose: Auto-merge green dependency bumps (detects + applies fix).
+    purpose: Auto-merge green dependency bumps (detects + applies fix); regenerates out-of-sync frontend lockfiles on Dependabot npm PRs.
 
   - id: auto-merge
     name: Auto-merge PR
