@@ -34,6 +34,11 @@ jobs:
         if: steps.pr.outputs.pr_number != ''
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
+          # This job has no checkout, so every gh call needs --repo. Without it
+          # `gh pr merge` died with "not a git repository" on every run, the
+          # `|| {}` below turned that into a warning, and the draft/planning
+          # guards read their fallbacks ("false"/"") — nothing ever merged.
+          GH_REPO: ${{ github.repository }}
         run: |
           PR_NUMBER="${{ steps.pr.outputs.pr_number }}"
           # SAFETY: never auto-merge a draft PR. Draft PRs created by
@@ -54,6 +59,16 @@ jobs:
           HEAD_BRANCH=$(gh pr view "$PR_NUMBER" --json headRefName -q '.headRefName' 2>/dev/null || echo "")
           if echo "$HEAD_BRANCH" | grep -qE '^agent/'; then
             echo "Skipping PR #$PR_NUMBER — agency branch ($HEAD_BRANCH) requires human review before merge."
+            exit 0
+          fi
+          # Dependabot PRs belong to dependabot-auto-merge.yml, which holds
+          # major bumps for a human (rule 40). --admin here would bypass that.
+          if echo "$HEAD_BRANCH" | grep -qE '^dependabot/'; then
+            echo "Skipping PR #$PR_NUMBER — Dependabot PRs are merged by dependabot-auto-merge.yml."
+            exit 0
+          fi
+          if [ -z "$HEAD_BRANCH" ]; then
+            echo "::warning::PR #$PR_NUMBER metadata unreadable — not merging blind."
             exit 0
           fi
           echo "Auto-merging PR #$PR_NUMBER after successful CI..."
