@@ -3268,6 +3268,12 @@ async def proxy_request(request: Request, target_path: str, auth: AuthContext | 
 
                 if out_text:
 
+                    _proxy_session_id = (
+                        request.headers.get("x-claude-code-session-id")
+                        or request.headers.get("x-session-id")
+                        or None
+                    )
+
                     await asyncio.to_thread(
 
                         emit_chat_observation,
@@ -3291,6 +3297,8 @@ async def proxy_request(request: Request, target_path: str, auth: AuthContext | 
                         latency_ms=duration_ms,
 
                         task_name="generation",
+
+                        session_id=_proxy_session_id,
 
                     )
 
