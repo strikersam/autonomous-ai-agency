@@ -66,6 +66,7 @@ jobs:
       - name: Run pytest baseline (short tracebacks)
         id: baseline
         run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           python -m pytest --tb=short -q --no-header 2>&1 | tee /tmp/test_baseline.txt || true
           EXIT=${PIPESTATUS[0]}
           echo "exit_code=${EXIT}" >> "$GITHUB_OUTPUT"
@@ -90,12 +91,29 @@ jobs:
         if: steps.baseline.outputs.exit_code != '0'
         id: failure_details
         run: |
-          echo "${{ steps.baseline.outputs.failing }}" | tr ',' '\n' | head -5 | while read test_id; do
+          # Each failing test is re-run on its own. One that passes alone is
+          # order-dependent (shared global state, leaked threads), not broken
+          # code — issue #1559 was escalated as "Cannot Fix" while its own
+          # traceback section showed "1 passed".
+          ISOLATED_PASS=""
+          ISOLATED_FAIL=""
+          while read -r test_id; do
             [ -z "$test_id" ] && continue
             echo "=== FAILURE: ${test_id} ===" >> /tmp/test_failure_details.txt
-            python -m pytest "${test_id}" --tb=long -q --no-header 2>&1 | tail -40 >> /tmp/test_failure_details.txt || true
+            if python -m pytest "${test_id}" --tb=long -q --no-header > /tmp/one_test.txt 2>&1; then
+              ISOLATED_PASS="${ISOLATED_PASS:+$ISOLATED_PASS,}${test_id}"
+              echo "(passes when run alone — order-dependent in the full suite)" >> /tmp/test_failure_details.txt
+            else
+              ISOLATED_FAIL="${ISOLATED_FAIL:+$ISOLATED_FAIL,}${test_id}"
+            fi
+            tail -40 /tmp/one_test.txt >> /tmp/test_failure_details.txt
             echo "" >> /tmp/test_failure_details.txt
-          done
+          done < <(echo "${{ steps.baseline.outputs.failing }}" | tr ',' '\n' | head -5)
+          echo "isolated_pass=${ISOLATED_PASS}" >> "$GITHUB_OUTPUT"
+          echo "isolated_fail=${ISOLATED_FAIL}" >> "$GITHUB_OUTPUT"
+          if [ -n "$ISOLATED_PASS" ] && [ -z "$ISOLATED_FAIL" ]; then
+            echo "order_dependent_only=true" >> "$GITHUB_OUTPUT"
+          fi
           echo "captured=true" >> "$GITHUB_OUTPUT"
 
           # Re-redact after per-test capture (narrower pytest runs may reveal
@@ -282,11 +300,18 @@ jobs:
           NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
           FAILING: ${{ steps.baseline.outputs.failing }}
+          ISOLATED_PASS: ${{ steps.failure_details.outputs.isolated_pass }}
         run: |
           # Read classification hints written by the classification step
           SH_HINTS=""
           if [ -f /tmp/self_healing_hints.txt ]; then
             SH_HINTS=$(cat /tmp/self_healing_hints.txt)
+          fi
+          if [ -n "$ISOLATED_PASS" ]; then
+            SH_HINTS="${SH_HINTS}
+          These pass when run alone and fail only in the full suite, so look for
+          shared state between tests (patched globals, leaked threads, module
+          singletons), not a bug in the code under test: ${ISOLATED_PASS}"
           fi
 
           cat > /tmp/dev_instruction.txt <<EOF
@@ -315,9 +340,20 @@ jobs:
         run: |
           python -m pytest --tb=short -q --no-header 2>&1 | tee /tmp/test_post.txt || true
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+          # A fix attempt that breaks tests which were passing before is worse
+          # than no fix; the 2026-09-22 run turned 1 failure into 2 others.
+          POST_FAILING=$(python scripts/parse_pytest_failures.py /tmp/test_post.txt --format csv --max 50)
+          # Compare full lists: `failing` above is capped at 5 for the prompt.
+          BASE_FAILING=$(python scripts/parse_pytest_failures.py /tmp/test_baseline.txt --format csv --max 50)
+          NEW_FAILURES=$(comm -13 \
+            <(echo "$BASE_FAILING" | tr ',' '\n' | sort -u) \
+            <(echo "$POST_FAILING" | tr ',' '\n' | sort -u) | grep -v '^$' | tr '\n' ',' | sed 's/,$//')
+          echo "new_failures=${NEW_FAILURES}" >> "$GITHUB_OUTPUT"
 
       - name: Commit & push fixes
-        if: steps.baseline.outputs.exit_code != '0'
+        if: >-
+          steps.baseline.outputs.exit_code != '0' &&
+          steps.post_fix.outputs.new_failures == ''
         run: |
           git add -A
           if git diff --staged --quiet; then
@@ -328,6 +364,14 @@ jobs:
             git push origin master || echo "::warning::Push to master blocked (branch protection); fixes were not auto-committed."
             echo "Pushed fixes to master"
           fi
+
+      - name: Discard fix attempt that introduced new failures
+        if: steps.post_fix.outputs.new_failures != ''
+        run: |
+          echo "::warning::Fix attempt broke previously-passing tests (${{ steps.post_fix.outputs.new_failures }}); discarding it."
+          # The dev agent commits its own work, so reset to the pre-fix SHA.
+          git reset --hard "${{ steps.baseline.outputs.sha }}"
+          git clean -fd
 
       - name: Publish agency cycle summary
         run: |
@@ -374,7 +418,12 @@ jobs:
               owner: context.repo.owner, repo: context.repo.repo,
               labels: 'auto-detected,bug', state: 'open', per_page: 5,
             });
-            if (issues.some(i => i.title.includes('Agency: Cannot Fix Tests'))) return;
+            if (issues.some(i => i.title.includes('Agency: Cannot Fix Tests')
+                || i.title.includes('Agency: Order-Dependent Tests'))) return;
+
+            const orderDependentOnly = '${{ steps.failure_details.outputs.order_dependent_only }}' === 'true';
+            const isolatedPass = '${{ steps.failure_details.outputs.isolated_pass }}'.split(',').filter(Boolean);
+            const newFailures = '${{ steps.post_fix.outputs.new_failures }}'.split(',').filter(Boolean);
 
             const failing = '${{ steps.baseline.outputs.failing }}'.split(',').filter(Boolean).map(t => `- \`${t}\``).join('\n') || '_(see output below)_';
 
@@ -396,9 +445,28 @@ jobs:
               ].join('\n');
             }
 
-            const body = [
-              '## Agency Escalation: Tests remain failing after automated fix attempt',
+            const isolationSection = isolatedPass.length === 0 ? '' : [
+              '### Pass when run alone',
+              'These fail only in the full suite, which points at state shared between',
+              'tests (patched globals, leaked threads, module singletons), not at the',
+              'code under test:',
+              ...isolatedPass.map(t => `- \`${t}\``),
               '',
+            ].join('\n');
+            const regressionSection = newFailures.length === 0 ? '' : [
+              '### Fix attempt discarded',
+              'The automated fix broke tests that passed before it, so it was not pushed:',
+              ...newFailures.map(t => `- \`${t}\``),
+              '',
+            ].join('\n');
+
+            const body = [
+              orderDependentOnly
+                ? '## Agency Escalation: tests fail only in the full suite'
+                : '## Agency Escalation: Tests remain failing after automated fix attempt',
+              '',
+              isolationSection,
+              regressionSection,
               classificationSection,
               '### Failing tests',
               failing,
@@ -425,7 +493,7 @@ jobs:
 
             await github.rest.issues.create({
               owner: context.repo.owner, repo: context.repo.repo,
-              title: `Agency: Cannot Fix Tests — ${new Date().toISOString().split('T')[0]}`,
+              title: `${orderDependentOnly ? 'Agency: Order-Dependent Tests' : 'Agency: Cannot Fix Tests'} — ${new Date().toISOString().split('T')[0]}`,
               body,
               labels: ['bug', 'auto-detected', 'agency-escalation'],
             });

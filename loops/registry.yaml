@@ -301,7 +301,7 @@ loops:
     source: .github/workflows/agency-cycle.yml
     self_heal: true
     gate: telegram
-    purpose: Periodic agency orchestration — plan and dispatch work.
+    purpose: Periodic agency orchestration — plan and dispatch work. Re-runs each failing test alone before escalating, and discards a fix that adds new failures.
 
   - id: process-quick-note
     name: Process Quick Note

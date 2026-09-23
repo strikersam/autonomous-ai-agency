@@ -311,3 +311,40 @@ class TestABurnInVerdictNeedsData:
             "the fallback is unreachable in a pipeline; default the variable instead"
         )
         assert ': "${READY:=false}"' in text
+
+
+class TestEscalationsSayWhatActuallyFailed:
+    """#1559 was filed as "Cannot Fix Tests" for a test that passed on its own,
+    and the fix attempt in the same run broke two tests that had been passing."""
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def cycle(cls) -> dict:
+        return _job(AGENCY_CYCLE, "ceo-assess-and-dispatch")
+
+    def test_each_failure_is_rerun_alone(self, cycle: dict) -> None:
+        run = _step(cycle, "failure_details")["run"]
+        assert "isolated_pass=" in run
+        assert "order_dependent_only=true" in run
+
+    def test_order_dependent_failures_are_titled_as_such(self, cycle: dict) -> None:
+        step = next(
+            s for s in cycle["steps"] if "cannot fix" in (s.get("name") or "").lower()
+        )
+        script = step["with"]["script"]
+        assert "order_dependent_only" in script
+        assert "Agency: Order-Dependent Tests" in script
+
+    def test_a_fix_that_adds_failures_is_not_pushed(self, cycle: dict) -> None:
+        assert "new_failures=" in _step(cycle, "post_fix")["run"]
+        push = next(s for s in cycle["steps"] if s.get("name") == "Commit & push fixes")
+        assert "new_failures == ''" in push["if"]
+
+    def test_a_discarded_fix_resets_past_the_agents_own_commit(
+        self, cycle: dict
+    ) -> None:
+        discard = next(
+            s for s in cycle["steps"] if "discard" in (s.get("name") or "").lower()
+        )
+        assert "steps.baseline.outputs.sha" in discard["run"]
+        assert "sha=" in _step(cycle, "baseline")["run"]
