@@ -22,6 +22,19 @@ open PR and issue to closed.
 - **#1505** CRISPY burn-in tracker: closed. `crispy-burn-in-check.yml` no longer opens a
   standing "not ready" issue; the gap goes to the job summary until CRISPY is ready.
 
+## Workflow hardening (same day, second PR)
+
+- `auto-merge.yml` had never merged anything: no checkout, no `--repo`, so every
+  `gh` call failed and was swallowed. Now fixed via `GH_REPO`. **Check next session:**
+  the first green non-draft `claude/*` PR should auto-merge; if not, read that run's log.
+- The Dependabot sweep now regenerates out-of-sync frontend lockfiles (hourly).
+- The agency-cycle escalation titles order-dependent failures as such, and a fix
+  attempt that adds failures is reset to the pre-fix SHA and never pushed.
+- Trend digest: issue only for `action-required` alerts. Orphaned-PR sweep: closes
+  the plan PR of a `quick-note:rejected` issue.
+- `.gitattributes` merge strategies for the tracker files and the graph report;
+  `.claude/hooks/git-merge-drivers` registers the driver at SessionStart.
+
 ## Next daily run (2026-09-24)
 
 - Check for new models from DeepSeek, Google, Groq, Anthropic.
