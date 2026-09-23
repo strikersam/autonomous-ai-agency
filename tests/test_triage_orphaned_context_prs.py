@@ -11,6 +11,7 @@ import pytest
 
 from scripts.triage_orphaned_context_prs import (
     ACTION_CLEAR_EXHAUSTED,
+    ACTION_CLOSE_PR,
     ACTION_REOPEN,
     ACTION_SKIP,
     ANALYSIS_MARKER,
@@ -66,15 +67,16 @@ class TestDecisions:
         assert d.action == ACTION_SKIP
         assert "should stand" in d.reason
 
-    def test_rejected_is_never_touched(self) -> None:
-        d = decide(_issue(state="CLOSED", labels=["quick-note:rejected"]))
-        assert d.action == ACTION_SKIP
+    def test_rejected_closes_the_plan_pr_and_leaves_the_issue(self) -> None:
+        """#1553 sat open for a rejected #1552 because rejected meant 'skip'."""
+        d = decide(_issue(state="OPEN", labels=["quick-note:rejected"]))
+        assert d.action == ACTION_CLOSE_PR
         assert "deliberate decision" in d.reason
 
     def test_rejected_wins_over_closed(self) -> None:
-        """A rejected issue stays rejected even though it is also stranded."""
+        """A rejected issue is never reopened, even though it is also stranded."""
         d = decide(_issue(state="CLOSED", labels=["quick-note:rejected", "quick-note:exhausted"]))
-        assert d.action == ACTION_SKIP
+        assert d.action == ACTION_CLOSE_PR
 
     def test_healthy_open_issue_is_skipped(self) -> None:
         assert decide(_issue(labels=["retry:1"])).action == ACTION_SKIP

@@ -30,8 +30,10 @@ whether the exhaustion was ever *justified*:
 - A **closed** issue with an open draft PR is stranded regardless: the plan
   exists, the implementation does not, and nothing can reach it.
 
-``rejected`` is always left alone. It is a deliberate decision not to build,
-not a failure to.
+``rejected`` is a deliberate decision not to build, not a failure to, so the
+issue is left alone — but its draft plan PR is closed. Skipping it outright
+left the plan open forever with nothing that would ever act on it (#1553, for
+the rejected #1552).
 """
 from __future__ import annotations
 
@@ -52,6 +54,7 @@ _BRANCH_RE = re.compile(r"^claude/context-issue-(\d+)$")
 ACTION_REOPEN = "reopen"
 ACTION_CLEAR_EXHAUSTED = "clear-exhausted"
 ACTION_SKIP = "skip"
+ACTION_CLOSE_PR = "close-pr"
 
 
 class Decision:
@@ -80,9 +83,9 @@ def decide(issue: dict) -> Decision:
 
     if "quick-note:rejected" in labels:
         return Decision(
-            ACTION_SKIP,
+            ACTION_CLOSE_PR,
             "labelled quick-note:rejected — a deliberate decision not to build, "
-            "not a failure to build",
+            "so the issue stands and its draft plan PR is closed",
         )
 
     has_analysis = any(

@@ -421,7 +421,8 @@ loops:
     gate: none
     purpose: >-
       Recover draft context PRs whose issue was closed or exhausted, so planned
-      work cannot become unreachable to every workflow (detects + applies fix).
+      work cannot become unreachable to every workflow, and close the plan PR
+      of a quick-note:rejected issue (detects + applies fix).
       Skips exhaustion backed by a recorded analysis, and never touches
       quick-note:rejected.
 

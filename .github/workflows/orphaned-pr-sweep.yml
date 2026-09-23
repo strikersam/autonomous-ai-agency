@@ -29,7 +29,8 @@ on:
 permissions:
   contents: read
   issues: write
-  pull-requests: read
+  # write: a rejected issue's draft plan PR is closed (close-pr below).
+  pull-requests: write
 
 concurrency:
   group: orphaned-pr-sweep
@@ -68,6 +69,7 @@ jobs:
           fi
 
           RECOVERED=0
+          CLOSED=0
           SKIPPED=0
 
           for BRANCH in $BRANCHES; do
@@ -115,6 +117,11 @@ jobs:
                   "♻️ \`quick-note:exhausted\` cleared by the orphaned-PR sweep: $REASON. It gets one fair re-run now that exhaustion requires a recorded analysis." \
                   2>/dev/null || true
                 RECOVERED=$((RECOVERED + 1)) ;;
+              close-pr)
+                gh pr close "$BRANCH" --repo "$REPO" --comment \
+                  "Closed by the orphaned-PR sweep: issue #$ISSUE is \`quick-note:rejected\`, so this plan will not be built." \
+                  2>/dev/null || echo "::warning::could not close the PR on $BRANCH"
+                CLOSED=$((CLOSED + 1)) ;;
               *)
                 SKIPPED=$((SKIPPED + 1)) ;;
             esac
@@ -125,7 +132,8 @@ jobs:
             echo "### Orphaned context PR sweep"
             echo ""
             echo "- Recovered: **${RECOVERED}**"
+            echo "- Plan PRs closed (issue rejected): **${CLOSED}**"
             echo "- Left alone: **${SKIPPED}**"
             echo ""
-            echo "Skips are deliberate: an exhaustion backed by a recorded analysis, or a \`quick-note:rejected\` decision, is a judgement that should stand."
+            echo "Skips are deliberate: an exhaustion backed by a recorded analysis is a judgement that should stand."
           } >> "$GITHUB_STEP_SUMMARY"
