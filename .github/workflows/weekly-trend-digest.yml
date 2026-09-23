@@ -104,6 +104,17 @@ jobs:
               core.info('No relevant trends this week — skipping issue');
               return;
             }
+            // The digest itself lives in the job summary above. An issue is
+            // only worth a human's attention when something needs doing: its
+            // own triage text says "no action — most weeks, this is the
+            // answer", and every one of those weeks still opened an issue
+            // someone had to close by hand (#1557).
+            const actionable = alerts.filter(a => (a.tags || []).includes('action-required'));
+            if (!actionable.length) {
+              core.info(`${alerts.length} trend(s), none tagged action-required — digest is in the job summary, no issue.`);
+              return;
+            }
+            alerts = actionable;
 
             const date = new Date().toISOString().split('T')[0];
             const bySource = {};
@@ -113,7 +124,7 @@ jobs:
             }
 
             let body = `## Weekly AI Trend Digest — ${date}\n\n`;
-            body += `**${alerts.length} high-relevance trend(s) detected this week.**\n\n`;
+            body += `**${alerts.length} trend(s) tagged \`action-required\` this week.** The full digest is in the workflow run's job summary.\n\n`;
 
             for (const [source, items] of Object.entries(bySource)) {
               body += `### ${source.charAt(0).toUpperCase() + source.slice(1)}\n`;
