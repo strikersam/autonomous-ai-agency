@@ -322,6 +322,7 @@ def emit_chat_observation(
                 completion_tokens=completion_tokens,
                 meta=meta,
                 task_name=task_name,
+                session_id=session_id,
             )
         except Exception as e:
             log.warning("Langfuse HTTP-only emit failed: %s", e)
@@ -336,6 +337,7 @@ def emit_chat_observation(
             email=email,
             department=department,
             model=model,
+            session_id=session_id,
             messages=messages,
             output_text=output_text,
             prompt_tokens=prompt_tokens,
@@ -357,6 +359,7 @@ def emit_chat_observation(
                 completion_tokens=completion_tokens,
                 meta=meta,
                 task_name=task_name,
+                session_id=session_id,
             )
         except Exception as e2:
             log.warning("Langfuse HTTP fallback failed: %s", e2)
