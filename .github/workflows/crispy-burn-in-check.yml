@@ -10,7 +10,9 @@ name: crispy-burn-in-check
 #     criteria are met (the operator then opens a promotion PR with
 #     risky-module-review sign-off), OR
 #   - comments on the existing tracking issue with the current gap so the
-#     operator can see how close the metric is to the threshold.
+#     operator can see how close the metric is to the threshold, OR
+#   - when not ready and no tracking issue is open, writes the gap to the
+#     run's job summary only (no standing "not ready" issue).
 #
 # This mirrors the loop-audit.yml self-healing pattern: the agency tracks its
 # own readiness and surfaces the decision to a human at the right time.
@@ -194,6 +196,11 @@ jobs:
             gh issue comment "$EXISTING" --body "$BODY"
             # Update labels (add ready-for-promotion when ready, keep crispy-burn-in)
             gh issue edit "$EXISTING" --add-label "$LABEL" 2>/dev/null || true
+          elif [ "$READY" != "true" ]; then
+            # Not ready and nothing open: report the gap in the run summary
+            # instead of filing a standing "not ready" issue every week.
+            echo "Not ready and no open tracking issue — gap: $GAP"
+            printf '### CRISPY burn-in: not ready\n\n%s\n' "$GAP" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "Creating new tracking issue"
             gh issue create --title "$TITLE" --body "$BODY" --label "$LABEL" || \

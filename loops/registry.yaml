@@ -182,7 +182,7 @@ loops:
     source: .github/workflows/crispy-burn-in-check.yml
     self_heal: true
     gate: none
-    purpose: Evaluate CRISPY run-history; file promotion-tracking issue when ready.
+    purpose: Evaluate CRISPY run-history; file promotion-tracking issue when ready (gap goes to the job summary otherwise).
 
   # ── Learn / improve loops ───────────────────────────────────────────────
   - id: continuous-improvement
