@@ -90,9 +90,28 @@ models:
     priority: 34
     speed_tier: slow
 
+  # DeepSeek V4.1-Flash on NVIDIA NIM: NIM-accelerated deployment of DeepSeek's
+  # V4.1-Flash model detected in the NIM catalogue 2026-09-22. 552B MoE,
+  # multimodal (text + images), 1M-token context. Same model as ``deepseek-flash``
+  # on the DeepSeek direct API, served here via NIM with no API cost.
+  # Not yet live-probed on this account — conservative ``supports_tools: false``
+  # until probed. Source: NVIDIA NIM catalogue tracker, 2026-09-22.
+  deepseek-ai/deepseek-v4.1-flash:
+    provider: nvidia
+    display_name: DeepSeek V4.1-Flash (NVIDIA NIM)
+    context_window: 1000000
+    supports_tools: false           # not probed on NIM — conservative default
+    supports_function_calling: false
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    priority: 35
+    speed_tier: fast
+
   # Kimi K2: Moonshot AI MoE model hosted on Groq (Aug 2026). ~1M context,
-  # function calling supported. Free self-serve tier on Groq.
-  # Source: Groq model catalogue, 2026-09-13.
+  # function calling supported. Groq self-serve tier: $1.00/$3.00 per MTok
+  # (most expensive offering on Groq's self-serve catalogue as of Sep 2026).
+  # Source: Groq pricing aggregators, 2026-09-22.
   moonshotai/kimi-k2-instruct:
     provider: groq
     display_name: Kimi K2 Instruct (Groq)
@@ -102,7 +121,9 @@ models:
     supports_function_calling: true
     supports_json: true
     supports_streaming: true
-    priority: 35
+    input_cost_per_1m: 1.00
+    output_cost_per_1m: 3.00
+    priority: 36
     speed_tier: fast
 
   # QwQ-32B: Qwen reasoning model on Groq (Aug 2026). Strong coder with
@@ -403,6 +424,26 @@ models:
     output_cost_per_1m: 5.00
     priority: 17
     speed_tier: medium
+
+  # Gemini Omni 1.1 Flash: Google's fast multimodal model GA'd September 2026.
+  # Primary use case is video generation/editing (video extension, image
+  # interpolation, resolution control 360p–4K) — NOT a standard text/code model.
+  # Listed here for catalog completeness; NOT added to routing candidates because
+  # video-generation models are incompatible with the chat/tool-call routing path.
+  # ``supports_tools: false`` is conservative and correct for video generation.
+  # Pricing not yet published; tracked at $0 until confirmed.
+  # Source: Google AI for Developers changelog, 2026-09-22.
+  gemini-omni-1.1-flash:
+    provider: google
+    display_name: Gemini Omni 1.1 Flash (video generation)
+    supports_tools: false           # video generation model — not for chat routing
+    supports_function_calling: false
+    supports_images: true
+    supports_streaming: true
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
+    priority: 99
+    speed_tier: fast
 
   # ── Local ──────────────────────────────────────────────────────────────
 
