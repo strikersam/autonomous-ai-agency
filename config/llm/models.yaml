@@ -894,3 +894,236 @@ models:
     output_cost_per_1m: 1.20
     priority: 20
     speed_tier: fast
+
+  # ── ZhipuAI / GLM (bigmodel.cn) ──────────────────────────────────────────
+  #
+  # ZhipuAI (zhipu provider) and Z.ai (zai provider) both serve the GLM model
+  # family via OpenAI-compatible APIs. The zhipu endpoint is
+  # https://open.bigmodel.cn/api/paas/v4 ; Z.ai is the international mirror at
+  # https://api.z.ai/api/paas/v4. Both use the same model ids.
+  #
+  # Without an explicit catalog entry each GLM id defaults to
+  # `supports_tools: false` and is silently excluded from all tool-calling
+  # requests — even though GLM-4 and above implement the OpenAI function-calling
+  # protocol. Entries below fix that.
+  #
+  # Capabilities declared from ZhipuAI open-platform docs
+  # (open.bigmodel.cn/dev/api) and public technical reports, 2026-09-20.
+  # Pricing: GLM models on the zhipu/zai providers are offered on a free-credits
+  # trial plan. Cost tracked at $0 until a billing relationship is configured.
+
+  # GLM-5.2: ZhipuAI's latest frontier model (released ~Sep 2026).
+  # 128K context, full tool-calling support (parallel + multi-turn).
+  # Planner / executor / verifier / judge preset for both zhipu and zai.
+  glm-5.2:
+    provider: zhipu
+    display_name: GLM-5.2 (ZhipuAI)
+    context_window: 131072
+    max_output_tokens: 16384
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
+    priority: 38
+    speed_tier: medium
+
+  # GLM-5.1: previous GLM-5 generation, still available as a fallback.
+  # Same protocol capabilities as GLM-5.2 but slightly older checkpoint.
+  glm-5.1:
+    provider: zhipu
+    display_name: GLM-5.1 (ZhipuAI)
+    context_window: 131072
+    max_output_tokens: 16384
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
+    priority: 48
+    speed_tier: medium
+
+  # GLM-4: stable GLM-4 generation (128K context, function calling confirmed).
+  glm-4:
+    provider: zhipu
+    display_name: GLM-4 (ZhipuAI)
+    context_window: 131072
+    max_output_tokens: 16384
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
+    priority: 55
+    speed_tier: medium
+
+  # GLM-4-Flash: lightweight / fast variant of GLM-4. Same context window.
+  # Tool calling confirmed by ZhipuAI docs.
+  glm-4-flash:
+    provider: zhipu
+    display_name: GLM-4 Flash (ZhipuAI)
+    context_window: 131072
+    max_output_tokens: 16384
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
+    priority: 57
+    speed_tier: fast
+
+  # GLM-4-Air: efficient/budget variant of GLM-4.
+  glm-4-air:
+    provider: zhipu
+    display_name: GLM-4 Air (ZhipuAI)
+    context_window: 131072
+    max_output_tokens: 16384
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
+    priority: 58
+    speed_tier: fast
+
+  # ── DashScope / Alibaba Qwen API (dashscope.aliyuncs.com) ────────────────
+  #
+  # DashScope is Alibaba Cloud's model platform, serving the Qwen family
+  # through an OpenAI-compatible endpoint at
+  # https://dashscope.aliyuncs.com/compatible-mode/v1
+  #
+  # All Qwen models below support the OpenAI function-calling protocol
+  # (tool_choice / tool_calls) per Alibaba documentation (help.aliyun.com/
+  # product/2400256.html) and the dashscope Python SDK docs, 2026-09-20.
+  # Without catalog entries they default to supports_tools: false and are
+  # silently dropped from tool-calling requests — this is the fix.
+  #
+  # Pricing: approximate CNY → USD conversion from Alibaba Cloud pricing page
+  # (dashscope.aliyuncs.com/pricing), 2026-09-20. Conservative floor values.
+  # ¥ ≈ $0.14 USD (rough exchange rate). Operators should verify before billing.
+
+  # Qwen-Plus (Qwen2.5-Plus): Alibaba's balanced frontier model.
+  # 128K context, supports tool calling, JSON mode.
+  qwen-plus:
+    provider: dashscope
+    display_name: Qwen Plus (DashScope)
+    context_window: 131072
+    max_output_tokens: 16384
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.40
+    output_cost_per_1m: 1.20
+    priority: 36
+    speed_tier: medium
+
+  # Qwen-Max (Qwen2.5-Max): Alibaba's highest-capability Qwen model.
+  # 32K context (standard); tool calling confirmed.
+  qwen-max:
+    provider: dashscope
+    display_name: Qwen Max (DashScope)
+    context_window: 32768
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 2.40
+    output_cost_per_1m: 9.60
+    priority: 49
+    speed_tier: slow
+
+  # Qwen-Turbo (Qwen2.5-Turbo): fast, cost-effective variant. 1M-token context.
+  qwen-turbo:
+    provider: dashscope
+    display_name: Qwen Turbo (DashScope)
+    context_window: 1000000
+    max_output_tokens: 16384
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.05
+    output_cost_per_1m: 0.10
+    priority: 50
+    speed_tier: fast
+
+  # Qwen-Coder-Plus (Qwen2.5-Coder-Plus): code-specialised Qwen model.
+  # 128K context; executor preset for dashscope in config/models.yaml.
+  qwen-coder-plus:
+    provider: dashscope
+    display_name: Qwen Coder Plus (DashScope)
+    context_window: 131072
+    max_output_tokens: 16384
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.40
+    output_cost_per_1m: 1.20
+    priority: 40
+    speed_tier: medium
+
+  # ── Moonshot / Kimi API (api.moonshot.cn) ────────────────────────────────
+  #
+  # Moonshot AI (China) provides the Kimi large-language model family through
+  # an OpenAI-compatible API at https://api.moonshot.cn/v1.
+  # The three model variants differ only in context window size.
+  #
+  # All three support OpenAI-style tool calling (confirmed from
+  # platform.moonshot.cn/docs/api/tool-use) as of 2026-09-20.
+  # Pricing: approximately 0.012 CNY/1K tokens input and output (~$0.0017/1K)
+  # for moonshot-v1-128k (the planner/judge preset). Conservative floor:
+  # $1.68/MTok input, $1.68/MTok output. Smaller-context variants are cheaper.
+  # Source: platform.moonshot.cn/pricing, 2026-09-20 (approximate).
+
+  # moonshot-v1-8k: 8K-context variant (cheapest, highest throughput).
+  moonshot-v1-8k:
+    provider: moonshot
+    display_name: Moonshot v1 8K
+    context_window: 8192
+    max_output_tokens: 4096
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 1.40
+    output_cost_per_1m: 1.40
+    priority: 62
+    speed_tier: fast
+
+  # moonshot-v1-32k: 32K-context variant (balanced).
+  moonshot-v1-32k:
+    provider: moonshot
+    display_name: Moonshot v1 32K
+    context_window: 32768
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 1.40
+    output_cost_per_1m: 1.40
+    priority: 61
+    speed_tier: medium
+
+  # moonshot-v1-128k: 128K-context flagship (planner/executor preset).
+  moonshot-v1-128k:
+    provider: moonshot
+    display_name: Moonshot v1 128K
+    context_window: 131072
+    max_output_tokens: 16384
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 1.68
+    output_cost_per_1m: 1.68
+    priority: 60
+    speed_tier: slow

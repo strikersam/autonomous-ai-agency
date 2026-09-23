@@ -140,6 +140,26 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # Pricing from ai.google.dev/pricing, 2026-09-19 (≤128K-token tier).
     "gemini-1.5-flash": (0.075, 0.30),     # Gemini 1.5 Flash
     "gemini-1.5-pro": (1.25, 5.00),        # Gemini 1.5 Pro
+    # --- ZhipuAI / GLM (added 2026-09-20) ---
+    # Free-credits trial plan; $0 until a billing relationship is confirmed.
+    # Covers zhipu and zai providers (same model ids, different endpoints).
+    "glm-5.2": (0.0, 0.0),
+    "glm-5.1": (0.0, 0.0),
+    "glm-4": (0.0, 0.0),
+    "glm-4-flash": (0.0, 0.0),
+    "glm-4-air": (0.0, 0.0),
+    # --- DashScope / Alibaba Qwen (added 2026-09-20) ---
+    # Conservative CNY→USD floor from dashscope.aliyuncs.com/pricing, 2026-09-20.
+    # Operators should verify before billing-sensitive use.
+    "qwen-plus": (0.40, 1.20),             # Qwen2.5-Plus — balanced frontier
+    "qwen-max": (2.40, 9.60),             # Qwen2.5-Max — highest capability
+    "qwen-turbo": (0.05, 0.10),            # Qwen2.5-Turbo — fast / 1M context
+    "qwen-coder-plus": (0.40, 1.20),       # Qwen2.5-Coder-Plus — code executor preset
+    # --- Moonshot / Kimi (added 2026-09-20) ---
+    # Approximate pricing from platform.moonshot.cn/pricing, 2026-09-20.
+    "moonshot-v1-8k": (1.40, 1.40),       # 8K context — cheapest/fastest
+    "moonshot-v1-32k": (1.40, 1.40),      # 32K context — balanced
+    "moonshot-v1-128k": (1.68, 1.68),     # 128K context — planner/judge preset
     # --- OpenAI embeddings ---
     "text-embedding-3-small": (0.02, 0.0),  # OpenAI text-embedding-3-small (no output cost)
     # --- Ollama (local, no cost) ---
