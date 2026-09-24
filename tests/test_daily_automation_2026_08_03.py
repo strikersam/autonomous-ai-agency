@@ -39,13 +39,16 @@ def _load_yaml() -> dict:
 
 
 def test_yaml_anthropic_planner_is_opus_5():
+    # 2026-09-24: superseded — claude-opus-5-5 replaces claude-opus-5 as the
+    # anthropic planner preset (20% cheaper, same capability tier).
     cfg = _load_yaml()
-    assert cfg["providers"]["anthropic"]["role_presets"]["planner"] == "claude-opus-5"
+    assert cfg["providers"]["anthropic"]["role_presets"]["planner"] == "claude-opus-5-5"
 
 
 def test_yaml_anthropic_judge_is_opus_5():
+    # 2026-09-24: superseded, same as the planner preset above.
     cfg = _load_yaml()
-    assert cfg["providers"]["anthropic"]["role_presets"]["judge"] == "claude-opus-5"
+    assert cfg["providers"]["anthropic"]["role_presets"]["judge"] == "claude-opus-5-5"
 
 
 def test_yaml_anthropic_candidates_contains_opus_5():
@@ -55,9 +58,11 @@ def test_yaml_anthropic_candidates_contains_opus_5():
 
 
 def test_yaml_anthropic_opus_5_is_first_candidate():
+    # 2026-09-24: superseded — claude-opus-5-5 is now first; claude-opus-5
+    # (still asserted present above) moved to second.
     cfg = _load_yaml()
     candidates = cfg["providers"]["anthropic"]["candidates"]
-    assert candidates[0] == "claude-opus-5", f"Expected claude-opus-5 first, got {candidates[0]}"
+    assert candidates[0] == "claude-opus-5-5", f"Expected claude-opus-5-5 first, got {candidates[0]}"
 
 
 def test_yaml_aerolink_planner_is_opus_5():
@@ -86,13 +91,15 @@ def test_yaml_aerolink_opus_5_is_first_candidate():
 
 
 def test_brain_config_anthropic_planner_is_opus_5():
+    # 2026-09-24: superseded — claude-opus-5-5 replaces claude-opus-5.
     from packages.ai.brain_config import PROVIDER_PRESETS
-    assert PROVIDER_PRESETS["anthropic"]["planner"] == "claude-opus-5"
+    assert PROVIDER_PRESETS["anthropic"]["planner"] == "claude-opus-5-5"
 
 
 def test_brain_config_anthropic_judge_is_opus_5():
+    # 2026-09-24: superseded, same as the planner preset above.
     from packages.ai.brain_config import PROVIDER_PRESETS
-    assert PROVIDER_PRESETS["anthropic"]["judge"] == "claude-opus-5"
+    assert PROVIDER_PRESETS["anthropic"]["judge"] == "claude-opus-5-5"
 
 
 def test_brain_config_aerolink_planner_is_opus_5():

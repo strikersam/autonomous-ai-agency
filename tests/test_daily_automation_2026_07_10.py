@@ -92,8 +92,10 @@ class TestBrainFailoverModelUpdates:
         # 2026-08-03: superseded by the claude-opus-5 catalog update, which
         # made it the new first candidate (== default_model) for anthropic,
         # replacing claude-sonnet-5 asserted here on 2026-07-10.
+        # 2026-09-24: superseded again — claude-opus-5-5 (20% cheaper, same
+        # capability tier) replaces claude-opus-5 as the first candidate.
         anthropic = self._by_id("anthropic")
-        assert anthropic["default_model"] == "claude-opus-5"
+        assert anthropic["default_model"] == "claude-opus-5-5"
 
     def test_anthropic_has_claude_fable5(self):
         anthropic = self._by_id("anthropic")
@@ -179,8 +181,9 @@ class TestBrainConfigUpdates:
         # (claude-opus-4-8 -> claude-opus-5 as planner/judge default). The
         # test's own premise — the planner uses a Claude Opus model — is
         # still correct, only the specific version changed.
+        # 2026-09-24: superseded again — claude-opus-5-5 replaces claude-opus-5.
         bc = self._bc()
-        assert bc.PROVIDER_PRESETS["anthropic"]["planner"] == "claude-opus-5"
+        assert bc.PROVIDER_PRESETS["anthropic"]["planner"] == "claude-opus-5-5"
 
     def test_anthropic_preset_uses_claude_sonnet5_for_executor(self):
         bc = self._bc()
