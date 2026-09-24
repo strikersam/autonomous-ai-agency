@@ -71,6 +71,16 @@ open PR and issue to closed.
 - `.gitattributes` merge strategies for the tracker files and the graph report;
   `.claude/hooks/git-merge-drivers` registers the driver at SessionStart.
 
+## Quick notes #1569 / #1570 (2026-09-25)
+
+- Both had been auto-rejected **without the source being fetched**. Fixed the cause:
+  `.github/scripts/github_source.py` reads GitHub repos/files; any verdict on an unread
+  quick note becomes `unverified` → `quick-note:needs-source` (sweep skips it).
+- #1569 → `agent/code_graph.py` (opt-in, `CODE_GRAPH_ENABLED` + `pip install codebase-memory-mcp`).
+- #1570 → `agents/persona_library.py`: specialists now get a persona system prompt.
+- **Check next session:** the next quick note linking a GitHub repo should show
+  `✅ fetched` in its draft PR's Source Grounding table.
+
 ## Next daily run (2026-09-25)
 
 - PR #1566 merged to master as `74e2c96` — done (rows 78 and 79 in
