@@ -729,6 +729,43 @@ models:
     speed_tier: slow
     aliases: [opus5]
 
+  # Opus 5.5: released 2026-09-22. Matches Fable 5.1 on most work, 40% faster
+  # and 20% cheaper than Opus 5 ($4/$20 per MTok). 1M context, 128K output.
+  # Pricing source: platform.claude.com/docs/en/about-claude/pricing 2026-09-22.
+  claude-opus-5-5:
+    provider: anthropic
+    display_name: Claude Opus 5.5
+    context_window: 1048576
+    max_output_tokens: 131072
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 4.0
+    output_cost_per_1m: 20.0
+    priority: 63
+    speed_tier: slow
+    aliases: [opus5.5]
+
+  claude-opus-5-5-20260922:
+    provider: anthropic
+    display_name: Claude Opus 5.5 (2026-09-22)
+    context_window: 1048576
+    max_output_tokens: 131072
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 4.0
+    output_cost_per_1m: 20.0
+    priority: 63
+    speed_tier: slow
+    aliases: [opus5.5-20260922]
+
   # ── Anthropic — Claude 5 Mythos-class (gated) ────────────────────────────
   # Fable 5: most intelligent generally available Claude 5 model. Suspended
   # under US export-control directive (2026-06-12); requires

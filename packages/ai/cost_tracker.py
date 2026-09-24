@@ -107,6 +107,8 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # --- Anthropic (paid) — Claude 5 family + Sonnet 4.x / Opus 4.x ---
     # Prices verified from platform.claude.com/docs/en/about-claude/pricing 2026-09-06.
     "claude-opus-5": (5.0, 25.0),          # Opus 5 — $5/$25 per MTok
+    "claude-opus-5-5": (4.0, 20.0),        # Opus 5.5 — $4/$20 per MTok (released 2026-09-22; 20% cheaper than Opus 5)
+    "claude-opus-5-5-20260922": (4.0, 20.0),  # Opus 5.5 versioned ID
     "claude-sonnet-5": (2.0, 10.0),        # Sonnet 5 — $2/$10 per MTok (introductory price made permanent 2026-09-01)
     "claude-sonnet-5-20260501": (2.0, 10.0),
     "claude-fable-5": (10.0, 50.0),        # Fable 5 — $10/$50 per MTok (gated flagship)
