@@ -357,11 +357,15 @@ providers:
     base_url_env: ANTHROPIC_BASE_URL
     default_base_url: https://api.anthropic.com
     role_presets:
-      planner:   claude-opus-5
+      # Updated 2026-09-24: Opus 5.5 replaces Opus 5 as planner/judge.
+      planner:   claude-opus-5-5
       executor:  claude-sonnet-5
       verifier:  claude-sonnet-5
-      judge:     claude-opus-5
+      judge:     claude-opus-5-5
     candidates:
+      # Added 2026-09-24: Opus 5.5 (released 2026-09-22) — 20% cheaper than
+      # Opus 5 at the same capability tier. Placed first.
+      - claude-opus-5-5
       - claude-opus-5
       - claude-sonnet-5
       - claude-fable-5

@@ -257,10 +257,11 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
         "judge":     "claude-opus-5",
     },
     "anthropic": {
-        "planner":   "claude-opus-5",
+        # Updated 2026-09-24: Opus 5.5 replaces Opus 5 as planner/judge (released 2026-09-22; 20% cheaper, same capability tier).
+        "planner":   "claude-opus-5-5",
         "executor":  "claude-sonnet-5",
         "verifier":  "claude-sonnet-5",
-        "judge":     "claude-opus-5",
+        "judge":     "claude-opus-5-5",
     },
     "google": {
         "planner":   "gemini-2.5-pro",
@@ -422,6 +423,8 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         "anthropic/claude-3.5-sonnet",
     ],
     "anthropic": [
+        # Added 2026-09-24: Opus 5.5 (released 2026-09-22), 20% cheaper than Opus 5.
+        "claude-opus-5-5",
         "claude-opus-5",
         "claude-sonnet-5",
         "claude-fable-5",

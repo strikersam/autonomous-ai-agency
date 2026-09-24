@@ -43,6 +43,23 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "nvidia/nemotron-3-ultra-550b-a55b": (0.0, 0.0),
     # DeepSeek V4 Pro — live in NIM catalog Aug 2026 (free tier).
     "deepseek-ai/deepseek-v4-pro": (0.0, 0.0),
+    # --- TokenIn (tokenin.my.id, free frontier gateway) ---
+    # All ids are the gateway's own free-tier aliases (`myt/...-free`) for
+    # frontier models it re-serves at no cost — not the underlying paid
+    # models. Explicit here because the fuzzy substring fallback below would
+    # otherwise match e.g. "myt/claude-opus-4-8-free" against the paid
+    # "claude-opus-4-8" entry and "myt/gpt-5.6-sol-free" against the paid
+    # "gpt-5.6-sol" entry, billing free traffic at $5+/MTok.
+    "myt/glm-5.3-free": (0.0, 0.0),
+    "myt/deepseek-v4-pro-free": (0.0, 0.0),
+    "myt/MiniMax-M3-free": (0.0, 0.0),
+    "myt/mimo-v2.5-free": (0.0, 0.0),
+    "myt/qwen3.8-max-free": (0.0, 0.0),
+    "myt/kimi-k3-free": (0.0, 0.0),
+    "myt/gemini-3.5-flash-free": (0.0, 0.0),
+    "myt/grok-4.6-free": (0.0, 0.0),
+    "myt/gpt-5.6-sol-free": (0.0, 0.0),
+    "myt/claude-opus-4-8-free": (0.0, 0.0),
     # --- Cerebras (free/paid tier) ---
     # Probed 2026-08-29: this account's catalogue is exactly these two. The
     # three ids that were here — qwen-3-coder-480b, llama-3.3-70b,
@@ -90,6 +107,8 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # --- Anthropic (paid) — Claude 5 family + Sonnet 4.x / Opus 4.x ---
     # Prices verified from platform.claude.com/docs/en/about-claude/pricing 2026-09-06.
     "claude-opus-5": (5.0, 25.0),          # Opus 5 — $5/$25 per MTok
+    "claude-opus-5-5": (4.0, 20.0),        # Opus 5.5 — $4/$20 per MTok (released 2026-09-22; 20% cheaper than Opus 5)
+    "claude-opus-5-5-20260922": (4.0, 20.0),  # Opus 5.5 versioned ID
     "claude-sonnet-5": (2.0, 10.0),        # Sonnet 5 — $2/$10 per MTok (introductory price made permanent 2026-09-01)
     "claude-sonnet-5-20260501": (2.0, 10.0),
     "claude-fable-5": (10.0, 50.0),        # Fable 5 — $10/$50 per MTok (gated flagship)

@@ -105,10 +105,16 @@ class TestFable51CandidatesUpdated:
         assert m.supports_tools is True, "claude-fable-5-1 must support tools"
 
     def test_anthropic_primary_candidates_preserved(self) -> None:
-        """Primary presets (opus-5, sonnet-5) must still lead the list."""
+        """Primary presets (opus-5, sonnet-5) must still lead the list.
+
+        2026-09-24: superseded — claude-opus-5-5 was added as the new first
+        candidate (20% cheaper than opus-5, same capability tier), pushing
+        claude-opus-5 to second and claude-sonnet-5 to third.
+        """
         cands = _routing_candidates().get("anthropic", [])
-        assert cands[0] == "claude-opus-5", "claude-opus-5 must remain first"
-        assert cands[1] == "claude-sonnet-5", "claude-sonnet-5 must remain second"
+        assert cands[0] == "claude-opus-5-5", "claude-opus-5-5 must be first"
+        assert cands[1] == "claude-opus-5", "claude-opus-5 must remain second"
+        assert cands[2] == "claude-sonnet-5", "claude-sonnet-5 must remain third"
 
 
 # ── 2. Google candidates: Gemini 3.x models ─────────────────────────────────
