@@ -462,6 +462,7 @@ jobs:
           VERDICT: ${{ steps.plan_gate.outputs.verdict }}
           REASON: ${{ steps.plan_gate.outputs.reason }}
           SOURCE_FETCHED: ${{ steps.plan_gate.outputs.source_fetched }}
+          HAS_SOURCE: ${{ steps.plan_gate.outputs.has_source }}
         run: |
           # Label so the scheduled sweep does not re-pick this in four hours and
           # re-run the same refusal. A plan blocked because its source was never
@@ -469,7 +470,7 @@ jobs:
           # nobody had looked at (#1569, #1570), so it gets needs-source.
           LABEL="quick-note:rejected"
           case "$VERDICT" in missing|none) ;; *)
-            if [ "$VERDICT" = "unverified" ] || [ "$SOURCE_FETCHED" = "false" ]; then
+            if [ "$VERDICT" = "unverified" ] || { [ "$SOURCE_FETCHED" = "false" ] && [ "$HAS_SOURCE" != "false" ]; }; then
               LABEL="quick-note:needs-source"
               gh label create "$LABEL" --repo "$REPO" --color FBCA04 \
                 --description "Quick note whose linked source could not be read" 2>/dev/null || true

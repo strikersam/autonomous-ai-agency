@@ -28,13 +28,28 @@ class FakeRunner:
     def __init__(self, head: str = "abc") -> None:
         self.calls: list[list[str]] = []
         self.head = head
+        self.diff = ""
+        self.origin_head: str | None = None
+        self.branches: set[str] = set()
         self.fail_with: str | None = None
+
+    def _git(self, argv):
+        sub = argv[1]
+        if sub == "rev-parse" and "--verify" in argv:
+            return (0, argv[-1]) if argv[-1] in self.branches else (1, "")
+        if sub == "rev-parse":
+            return 0, self.head
+        if sub == "diff":
+            return 0, self.diff
+        if sub == "symbolic-ref":
+            return (0, self.origin_head + "\n") if self.origin_head else (1, "")
+        return 0, ""
 
     def __call__(self, argv, **kwargs):
         self.calls.append(argv)
         if argv[0] == "git":
-            out = self.head if argv[1] == "rev-parse" else ""
-            return subprocess.CompletedProcess(argv, 0, out, "")
+            code, out = self._git(argv)
+            return subprocess.CompletedProcess(argv, code, out, "")
         if self.fail_with:
             return subprocess.CompletedProcess(argv, 1, "", self.fail_with)
         tool = argv[3]
@@ -74,6 +89,60 @@ class TestQueries:
         runner.head = "def"  # a new commit
         graph.impact("main")
         assert len(runner.tool_calls("index_repository")) == 2
+
+    def test_a_second_edit_to_a_dirty_file_reindexes(self, graph, runner) -> None:
+        """git status would not change here; the diff content does."""
+        runner.diff = "+x = 1"
+        graph.trace("helper")
+        runner.diff = "+x = 2"
+        graph.trace("helper")
+        assert len(runner.tool_calls("index_repository")) == 2
+
+    def test_a_new_untracked_file_reindexes(self, graph, runner, tmp_path) -> None:
+        graph.trace("helper")
+        (tmp_path / "new.py").write_text("def f(): pass\n")
+        orig = runner._git
+        runner._git = lambda argv: (0, "new.py\n") if argv[1] == "ls-files" else orig(argv)
+        graph.trace("helper")
+        assert len(runner.tool_calls("index_repository")) == 2
+
+    def test_outside_git_always_reindexes(self, tmp_path) -> None:
+        runner = FakeRunner()
+        runner._git = lambda argv: (128, "")
+        g = cg.CodeGraph(tmp_path, binary="cbm", runner=runner)
+        g.trace("helper")
+        g.trace("helper")
+        assert len(runner.tool_calls("index_repository")) == 2
+
+    def test_concurrent_queries_index_once(self, graph, runner) -> None:
+        import threading
+
+        barrier = threading.Barrier(4)
+
+        def worker():
+            barrier.wait()
+            graph.trace("helper")
+
+        threads = [threading.Thread(target=worker) for _ in range(4)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert len(runner.tool_calls("index_repository")) == 1
+
+    @pytest.mark.parametrize("origin,branches,expected", [
+        ("origin/trunk", set(), "origin/trunk"),
+        (None, {"master"}, "master"),
+        (None, {"main", "master"}, "main"),
+        (None, set(), "HEAD~1"),
+    ])
+    def test_impact_defaults_to_the_repos_own_base(
+        self, graph, runner, origin, branches, expected,
+    ) -> None:
+        runner.origin_head, runner.branches = origin, branches
+        graph.impact()
+        call = runner.tool_calls("detect_changes")[0]
+        assert call[call.index("--base-branch") + 1] == expected
 
     def test_depth_and_limit_are_clamped(self, graph, runner) -> None:
         graph.trace("helper", "both", 99)
@@ -174,3 +243,36 @@ class TestOptIn:
         spec = next(s for s in _specs() if s.server_id == "codebase-memory")
         configured, reason = spec.is_configured()
         assert configured is False and "CODE_GRAPH_ENABLED" in reason
+
+
+class TestRunnerWorkspace:
+    """Registry handlers get the runner's own workspace, never a model's choice."""
+
+    def test_workspace_root_is_injected_and_overrides_the_model(self, tmp_path) -> None:
+        from agent.capability_registry import ToolRegistry
+        from agent.loop import AgentRunner
+
+        seen: dict = {}
+        registry = ToolRegistry()
+
+        @registry.agent_tool(name="probe", description="p", parameters={})
+        async def _probe(name: str, workspace_root: str | None = None) -> dict:
+            seen.update(name=name, root=workspace_root)
+            return {"ok": True}
+
+        runner = AgentRunner.__new__(AgentRunner)
+        runner.tools = type("T", (), {"root": tmp_path})()
+        runner._tool_registry = registry
+        result = asyncio.run(runner._dispatch_tool_unguarded(
+            "probe", {"name": "x", "workspace_root": "/etc"}))
+        assert result == {"ok": True}
+        assert seen == {"name": "x", "root": str(tmp_path)}
+
+    def test_handlers_without_the_parameter_are_untouched(self) -> None:
+        from agent import loop
+
+        def plain(url: str) -> dict:
+            return {}
+
+        assert "workspace_root" not in loop._handler_params(plain)
+        assert loop._handler_params(object()) == frozenset()

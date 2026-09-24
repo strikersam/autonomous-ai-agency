@@ -464,6 +464,10 @@ def apply_source_gate(result: dict, url: str | None, source_fetched: bool) -> di
     gated = dict(result)
     gated["verdict"] = "unverified"
     gated["verdict_reason"] = UNVERIFIED_REASON.format(verdict=original)
+    # A summary and prompt written from the URL slug read as researched;
+    # neither may survive into the plan or the coding agent's instructions.
+    gated["source_summary"] = "_Not established — the linked source could not be read._"
+    gated["prompt"] = ""
     return gated
 
 

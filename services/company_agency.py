@@ -30,6 +30,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from datetime import datetime
@@ -512,7 +513,10 @@ class CompanyAgencyService:
                     continue
                 # The role persona (agency-agents, #1570) is the specialist's
                 # system prompt; before it every specialist ran with none.
-                persona = persona_for_family(spec.family, company.name or "")
+                # First load reads a file — keep it off the event loop (rule 25).
+                persona = await asyncio.to_thread(
+                    persona_for_family, spec.family, company.name or "",
+                )
                 # Idempotent: check if we already registered this specialist
                 existing = await agent_store.get(
                     f"specialist:{spec.id}", owner_id=None,

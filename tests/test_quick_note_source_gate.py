@@ -13,6 +13,7 @@ Two fixes, tested here:
 """
 from __future__ import annotations
 
+import base64
 import importlib.util
 import json
 import sys
@@ -82,7 +83,7 @@ class TestFetch:
                 "license": {"spdx_id": "MIT"}, "default_branch": "main"}
         fake = _FakeGitHub({
             f"{gs.API}/repos/DeusData/codebase-memory-mcp": json.dumps(meta),
-            f"{gs.API}/repos/DeusData/codebase-memory-mcp/contents/?ref=main": json.dumps(
+            f"{gs.API}/repos/DeusData/codebase-memory-mcp/contents?ref=main": json.dumps(
                 [{"name": "src", "type": "dir"}, {"name": "README.md", "type": "file"}]),
             f"{gs.RAW}/DeusData/codebase-memory-mcp/main/README.md": README,
         })
@@ -105,6 +106,38 @@ class TestFetch:
         fake = _FakeGitHub({f"{gs.API}/repos/a/b": json.dumps({"full_name": "a/b"})})
         assert gs.fetch_github_source("https://github.com/a/b", fake) == ""
 
+    def test_readme_comes_from_the_api_whatever_its_name(self) -> None:
+        """README.markdown etc. are not guessable on the raw host; the API
+        readme endpoint resolves any spelling."""
+        body = {"encoding": "base64", "content": base64.b64encode(README.encode()).decode()}
+        fake = _FakeGitHub({f"{gs.API}/repos/a/b/readme?ref=HEAD": json.dumps(body)})
+        text = gs.fetch_github_source("https://github.com/a/b", fake)
+        assert "Real prose." in text
+        assert not any(u.startswith(gs.RAW) for u in fake.requested)
+
+    def test_tree_url_reads_that_directory(self) -> None:
+        """A /tree/<ref>/<path> link is about that directory, not the repo root."""
+        body = {"encoding": "base64", "content": base64.b64encode(b"Sub readme prose").decode()}
+        fake = _FakeGitHub({
+            f"{gs.API}/repos/a/b/contents/pkg/sub?ref=dev": json.dumps([{"name": "x.py"}]),
+            f"{gs.API}/repos/a/b/readme/pkg/sub?ref=dev": json.dumps(body),
+        })
+        text = gs.fetch_github_source("https://github.com/a/b/tree/dev/pkg/sub", fake)
+        assert "Files in pkg/sub: x.py" in text
+        assert "Sub readme prose" in text
+
+    def test_tree_readme_falls_back_to_the_raw_host_under_the_path(self) -> None:
+        fake = _FakeGitHub({f"{gs.RAW}/a/b/dev/pkg/README.md": "Raw sub prose"})
+        text = gs.fetch_github_source("https://github.com/a/b/tree/dev/pkg", fake)
+        assert "Raw sub prose" in text
+
+    def test_malformed_api_readme_falls_back(self) -> None:
+        fake = _FakeGitHub({
+            f"{gs.API}/repos/a/b/readme?ref=HEAD": "not json",
+            f"{gs.RAW}/a/b/HEAD/README.md": README,
+        })
+        assert "Real prose." in gs.fetch_github_source("https://github.com/a/b", fake)
+
     def test_blob_reads_the_raw_file(self) -> None:
         fake = _FakeGitHub({f"{gs.RAW}/a/b/main/docs/x.md": "file body"})
         text = gs.fetch_github_source("https://github.com/a/b/blob/main/docs/x.md", fake)
@@ -125,6 +158,14 @@ class TestSourceGate:
         )
         assert result["verdict"] == "unverified"
         assert f"`{verdict or 'missing'}`" in result["verdict_reason"]
+
+    def test_a_slug_written_summary_and_prompt_do_not_survive(self, gc) -> None:
+        result = gc.apply_source_gate(
+            {"verdict": "adopt", "source_summary": "A great tool that...",
+             "prompt": "Build the thing"}, "https://github.com/a/b", False)
+        assert "could not be read" in result["source_summary"]
+        assert "great tool" not in result["source_summary"]
+        assert result["prompt"] == ""
 
     def test_a_read_source_keeps_its_verdict(self, gc) -> None:
         result = gc.apply_source_gate({"verdict": "reject"}, "https://github.com/a/b", True)
@@ -201,3 +242,24 @@ class TestImplementSideGate:
         assert 'LABEL="quick-note:needs-source"' in run
         assert '"$SOURCE_FETCHED" = "false"' in run
         assert step["env"]["SOURCE_FETCHED"] == "${{ steps.plan_gate.outputs.source_fetched }}"
+
+    def test_block_step_needs_a_named_source_for_needs_source(self) -> None:
+        """A reject on an issue with no URL is a plain reject, not needs-source."""
+        wf = yaml.safe_load((REPO_ROOT / ".github/workflows/process-quick-note.yml").read_text())
+        steps = next(iter(wf["jobs"].values()))["steps"]
+        step = next(s for s in steps if s.get("id") == "plan_blocked")
+        assert '"$HAS_SOURCE" != "false"' in step["run"]
+        assert step["env"]["HAS_SOURCE"] == "${{ steps.plan_gate.outputs.has_source }}"
+
+    @pytest.mark.parametrize("url,expected", [("https://github.com/a/b", True), (None, False)])
+    def test_the_gate_reads_has_source_from_the_real_grounding_block(self, url, expected) -> None:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        gc = _load("generate_context")
+        import context_plan_gate as gate
+
+        block = gc._build_grounding_block({"url": url, "source_fetched": False})
+        doc = f"{gc.VERDICT_BADGES['reject']}\n\n{block}"
+        decision = gate.evaluate(doc)
+        assert decision.source_fetched is False
+        assert decision.has_source is expected
+        assert f"has_source={'true' if expected else 'false'}" in decision.as_output_lines()

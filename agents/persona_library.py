@@ -73,10 +73,18 @@ _FRONTMATTER = re.compile(r"\A---\n.*?\n---\n", re.S)
 _CODE_BLOCK = re.compile(r"```.*?```", re.S)
 _HEADING = re.compile(r"^## +(.*)$", re.M)
 _BLANK_RUN = re.compile(r"\n{3,}")
+_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f\u200b-\u200f\u2028-\u202e\u2066-\u2069]")
+_LEADING_JUNK = re.compile(r"^[^A-Za-z0-9]+")
 
 
 def _heading_key(heading: str) -> str:
     return re.sub(r"[^a-z &]", "", heading.lower()).strip()
+
+
+def _clean_heading(heading: str) -> str:
+    """Drop control characters and leading emoji/symbols from a heading."""
+    text = _CONTROL.sub("", heading)
+    return _LEADING_JUNK.sub("", text).strip()
 
 
 def distill(markdown: str, max_chars: int = MAX_PERSONA_CHARS) -> str:
@@ -90,7 +98,7 @@ def distill(markdown: str, max_chars: int = MAX_PERSONA_CHARS) -> str:
         if not any(k in _heading_key(heading) for k in _KEEP):
             continue
         text = _BLANK_RUN.sub("\n\n", text.strip())
-        block = f"\n\n## {heading.strip()}\n{text}"
+        block = f"\n\n## {_clean_heading(heading)}\n{text}"
         if len(out) + len(block) > max_chars:
             break
         out += block

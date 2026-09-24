@@ -29,6 +29,7 @@ import json
 import logging
 import re
 import shutil
+import threading
 import subprocess  # nosec B404 - list-form argv only, fixed binary
 from pathlib import Path
 from typing import Any, Callable
@@ -38,7 +39,7 @@ log = logging.getLogger("qwen-proxy")
 LABELS = frozenset({"Function", "Method", "Class", "Module", "File", "Route"})
 DIRECTIONS = frozenset({"inbound", "outbound", "both"})
 _SYMBOL_RE = re.compile(r"^[^\s-][^\s]{0,199}$")          # no leading '-', no spaces
-_REF_RE = re.compile(r"^[A-Za-z0-9._/][A-Za-z0-9._/-]{0,199}$")
+_REF_RE = re.compile(r"^[A-Za-z0-9._/][A-Za-z0-9._/~^-]{0,199}$")
 _QUERY_TIMEOUT = 60
 
 Runner = Callable[..., "subprocess.CompletedProcess[str]"]
@@ -64,6 +65,8 @@ class CodeGraph:
         self._run = runner
         self._project: str | None = None
         self._fingerprint: str | None = None
+        # Two queries in flight must not start two index runs of one repo.
+        self._lock = threading.Lock()
 
     # ── plumbing ─────────────────────────────────────────────────────────────
 
@@ -96,33 +99,61 @@ class CodeGraph:
             raise CodeGraphError(f"{argv[0]} returned an unexpected shape")
         return data
 
-    def _workspace_fingerprint(self) -> str:
-        """HEAD plus uncommitted changes — the index is stale when this moves."""
-        parts: list[str] = []
-        for args in (["rev-parse", "HEAD"], ["status", "--porcelain"]):
+    def _git(self, *args: str) -> str | None:
+        try:
+            proc = self._run(  # nosec B603 B607 - fixed git argv
+                ["git", *args], cwd=str(self.root), capture_output=True,
+                text=True, timeout=30, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return None
+        return proc.stdout if proc.returncode == 0 else None
+
+    def _workspace_fingerprint(self) -> str | None:
+        """Content of every change since HEAD — the index is stale when it moves.
+
+        ``git status`` alone is not enough: a second edit to an already-dirty
+        file leaves it unchanged. So this hashes HEAD, the full diff against
+        HEAD, and each untracked file's size and mtime. ``None`` (not a git
+        repo) means "cannot tell", which always re-indexes.
+        """
+        head = self._git("rev-parse", "HEAD")
+        if head is None:
+            return None
+        digest = hashlib.sha256(head.encode())
+        digest.update((self._git("diff", "HEAD", "--no-color") or "").encode())
+        for rel in (self._git("ls-files", "--others", "--exclude-standard") or "").splitlines():
             try:
-                proc = self._run(  # nosec B603 B607 - fixed git argv
-                    ["git", *args], cwd=str(self.root), capture_output=True,
-                    text=True, timeout=30, check=False,
-                )
-                parts.append(proc.stdout)
-            except (OSError, subprocess.TimeoutExpired):
-                parts.append("?")
-        return hashlib.sha256("\x00".join(parts).encode()).hexdigest()
+                st = (self.root / rel).stat()
+                digest.update(f"{rel}\x00{st.st_size}\x00{st.st_mtime_ns}".encode())
+            except OSError:
+                digest.update(rel.encode())
+        return digest.hexdigest()
+
+    def default_base(self) -> str:
+        """The remote's default branch (origin/HEAD), else main/master, else HEAD~1."""
+        ref = (self._git("symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD") or "").strip()
+        if ref:
+            return ref
+        for candidate in ("main", "master"):
+            if self._git("rev-parse", "--verify", "--quiet", candidate) is not None:
+                return candidate
+        return "HEAD~1"
 
     def ensure_indexed(self) -> str:
         """Index (incrementally) when the workspace changed; return the project."""
-        fingerprint = self._workspace_fingerprint()
-        if self._project and fingerprint == self._fingerprint:
-            return self._project
-        result = self._json(
-            ["index_repository", "--repo-path", str(self.root)], self.index_timeout
-        )
-        project = result.get("project")
-        if not isinstance(project, str) or not project:
-            raise CodeGraphError("index_repository did not name a project")
-        self._project, self._fingerprint = project, fingerprint
-        return project
+        with self._lock:
+            fingerprint = self._workspace_fingerprint()
+            if self._project and fingerprint is not None and fingerprint == self._fingerprint:
+                return self._project
+            result = self._json(
+                ["index_repository", "--repo-path", str(self.root)], self.index_timeout
+            )
+            project = result.get("project")
+            if not isinstance(project, str) or not project:
+                raise CodeGraphError("index_repository did not name a project")
+            self._project, self._fingerprint = project, fingerprint
+            return project
 
     # ── queries (sync; the async wrappers below run them in a thread) ────────
 
@@ -147,7 +178,8 @@ class CodeGraph:
             argv += ["--label", label]
         return self._json([*argv, "--format", "json"])
 
-    def impact(self, base_branch: str = "main") -> dict:
+    def impact(self, base_branch: str | None = None) -> dict:
+        base_branch = base_branch or self.default_base()
         if not _REF_RE.match(base_branch) or ".." in base_branch:
             raise CodeGraphError("base_branch is not a valid git ref")
         project = self.ensure_indexed()

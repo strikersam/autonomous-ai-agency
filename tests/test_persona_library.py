@@ -61,6 +61,12 @@ class TestDistill:
         out = pl.distill(self.SOURCE, max_chars=len("# X Agent\n\nIntro line.") + 60)
         assert out.endswith(("tester", "Intro line."))
 
+    def test_headings_lose_emoji_and_control_characters(self) -> None:
+        src = "# X\n\n## \U0001f6a8\u200b\x07 Critical Rules\u202e\n- a rule\n"
+        out = pl.distill(src)
+        assert "## Critical Rules\n- a rule" in out
+        assert "\u200b" not in out and "\x07" not in out and "\u202e" not in out
+
     def test_every_real_persona_respects_the_cap(self) -> None:
         for stem in set(pl.FAMILY_PERSONAS.values()):
             text = (pl.PERSONA_DIR / f"{stem}.md").read_text(encoding="utf-8")

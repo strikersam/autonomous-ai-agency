@@ -12,6 +12,8 @@ parts are the owner/repo/ref/path segments, which are validated first.
 """
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import re
 import urllib.parse
@@ -80,6 +82,38 @@ def _strip_readme_noise(text: str) -> str:
     return "\n".join(line for line in text.splitlines() if not _NOISE_LINE.match(line))
 
 
+def _decode_readme(raw: str | None) -> str | None:
+    """Body of a ``GET /repos/{o}/{r}/readme`` response, or None."""
+    if not raw:
+        return None
+    try:
+        data = json.loads(raw)
+        if data.get("encoding") != "base64":
+            return None
+        return base64.b64decode(data.get("content", "")).decode("utf-8", "replace") or None
+    except (json.JSONDecodeError, AttributeError, binascii.Error, ValueError):
+        return None
+
+
+def _readme(owner: str, repo: str, ref: str, path: str, fetch_text: FetchText) -> str | None:
+    """The README for ``path`` (repo root when empty), whatever its name.
+
+    The API resolves any README spelling (README.markdown, docs/README.md,
+    ...); guessing names on the raw host is the fallback when the API is
+    rate-limited.
+    """
+    sub = f"/{_q(path)}" if path else ""
+    readme = _decode_readme(fetch_text(f"{API}/repos/{owner}/{repo}/readme{sub}?ref={_q(ref)}"))
+    if readme:
+        return readme
+    prefix = f"{_q(path)}/" if path else ""
+    for name in ("README.md", "readme.md", "README.rst", "README"):
+        readme = fetch_text(f"{RAW}/{owner}/{repo}/{_q(ref)}/{prefix}{name}")
+        if readme:
+            return readme
+    return None
+
+
 def fetch_github_source(url: str, fetch_text: FetchText) -> str:
     """Return a plain-text rendering of the linked repo or file ('' on failure).
 
@@ -108,7 +142,9 @@ def fetch_github_source(url: str, fetch_text: FetchText) -> str:
         except (json.JSONDecodeError, AttributeError):
             pass
 
-    listing_raw = fetch_text(f"{API}/repos/{owner}/{repo}/contents/?ref={_q(ref)}")
+    path = (parts.get("path") or "").strip("/")
+    sub = f"/{_q(path)}" if path else ""
+    listing_raw = fetch_text(f"{API}/repos/{owner}/{repo}/contents{sub}?ref={_q(ref)}")
     if listing_raw:
         try:
             entries = json.loads(listing_raw)
@@ -117,15 +153,12 @@ def fetch_github_source(url: str, fetch_text: FetchText) -> str:
                 for e in entries if isinstance(e, dict) and "name" in e
             ]
             if names:
-                out.append("Top-level files: " + ", ".join(sorted(names)))
+                where = f"Files in {path}" if path else "Top-level files"
+                out.append(f"{where}: " + ", ".join(sorted(names)))
         except (json.JSONDecodeError, TypeError):
             pass
 
-    readme = None
-    for name in ("README.md", "readme.md", "README.rst", "README"):
-        readme = fetch_text(f"{RAW}/{owner}/{repo}/{_q(ref)}/{name}")
-        if readme:
-            break
+    readme = _readme(owner, repo, ref, path, fetch_text)
     if readme:
         out += ["", "README:", _strip_readme_noise(readme)]
     # Metadata alone is not the source; without a README there is nothing to

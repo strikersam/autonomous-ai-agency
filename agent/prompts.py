@@ -91,7 +91,7 @@ def _code_graph_tool_lines() -> str:
         "  'who calls X', 'what does X call', and 'what can this change break'):\n"
         "- code_trace(function_name, direction='both', depth=3): callers/callees\n"
         "- code_search(name_pattern, label=None, limit=20): find symbols by regex\n"
-        "- code_impact(base_branch='main'): functions affected by this branch's diff\n"
+        "- code_impact(base_branch=None): functions affected by this branch's diff (default: repo's default branch)\n"
     )
 
 
