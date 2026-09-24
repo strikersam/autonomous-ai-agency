@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 ### Fixed
+- `tests/test_brain_config_store.py` — Fixed `test_get_never_raises_on_total_failure` to clear cloud provider API keys (CEREBRAS_API_KEY, GROQ_API_KEY, NVIDIA_API_KEY) before testing fallback behavior, ensuring the test passes when run in CI environments where these keys are pre-set.
+### Fixed
 
 - **TokenIn's own free-tier ids were fuzzy-matched to paid Claude/GPT entries in `cost_tracker.py`, billing free traffic at $5+/MTok** (2026-09-24). `cost_for_tokens()` falls back to a substring match (`key in model` / `model in key`) when a model id has no exact entry in the cost table — a deliberate fallback for provider-prefixed variants of known ids. TokenIn (`tokenin.my.id`, a fully free frontier gateway per `packages/ai/brain_config.py`'s `"tokenin": "free"` tier) was entirely absent from the cost table, so two of its ten free-tier alias ids collided with unrelated paid entries by substring: `myt/claude-opus-4-8-free` matched the paid `claude-opus-4-8` ($5/$25 per MTok) and `myt/gpt-5.6-sol-free` matched the paid `gpt-5.6-sol` ($5/$30 per MTok). Reproduced directly: `cost_for_tokens("myt/claude-opus-4-8-free", 1_000_000, 0)` returned `5.0` instead of `0.0`. Every TokenIn call through these two ids inflated `services/cost_attribution.py` / `cost_insights.py` spend numbers by the full paid-model rate on traffic that costs nothing. Fixed by adding an explicit `(0.0, 0.0)` entry for all ten `myt/*-free` TokenIn ids, so the exact match wins before the fuzzy fallback ever runs — same fix shape as the 2026-09-21 and 2026-09-22 cost-tracker gap fills. 1 new regression test, verified failing against the pre-fix table (`assert 5.0 == 0.0`) and passing after. Files: `packages/ai/cost_tracker.py`, `tests/test_cost_attribution.py`.
 
