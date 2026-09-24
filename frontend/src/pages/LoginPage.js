@@ -36,6 +36,21 @@ function TextInput({ type, value, onChange, placeholder, required, testId }) {
   );
 }
 
+// Set by the backend when a social-login start URL is hit for a provider this
+// server has no OAuth client for (it used to answer with a raw 503 page).
+const OAUTH_ERRORS = {
+  github_not_configured: "GitHub sign-in isn't set up on this server yet. Ask your admin, or use email & password if you have an account.",
+  google_not_configured: "Google sign-in isn't set up on this server yet. Ask your admin, or use email & password if you have an account.",
+};
+
+function readOauthError() {
+  try {
+    return OAUTH_ERRORS[new URLSearchParams(window.location.search).get('oauth_error')] || '';
+  } catch {
+    return '';
+  }
+}
+
 export default function LoginPage() {
   const { login } = useAuth();
   const backendUrl = getBackendUrl();
@@ -43,6 +58,7 @@ export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [oauthError] = useState(readOauthError);
   const [loading, setLoading] = useState(false);
   const [socialLoading, setSocialLoading] = useState(null); // null | 'github' | 'google'
   // Email/password sign-in only works for the admin account and users an
@@ -185,6 +201,12 @@ export default function LoginPage() {
             </div>
 
             <div className="space-y-4">
+              {oauthError && (
+                <div role="alert" className="rounded-[18px] border p-4" style={{ background: 'rgba(255,107,125,0.1)', borderColor: 'rgba(255,107,125,0.22)' }}>
+                  <AlertCircle size={16} className="mb-2 text-[var(--danger)]" />
+                  <p className="text-[0.92rem] text-[var(--text-primary)]">{oauthError}</p>
+                </div>
+              )}
               <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
                 <a
                   href={githubHref}

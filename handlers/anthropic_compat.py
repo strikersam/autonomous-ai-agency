@@ -76,7 +76,8 @@ async def _post_anthropic_with_fallback(
     except httpx.ConnectError as exc:
         if primary_model:
             breaker.record_failure(primary_model)
-        raise HTTPException(status_code=503, detail=f"LLM backend unreachable: {exc}") from exc
+        log.warning("LLM backend unreachable: %s", exc)
+        raise HTTPException(status_code=503, detail="LLM backend unreachable") from exc
 
     if resp.status_code < 500:
         if primary_model:
@@ -103,7 +104,8 @@ async def _post_anthropic_with_fallback(
                 resp = await client.post(url, content=retry_body, headers=headers)
         except httpx.ConnectError as exc:
             breaker.record_failure(fallback)
-            raise HTTPException(status_code=503, detail=f"LLM backend unreachable: {exc}") from exc
+            log.warning("LLM backend unreachable: %s", exc)
+            raise HTTPException(status_code=503, detail="LLM backend unreachable") from exc
         if resp.status_code < 500:
             breaker.record_success(fallback)
             return resp

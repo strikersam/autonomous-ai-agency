@@ -451,9 +451,39 @@ async def detect_hardware_for_wizard():
     return profile.as_dict()
 
 
+def _ollama_probe_block_reason(url: str, request: Request) -> str | None:
+    """Why this caller may not probe *url*, or None.
+
+    Pre-auth and caller-supplied, so SSRF-guarded (rule 14) with one deliberate
+    exception: loopback is the default Ollama address and is allowed. Private
+    and link-local targets (LAN / Docker Ollama, but also cloud metadata at
+    169.254.169.254) need an admin session.
+    """
+    import ipaddress
+    from urllib.parse import urlparse
+
+    from agent.web_reach import unsafe_target_reason
+
+    if get_user_role(getattr(request.state, "user", None) or {}) == UserRole.ADMIN:
+        return None
+    host = (urlparse(url).hostname or "").lower()
+    if host == "localhost":
+        return None
+    try:
+        if ipaddress.ip_address(host).is_loopback:
+            return None
+    except ValueError:
+        pass
+    reason = unsafe_target_reason(url)
+    return f"{reason} — sign in as an admin to probe a private Ollama address" if reason else None
+
+
 @setup_router.get("/detect/models")
-async def detect_models_for_wizard(ollama_url: str = "http://localhost:11434"):
+async def detect_models_for_wizard(request: Request, ollama_url: str = "http://localhost:11434"):
     """Return list of locally available Ollama models (used in Step 2)."""
+    blocked = _ollama_probe_block_reason(ollama_url, request)
+    if blocked:
+        return {"models": [], "total": 0, "ollama_url": ollama_url, "error": blocked}
     models  = await _detect_ollama_models(ollama_url)
     return {"models": models, "total": len(models), "ollama_url": ollama_url}
 

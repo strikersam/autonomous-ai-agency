@@ -13,12 +13,13 @@ projections (`secret_hash` leak); People & access hiding new sign-ups; ObjectId-
 rule violations and provider outages; Doctor "Fix all" hitting a nonexistent endpoint;
 `wont_do` handling; 422 detail arrays crashing error banners.
 
-**Not done (judgement calls, raise with a human):** `/api/scheduler/tick` fails open when
-`CRON_SECRET` is unset; `/api/autonomy/tick` and `/api/doctor` are anonymous by design
-(GitHub workflow / optional auth); `/api/setup/detect/models?ollama_url=` fetches a
-caller-supplied URL pre-auth (setup wizard needs localhost); unconfigured OAuth buttons
-land on a raw 503; 19 admin-only `detail=f"...{exc}"` sites remain; dead `api.js`
-wrappers for `/api/hardware/*`, `/api/sync/*`, `/api/github/repos/*/workspace/*`.
+**Follow-up (2026-09-24, same branch):** closed the open items — throttled anonymous
+ticks + constant-time `CRON_SECRET`, anonymous `/api/doctor` without `GH_PAT`, Ollama
+probe SSRF guard, OAuth-unconfigured redirect, fixed-message HTTP details, dead `api.js`
+wrappers. Also found and fixed two more SSRFs (Knowledge URL ingest; scanner/SEO
+redirects). Deliberately left: onboarding toggle still accepts unknown ids (pre-approval
+by email); the "No schedules registered" alert (in production an empty scheduler does
+mean a wipe).
 
 ## Previous state
 ## Current state (2026-09-24)

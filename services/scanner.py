@@ -40,7 +40,7 @@ log = logging.getLogger("company_graph.scanner")
 
 import ipaddress
 import socket
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 
 def _is_safe_url(url: str) -> bool:
@@ -67,6 +67,22 @@ def _is_safe_url(url: str) -> bool:
     except (socket.gaierror, ValueError):
         return False
     return True
+
+
+async def ssrf_request_hook(request: httpx.Request) -> None:
+    """httpx ``request`` event hook: re-check every outgoing request.
+
+    httpx fires request hooks for each redirect hop, so a public page that
+    302s to 169.254.169.254 or a private address is stopped here, where a
+    one-off check of the starting URL is not enough (rule 14).
+    """
+    if not await asyncio.to_thread(_is_safe_url, str(request.url)):
+        raise httpx.RequestError(
+            "Blocked: request to a non-public address (SSRF protection)", request=request
+        )
+
+
+_REDIRECT_CODES = {301, 302, 303, 307, 308}
 
 
 def _is_blocked_host(url: str) -> bool:
@@ -300,7 +316,16 @@ class WebsiteScanner:
             try:
                 import curl_cffi.requests
                 async with curl_cffi.requests.AsyncSession(impersonate="chrome120", timeout=self.timeout) as client:
-                    response = await client.get(_safe_url, allow_redirects=True)
+                    # Follow redirects by hand so each hop passes the SSRF guard.
+                    current = _safe_url
+                    for _ in range(self.max_redirects + 1):
+                        response = await client.get(current, allow_redirects=False)
+                        location = response.headers.get("location")
+                        if response.status_code not in _REDIRECT_CODES or not location:
+                            break
+                        current = urljoin(current, location)
+                        if not await asyncio.to_thread(_is_safe_url, current):
+                            raise ValueError("redirect to a non-public address blocked")
                     html = response.text
                     headers = response.headers
                     cookies = response.cookies
@@ -311,6 +336,7 @@ class WebsiteScanner:
                     timeout=self.timeout,
                     follow_redirects=True,
                     max_redirects=self.max_redirects,
+                    event_hooks={"request": [ssrf_request_hook]},
                     headers={
                         "User-Agent": self.user_agent,
                         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",

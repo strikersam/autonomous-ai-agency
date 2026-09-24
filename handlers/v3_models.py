@@ -1,6 +1,8 @@
 """V3 API endpoints for models and providers (/api/models/*, /api/providers/*)."""
 from __future__ import annotations
 
+import logging
+
 from typing import Annotated
 
 import httpx
@@ -8,6 +10,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from handlers.v3_auth import _get_current_user, UserResponse
+
+log = logging.getLogger("qwen-proxy")
 
 
 router = APIRouter(prefix="/api", tags=["models", "providers"])
@@ -159,7 +163,8 @@ async def pull_model(
             )
         return {"status": "pulling", "model": model_name}
     except httpx.RequestError as e:
-        raise HTTPException(status_code=500, detail=f"Ollama error: {str(e)}")
+        log.warning("Ollama request failed: %s", e)
+        raise HTTPException(status_code=500, detail="Ollama is unreachable")
 
 
 @router.delete("/models/{model_name}")
@@ -185,7 +190,8 @@ async def delete_model(
             )
         return {"status": "deleted", "model": model_name}
     except httpx.RequestError as e:
-        raise HTTPException(status_code=500, detail=f"Ollama error: {str(e)}")
+        log.warning("Ollama request failed: %s", e)
+        raise HTTPException(status_code=500, detail="Ollama is unreachable")
 
 
 @router.get("/providers", response_model=ProvidersListResponse)
