@@ -290,6 +290,14 @@ def _summarise_tool_result(result: Any) -> str:
 class AgentPhaseError(Exception):
     """Raised when a named agent phase (planning, verification, etc.) fails."""
 
+def _handler_params(handler: Any) -> frozenset[str]:
+    """Parameter names a registry handler accepts ('' when not introspectable)."""
+    try:
+        return frozenset(inspect.signature(handler).parameters)
+    except (TypeError, ValueError):
+        return frozenset()
+
+
 class AgentRunner:
     """GATE: Golden Path steps #7-12 — the primary agent execution loop.
 
@@ -1699,6 +1707,12 @@ class AgentRunner:
         if tr is not None:
             tool_def = tr.get(tool)
             if tool_def is not None:
+                # Registry handlers that declare ``workspace_root`` act on the
+                # workspace this runner edits (a worktree or sandbox copy), not
+                # the process-wide root the singleton registry was built with.
+                # Always overwritten: the model must never choose the path.
+                if "workspace_root" in _handler_params(tool_def.handler):
+                    args = {**args, "workspace_root": str(self.tools.root)}
                 try:
                     result = tool_def.handler(**args)
                     if asyncio.iscoroutine(result):

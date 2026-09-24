@@ -225,6 +225,40 @@ def _internal_configured() -> tuple[bool, str]:
     return True, ""
 
 
+def _code_graph_configured() -> tuple[bool, str]:
+    import shutil
+
+    if not settings.code_graph_enabled:
+        return False, "CODE_GRAPH_ENABLED is off"
+    if shutil.which(settings.code_graph_bin) is None:
+        return False, f"{settings.code_graph_bin} is not installed (pip install codebase-memory-mcp)"
+    return True, ""
+
+
+def _code_graph_spec() -> MCPServerSpec:
+    return MCPServerSpec(
+        server_id="codebase-memory",
+        name="codebase-memory",
+        description=(
+            "Code knowledge graph over 162 languages: call tracing, symbol "
+            "search and diff blast radius. Agents reach it through its CLI "
+            "(agent/code_graph.py → code_trace / code_search / code_impact); "
+            "coding sessions can also run it as a stdio MCP server."
+        ),
+        category="code",
+        transport="stdio",
+        command=settings.code_graph_bin,
+        requires=("CODE_GRAPH_ENABLED",),
+        is_configured=_code_graph_configured,
+        dialable=False,
+        served_by_backend=True,
+        probe=_not_dialable(
+            "stdio MCP server — the backend serves the same graph to agents "
+            "through the CLI in agent/code_graph.py, so nothing is broken here."
+        ),
+    )
+
+
 # ── the catalogue ────────────────────────────────────────────────────────────
 
 def _specs() -> list[MCPServerSpec]:
@@ -287,6 +321,7 @@ def _specs() -> list[MCPServerSpec]:
                 "so nothing is broken here."
             ),
         ),
+        _code_graph_spec(),
     ]
 
 

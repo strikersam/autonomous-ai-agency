@@ -30,6 +30,7 @@ Usage:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from datetime import datetime
@@ -504,16 +505,28 @@ class CompanyAgencyService:
         # specialist so _select_agent() finds them.
         agents_registered = 0
         try:
+            from agents.persona_library import persona_for_family
             from agents.store import AgentDefinition, get_agent_store
             agent_store = get_agent_store()
             for spec in specialists:
                 if not spec.is_provisioned:
                     continue
+                # The role persona (agency-agents, #1570) is the specialist's
+                # system prompt; before it every specialist ran with none.
+                # First load reads a file — keep it off the event loop (rule 25).
+                persona = await asyncio.to_thread(
+                    persona_for_family, spec.family, company.name or "",
+                )
                 # Idempotent: check if we already registered this specialist
                 existing = await agent_store.get(
                     f"specialist:{spec.id}", owner_id=None,
                 )
                 if existing is not None:
+                    # Backfill agents registered before personas existed, but
+                    # never overwrite a prompt an operator has customised.
+                    if persona and not existing.system_prompt:
+                        existing.system_prompt = persona
+                        await agent_store.update(existing)
                     agents_registered += 1
                     continue
                 agent_def = AgentDefinition(
@@ -525,6 +538,7 @@ class CompanyAgencyService:
                         f"Auto-provisioned {spec.family} specialist for "
                         f"{company.name or company_id}"
                     ),
+                    system_prompt=persona,
                     runtime_id=runtime_assignments.get(spec.id, spec.runtime or "internal_agent"),
                     task_types=spec.capabilities or [],
                     is_public=True,
