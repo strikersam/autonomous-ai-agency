@@ -461,12 +461,23 @@ jobs:
           ISSUE_NUM: ${{ steps.issue.outputs.number }}
           VERDICT: ${{ steps.plan_gate.outputs.verdict }}
           REASON: ${{ steps.plan_gate.outputs.reason }}
+          SOURCE_FETCHED: ${{ steps.plan_gate.outputs.source_fetched }}
         run: |
           # Label so the scheduled sweep does not re-pick this in four hours and
-          # re-run the same refusal.
+          # re-run the same refusal. A plan blocked because its source was never
+          # read is not a rejection: `quick-note:rejected` there buried notes
+          # nobody had looked at (#1569, #1570), so it gets needs-source.
+          LABEL="quick-note:rejected"
+          case "$VERDICT" in missing|none) ;; *)
+            if [ "$VERDICT" = "unverified" ] || [ "$SOURCE_FETCHED" = "false" ]; then
+              LABEL="quick-note:needs-source"
+              gh label create "$LABEL" --repo "$REPO" --color FBCA04 \
+                --description "Quick note whose linked source could not be read" 2>/dev/null || true
+            fi ;;
+          esac
           gh issue edit "$ISSUE_NUM" --repo "$REPO" \
-            --add-label "quick-note:rejected" \
-            || echo "::warning::Could not add quick-note:rejected to #${ISSUE_NUM}"
+            --add-label "$LABEL" \
+            || echo "::warning::Could not add ${LABEL} to #${ISSUE_NUM}"
 
           gh issue comment "$ISSUE_NUM" --repo "$REPO" --body "$(cat <<MSG
           🛑 **Not implemented — the context plan says not to.**
@@ -477,7 +488,7 @@ jobs:
 
           This is a complete outcome, not a failure. \`docs/context/issue-${ISSUE_NUM}.md\`
           is the plan the analysis pass wrote; this run read it before building
-          and stopped. Labelled \`quick-note:rejected\` so the four-hourly sweep
+          and stopped. Labelled \`${LABEL}\` so the four-hourly sweep
           does not pick it up again.
 
           If you disagree, remove that label to hand it back to the loop — or

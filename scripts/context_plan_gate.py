@@ -61,6 +61,7 @@ IMPLEMENTABLE_VERDICTS = frozenset({"adopt", "adapt"})
 # stop matching; the test suite pins these against the real badge strings.
 _VERDICT_MARKERS: tuple[tuple[str, str], ...] = (
     ("reject", "**REJECT**"),
+    ("unverified", "**UNVERIFIED**"),
     ("adapt", "**ADAPT**"),
     ("adopt", "**ADOPT**"),
 )
@@ -127,6 +128,11 @@ def evaluate(document: str) -> PlanDecision:
         reason = (
             "the plan records no verdict this gate recognises, so it cannot be "
             "confirmed as approved work"
+        )
+    elif verdict == "unverified":
+        reason = (
+            "the linked source could not be read, so no verdict was reached — "
+            "nothing was rejected, and nothing may be built from a guess"
         )
     elif verdict not in IMPLEMENTABLE_VERDICTS:
         reason = (

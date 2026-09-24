@@ -175,3 +175,29 @@ class TestWorkflowWiring:
     def test_bulk_workflow_carries_the_github_fetcher(self) -> None:
         text = (REPO_ROOT / ".github/workflows/bulk-issue-context.yml").read_text()
         assert "cp .github/scripts/github_source.py /tmp/github_source.py" in text
+
+
+class TestImplementSideGate:
+    """scripts/context_plan_gate.py is the second line: process-quick-note reads
+    the plan before building. It must name `unverified` and must not label an
+    unread note `quick-note:rejected` (which buried #1569 / #1570)."""
+
+    def test_unverified_is_recognised_and_blocks_with_its_own_reason(self) -> None:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        gc = _load("generate_context")
+        import context_plan_gate as gate
+
+        doc = f"## Decision\n\n{gc.VERDICT_BADGES['unverified']}\n"
+        decision = gate.evaluate(doc)
+        assert decision.verdict == "unverified"
+        assert decision.may_implement is False
+        assert "could not be read" in decision.reason
+
+    def test_block_step_uses_needs_source_for_an_unread_plan(self) -> None:
+        wf = yaml.safe_load((REPO_ROOT / ".github/workflows/process-quick-note.yml").read_text())
+        steps = next(iter(wf["jobs"].values()))["steps"]
+        step = next(s for s in steps if s.get("id") == "plan_blocked")
+        run = step["run"]
+        assert 'LABEL="quick-note:needs-source"' in run
+        assert '"$SOURCE_FETCHED" = "false"' in run
+        assert step["env"]["SOURCE_FETCHED"] == "${{ steps.plan_gate.outputs.source_fetched }}"
