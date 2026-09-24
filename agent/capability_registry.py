@@ -393,6 +393,7 @@ def _register_builtin_tools(registry: ToolRegistry, workspace_root: str | None =
 
     _register_web_reach_tools(registry)
     _register_browser_tools(registry)
+    _register_code_graph_tools(registry, ws.root)
 
     @registry.agent_tool(
         name="read_file",
@@ -620,3 +621,71 @@ def _register_web_reach_tools(registry: ToolRegistry) -> None:
     )
     def _fetch_rss_tool(url: str, limit: int = 10) -> dict:
         return reach.fetch_rss(url, limit=limit)
+
+
+def _register_code_graph_tools(registry: ToolRegistry, root: Any) -> None:
+    """Register structural code queries (agent/code_graph.py) — opt-in.
+
+    Registered only when CODE_GRAPH_ENABLED is on AND the codebase-memory-mcp
+    binary is installed: advertising a tool that cannot run wastes the
+    executor's turns (rule 19 — build_tool_prompt applies the same check).
+    """
+    from agent.code_graph import code_graph_enabled, get_code_graph, run_query
+
+    if not code_graph_enabled():
+        return
+    graph = get_code_graph(root)
+
+    @registry.agent_tool(
+        name="code_trace",
+        description=(
+            "Call graph for a function in any language: who calls it (inbound), "
+            "what it calls (outbound), or both, up to 5 hops."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "function_name": {"type": "string", "description": "Function or method name"},
+                "direction": {"type": "string", "enum": ["inbound", "outbound", "both"]},
+                "depth": {"type": "integer", "description": "Hops, 1-5", "default": 3},
+            },
+            "required": ["function_name"],
+        },
+        capabilities=["code", "read", "analysis"],
+    )
+    async def _code_trace_tool(function_name: str, direction: str = "both", depth: int = 3) -> dict:
+        return await run_query(graph.trace, function_name, direction, depth)
+
+    @registry.agent_tool(
+        name="code_search",
+        description="Find functions/classes/routes by name regex, with file and line range.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "name_pattern": {"type": "string", "description": "Regex, e.g. '.*Handler.*'"},
+                "label": {"type": "string", "enum": sorted(["Function", "Method", "Class", "Module", "File", "Route"])},
+                "limit": {"type": "integer", "default": 20},
+            },
+            "required": ["name_pattern"],
+        },
+        capabilities=["code", "search", "analysis"],
+    )
+    async def _code_search_tool(name_pattern: str, label: str | None = None, limit: int = 20) -> dict:
+        return await run_query(graph.search, name_pattern, label, limit)
+
+    @registry.agent_tool(
+        name="code_impact",
+        description=(
+            "Blast radius of the current branch versus base_branch: changed files "
+            "and every function that can be affected through the call graph."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "base_branch": {"type": "string", "description": "Base ref", "default": "main"},
+            },
+        },
+        capabilities=["code", "analysis", "review"],
+    )
+    async def _code_impact_tool(base_branch: str = "main") -> dict:
+        return await run_query(graph.impact, base_branch)

@@ -278,6 +278,22 @@ class Settings:
             "WEB_REACH_BLOCKED_DOMAINS", ""
         )
 
+        # ── Code graph (agent/code_graph.py) ────────────────────────────────
+        # Structural code queries — who calls a function, what a diff touches —
+        # for any of 162 languages, via the codebase-memory-mcp CLI. Opt-in:
+        # the native indexer is not in the default image and indexing a large
+        # repo is too heavy for the 512MB Render free tier. Self-hosted deploys
+        # enable it with `pip install codebase-memory-mcp` and this flag.
+        self.code_graph_enabled_raw: str = os.environ.get(
+            "CODE_GRAPH_ENABLED", "false"
+        ).lower()
+        self.code_graph_bin: str = os.environ.get(
+            "CODE_GRAPH_BIN", "codebase-memory-mcp"
+        )
+        self.code_graph_timeout_seconds: int = _env_int(
+            "CODE_GRAPH_TIMEOUT_SECONDS", 180
+        )
+
         # ── Operational-incident tracker (agent/operational_incidents.py) ────
         # Operational failures (timeouts, "all runtimes failed", rate limits)
         # never become code-fix tasks — an LLM editing source cannot fix a
@@ -392,6 +408,11 @@ class Settings:
     def browser_automation_enabled(self) -> bool:
         """When True, agents may drive a real browser (agent/browser.py)."""
         return self.browser_automation_enabled_raw in {"1", "true", "yes", "on"}
+
+    @property
+    def code_graph_enabled(self) -> bool:
+        """When True, agents get code_trace/code_search/code_impact tools."""
+        return self.code_graph_enabled_raw in {"1", "true", "yes", "on"}
 
     @property
     def browserbase_configured(self) -> bool:

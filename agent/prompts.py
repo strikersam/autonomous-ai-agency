@@ -80,6 +80,21 @@ def build_planning_prompt(
     ]
 
 
+def _code_graph_tool_lines() -> str:
+    """Advertise agent/code_graph.py tools only when they are registered."""
+    from agent.code_graph import code_graph_enabled
+
+    if not code_graph_enabled():
+        return ""
+    return (
+        "CODE GRAPH (call graph across 162 languages — prefer over search_code for\n"
+        "  'who calls X', 'what does X call', and 'what can this change break'):\n"
+        "- code_trace(function_name, direction='both', depth=3): callers/callees\n"
+        "- code_search(name_pattern, label=None, limit=20): find symbols by regex\n"
+        "- code_impact(base_branch='main'): functions affected by this branch's diff\n"
+    )
+
+
 def build_tool_prompt(
     *,
     goal: str,
@@ -121,6 +136,7 @@ def build_tool_prompt(
                 "- get_current_time(): Get the current UTC date/time. Use before reasoning\n"
                 "  about recency, deadlines, or 'how long ago' — you have no other source\n"
                 "  for the current date.\n"
+                f"{_code_graph_tool_lines()}"
                 "GITHUB API:\n"
                 "- github_get_issue(repo_name, issue_number)\n"
                 "- github_comment_on_issue(repo_name, issue_number, body)\n"
