@@ -130,6 +130,14 @@ class TestRecordUsageAndStats:
         entry = ct.get_stats()["models"]["claude-sonnet-4-6"]
         assert entry["estimated_cost_usd"] == pytest.approx(3.0)
 
+    def test_tokenin_free_ids_are_not_fuzzy_matched_to_paid_models(self):
+        # TokenIn (tokenin.my.id) is a free gateway; its own "myt/...-free"
+        # aliases must not be billed as the paid models they happen to
+        # share a substring with (e.g. "myt/claude-opus-4-8-free" vs. the
+        # paid "claude-opus-4-8" entry — $5/MTok if the fuzzy fallback wins).
+        assert ct.cost_for_tokens("myt/claude-opus-4-8-free", 1_000_000, 0) == 0.0
+        assert ct.cost_for_tokens("myt/gpt-5.6-sol-free", 1_000_000, 0) == 0.0
+
     def test_record_never_raises_on_bad_tokens(self):
         # Passing 0s / negatives must not raise
         ct.record_usage("anything", prompt_tokens=0, completion_tokens=0)
