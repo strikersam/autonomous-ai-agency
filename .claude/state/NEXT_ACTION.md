@@ -1,8 +1,23 @@
 # Next Action
 
-**Updated:** 2026-09-23
+**Updated:** 2026-09-24
 
-## Current state
+## Current state (2026-09-24)
+
+Daily automation: session start had zero open PRs and zero `routine-backlog`
+issues (clean slate after 2026-09-23's cleanup). Picked up the "next daily
+run" pointer below about cost-tracker catalog-coverage gaps, cross-checked
+every model id in `config/models.yaml` against `packages/ai/cost_tracker.py`,
+and found a real bug: TokenIn (a fully free gateway) had no entries in the
+cost table at all, so two of its ten `myt/*-free` ids
+(`myt/claude-opus-4-8-free`, `myt/gpt-5.6-sol-free`) were fuzzy-matched by
+`cost_for_tokens()`'s substring fallback to the paid `claude-opus-4-8` and
+`gpt-5.6-sol` entries — free traffic billed at $5+/MTok in cost attribution.
+Fixed with explicit `(0.0, 0.0)` entries for all ten TokenIn ids. PR
+[#1566](https://github.com/strikersam/autonomous-ai-agency/pull/1566),
+see active-tasks.md row 78 for full verification detail. Watching for CI.
+
+## Prior state (2026-09-23)
 
 Cleanup session 2026-09-23 (branch `claude/cleanup-open-prs-issues-kdzv7g`): drove every
 open PR and issue to closed.
@@ -35,11 +50,17 @@ open PR and issue to closed.
 - `.gitattributes` merge strategies for the tracker files and the graph report;
   `.claude/hooks/git-merge-drivers` registers the driver at SessionStart.
 
-## Next daily run (2026-09-24)
+## Next daily run (2026-09-25)
 
+- Watch PR #1566 to green/merge (see row 78 in active-tasks.md).
 - Check for new models from DeepSeek, Google, Groq, Anthropic.
+- Consider a general `TestNoFuzzyCollisionWithPaidModels`-style invariant in
+  `tests/test_cost_attribution.py`: for every id in `_DEFAULT_COST_TABLE` at
+  `(0.0, 0.0)`, assert no *other* table key's fuzzy substring match would
+  return a nonzero cost for it — would have caught today's TokenIn bug (and
+  any future one of the same shape) without needing to spot it by hand.
 - Consider a `TestPaidModelsCostTrackerCoverage`-style invariant for models in routing candidates but absent from the llm catalog.
 - Consider extending `TestTheCopiesMayNotDriftFurther`-style CI feedback earlier: a
   pre-commit or PR-description checklist item for "if you touch a reconciled provider's
   candidates in `config/models.yaml`, also update `packages/ai/brain_config.py`" would
-  have caught today's bug before it ever reached CI.
+  have caught a prior day's bug before it ever reached CI.
