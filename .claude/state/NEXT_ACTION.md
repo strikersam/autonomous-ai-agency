@@ -15,24 +15,44 @@ cost table at all, so two of its ten `myt/*-free` ids
 `gpt-5.6-sol` entries — free traffic billed at $5+/MTok in cost attribution.
 Fixed with explicit `(0.0, 0.0)` entries for all ten TokenIn ids. PR
 [#1566](https://github.com/strikersam/autonomous-ai-agency/pull/1566),
-see active-tasks.md row 78 for full verification detail. Watching for CI.
+see active-tasks.md row 78 for full verification detail.
+
+**Also today (2026-09-24), same branch/PR:** a second, concurrent
+daily-automation session (deterministic `routine/daily-YYYY-MM-DD` branch
+naming collided — not a duplicate pick of the same work) independently
+added Claude Opus 5.5 (`claude-opus-5-5`, released 2026-09-22, $4/$20 per
+MTok, 20% cheaper than Opus 5) to `config/llm/models.yaml`,
+`packages/ai/cost_tracker.py`, `config/models.yaml` (first Anthropic
+candidate, new planner/judge preset), and `packages/ai/brain_config.py`
+(mirrored per rule 4), plus a new `TestCandidatesAreDeclaredInLlmCatalog`
+CI invariant. See active-tasks.md row 79. Reconciled on discovery: fetched
+the combined branch, verified no file-level conflict with the TokenIn fix,
+and re-ran the full relevant check set on the merged tree — 118/118 tests
+pass, `compileall` clean, `check_changelog_parity.py` PARITY OK,
+`check_model_catalog_consistency.py` 75 ids/no drift. PR #1566 now carries
+both changes. Watching for CI.
 
 ## Prior state (2026-09-23)
 
-Daily automation 2026-09-24 (branch `routine/daily-2026-09-24`): PR open for CI.
+Cleanup session 2026-09-23 (branch `claude/cleanup-open-prs-issues-kdzv7g`): drove every
+open PR and issue to closed.
 
-**What was done:**
-- Claude Opus 5.5 (`claude-opus-5-5`, released 2026-09-22) added to all 4 config
-  files: `config/llm/models.yaml`, `packages/ai/cost_tracker.py`,
-  `config/models.yaml`, `packages/ai/brain_config.py`.
-- Pricing: $4/$20 per MTok (20% cheaper than Opus 5 at same capability tier).
-- Opus 5.5 is now the first Anthropic routing candidate and the default
-  planner/judge preset for the Anthropic provider.
-- New `TestCandidatesAreDeclaredInLlmCatalog` CI invariant: all direct-API
-  routing candidates must have a `config/llm/models.yaml` entry.
-- 25 new tests in `tests/test_daily_automation_2026_09_24.py`, all passing.
+- **#1561** Langfuse session headers: branch was stale (missing master's brain_config
+  nvidia entry, so `test_one_model_catalogue` failed). Merged master in, merged.
+- **#1544** langfuse pin bump: green, merged.
+- **#1541** frontend patch bumps: `npm ci` failed on an out-of-sync lockfile
+  (`yaml@2.9.1` missing). Regenerated the lockfile and merged it.
+- **#1536** 12 GLM/Qwen/Kimi catalog entries: merged master in twice (cost_tracker
+  kept both sides; its active-tasks row renumbered 70 -> 74). Driven to merge.
+- **#1553** draft context plan: closed as superseded (#1561 + #1555).
+- **#1552** W39 backlog: closed, both items shipped.
+- **#1559** "Cannot fix tests": the backoff test patched the global `time.sleep` and
+  counted other threads' calls. Fixed plus a regression test.
+- **#1557** trend digest: triaged, no action, closed.
+- **#1505** CRISPY burn-in tracker: closed. `crispy-burn-in-check.yml` no longer opens a
+  standing "not ready" issue; the gap goes to the job summary until CRISPY is ready.
 
-## Next daily run (2026-09-25)
+## Workflow hardening (same day, second PR)
 
 - `auto-merge.yml` had never merged anything: no checkout, no `--repo`, so every
   `gh` call failed and was swallowed. Now fixed via `GH_REPO`. **Check next session:**
@@ -47,8 +67,20 @@ Daily automation 2026-09-24 (branch `routine/daily-2026-09-24`): PR open for CI.
 
 ## Next daily run (2026-09-25)
 
-- Watch PR #1566 to green/merge (see row 78 in active-tasks.md).
-- Check for new models from DeepSeek, Google, Groq, Anthropic.
+- Watch PR #1566 to green/merge (see rows 78 and 79 in active-tasks.md — it now
+  carries two independent changes from two concurrent daily-automation sessions).
+- **Branch-naming collision:** two daily-automation sessions ran the same day and
+  both used the deterministic `routine/daily-2026-09-24` branch name, so their
+  commits interleaved on one branch/PR instead of getting separate PRs. If the
+  same trigger is firing more than once a day (or two triggers point at the same
+  routine), consider suffixing the branch name with a short session id
+  (`routine/daily-2026-09-24-<suffix>`) to avoid this recurring.
+- Check for new models from DeepSeek, Google, Groq, Anthropic, NVIDIA NIM
+  (Nemotron 4 family rumoured); Claude Sonnet 5.5 / Haiku 5.5 (Anthropic said
+  "coming in the coming weeks" alongside Opus 5.5).
+- Consider updating `role_presets` for the `aerolink` provider (still uses
+  `claude-opus-5` as planner/judge — Opus 5.5 is cheaper and available via
+  Aerolink too).
 - Consider a general `TestNoFuzzyCollisionWithPaidModels`-style invariant in
   `tests/test_cost_attribution.py`: for every id in `_DEFAULT_COST_TABLE` at
   `(0.0, 0.0)`, assert no *other* table key's fuzzy substring match would
@@ -59,12 +91,5 @@ Daily automation 2026-09-24 (branch `routine/daily-2026-09-24`): PR open for CI.
   pre-commit or PR-description checklist item for "if you touch a reconciled provider's
   candidates in `config/models.yaml`, also update `packages/ai/brain_config.py`" would
   have caught a prior day's bug before it ever reached CI.
-- Check for Claude Sonnet 5.5 or Haiku 5.5 releases (Anthropic announced they
-  are "coming in the coming weeks" alongside Opus 5.5).
-- Consider updating `role_presets` for the `aerolink` provider as well
-  (currently still uses `claude-opus-5` as planner/judge — Opus 5.5 is
-  cheaper and available via the Aerolink gateway too).
-- Check for new NVIDIA NIM model additions (Nemotron 4 family rumoured).
-- Check for new Groq models.
 - Row 50 (provider/model source-of-truth + admin UI): still IN_PROGRESS, P1-P4
   remain; requires full backend deps in the sandbox.
