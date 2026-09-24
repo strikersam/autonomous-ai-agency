@@ -69,6 +69,9 @@ jobs:
           ISSUE_TITLE: ${{ github.event.issue.title }}
           ISSUE_BODY: ${{ github.event.issue.body }}
           ISSUE_LABELS: ${{ toJson(github.event.issue.labels) }}
+          # Authenticates github_source.py's API calls (repo metadata / file
+          # list); unauthenticated calls share a 60/h limit per runner IP.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 .github/scripts/generate_context.py \
             "$ISSUE_NUMBER" \
@@ -212,7 +215,10 @@ jobs:
       # implementation workflow directly via workflow_dispatch so a real
       # code PR follows the context PR without manual intervention.
       - name: Comment + dispatch auto-implementation
-        if: steps.pr.outputs.pr_number != '' && steps.context.outputs.verdict != 'reject'
+        if: >-
+          steps.pr.outputs.pr_number != '' &&
+          steps.context.outputs.verdict != 'reject' &&
+          steps.context.outputs.verdict != 'unverified'
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           REPO: ${{ github.repository }}
@@ -283,6 +289,42 @@ jobs:
           the sweep, or re-run \`Bulk Issue Context Generator\` with \`regenerate: true\`
           and this issue number, or implement it manually on
           \`claude/context-issue-${ISSUE_NUM}\`.
+          MSG
+          )"
+
+      # ── 7c. Unread source — no verdict, nothing built, nothing buried ───────
+      # generate_context.py turns any verdict on a quick note whose URL could
+      # not be fetched into `unverified`. Rejecting it would bury a feature
+      # nobody looked at (#1569, #1570); dispatching would build from a guess.
+      # `quick-note:needs-source` keeps the sweep off it until someone re-runs
+      # it once the source is reachable.
+      - name: Comment — source unreadable, no verdict reached
+        if: steps.pr.outputs.pr_number != '' && steps.context.outputs.verdict == 'unverified'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+          PR_NUM: ${{ steps.pr.outputs.pr_number }}
+          PR_URL: ${{ steps.pr.outputs.pr_url }}
+        run: |
+          gh label create "quick-note:needs-source" --repo "$REPO" --color FBCA04 \
+            --description "Quick note whose linked source could not be read" 2>/dev/null || true
+          gh issue edit "$ISSUE_NUM" --repo "$REPO" --add-label "quick-note:needs-source" \
+            2>&1 || echo "::warning::Could not add quick-note:needs-source to #${ISSUE_NUM}"
+
+          gh issue comment "$ISSUE_NUM" \
+            --repo "$REPO" \
+            --body "$(cat <<MSG
+          ⏸️ **Source could not be read — no verdict reached.** The linked URL returned
+          no usable content, so this note was **neither rejected nor implemented**:
+          either would have been a guess about content nobody read.
+
+          Details: draft PR #${PR_NUM} (${PR_URL}).
+
+          Labelled \`quick-note:needs-source\`, which keeps the scheduled sweep off it.
+          To retry once the source is reachable, remove that label and re-run
+          \`Bulk Issue Context Generator\` with \`regenerate: true\` for this issue, or
+          paste the relevant content into the issue body.
           MSG
           )"
 

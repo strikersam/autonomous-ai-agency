@@ -314,7 +314,7 @@ loops:
     source: .github/workflows/process-quick-note.yml
     self_heal: true
     gate: telegram
-    purpose: Turn quick-note issues into context + implementation PRs.
+    purpose: Turn quick-note issues into context + implementation PRs (skips rejected, exhausted and needs-source notes).
 
   - id: enrich-quick-note-context
     name: Enrich Quick-Note Context
@@ -340,7 +340,7 @@ loops:
     source: .github/workflows/issue-context-generator.yml
     self_heal: true
     gate: none
-    purpose: Generate a context plan + draft PR for each new issue (detects & proposes fix).
+    purpose: Generate a context plan + draft PR for each new issue (detects & proposes fix); a quick note whose linked source cannot be read gets no verdict (quick-note:needs-source) instead of a blind reject.
 
   - id: agile-ceremonies
     name: Agile Ceremonies

@@ -423,7 +423,52 @@ VERDICT_BADGES = {
     "adopt": "✅ **ADOPT** — build largely as described in the source.",
     "adapt": "🔧 **ADAPT** — the idea is useful; the source's implementation is not a fit.",
     "reject": "🛑 **REJECT** — nothing here belongs in this repository.",
+    "unverified": (
+        "⏸️ **UNVERIFIED** — the linked source could not be read, so no verdict "
+        "was reached. Nothing was rejected and nothing will be built from a guess."
+    ),
 }
+
+UNVERIFIED_REASON = (
+    "The linked source could not be retrieved, so any verdict would be a guess "
+    "about content nobody read. Quick notes #1569 and #1570 were rejected that "
+    "way — one with an invented description of the repository. The model's own "
+    "unverified verdict was `{verdict}`; it is kept below for reference only."
+)
+
+
+def is_quick_note(title: str, labels: list[str], body: str) -> bool:
+    """A quick note carries its whole value in one linked URL.
+
+    Other issues (bug reports, routine-backlog digests) are self-contained and
+    merely cite links, so an unfetched URL there does not void the analysis.
+    """
+    return (
+        title.strip().lower().startswith("quick-note")
+        or "quick-note" in labels
+        or body.lstrip().upper().startswith("URL:")
+    )
+
+
+def apply_source_gate(result: dict, url: str | None, source_fetched: bool) -> dict:
+    """Replace any verdict reached without reading the linked source.
+
+    A quick note's entire value is in its URL. When that URL was given but not
+    fetched, ``reject`` buries a possibly important feature permanently and
+    ``adopt``/``adapt`` dispatches an implementation built from the URL slug.
+    Both are worse than saying so, so the verdict becomes ``unverified``.
+    """
+    if not url or source_fetched:
+        return result
+    original = str(result.get("verdict", "") or "").strip().lower() or "missing"
+    gated = dict(result)
+    gated["verdict"] = "unverified"
+    gated["verdict_reason"] = UNVERIFIED_REASON.format(verdict=original)
+    # A summary and prompt written from the URL slug read as researched;
+    # neither may survive into the plan or the coding agent's instructions.
+    gated["source_summary"] = "_Not established — the linked source could not be read._"
+    gated["prompt"] = ""
+    return gated
 
 
 def _build_grounding_block(provenance: dict) -> str:
@@ -480,9 +525,9 @@ def _build_pr_description(
     verdict = str(result.get("verdict", "") or "").strip().lower()
     verdict_md = VERDICT_BADGES.get(verdict, f"❓ _no verdict recorded_ ({verdict or 'missing'})")
 
-    # A reject verdict has no plan to render. Emitting empty TODO/risk sections
-    # would read as a failed generation rather than a deliberate decision.
-    if verdict == "reject":
+    # A reject/unverified verdict has no plan to render. Emitting empty
+    # TODO/risk sections would read as a failed generation, not a decision.
+    if verdict in ("reject", "unverified"):
         plan_md = (
             "## Decision\n\n"
             f"{verdict_md}\n\n"
@@ -599,6 +644,9 @@ def main() -> None:
     result, violations, repair_rounds = _enforce_rulebook(
         result, raw, messages, bool(article_content), title, caller_name, model_label
     )
+
+    if is_quick_note(title, labels, body):
+        result = apply_source_gate(result, url, bool(article_content))
 
     provenance = {
         "url": url,

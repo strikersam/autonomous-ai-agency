@@ -329,6 +329,24 @@ shows a green `available` (browser served in-process); with neither it stays
 `unconfigured` with a reason naming both fixes. `SEO_BROWSER_BACKEND` (see Feature
 Flags) selects the same two backends for the SEO crawler independently.
 
+### Code graph (`agent/code_graph.py`)
+
+Structural code queries for agents — `code_trace` (callers/callees), `code_search`
+(symbols by regex) and `code_impact` (functions a branch's diff can affect) — across
+162 languages, via the [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp)
+CLI. Opt-in: the native indexer is not in the default image and indexing a large
+repository is too heavy for the 512MB Render free tier. Enable on a self-hosted
+install with `pip install codebase-memory-mcp` and `CODE_GRAPH_ENABLED=true`. The
+tools are registered, and advertised to the executor, only when the flag is on
+**and** the binary is found; the `codebase-memory` row on **Providers → MCP** says
+which of the two is missing.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `CODE_GRAPH_ENABLED` | `false` | Register the code-graph tools for agents. |
+| `CODE_GRAPH_BIN` | `codebase-memory-mcp` | Binary name or absolute path. |
+| `CODE_GRAPH_TIMEOUT_SECONDS` | `180` | Upper bound for one (incremental) index of the workspace. |
+
 ### Memory management
 
 Not Render-MCP related — these tune the backend process allocator and the

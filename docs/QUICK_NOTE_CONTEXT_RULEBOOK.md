@@ -39,6 +39,14 @@ must be marked as unverified throughout.
 grounding row and the gate records R1 as unmet. (Whether the summary itself is
 substantive is R2's job, not R1's.)
 
+**Enforced, not just recorded, for quick notes.** When a quick note's URL was not
+fetched, `apply_source_gate` in `generate_context.py` replaces whatever verdict the
+model gave with `unverified`: no implementation is dispatched and the issue is labelled
+`quick-note:needs-source`, not `quick-note:rejected`. A reject on unread content buried
+#1569 and #1570; an adopt on unread content builds from a guess. GitHub repository and
+file links are read through `github_source.py` (API + raw host), since the repository
+HTML page strips to navigation chrome.
+
 ---
 
 ### R2 — Say what the artifact actually is **[gate]**

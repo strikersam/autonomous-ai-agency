@@ -61,6 +61,7 @@ IMPLEMENTABLE_VERDICTS = frozenset({"adopt", "adapt"})
 # stop matching; the test suite pins these against the real badge strings.
 _VERDICT_MARKERS: tuple[tuple[str, str], ...] = (
     ("reject", "**REJECT**"),
+    ("unverified", "**UNVERIFIED**"),
     ("adapt", "**ADAPT**"),
     ("adopt", "**ADOPT**"),
 )
@@ -68,6 +69,7 @@ _VERDICT_MARKERS: tuple[tuple[str, str], ...] = (
 _NOT_FETCHED = "**NOT FETCHED**"
 _UNMET_RULES = re.compile(r"\*\*(\d+) unmet rule\(s\)\*\*")
 _GATE_PASSED = "Passed every machine-checked rule"
+_SOURCE_ROW = re.compile(r"^\| Source URL \| (.*?) \|$", re.M)
 
 
 @dataclass(frozen=True)
@@ -79,6 +81,7 @@ class PlanDecision:
     unmet_rules: int
     may_implement: bool
     reason: str
+    has_source: bool = True
 
     def as_output_lines(self) -> str:
         """``key=value`` lines a workflow can append to ``$GITHUB_OUTPUT``."""
@@ -87,6 +90,7 @@ class PlanDecision:
                 f"may_implement={'true' if self.may_implement else 'false'}",
                 f"verdict={self.verdict}",
                 f"source_fetched={'true' if self.source_fetched else 'false'}",
+                f"has_source={'true' if self.has_source else 'false'}",
                 f"unmet_rules={self.unmet_rules}",
                 # Single-line: a newline here would corrupt $GITHUB_OUTPUT.
                 f"reason={self.reason}",
@@ -111,6 +115,17 @@ def read_source_fetched(document: str) -> bool:
     return _NOT_FETCHED not in document
 
 
+def read_has_source(document: str) -> bool:
+    """Did the issue link a source at all?
+
+    ``NOT FETCHED`` is also rendered when there was no URL to fetch; only a
+    named URL that went unread makes a plan "needs source" rather than a
+    plain reject. A plan without the grounding row is assumed to have one.
+    """
+    match = _SOURCE_ROW.search(document)
+    return not (match and match.group(1).strip().startswith("_none"))
+
+
 def read_unmet_rules(document: str) -> int:
     """Count of rulebook violations the generator shipped the plan with."""
     match = _UNMET_RULES.search(document)
@@ -122,11 +137,17 @@ def evaluate(document: str) -> PlanDecision:
     verdict = read_verdict(document)
     fetched = read_source_fetched(document)
     unmet = read_unmet_rules(document)
+    has_source = read_has_source(document)
 
     if verdict == "unknown":
         reason = (
             "the plan records no verdict this gate recognises, so it cannot be "
             "confirmed as approved work"
+        )
+    elif verdict == "unverified":
+        reason = (
+            "the linked source could not be read, so no verdict was reached — "
+            "nothing was rejected, and nothing may be built from a guess"
         )
     elif verdict not in IMPLEMENTABLE_VERDICTS:
         reason = (
@@ -144,9 +165,9 @@ def evaluate(document: str) -> PlanDecision:
             f"Gate says to treat them as unresolved before implementing"
         )
     else:
-        return PlanDecision(verdict, fetched, unmet, True, "plan is grounded and approved")
+        return PlanDecision(verdict, fetched, unmet, True, "plan is grounded and approved", has_source)
 
-    return PlanDecision(verdict, fetched, unmet, False, reason)
+    return PlanDecision(verdict, fetched, unmet, False, reason, has_source)
 
 
 def evaluate_path(path: Path) -> PlanDecision | None:
@@ -181,12 +202,14 @@ def main(argv: list[str] | None = None) -> int:
             print("may_implement=true")
             print("verdict=none")
             print("source_fetched=false")
+            print("has_source=false")
             print("unmet_rules=0")
             print("reason=no context plan was generated for this issue")
             return 0
         print("may_implement=false")
         print("verdict=missing")
         print("source_fetched=false")
+        print("has_source=false")
         print("unmet_rules=0")
         print(f"reason=expected a context plan at {args.plan} and found none")
         return 2
