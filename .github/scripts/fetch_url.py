@@ -10,6 +10,7 @@ Exit codes:
 """
 
 
+import os
 import re
 import sys
 import urllib.parse
@@ -160,6 +161,22 @@ def strip_boilerplate(text: str) -> str:
     return "\n".join(kept)
 
 
+def _github_fetch_text(url: str) -> str | None:
+    """GET for github_source: token-authenticated on the API host when a
+    workflow token is present (60 req/h unauthenticated is easy to exhaust)."""
+    headers = {"User-Agent": HEADERS["User-Agent"]}
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN")
+    if token and url.startswith("https://api.github.com/"):
+        headers["Authorization"] = f"Bearer {token}"
+        headers["Accept"] = "application/vnd.github+json"
+    try:
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=30) as r:  # nosec: B310 - fixed GitHub hosts
+            return r.read().decode("utf-8", errors="replace")
+    except Exception:
+        return None
+
+
 def meaningful(text: str) -> bool:
     return len(text) >= MIN_CHARS
 
@@ -190,6 +207,24 @@ def main() -> None:
             print("[fetch] No transcript available — falling through to page fetch")
     except ImportError:
         print("[fetch] video_transcript unavailable — skipping transcript strategy")
+
+    # Strategy 0b — GitHub repository / file. A repo page strips to nav chrome
+    # and every HTML fallback failed on it (#1569, #1570), so read the README
+    # and metadata through the API and raw host instead.
+    try:
+        import github_source
+
+        if github_source.is_github_source(TARGET):
+            print(f"[fetch] Strategy 0b — GitHub source: {TARGET}")
+            source = github_source.fetch_github_source(TARGET, _github_fetch_text)
+            if meaningful(source):
+                with open(OUT_FILE, "w") as f:  # nosec: B603
+                    f.write(f"Source URL: {TARGET}\n\n{source[:6000]}")
+                print(f"[fetch] OK — {len(source)} chars from GitHub")
+                return
+            print("[fetch] GitHub source unreadable — falling through to page fetch")
+    except ImportError:
+        print("[fetch] github_source unavailable — skipping GitHub strategy")
 
     # Strategy 1 — direct fetch
     print(f"[fetch] Strategy 1 — direct: {TARGET}")

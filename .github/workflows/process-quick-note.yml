@@ -89,6 +89,8 @@ jobs:
             # exact source the analysis ruled out. The two labels are kept
             # distinct because they mean different things — `exhausted` is three
             # failed attempts, `rejected` is a deliberate decision not to build.
+            # `quick-note:needs-source` means the linked source could not be
+            # read, so no decision exists yet; building here would be a guess.
             # Reports are not work. `agency-escalation`, `trend-digest`,
             # `routine-backlog`, `crispy-burn-in` and `catalogue-drift` issues
             # are status output for a human: a digest is a list of links, an
@@ -111,7 +113,7 @@ jobs:
               --state open \
               --json number,labels \
               --limit 100 \
-              --jq '[.[] | select(([(.labels // [])[].name] - ["quick-note:exhausted","quick-note:rejected","agency-escalation","trend-digest","routine-backlog","crispy-burn-in","catalogue-drift"]) == [(.labels // [])[].name])] | sort_by(.number) | .[0].number // empty')
+              --jq '[.[] | select(([(.labels // [])[].name] - ["quick-note:exhausted","quick-note:rejected","quick-note:needs-source","agency-escalation","trend-digest","routine-backlog","crispy-burn-in","catalogue-drift"]) == [(.labels // [])[].name])] | sort_by(.number) | .[0].number // empty')
           fi
           if [ -z "$NUM" ]; then
             echo "No pending quick-note issues found — nothing to do."

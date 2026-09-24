@@ -202,6 +202,9 @@ jobs:
           # video_transcript.py is imported by fetch_url.py for the same reason;
           # without it a video quick-note silently falls back to page chrome.
           cp .github/scripts/video_transcript.py /tmp/video_transcript.py
+          # github_source.py likewise: without it a GitHub repo link falls back
+          # to scraping nav chrome and the note ends up unverified.
+          cp .github/scripts/github_source.py /tmp/github_source.py
           export REPO_ROOT_PATH="$(pwd)"
           export FETCH_URL_SCRIPT="/tmp/fetch_url.py"
 
