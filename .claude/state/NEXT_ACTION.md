@@ -14,8 +14,14 @@ cost table at all, so two of its ten `myt/*-free` ids
 `cost_for_tokens()`'s substring fallback to the paid `claude-opus-4-8` and
 `gpt-5.6-sol` entries — free traffic billed at $5+/MTok in cost attribution.
 Fixed with explicit `(0.0, 0.0)` entries for all ten TokenIn ids. PR
-[#1566](https://github.com/strikersam/autonomous-ai-agency/pull/1566),
-see active-tasks.md row 78 for full verification detail.
+[#1566](https://github.com/strikersam/autonomous-ai-agency/pull/1566) —
+**merged to master as `74e2c96`, CI green.** See active-tasks.md row 78 for
+full verification detail.
+
+CI on this PR caught a real gap from the Opus 5.5 change below: 8
+pre-existing regression assertions across three older daily-automation test
+files hardcoded the previous `claude-opus-5` default/first-candidate value.
+Fixed and pushed before merge — see active-tasks.md row 79's final note.
 
 **Also today (2026-09-24), same branch/PR:** a second, concurrent
 daily-automation session (deterministic `routine/daily-YYYY-MM-DD` branch
@@ -67,14 +73,23 @@ open PR and issue to closed.
 
 ## Next daily run (2026-09-25)
 
-- Watch PR #1566 to green/merge (see rows 78 and 79 in active-tasks.md — it now
-  carries two independent changes from two concurrent daily-automation sessions).
-- **Branch-naming collision:** two daily-automation sessions ran the same day and
-  both used the deterministic `routine/daily-2026-09-24` branch name, so their
-  commits interleaved on one branch/PR instead of getting separate PRs. If the
-  same trigger is firing more than once a day (or two triggers point at the same
-  routine), consider suffixing the branch name with a short session id
-  (`routine/daily-2026-09-24-<suffix>`) to avoid this recurring.
+- PR #1566 merged to master as `74e2c96` — done (rows 78 and 79 in
+  active-tasks.md). The now-fully-merged branch `routine/daily-2026-09-24`
+  could not be deleted this session (`git push origin --delete` was blocked
+  by the auto-mode permission classifier as a destructive action); it is
+  harmless left in place, but a future session with the right permission
+  posture should clean it up (`branch-cleanup` skill).
+- **Branch-naming collision (root cause worth fixing):** two daily-automation
+  sessions ran the same day and both used the deterministic
+  `routine/daily-2026-09-24` branch name, so their commits interleaved on one
+  branch/PR instead of getting separate PRs — required manual reconciliation
+  of `active-tasks.md`/`NEXT_ACTION.md` mid-session (one session's state-tracker
+  commit silently overwrote the other's "Prior state" section and duplicated a
+  row number) and, separately, CI on the shared PR caught a real cross-change
+  regression (8 stale test assertions) that either change alone would not have
+  triggered. If the same trigger is firing more than once a day (or two
+  triggers point at the same routine), suffix the branch name with a short
+  session id (`routine/daily-2026-09-24-<suffix>`) to avoid this recurring.
 - Check for new models from DeepSeek, Google, Groq, Anthropic, NVIDIA NIM
   (Nemotron 4 family rumoured); Claude Sonnet 5.5 / Haiku 5.5 (Anthropic said
   "coming in the coming weeks" alongside Opus 5.5).
