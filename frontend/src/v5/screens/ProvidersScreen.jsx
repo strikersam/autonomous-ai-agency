@@ -371,7 +371,7 @@ function OllamaTab() {
       await api.pullModel(name);
       await loadModels();
     } catch (e) {
-      setPullErr(`Pull failed: ${e?.response?.data?.detail || e.message}`);
+      setPullErr(`Pull failed: ${api.fmtErr(e?.response?.data?.detail) || e.message}`);
     } finally { setPulling(null); }
   };
 
@@ -488,7 +488,7 @@ function MCPTab() {
       setNewName(''); setNewCmd(''); setNewDesc(''); setShowAdd(false);
       await loadServers();
     } catch (e) {
-      alert('Could not add server: ' + (e?.response?.data?.detail || e.message));
+      alert('Could not add server: ' + (api.fmtErr(e?.response?.data?.detail) || e.message));
     } finally { setSaving(false); }
   };
 

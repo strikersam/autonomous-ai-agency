@@ -456,7 +456,7 @@ function TaskBoardScreen() {
       setShowNewSprint(false); setNewSprintName(''); setNewSprintGoal('');
       fetchSprints();
     } catch (e) {
-      setActionError(e?.response?.data?.detail || e?.message || 'Could not create sprint.');
+      setActionError(api.fmtErr(e?.response?.data?.detail) || e?.message || 'Could not create sprint.');
     }
     setCreatingSprint(false);
   };

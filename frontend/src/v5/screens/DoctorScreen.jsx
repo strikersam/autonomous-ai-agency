@@ -2,8 +2,6 @@
 import React from 'react';
 import { useSafeData } from '../hooks/useSafeData';
 
-const API = process.env.REACT_APP_BACKEND_URL || '';
-
 // ── status helpers ────────────────────────────────────────────────────────────
 function statusStyle(s) {
   if (s === 'pass') return { icon: '✓', color: '#46d9a4', bg: 'rgba(70,217,164,0.08)', border: 'rgba(70,217,164,0.18)' };
@@ -23,26 +21,10 @@ function Skeleton({ h = 56 }) {
 }
 
 // ── single check row ──────────────────────────────────────────────────────────
-function CheckRow({ check, expanded, onToggle, onNavigate, onFix }) {
+function CheckRow({ check, expanded, onToggle, onNavigate }) {
   const st = statusStyle(check.status);
   const action = check.action;  // from backend: { label, hint, href }
   const hasExpandedContent = !!(check.explanation || action || check.detail);
-  const [fixing, setFixing] = React.useState(false);
-  const [fixError, setFixError] = React.useState(null);
-
-  const handleFix = async (e) => {
-    e.stopPropagation();
-    if (!onFix || fixing) return;
-    setFixing(true);
-    setFixError(null);
-    try {
-      await onFix(check.id);
-    } catch (err) {
-      setFixError(err.message || 'Fix failed');
-    } finally {
-      setFixing(false);
-    }
-  };
 
   return (
     <div style={{ borderRadius: 14, border: `1px solid ${st.border}`, background: st.bg, overflow: 'hidden' }}>
@@ -109,7 +91,7 @@ function CheckRow({ check, expanded, onToggle, onNavigate, onFix }) {
               <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.65 }}>{check.detail}</div>
             </div>
           )}
-          {(action || (check.status !== 'pass' && /github/i.test(check.label)) || (check.status !== 'pass' && check.fixable && onFix)) && (
+          {(action || (check.status !== 'pass' && /github/i.test(check.label))) && (
             <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {((action && action.href) || (!action && /github/i.test(check.label))) && onNavigate && (
                 <button onClick={(e) => { e.stopPropagation(); onNavigate(action?.href || 'github'); }} style={{
@@ -130,22 +112,6 @@ function CheckRow({ check, expanded, onToggle, onNavigate, onFix }) {
                   {action.hint}
                 </div>
               )}
-              {check.status !== 'pass' && check.fixable && onFix && (
-                <button onClick={handleFix} disabled={fixing} style={{
-                  padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 700,
-                  background: fixing ? 'rgba(70,217,164,0.08)' : 'rgba(70,217,164,0.15)',
-                  border: '1px solid rgba(70,217,164,0.30)',
-                  color: '#46d9a4', cursor: fixing ? 'default' : 'pointer',
-                  display: 'flex', alignItems: 'center', gap: 6,
-                }}>
-                  {fixing ? 'Fixing…' : '⚡ Fix it'}
-                </button>
-              )}
-            </div>
-          )}
-          {fixError && (
-            <div style={{ marginTop: 8, padding: '8px 12px', borderRadius: 10, background: 'rgba(255,107,125,0.10)', border: '1px solid rgba(255,107,125,0.25)', fontSize: 12, color: '#ff6b7d' }}>
-              Fix failed: {fixError}
             </div>
           )}
         </div>
@@ -182,7 +148,7 @@ export default function DoctorScreen({ onNavigate }) {
   // here would make the setup path unreachable. This screen is already gated
   // behind auth, so there is no 401 surprise.
   const [data, states, reload] = useSafeData(
-    API,
+    null,
     { report: '/api/doctor/diagnostics', runtimes: '/runtimes/health' },
     { refreshMs: 60_000 },
   );
@@ -230,28 +196,6 @@ export default function DoctorScreen({ onNavigate }) {
     }
   }
 
-  function authPost(path) {
-    const token = localStorage.getItem('access_token') || '';
-    return fetch(`${API}${path}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    });
-  }
-
-  // Fix a single check (calls POST /api/doctor/fix/{checkId})
-  const handleFixOne = async (checkId) => {
-    await authPost(`/api/doctor/fix/${checkId}`);
-    reload();
-  };
-
-  // Fix all failing/warning checks (calls POST /api/doctor/fix-all)
-  const handleFixAll = async () => {
-    await authPost('/api/doctor/fix-all');
-    reload();
-  };
-
-  const failingChecks = checks.filter(c => c.status !== 'pass');
-
   const DOT_CONFIG = [
     { label: 'Passing',  count: passCount, color: '#46d9a4', filter: 'pass' },
     { label: 'Warnings', count: warnCount, color: '#ffbd66', filter: 'warn' },
@@ -273,16 +217,6 @@ export default function DoctorScreen({ onNavigate }) {
             <p style={{ fontSize: 14, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>Live preflight checks, runtime health, and configuration diagnostics.</p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            {failingChecks.length > 0 && (
-              <button onClick={handleFixAll} style={{
-                display: 'inline-flex', alignItems: 'center', gap: 7,
-                padding: '10px 18px', borderRadius: 999, fontSize: 13, fontWeight: 800, cursor: 'pointer',
-                background: 'rgba(70,217,164,0.15)', border: '1px solid rgba(70,217,164,0.30)',
-                color: '#46d9a4',
-              }}>
-                ⚡ Fix all ({failingChecks.length})
-              </button>
-            )}
             <button onClick={reload} disabled={loading} style={{
               display: 'inline-flex', alignItems: 'center', gap: 7,
               padding: '10px 20px', borderRadius: 999, fontSize: 13, fontWeight: 700, cursor: loading ? 'default' : 'pointer',
@@ -351,7 +285,6 @@ export default function DoctorScreen({ onNavigate }) {
                 expanded={expanded === check.id}
                 onToggle={() => setExpanded(expanded === check.id ? null : check.id)}
                 onNavigate={handleActionNav}
-                onFix={check.fixable ? handleFixOne : null}
               />
             ))}
         {!loading && !error && displayedChecks.length === 0 && filter !== 'all' && (

@@ -87,8 +87,13 @@ class HttpxFetcher:
         transport: Optional[httpx.AsyncBaseTransport] = None,
         concurrency: int = 5,
     ) -> None:
+        # With an injected transport (tests) there is no real network to guard;
+        # otherwise every request and redirect hop is SSRF-checked (rule 14).
+        from services.scanner import ssrf_request_hook
+
         self._client = httpx.AsyncClient(
             transport=transport,
+            event_hooks={} if transport is not None else {"request": [ssrf_request_hook]},
             follow_redirects=True,
             timeout=timeout,
             headers={"User-Agent": user_agent},
@@ -160,8 +165,11 @@ class BrowserFetcher:
         self._pw = None
         self._browser = None
         # httpx is used only for best-effort HEAD checks.
+        from services.scanner import ssrf_request_hook
+
         self._http = httpx.AsyncClient(
-            follow_redirects=True, timeout=timeout, headers={"User-Agent": user_agent}
+            follow_redirects=True, timeout=timeout, headers={"User-Agent": user_agent},
+            event_hooks={"request": [ssrf_request_hook]},
         )
 
     async def _ensure_browser(self) -> None:

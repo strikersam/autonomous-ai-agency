@@ -80,13 +80,16 @@ let connected = false;
 async function connect() {
   document.getElementById('connect-status').textContent = 'Fetching pairing token...';
   try {
-    const resp = await fetch('/api/openclaw/qr');
-    const data = await resp.json();
-    if (data.error) {
-      document.getElementById('connect-status').textContent = data.error;
-      return;
+    // /api/openclaw/qr is admin-only, so this page cannot fetch the token
+    // anonymously. Ask for it once and keep it on this device.
+    token = localStorage.getItem('openclaw_pairing_token');
+    if (!token) {
+      token = (window.prompt('Paste your OpenClaw pairing token (OPENCLAW_PAIRING_TOKEN):') || '').trim();
+      if (!token) {
+        document.getElementById('connect-status').textContent = 'A pairing token is required.';
+        return;
+      }
     }
-    token = data.manual_entry.token;
 
     // Wake the service with a ping
     document.getElementById('connect-status').textContent = 'Waking service...';
@@ -102,11 +105,13 @@ async function connect() {
     const testData = await testResp.json();
     if (testData.type === 'pong') {
       connected = true;
+      localStorage.setItem('openclaw_pairing_token', token);
       document.getElementById('connect-screen').classList.add('hidden');
       document.getElementById('status-dot').className = 'connected';
       document.getElementById('send-btn').disabled = false;
       addMessage('Connected to agency gateway.', 'system');
     } else {
+      localStorage.removeItem('openclaw_pairing_token');
       document.getElementById('connect-status').textContent = 'Connection test failed: ' + JSON.stringify(testData);
     }
   } catch (e) {

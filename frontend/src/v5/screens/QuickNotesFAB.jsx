@@ -134,7 +134,7 @@ function QuickNotes({ onClose }) {
       }
       await loadNotes();
     } catch (e) {
-      setSubmitErr(e?.response?.data?.detail || e.message || 'Could not save note.');
+      setSubmitErr(api.fmtErr(e?.response?.data?.detail) || e.message || 'Could not save note.');
     } finally { setSending(false); }
   };
 

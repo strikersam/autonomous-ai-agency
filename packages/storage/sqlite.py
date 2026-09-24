@@ -140,6 +140,25 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _apply_projection(doc: dict, projection: dict | None) -> dict:
+    """Apply a top-level Mongo projection (inclusion or exclusion) to *doc*.
+
+    Mongo semantics: any truthy non-``_id`` field makes it an inclusion
+    projection (only those fields, plus ``_id`` unless it is 0); otherwise the
+    zero-valued fields are dropped. Callers rely on this to keep fields such as
+    ``secret_hash`` out of API responses, which silently failed on SQLite.
+    """
+    if not projection:
+        return doc
+    include = [k for k, v in projection.items() if v and k != "_id"]
+    if include:
+        out = {k: doc[k] for k in include if k in doc}
+        if projection.get("_id", 1) and "_id" in doc:
+            out["_id"] = doc["_id"]
+        return out
+    return {k: v for k, v in doc.items() if projection.get(k, 1)}
+
+
 class _Cursor:
     """Async iterator wrapping a list of dicts (already decoded from JSON)."""
 
@@ -471,14 +490,14 @@ class _Collection:
 
     async def find_one(self, query: dict, projection: dict | None = None) -> dict | None:
         docs = await self._matching(query)
-        return docs[0] if docs else None
+        return _apply_projection(docs[0], projection) if docs else None
 
     def find(self, query: dict | None = None, projection: dict | None = None) -> _Cursor:
         """Return a _Cursor (evaluated lazily on first await/iteration)."""
         # We need to run the filter synchronously-ish; wrap in a coroutine
         # that resolves on __aiter__ / to_list.  For simplicity we return a
         # _PendingCursor that fetches on first use.
-        return _PendingCursor(self, query or {})
+        return _PendingCursor(self, query or {}, projection)
 
     async def insert_one(self, document: dict) -> _InsertResult:
         doc = dict(document)
@@ -711,9 +730,10 @@ class _Collection:
 class _PendingCursor:
     """A cursor that fetches its data lazily on first use."""
 
-    def __init__(self, collection: _Collection, query: dict):
+    def __init__(self, collection: _Collection, query: dict, projection: dict | None = None):
         self._col = collection
         self._query = query
+        self._projection = projection
         self._sort_key: str | None = None
         self._sort_dir: int = 1
         self._skip_n: int = 0
@@ -721,7 +741,7 @@ class _PendingCursor:
         self._resolved: _Cursor | None = None
 
     def sort(self, key_or_pairs, direction: int = 1) -> "_PendingCursor":
-        c = _PendingCursor(self._col, self._query)
+        c = _PendingCursor(self._col, self._query, self._projection)
         if isinstance(key_or_pairs, str):
             c._sort_key = key_or_pairs
             c._sort_dir = direction
@@ -734,7 +754,7 @@ class _PendingCursor:
         return c
 
     def skip(self, n: int) -> "_PendingCursor":
-        c = _PendingCursor(self._col, self._query)
+        c = _PendingCursor(self._col, self._query, self._projection)
         c._sort_key = self._sort_key
         c._sort_dir = self._sort_dir
         c._skip_n = n
@@ -742,7 +762,7 @@ class _PendingCursor:
         return c
 
     def limit(self, n: int) -> "_PendingCursor":
-        c = _PendingCursor(self._col, self._query)
+        c = _PendingCursor(self._col, self._query, self._projection)
         c._sort_key = self._sort_key
         c._sort_dir = self._sort_dir
         c._skip_n = self._skip_n
@@ -765,6 +785,11 @@ class _PendingCursor:
                 docs = await self._col._matching(self._query)
                 self._resolved = _Cursor(docs, self._sort_key, self._sort_dir,
                                          self._skip_n, self._limit_n)
+            if self._projection:
+                # After sort/skip/limit: the sort key may be a projected-out field.
+                self._resolved._rows = [
+                    _apply_projection(r, self._projection) for r in self._resolved._rows
+                ]
         return self._resolved
 
     def __aiter__(self):

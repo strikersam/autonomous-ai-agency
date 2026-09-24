@@ -252,14 +252,23 @@ def _safe_object_id(value: Optional[str]) -> Optional[ObjectId]:
         return None
 
 
+def _doc_id_filter(doc_id: str) -> dict:
+    """Build an `_id` filter for an id that may not be a valid ObjectId.
+
+    SQLite-backed documents carry plain UUID string ids, so a bare
+    ``ObjectId(doc_id)`` raises there (and on any malformed id in Mongo mode).
+    """
+    oid = _safe_object_id(doc_id)
+    return {"_id": oid} if oid is not None else {"_id": doc_id}
+
+
 def _user_id_filter(uid: str) -> dict:
     """Build a Mongo `_id` filter for a user id that may not be a valid
     ObjectId — e.g. SQLite-backed users (plain UUID string _id) or the
     env-admin fallback user ("admin_user_001") created in get_optional_user()
     when the DB is unreachable. Mirrors the ObjectId-then-raw-string fallback
     already used there."""
-    oid = _safe_object_id(uid)
-    return {"_id": oid} if oid is not None else {"_id": uid}
+    return _doc_id_filter(uid)
 
 
 def _get_limited_chat_session(session_id: str, user_id: str) -> Optional[Dict[str, object]]:
@@ -2131,7 +2140,9 @@ def _valid_login_state(doc: Optional[dict], provider: str) -> bool:
 @app.get("/api/auth/github/start/{nonce}")
 async def github_login(request: Request, nonce: str | None = None):
     if not GITHUB_CLIENT_ID:
-        raise HTTPException(status_code=503, detail="GitHub login not configured")
+        # A browser navigation, not an API call: send the user back to the
+        # login page with a readable reason instead of a raw JSON 503.
+        return RedirectResponse(f"{frontend_url}/login?oauth_error=github_not_configured")
     state = secrets.token_urlsafe(32)
     await _store_login_state(state, "github")
     redirect_uri = (
@@ -2351,7 +2362,7 @@ async def github_authorize_repos(
     body: AuthorizeReposBody, user: dict = Depends(get_current_user)
 ):
     await get_db().users.update_one(
-        {"_id": ObjectId(user["_id"])}, {"$set": {"authorized_repos": body.repo_names}}
+        _user_id_filter(user["_id"]), {"$set": {"authorized_repos": body.repo_names}}
     )
     await log_activity(
         "auth", f"User updated authorized repos: {len(body.repo_names)} repos"
@@ -2487,7 +2498,9 @@ async def github_status(user: dict = Depends(get_current_user)):
 @app.get("/api/auth/google/start/{nonce}")
 async def google_login(request: Request, nonce: str | None = None):
     if not GOOGLE_CLIENT_ID:
-        raise HTTPException(status_code=503, detail="Google login not configured")
+        # A browser navigation, not an API call: send the user back to the
+        # login page with a readable reason instead of a raw JSON 503.
+        return RedirectResponse(f"{frontend_url}/login?oauth_error=google_not_configured")
     state = secrets.token_urlsafe(32)
     await _store_login_state(state, "google")
     # Use OAUTH_REDIRECT_BASE so the redirect_uri matches what is registered in Google Console.
@@ -5034,6 +5047,14 @@ async def _build_provider_router(
     return router, policy, primary
 
 
+# Shown in chat when every provider and the brain-failover chain failed. It is
+# an outage, not a server bug, so say so rather than "Internal server error".
+_NO_LLM_PROVIDER_DETAIL = (
+    "No LLM provider is reachable right now — every configured provider failed. "
+    "Check Settings → AI models & providers, then try again."
+)
+
+
 async def call_llm(
     messages: list[dict],
     *,
@@ -5142,12 +5163,12 @@ async def call_llm(
                 failover_exc,
             )
             raise HTTPException(
-                status_code=503, detail="Internal server error"
+                status_code=503, detail=_NO_LLM_PROVIDER_DETAIL
             ) from failover_exc
         except Exception as failover_exc:  # noqa: BLE001 — never mask the original
             log.exception("brain-failover chain failed: %s", failover_exc)
             raise HTTPException(
-                status_code=503, detail="Internal server error"
+                status_code=503, detail=_NO_LLM_PROVIDER_DETAIL
             ) from failover_exc
         log.info(
             "brain-failover chain recovered the call via %s/%s",
@@ -5171,8 +5192,8 @@ async def call_llm(
             )
         raise HTTPException(status_code=502, detail=detail) from exc
     except Exception as exc:
-        log.error("LLM call failed: %s", exc)
-        raise HTTPException(status_code=502, detail=f"LLM call failed: {exc}") from exc
+        log.exception("LLM call failed")
+        raise HTTPException(status_code=502, detail="LLM call failed; try again or pick another model") from exc
 
 
 # ─── Chat Sessions ──────────────────────────────────────────────────────────────
@@ -6066,6 +6087,9 @@ async def create_wiki_page(
         "title": body.title,
         "slug": slug,
         "content": body.content,
+        # Stored because the list endpoint projects `content` out, so the
+        # Knowledge screen could not count words and always showed "—".
+        "word_count": len(body.content.split()),
         "tags": body.tags,
         "source_count": 0,
         "created_at": now,
@@ -6087,6 +6111,7 @@ async def update_wiki_page(
         updates["title"] = body.title
     if body.content is not None:
         updates["content"] = body.content
+        updates["word_count"] = len(body.content.split())
     if body.tags is not None:
         updates["tags"] = body.tags
     result = await get_db().wiki_pages.update_one({"slug": slug}, {"$set": updates})
@@ -6162,14 +6187,27 @@ async def ingest_source(
         source_name = title or file.filename or "Uploaded File"
         source_type = "file"
     elif url:
+        # User-supplied URL whose body is stored and shown back: it must pass
+        # the SSRF guard on the first request and on every redirect (rule 14).
+        from agent.web_reach import get_web_reach
+
         try:
-            async with httpx.AsyncClient(timeout=30) as c:
-                resp = await c.get(url, follow_redirects=True)
-                raw_content = resp.text[:50000]
+            resp = await asyncio.to_thread(get_web_reach().safe_get, url)
+            raw_content = resp.text[:50000]
             source_name = title or url
             source_type = "url"
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Failed to fetch URL: {e}")
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="That URL can't be fetched: it points to a private or internal address, or redirects too often.",
+            )
+        except httpx.HTTPStatusError as exc:
+            raise HTTPException(
+                status_code=400, detail=f"Could not fetch that URL (HTTP {exc.response.status_code})."
+            )
+        except Exception:
+            log.exception("Source URL fetch failed")
+            raise HTTPException(status_code=400, detail="Could not fetch that URL.")
     elif content_text:
         raw_content = content_text
     now = datetime.now(timezone.utc).isoformat()
@@ -6196,7 +6234,7 @@ async def ingest_source(
             ]
         )
         await get_db().sources.update_one(
-            {"_id": ObjectId(source_id)},
+            _doc_id_filter(source_id),
             {"$set": {"status": "processed", "summary": summary}},
         )
         await log_activity(
@@ -6205,10 +6243,12 @@ async def ingest_source(
             user_id=user["_id"],
             meta={"source_id": source_id},
         )
-    except Exception as e:
+    except Exception:
+        # The summary is shown in the UI; keep the exception in the logs only.
+        log.exception("Source summarisation failed for %s", source_id)
         await get_db().sources.update_one(
-            {"_id": ObjectId(source_id)},
-            {"$set": {"status": "failed", "summary": f"Processing failed: {e}"}},
+            _doc_id_filter(source_id),
+            {"$set": {"status": "failed", "summary": "Processing failed — no LLM provider could summarise it."}},
         )
     doc["_id"] = source_id
     return doc
@@ -6227,7 +6267,7 @@ async def list_sources(user: dict = Depends(get_current_user)):
 
 @app.get("/api/sources/{source_id}")
 async def get_source(source_id: str, user: dict = Depends(get_current_user)):
-    source = await get_db().sources.find_one({"_id": ObjectId(source_id)})
+    source = await get_db().sources.find_one(_doc_id_filter(source_id))
     if not source:
         raise HTTPException(status_code=404, detail="Source not found")
     source["_id"] = str(source["_id"])
@@ -6236,14 +6276,13 @@ async def get_source(source_id: str, user: dict = Depends(get_current_user)):
 
 @app.delete("/api/sources/{source_id}")
 async def delete_source(source_id: str, user: dict = Depends(get_current_user)):
-    await get_db().sources.delete_one({"_id": ObjectId(source_id)})
+    await get_db().sources.delete_one(_doc_id_filter(source_id))
     return {"ok": True}
 
 
 # ─── Activity & Stats ──────────────────────────────────────────────────────────
 
 
-@app.get("/api/activity")
 async def _get_activity_impl(limit: int = 50) -> dict[str, Any]:
     logs = []
     try:
@@ -6326,6 +6365,9 @@ async def _get_activity_impl(limit: int = 50) -> dict[str, Any]:
     return {"logs": logs, "events": logs, "activity": logs, "items": logs, "activities": logs}
 
 
+# The decorator used to sit on _get_activity_impl, leaving this authenticated,
+# cached wrapper dead and the feed (run prompts, errors) readable anonymously.
+@app.get("/api/activity")
 async def get_activity(limit: int = 50, user: dict = Depends(get_current_user)):
     return await _cached(f"activity:{limit}", ttl_s=3, producer=lambda: _get_activity_impl(limit))
 
@@ -6770,8 +6812,9 @@ async def pull_model(body: ModelPullRequest, user: dict = Depends(get_current_us
             r.raise_for_status()
         await log_activity("models", f"Pulled model: {body.name}", user_id=user["_id"])
         return {"ok": True, "model": body.name}
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Pull failed: {e}")
+    except Exception:
+        log.exception("Ollama model pull failed")
+        raise HTTPException(status_code=502, detail="Model pull failed — is Ollama reachable?")
 
 
 @app.delete("/api/models/{model_name}")
@@ -6784,8 +6827,9 @@ async def delete_model(model_name: str, user: dict = Depends(get_current_user)):
             "models", f"Deleted model: {model_name}", user_id=user["_id"]
         )
         return {"ok": True}
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Delete failed: {e}")
+    except Exception:
+        log.exception("Ollama model delete failed")
+        raise HTTPException(status_code=502, detail="Model delete failed — is Ollama reachable?")
 
 
 
@@ -7850,11 +7894,13 @@ _OPENCLAW_GATEWAY_PORT = 18789
 
 
 @app.get("/api/openclaw/status")
-async def openclaw_status() -> dict:
+async def openclaw_status(user: dict = Depends(get_current_user)) -> dict:
     """Return the OpenClaw Gateway integration status + pairing QR data.
 
     The gateway is an in-process WebSocket server (no external CLI needed).
+    Admin-only: ``qr_payload`` carries the full pairing token.
     """
+    _require_admin(user)
     import os as _os
     from services.openclaw_gateway import is_gateway_alive
 
@@ -7898,8 +7944,14 @@ def _openclaw_instructions(external_url: str, ws_url: str, pairing_token: str) -
 
 
 @app.get("/api/openclaw/qr")
-async def openclaw_qr() -> dict:
-    """Return a QR-code-compatible payload for pairing."""
+async def openclaw_qr(user: dict = Depends(get_current_user)) -> dict:
+    """Return a QR-code-compatible payload for pairing.
+
+    Authenticated: the payload carries the full pairing token, which is the only
+    credential /api/openclaw/command and /openclaw/ws check, and it grants
+    repo file reads — so admin-only, not merely signed in.
+    """
+    _require_admin(user)
     import os as _os
     external_url = _os.environ.get("RENDER_EXTERNAL_URL", "http://localhost:8001")
     gateway_url = f"{external_url}/openclaw"
@@ -8677,7 +8729,7 @@ async def self_heal_stats(user: dict = Depends(get_current_user)) -> dict[str, o
 
 
 @app.get("/api/autonomy/tick")
-async def autonomy_tick() -> dict[str, object]:
+async def autonomy_tick(request: Request) -> dict[str, object]:
     """Execute ONE pending task synchronously. Called by the cron workflow every 2 min.
 
     This is the agency's execution heartbeat. It:
@@ -8696,6 +8748,11 @@ async def autonomy_tick() -> dict[str, object]:
         "ceo": {},
         "dispatch": {},
     }
+    if not _cron_secret_ok(request) and not _anon_tick_allowed("autonomy"):
+        # 200 with a reason, not an error: the workflow parses this body.
+        result["ceo"] = {"triggered": False, "skipped": "throttled"}
+        result["dispatch"] = {"skipped": "throttled — a tick ran in the last minute"}
+        return result
 
     # 1. Fire CEO cycle — but SKIP if there are already pending tasks to execute.
     # The CEO cycle takes 10-15s, which eats the tick's timeout and leaves no
@@ -9022,14 +9079,43 @@ async def health():
 _last_cron_tick_at: Optional[datetime] = None
 
 
+# Anonymous heartbeat endpoints (Cloudflare cron, the autonomous-cycle
+# workflow) cannot carry a user session. Without a configured CRON_SECRET they
+# stay open so a fresh deploy keeps ticking, but each is rate-limited per
+# process so an anonymous caller cannot spin the scheduler or the CEO loop.
+_ANON_TICK_MIN_INTERVAL_S = {"scheduler": 20.0, "autonomy": 60.0}
+_anon_tick_last: dict[str, float] = {}
+
+
+def _cron_secret_ok(request: Request) -> bool:
+    """True when CRON_SECRET is set and the request carries it (constant time)."""
+    import hmac
+
+    secret = os.environ.get("CRON_SECRET", "")
+    incoming = request.headers.get("x-cron-secret", "")
+    return bool(secret) and hmac.compare_digest(incoming.encode(), secret.encode())
+
+
+def _anon_tick_allowed(kind: str) -> bool:
+    """Admit one un-authenticated tick of *kind* per minimum interval."""
+    import time as _time
+
+    now = _time.monotonic()
+    last = _anon_tick_last.get(kind)
+    if last is not None and now - last < _ANON_TICK_MIN_INTERVAL_S[kind]:
+        return False
+    _anon_tick_last[kind] = now
+    return True
+
+
 @app.post("/api/scheduler/tick")
 async def scheduler_tick(request: Request):
     """Called by Cloudflare Cron every minute. Protected by CRON_SECRET header."""
-    cron_secret = os.environ.get("CRON_SECRET", "")
-    incoming = request.headers.get("x-cron-secret", "")
-    if cron_secret and incoming != cron_secret:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=403, detail="Invalid cron secret")
+    if os.environ.get("CRON_SECRET", ""):
+        if not _cron_secret_ok(request):
+            raise HTTPException(status_code=403, detail="Invalid cron secret")
+    elif not _anon_tick_allowed("scheduler"):
+        raise HTTPException(status_code=429, detail="Tick already ran recently")
     global _last_cron_tick_at
     _last_cron_tick_at = datetime.now(timezone.utc)
     scheduler = get_scheduler()
@@ -10070,8 +10156,8 @@ async def voice_transcribe_backend(body: VoiceTranscribeRequest, user: dict = De
         result = vi.transcribe(audio_bytes)
         return result.as_dict()
     except Exception as exc:
-        log.error("voice_transcribe: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Transcription failed: {exc}")
+        log.exception("voice_transcribe failed")
+        raise HTTPException(status_code=500, detail="Transcription failed")
 
 
 # ── SAM Agent ──────────────────────────────────────────────────────────────────
@@ -10116,8 +10202,8 @@ async def sam_chat_backend(body: SamChatRequest, user: dict = Depends(get_curren
             "session_id": body.session_id,
         }
     except Exception as exc:
-        log.error("sam_chat: %s", exc)
-        raise HTTPException(status_code=500, detail=f"SAM chat failed: {exc}")
+        log.exception("sam_chat failed")
+        raise HTTPException(status_code=500, detail="SAM chat failed")
 
 
 @app.post("/agent/sam/speak")
@@ -10188,8 +10274,9 @@ async def sam_livekit_token_backend(
             room=room,
             name=str(user.get("name") or "Commander"),
         )
-    except ValueError as exc:
-        raise HTTPException(status_code=500, detail=f"Token minting failed: {exc}")
+    except ValueError:
+        log.exception("LiveKit token minting failed")
+        raise HTTPException(status_code=500, detail="Token minting failed; check the LiveKit settings")
     return {"url": cfg.url, "token": token, "room": room, "identity": identity}
 
 
@@ -10224,11 +10311,17 @@ async def get_doctor_report(user: Optional[dict] = Depends(get_optional_user)) -
     from agent.doctor import DirectChatDoctor
     import datetime
 
+    # Anonymous callers never get the server's GH_PAT probe: it spent the
+    # owner's GitHub rate limit and revealed repo reachability to anyone.
     github_token = (
-        await _resolve_user_github_token(user)
-        or os.environ.get("GH_PAT")
-        or os.environ.get("GH_TOKEN")
-        or os.environ.get("GITHUB_TOKEN")
+        (
+            await _resolve_user_github_token(user)
+            or os.environ.get("GH_PAT")
+            or os.environ.get("GH_TOKEN")
+            or os.environ.get("GITHUB_TOKEN")
+        )
+        if user
+        else None
     )
     doctor = DirectChatDoctor(github_token=github_token)
 
@@ -10257,12 +10350,13 @@ async def get_doctor_report(user: Optional[dict] = Depends(get_optional_user)) -
                     explanation=issue.fix_hint,
                 ))
     except Exception as exc:
+        log.exception("Doctor preflight failed")
         checks.append(_DoctorCheck(
             id="preflight_error",
             category="Setup",
             label="Preflight check failed",
             status="warn",
-            detail=f"Could not run preflight checks: {exc}",
+            detail=f"Could not run preflight checks ({type(exc).__name__}); see server logs.",
         ))
 
     # ── 2. Runtime health (from RuntimeManager cache — non-blocking) ─────────
@@ -10293,12 +10387,13 @@ async def get_doctor_report(user: Optional[dict] = Depends(get_optional_user)) -
                 explanation="Circuit breaker is OPEN — runtime failed 3+ consecutive health checks." if circuit_open else None,
             ))
     except Exception as exc:
+        log.exception("Doctor runtime query failed")
         checks.append(_DoctorCheck(
             id="runtime_error",
             category="Runtime",
             label="Runtime health unavailable",
             status="warn",
-            detail=f"Could not query RuntimeManager: {exc}",
+            detail=f"Could not query RuntimeManager ({type(exc).__name__}); see server logs.",
         ))
 
     # ── 3. Langfuse configuration ─────────────────────────────────────────────
@@ -10443,12 +10538,13 @@ async def get_public_doctor() -> _DoctorReport:
             detail=f"Connected ({count} companies)",
         ))
     except Exception as exc:
+        log.exception("Doctor storage check failed")
         checks.append(_DoctorCheck(
             id="storage",
             category="Storage",
             label="Storage backend",
             status="fail",
-            detail=f"Unavailable: {exc}",
+            detail=f"Unavailable ({type(exc).__name__}); see server logs.",
         ))
 
     # 3. Provider health (Ollama reachability)
@@ -10529,12 +10625,13 @@ async def get_public_doctor() -> _DoctorReport:
             explanation=brain_fix,
         ))
     except Exception as exc:  # noqa: BLE001 — a diagnostic must never 500
+        log.exception("Doctor check query failed")
         checks.append(_DoctorCheck(
             id="brain_providers",
             category="Provider",
             label="Brain failover chain",
             status="warn",
-            detail=f"Could not query: {exc}",
+            detail=f"Could not query ({type(exc).__name__}); see server logs.",
         ))
 
     # 4. Runtime health
@@ -10550,12 +10647,13 @@ async def get_public_doctor() -> _DoctorReport:
             detail=f"{running}/{len(runtimes)} runtimes available" if runtimes else "No runtimes registered",
         ))
     except Exception as exc:
+        log.exception("Doctor check query failed")
         checks.append(_DoctorCheck(
             id="runtimes",
             category="Runtime",
             label="Agent runtimes",
             status="warn",
-            detail=f"Could not query: {exc}",
+            detail=f"Could not query ({type(exc).__name__}); see server logs.",
         ))
 
     # 5. Feature gate status
@@ -10651,12 +10749,13 @@ async def get_doctor_diagnostics(
             explanation="Create a company via the Onboarding flow to start using the platform." if not companies else None,
         ))
     except Exception as exc:
+        log.exception("Doctor check query failed")
         checks.append(_DoctorCheck(
             id="company_graph",
             category="Company",
             label="Company Graph",
             status="warn",
-            detail=f"Could not query: {exc}",
+            detail=f"Could not query ({type(exc).__name__}); see server logs.",
         ))
 
     # 3. Workspace integrity
@@ -10827,7 +10926,10 @@ async def get_doctor_diagnostics(
 
 
 # ─── Feature Routers ────────────────────────────────────────────────────────────
-app.include_router(agent_router)
+# The agents, runtimes, secrets, portfolio, agile and v4 routers read
+# request.state.user but never required it, so anonymous callers could create
+# agents, stop every runtime or delete initiatives. The gate lives here (rule 10).
+app.include_router(agent_router,dependencies=[Depends(get_current_user)])
 # Local GLM-5.2 brain cross-machine toggle (admin SPA <-> local daemon).
 # Three endpoints, all gated on SERVICE_TOKEN via require_service_token.
 # See backend/local_brain_router.py for surface + body shapes.
@@ -10895,20 +10997,20 @@ try:
 except Exception as _llm_router_err:  # noqa: BLE001 - must not block startup
     log.warning("LLM router API not mounted: %s", _llm_router_err, exc_info=True)
 
-app.include_router(runtime_router)
+app.include_router(runtime_router, dependencies=[Depends(get_current_user)])
 app.include_router(task_router)
 app.include_router(schedules_router, dependencies=[Depends(get_current_user)])
 app.include_router(setup_router)
 app.include_router(activation_router)
-app.include_router(secrets_router)
+app.include_router(secrets_router, dependencies=[Depends(get_current_user)])
 
 # Portfolio + Agile board API (powers the v5 PortfolioScreen)
 from agents.portfolio_api import portfolio_router
-app.include_router(portfolio_router)
+app.include_router(portfolio_router, dependencies=[Depends(get_current_user)])
 
 try:
     from agents.agile_api import agile_router
-    app.include_router(agile_router)
+    app.include_router(agile_router, dependencies=[Depends(get_current_user)])
     log.info("Agile sprints API mounted at /api/agile")
 except Exception as _agile_err:
     log.warning("Agile API not mounted: %s", _agile_err, exc_info=True)
@@ -10916,7 +11018,7 @@ except Exception as _agile_err:
 # v4 Dashboard API - powers the Continuous Improvement Dashboard at
 # autonomous-ai-agency.strikersam.workers.dev
 from backend.v4_api import v4_router
-app.include_router(v4_router)
+app.include_router(v4_router, dependencies=[Depends(get_current_user)])
 log.info("v4 Dashboard API mounted at /v4")
 
 # Company Graph API
@@ -11047,8 +11149,8 @@ async def workflow_orchestrator_approve(
         )
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Run {run_id} not found")
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail="Internal server error")
+    except ValueError:
+        raise HTTPException(status_code=409, detail="Run is not awaiting approval")
 
 
 

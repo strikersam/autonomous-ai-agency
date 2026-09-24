@@ -8,8 +8,17 @@ const FIBONACCI = [1, 2, 3, 5, 8, 13];
 const statusColors = {
   todo: '#6e7786', in_progress: '#5da2ff', in_review: '#ff9d66',
   blocked: '#ffbd66', needs_clarification: '#b57bee', done: '#46d9a4', failed: '#ff6b7d',
+  wont_do: '#8b93a7',
 };
 const priorityColors = { urgent: '#ff6b7d', high: '#ffbd66', medium: '#7c9dff', low: '#6e7786' };
+const STATUSES = ['todo', 'in_progress', 'in_review', 'blocked', 'needs_clarification', 'done', 'failed', 'wont_do'];
+
+// The backend's reason ("Cannot transition task from todo to done") beats
+// axios's "Request failed with status code 400"; fmtErr also flattens a 422's
+// detail array, which React cannot render as a child.
+function errText(e) {
+  return api.fmtErr(e?.response?.data?.detail) || e?.message || 'Request failed';
+}
 
 function fmt(epoch) {
   if (!epoch) return '—';
@@ -100,7 +109,7 @@ function TaskDetailPanel({ taskId, onClose, onTaskUpdated }) {
       setEditTitle(t?.title || '');
       setEditDesc(t?.description || '');
     } catch (e) {
-      setError(e?.response?.data?.detail || e?.message || 'Failed to load task');
+      setError(api.fmtErr(e?.response?.data?.detail) || e?.message || 'Failed to load task');
     } finally {
       setLoading(false);
     }
@@ -127,31 +136,31 @@ function TaskDetailPanel({ taskId, onClose, onTaskUpdated }) {
   const saveTitle = async () => {
     if (editTitle.trim() === task?.title) return;
     setSavingField('title');
-    try { await patchTask({ title: editTitle.trim() }); } catch (e) { setActionError(e?.message); }
+    try { await patchTask({ title: editTitle.trim() }); } catch (e) { setActionError(errText(e)); }
     setSavingField('');
   };
 
   const saveDesc = async () => {
     if (editDesc === task?.description) return;
     setSavingField('desc');
-    try { await patchTask({ description: editDesc }); } catch (e) { setActionError(e?.message); }
+    try { await patchTask({ description: editDesc }); } catch (e) { setActionError(errText(e)); }
     setSavingField('');
   };
 
   const setStoryPoints = async (pts) => {
-    try { await patchTask({ story_points: pts }); } catch (e) { setActionError(e?.message); }
+    try { await patchTask({ story_points: pts }); } catch (e) { setActionError(errText(e)); }
   };
 
   const setSprint = async (sprintId) => {
-    try { await patchTask({ sprint_id: sprintId || null }); } catch (e) { setActionError(e?.message); }
+    try { await patchTask({ sprint_id: sprintId || null }); } catch (e) { setActionError(errText(e)); }
   };
 
   const setStatus = async (status) => {
-    try { await patchTask({ status }); } catch (e) { setActionError(e?.message); }
+    try { await patchTask({ status }); } catch (e) { setActionError(errText(e)); }
   };
 
   const setPriority = async (priority) => {
-    try { await patchTask({ priority }); } catch (e) { setActionError(e?.message); }
+    try { await patchTask({ priority }); } catch (e) { setActionError(errText(e)); }
   };
 
   const submitComment = async () => {
@@ -161,7 +170,7 @@ function TaskDetailPanel({ taskId, onClose, onTaskUpdated }) {
       await api.addTaskComment(taskId, { body: commentBody.trim() });
       setCommentBody('');
       await fetchTask();
-    } catch (e) { setActionError(e?.response?.data?.detail || e?.message); }
+    } catch (e) { setActionError(errText(e)); }
     setSubmittingComment(false);
   };
 
@@ -171,7 +180,7 @@ function TaskDetailPanel({ taskId, onClose, onTaskUpdated }) {
       await api.followUpTask(taskId, { message: followUpMsg.trim() });
       setShowFollowUp(false); setFollowUpMsg('');
       await fetchTask(); if (onTaskUpdated) onTaskUpdated();
-    } catch (e) { setActionError(e?.response?.data?.detail || e?.message); }
+    } catch (e) { setActionError(errText(e)); }
   };
 
   const submitEscalate = async () => {
@@ -179,7 +188,7 @@ function TaskDetailPanel({ taskId, onClose, onTaskUpdated }) {
       await api.escalateTask(taskId);
       setShowEscalate(false); setEscalateReason('');
       await fetchTask(); if (onTaskUpdated) onTaskUpdated();
-    } catch (e) { setActionError(e?.response?.data?.detail || e?.message); }
+    } catch (e) { setActionError(errText(e)); }
   };
 
   const submitClarify = async () => {
@@ -188,14 +197,14 @@ function TaskDetailPanel({ taskId, onClose, onTaskUpdated }) {
       await api.clarifyTask(taskId, { reason: clarifyReason.trim() });
       setShowClarify(false); setClarifyReason('');
       await fetchTask(); if (onTaskUpdated) onTaskUpdated();
-    } catch (e) { setActionError(e?.response?.data?.detail || e?.message); }
+    } catch (e) { setActionError(errText(e)); }
   };
 
   const submitApproval = async (checkpointId, approve, reason = '') => {
     try {
       await api.approveTaskCheckpoint(taskId, { checkpoint_id: checkpointId, approve, reason });
       await fetchTask(); if (onTaskUpdated) onTaskUpdated();
-    } catch (e) { setActionError(e?.response?.data?.detail || e?.message); }
+    } catch (e) { setActionError(errText(e)); }
   };
 
   if (loading) return (
@@ -270,7 +279,7 @@ function TaskDetailPanel({ taskId, onClose, onTaskUpdated }) {
         <div style={{ padding: '12px 20px', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexWrap: 'wrap', gap: 8, flexShrink: 0 }}>
           {/* Status */}
           <select value={task.status} onChange={e => setStatus(e.target.value)} style={selectStyle}>
-            {['todo','in_progress','in_review','blocked','needs_clarification','done','failed'].map(s => (
+            {STATUSES.map(s => (
               <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
             ))}
           </select>

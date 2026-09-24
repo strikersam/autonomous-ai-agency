@@ -65,7 +65,7 @@ def _build_payload_or_500():
         from services.workflow_orchestrator import get_workflow_orchestrator
     except ImportError as exc:
         log.exception("admin_digest.import_failed exc=%s", exc)
-        raise HTTPException(status_code=503, detail=f"digest dependencies not importable: {exc}")
+        raise HTTPException(status_code=503, detail="Digest dependencies are not installed on this server")
     try:
         return build_daily_digest(
             decisions_store=get_decisions_store(),
@@ -74,7 +74,7 @@ def _build_payload_or_500():
         )
     except Exception as exc:
         log.exception("admin_digest.build_failed exc=%s", exc)
-        raise HTTPException(status_code=500, detail=f"digest build failed: {exc}")
+        raise HTTPException(status_code=500, detail="Digest build failed; see server logs")
 
 
 @router.post("/send")
@@ -99,7 +99,7 @@ async def send_daily_digest_endpoint(
         await dispatcher.send_daily_digest(payload)
     except Exception as exc:
         log.exception("admin_digest.dispatch_failed exc=%s", exc)
-        raise HTTPException(status_code=502, detail=f"telegram dispatch failed: {exc}")
+        raise HTTPException(status_code=502, detail="Telegram dispatch failed; see server logs")
 
     return {
         "ok": True,

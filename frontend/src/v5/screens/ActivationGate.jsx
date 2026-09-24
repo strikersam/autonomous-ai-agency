@@ -13,7 +13,7 @@
  *        • On success → reload
  */
 import React from 'react';
-import api from '../../api';
+import api, { fmtErr } from '../../api';
 
 function CopyButton({ text, label }) {
   const [copied, setCopied] = React.useState(false);
@@ -86,7 +86,7 @@ export default function ActivationGate({ children }) {
         // If we already painted from cache, keep the app usable rather than
         // downgrading to the activation wall on a transient network error.
         if (!cachedActivated) {
-          setStatusError(e.response?.data?.detail || 'Unable to reach the activation service. Is the backend running?');
+          setStatusError(fmtErr(e.response?.data?.detail) || 'Unable to reach the activation service. Is the backend running?');
           setStatus({ activated: false, instance_id: 'unknown', register_email: '' });
         }
       });
@@ -114,7 +114,7 @@ export default function ActivationGate({ children }) {
         setError(r.data.error || 'Activation failed. Check the token and try again.');
       }
     } catch (e) {
-      setError(e.response?.data?.detail || 'Network error. Is the server running?');
+      setError(fmtErr(e.response?.data?.detail) || 'Network error. Is the server running?');
     } finally {
       setLoading(false);
     }

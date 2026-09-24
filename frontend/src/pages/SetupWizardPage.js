@@ -25,6 +25,7 @@ import {
   detectHardwareForSetup,
   detectModelsForSetup,
   createSecret,
+  getAccessToken,
   getBackendUrl,
   setBackendUrl,
   getPublicPath,
@@ -444,6 +445,10 @@ export default function SetupWizardPage({ onComplete }) {
   const storeApiKey = useCallback(async (key, keyName) => {
     if (!key) return null;
     try {
+      // /api/secrets/ requires a session. Without one, a 401 there would trip
+      // the axios interceptor's redirect to /login mid-wizard, so go straight
+      // to the public setup endpoint below.
+      if (!getAccessToken()) throw new Error('no session');
       // Use the shared axios API instance so auth token + base URL are applied
       // consistently, regardless of what backendUrl state holds.
       const result = await createSecret({

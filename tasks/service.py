@@ -18,6 +18,14 @@ from services.shared_state import claim as _shared_claim, release as _shared_rel
 
 log = logging.getLogger("qwen-proxy")
 
+
+class TaskRuleError(ValueError):
+    """A request broke a task workflow rule; the message is safe to show users."""
+
+    @property
+    def user_message(self) -> str:
+        return str(self.args[0]) if self.args else "Invalid task request"
+
 # Self-repo task types that should ship real code (commit + PR) rather than
 # stay report-only. Portfolio-materialized initiatives and GitHub-issue
 # ceo_direct tasks are meant to result in shipped fixes/features. The
@@ -121,7 +129,7 @@ class TaskWorkflowService:
         if status != task.status:
             allowed = ALLOWED_TRANSITIONS.get(task.status, set())
             if status not in allowed:
-                raise ValueError(f"Cannot transition task from {task.status.value} to {status.value}")
+                raise TaskRuleError(f"Cannot transition task from {task.status.value} to {status.value}")
 
         self._validate_status_payload(status, blocked_reason=blocked_reason, review_reason=review_reason)
 
@@ -181,7 +189,7 @@ class TaskWorkflowService:
         reply_to: str | None = None,
     ) -> TaskComment:
         if reply_to and not any(comment.comment_id == reply_to for comment in task.comments):
-            raise ValueError(f"Unknown parent comment: {reply_to}")
+            raise TaskRuleError(f"Unknown parent comment: {reply_to}")
 
         comment = TaskComment(author=author, body=body, reply_to=reply_to)
         task.comments.append(comment)
@@ -219,7 +227,7 @@ class TaskWorkflowService:
             None,
         )
         if checkpoint is None:
-            raise ValueError(f"Unknown checkpoint: {checkpoint_id}")
+            raise TaskRuleError(f"Unknown checkpoint: {checkpoint_id}")
 
         checkpoint.approved = approved
         checkpoint.approved_by = actor
@@ -360,7 +368,7 @@ class TaskWorkflowService:
         and from in_progress (which just re-arms the pending run).
         """
         if not message or not message.strip():
-            raise ValueError("Follow-up message must not be empty")
+            raise TaskRuleError("Follow-up message must not be empty")
 
         # Append the new instruction as a comment first — this becomes part of the
         # conversation history handed to the runtime on the next run.
@@ -411,9 +419,9 @@ class TaskWorkflowService:
         review_reason: str | None,
     ) -> None:
         if status is TaskStatus.BLOCKED and not blocked_reason:
-            raise ValueError("blocked_reason is required when moving a task to blocked")
+            raise TaskRuleError("blocked_reason is required when moving a task to blocked")
         if status is TaskStatus.IN_REVIEW and not review_reason:
-            raise ValueError("review_reason is required when moving a task to in_review")
+            raise TaskRuleError("review_reason is required when moving a task to in_review")
 
     async def _select_agent(self, task: Task) -> AgentDefinition | None:
         agent_store = get_agent_store()

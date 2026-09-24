@@ -388,7 +388,8 @@ async def v4_scheduler_trigger(job_id: str, request: Request) -> dict[str, Any]:
         return {"triggered": True, "job": job.as_dict()}
     except HTTPException:
         raise
-    except ValueError:
+    except (KeyError, ValueError):
+        # Scheduler.trigger raises KeyError for an unknown job.
         raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
     except Exception as exc:
         log.exception("v4/scheduler/trigger failed")

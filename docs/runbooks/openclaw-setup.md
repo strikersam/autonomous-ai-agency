@@ -57,8 +57,13 @@ CLI) → the startup wrapper launches the Gateway in the background.
 
 ### 3. Check the status
 
+Both `/api/openclaw/status` and `/api/openclaw/qr` are admin-only (they return
+the pairing token). Sign in to the dashboard and use your access token:
+
 ```bash
-curl -s https://local-llm-server.onrender.com/api/openclaw/status | python3 -m json.tool
+TOKEN=...  # dashboard access token for an admin account
+curl -s -H "Authorization: Bearer $TOKEN" \
+  https://local-llm-server.onrender.com/api/openclaw/status | python3 -m json.tool
 ```
 
 You should see:
@@ -75,7 +80,8 @@ You should see:
 ### 4. Get the pairing QR
 
 ```bash
-curl -s https://local-llm-server.onrender.com/api/openclaw/qr | python3 -m json.tool
+curl -s -H "Authorization: Bearer $TOKEN" \
+  https://local-llm-server.onrender.com/api/openclaw/qr | python3 -m json.tool
 ```
 
 This returns a `payload` string (`openclaw://pair?gateway=...&token=...`).

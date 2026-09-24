@@ -327,6 +327,14 @@ class WebReach:
             "text": text[:MAX_CHARS],
         }
 
+    def safe_get(self, url: str, *, max_redirects: int = 5) -> httpx.Response:
+        """Public SSRF-guarded GET (rule 14) for callers outside this module.
+
+        Raises ``ValueError`` for a refused target or redirect and
+        ``httpx.HTTPStatusError`` for a non-2xx final response.
+        """
+        return self._safe_get(url, max_redirects=max_redirects)
+
     def _safe_get(self, url: str, *, max_redirects: int = 5) -> httpx.Response:
         """GET *url*, re-validating every redirect hop against
         ``unsafe_target_reason`` — a server that 302s from a validated public

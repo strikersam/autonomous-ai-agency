@@ -17,6 +17,7 @@ jest.mock('../api', () => ({
   detectHardwareForSetup: jest.fn(),
   detectModelsForSetup:   jest.fn(),
   createSecret:           jest.fn(),
+  getAccessToken:         jest.fn(() => 'test-token'),
   getBackendUrl:          jest.fn(),
   setBackendUrl:          jest.fn(),
   getPublicPath:          jest.fn((p) => p || '/'),

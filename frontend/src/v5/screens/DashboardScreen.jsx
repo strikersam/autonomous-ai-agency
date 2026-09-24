@@ -466,6 +466,9 @@ function CostBreakdownWidget({ data, loading, error, onRetry }) {
   );
 }
 
+// Mirrors the terminal members of TaskStatus in tasks/models.py.
+const TERMINAL_TASK_STATUSES = new Set(['done', 'failed', 'wont_do']);
+
 function DashboardScreen() {
   const [data, states, fetchAll] = useSafeData(null, {
     health:    '/api/health',
@@ -483,7 +486,7 @@ function DashboardScreen() {
   const openTasks = React.useMemo(() => {
     const all = data.tasks?.tasks || [];
     return all
-      .filter(t => t.status !== 'done' && t.status !== 'failed')
+      .filter(t => !TERMINAL_TASK_STATUSES.has(t.status))
       .slice(0, 6)
       .map(t => ({ id: t.task_id || t.id, title: t.title, status: t.status, priority: t.priority }));
   }, [data.tasks]);
@@ -562,7 +565,9 @@ function DashboardScreen() {
       in_review: { label: 'In review', value: 0, color: '#ffbd66' },
       done: { label: 'Done', value: 0, color: '#46d9a4' },
       blocked: { label: 'Blocked', value: 0, color: '#ff6b7d' },
+      needs_clarification: { label: 'Needs input', value: 0, color: '#c792ea' },
       failed: { label: 'Failed', value: 0, color: '#ff6b7d' },
+      wont_do: { label: "Won't do", value: 0, color: '#4a5160' },
     };
     all.forEach((t) => {
       const b = buckets[t.status] || buckets.todo;

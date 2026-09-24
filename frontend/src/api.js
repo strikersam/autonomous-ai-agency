@@ -343,14 +343,6 @@ export const deleteAgent = (id) => API.delete(`/api/agents/${id}`);
 // ── Audit log (v3) ────────────────────────────────────────────────────────────
 export const getAuditLog = (limit = 100) => API.get('/api/activation/audit-log', { params: { limit } });
 
-// ── Hardware (v3.1) ───────────────────────────────────────────────────────────
-export const getHardwareProfile = () => API.get('/api/hardware/profile');
-export const refreshHardwareProfile = () => API.get('/api/hardware/profile/refresh');
-export const checkModelCompatibility = (modelName) =>
-  API.get(`/api/hardware/compatibility/${encodeURIComponent(modelName)}`);
-export const batchModelCompatibility = (models) =>
-  API.post('/api/hardware/compatibility/batch', { models });
-
 // ── Secrets (v3.1) ────────────────────────────────────────────────────────────
 export const listSecrets = () => API.get('/api/secrets/');
 export const createSecret = (data) => API.post('/api/secrets/', data);
@@ -389,8 +381,6 @@ export const detectModelsForSetup = (ollamaUrl) =>
 // ── Cost insights / observability (v3.1) ──────────────────────────────────────
 export const getSavings = (period = 'month', bucket = 'day') =>
   API.get('/api/observability/savings', { params: { period, bucket } });
-export const getUserSavings = (userId, period = 'month') =>
-  API.get(`/api/observability/savings/${userId}`, { params: { period } });
 export const getUsage = (period = 'month') =>
   API.get('/api/observability/usage', { params: { period } });
 export const getCostAttribution = () => API.get('/api/metrics/cost-attribution');
@@ -399,19 +389,10 @@ export const getSelfHealStats = () => API.get('/api/metrics/self-heal');
 
 // ── GitHub workspace (v3.1) ───────────────────────────────────────────────────
 export const listGithubReposV2 = () => API.get('/api/github/repos');
-export const getGithubRepo = (owner, repo) => API.get(`/api/github/repos/${owner}/${repo}`);
 export const listGithubBranchesV2 = (owner, repo) =>
   API.get(`/api/github/repos/${owner}/${repo}/branches`);
 export const listGithubPRs = (owner, repo, state = 'open') =>
   API.get(`/api/github/repos/${owner}/${repo}/pulls`, { params: { state } });
-export const initWorkspace = (owner, repo) =>
-  API.post(`/api/github/repos/${owner}/${repo}/workspace/init`);
-export const getWorkspaceStatus = (owner, repo) =>
-  API.get(`/api/github/repos/${owner}/${repo}/workspace/status`);
-export const getWorkspaceDiff = (owner, repo) =>
-  API.get(`/api/github/repos/${owner}/${repo}/workspace/diff`);
-export const commitWorkspace = (owner, repo, data) =>
-  API.post(`/api/github/repos/${owner}/${repo}/workspace/commit`, data);
 
 // ── Schedules (Control Plane) ────────────────────────────────────────────────
 export const listSchedules = () => API.get('/api/schedules/');
@@ -421,16 +402,6 @@ export const triggerSchedule = (id) => API.post(`/api/schedules/${id}/run`);
 export const deleteSchedule = (id) => API.delete(`/api/schedules/${id}`);
 export const pauseSchedule = (id) => API.patch(`/api/schedules/${id}`, { status: 'paused' });
 export const resumeSchedule = (id) => API.patch(`/api/schedules/${id}`, { status: 'active' });
-
-// ── Workspace sync (v3.1) ─────────────────────────────────────────────────────
-export const getSyncStatus = () => API.get('/api/sync/status');
-export const listSyncPeers = () => API.get('/api/sync/peers');
-export const addSyncPeer = (data) => API.post('/api/sync/peers', data);
-export const removeSyncPeer = (id) => API.delete(`/api/sync/peers/${id}`);
-export const pushFolder = (folder) => API.post(`/api/sync/push/${folder}`);
-export const pullFolder = (folder) => API.post(`/api/sync/pull/${folder}`);
-export const listSyncConflicts = () => API.get('/api/sync/conflicts');
-export const resolveConflict = (id) => API.post(`/api/sync/conflicts/${id}/resolve`);
 
 // ── Company Graph & Onboarding (v5.0) ─────────────────────────────────────────
 export const listCompanies = (params = {}) => API.get('/api/company', { params });
@@ -526,9 +497,6 @@ export const refreshPortfolio    = ()                => API.post('/api/portfolio
 // ── Quick Notes (iPhone Shortcut + FAB) ────────────────────────────────────
 export const createQuickNote = (data) => API.post('/v1/quick-notes', data);
 export const listQuickNotes = () => API.get('/v1/quick-notes');
-
-// ── Agency Status ───────────────────────────────────────────────────────────
-export const getAgencyStatus = () => API.get('/agent/agency/status');
 
 // ── Provider Policy ─────────────────────────────────────────────────────────
 export const getProviderPolicy    = ()     => API.get('/api/providers/policy');

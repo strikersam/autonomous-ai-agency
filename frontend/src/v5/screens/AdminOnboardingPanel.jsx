@@ -8,7 +8,7 @@
  * Embedded inside AdminScreen.jsx as collapsible sections.
  */
 import React from 'react';
-import api from '../../api';
+import api, { fmtErr } from '../../api';
 
 function Badge({ children, color }) {
   const bg = color === 'green' ? 'rgba(70,217,164,0.10)' : color === 'red' ? 'rgba(255,107,125,0.10)' : 'rgba(255,255,255,0.06)';
@@ -48,7 +48,7 @@ function ActivationStatus() {
     setLoadErr('');
     api.get('/api/activation/status')
       .then(r => setStatus(r.data))
-      .catch(e => setLoadErr(e.response?.data?.detail || 'Unable to load activation status.'));
+      .catch(e => setLoadErr(fmtErr(e.response?.data?.detail) || 'Unable to load activation status.'));
   };
   React.useEffect(load, []);
 
@@ -59,7 +59,7 @@ function ActivationStatus() {
       const r = await api.post('/api/activation/activate', { token: token.trim() });
       if (r.data.success) { setMsg(`Activated for ${r.data.email}`); setToken(''); load(); }
       else setErr(r.data.error || 'Activation failed');
-    } catch (e) { setErr(e.response?.data?.detail || 'Error'); }
+    } catch (e) { setErr(fmtErr(e.response?.data?.detail) || 'Error'); }
     finally { setLoading(false); }
   };
 
@@ -135,9 +135,9 @@ function UserOnboardingTable() {
   const [loadErr, setLoadErr] = React.useState('');
 
   const loadStatus = () => api.get('/api/activation/status').then(r => setStatus(r.data))
-    .catch(e => setLoadErr(e.response?.data?.detail || 'Unable to load activation status.'));
+    .catch(e => setLoadErr(fmtErr(e.response?.data?.detail) || 'Unable to load activation status.'));
   const loadUsers  = () => api.get('/api/activation/users').then(r => setUsers(r.data || []))
-    .catch(e => setLoadErr(e.response?.data?.detail || 'Unable to load users.'));
+    .catch(e => setLoadErr(fmtErr(e.response?.data?.detail) || 'Unable to load users.'));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const reload = React.useCallback(() => { setLoadErr(''); loadStatus(); loadUsers(); }, []);
   React.useEffect(() => { reload(); }, [reload]);
@@ -147,7 +147,7 @@ function UserOnboardingTable() {
     try {
       await api.put(`/api/activation/users/${encodeURIComponent(userId)}/onboarding`, { allowed });
       setUsers(u => u.map(x => x.user_id === userId ? { ...x, onboarding_allowed: allowed } : x));
-    } catch(e) { alert(e.response?.data?.detail || 'Error'); }
+    } catch(e) { alert(fmtErr(e.response?.data?.detail) || 'Error'); }
     finally { setLoading(p => ({ ...p, [userId]: false })); }
   };
 
@@ -245,7 +245,7 @@ function OnboardingGateSettings() {
     setLoadErr('');
     api.get('/api/activation/settings')
       .then(r => { setSettings(r.data); setTtlInput(String(r.data.ephemeral_company_ttl_hours)); })
-      .catch(e => setLoadErr(e.response?.data?.detail || 'Unable to load settings.'));
+      .catch(e => setLoadErr(fmtErr(e.response?.data?.detail) || 'Unable to load settings.'));
   };
   React.useEffect(load, []);
 
@@ -260,7 +260,7 @@ function OnboardingGateSettings() {
       setMsg('Saved');
       setTimeout(() => setMsg(''), 2500);
     } catch (e) {
-      setErr(e.response?.data?.detail || 'Error');
+      setErr(fmtErr(e.response?.data?.detail) || 'Error');
       // On failure, snap the field back to the last known persisted value.
       if (settings) setTtlInput(String(settings.ephemeral_company_ttl_hours));
     }
@@ -327,7 +327,7 @@ function AuditLog() {
   const load = () => {
     setLoadErr('');
     api.get('/api/activation/audit-log?limit=50').then(r => setLog(r.data || []))
-      .catch(e => setLoadErr(e.response?.data?.detail || 'Unable to load the audit log.'));
+      .catch(e => setLoadErr(fmtErr(e.response?.data?.detail) || 'Unable to load the audit log.'));
   };
   React.useEffect(load, []);
 

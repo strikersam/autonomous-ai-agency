@@ -17,7 +17,7 @@
     unless the user actually goes live.
 */
 import React from 'react';
-import API from '../../api';
+import API, { fmtErr } from '../../api';
 
 // ── Audio visualizer ──────────────────────────────────────────────────────
 
@@ -242,7 +242,7 @@ export default function SamVoiceScreen() {
       }
       cleanupLive();
       if (mountedRef.current) {
-        setError(err?.response?.data?.detail || err?.message || 'Live voice failed');
+        setError(fmtErr(err?.response?.data?.detail) || err?.message || 'Live voice failed');
       }
     }
   };

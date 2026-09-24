@@ -21,6 +21,34 @@ from bson import ObjectId
 import re
 import secrets
 
+
+def _normalize_domain(v: Any) -> Any:
+    """Lower-case, strip scheme/path, and require a dotted domain with a TLD.
+
+    Shared by ``Company`` and the create/update request models: when only the
+    stored model checked it, a domain like "acme" passed request validation and
+    then failed inside the service as a 500 instead of a 422.
+    """
+    if not isinstance(v, str):
+        return v
+    stripped = v.strip().lower()
+    if not stripped:
+        raise ValueError("domain must not be blank")
+    if stripped.startswith(("http://", "https://")):
+        stripped = stripped.split("//")[1].split("/")[0]
+    if not re.match(r"^[a-z0-9\-\.]+\.[a-z]{2,}$", stripped):
+        raise ValueError("domain must be a valid domain name, e.g. example.com")
+    return stripped
+
+
+def _require_non_blank(v: Any) -> Any:
+    if isinstance(v, str):
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("must not be blank")
+        return stripped
+    return v
+
 # =============================================================================
 # ENUMS AND LITERALS
 # =============================================================================
@@ -1293,18 +1321,7 @@ class Company(BaseModel):
     @field_validator("domain", mode="before")
     @classmethod
     def _validate_domain(cls, v: Any) -> str:
-        if isinstance(v, str):
-            stripped = v.strip().lower()
-            if not stripped:
-                raise ValueError("domain must not be blank")
-            # Remove protocol and path if present
-            if stripped.startswith(("http://", "https://")):
-                stripped = stripped.split("//")[1].split("/")[0]
-            # Basic domain validation
-            if not re.match(r"^[a-z0-9\-\.]+\.[a-z]{2,}$", stripped):
-                raise ValueError("domain must be a valid domain name")
-            return stripped
-        return v
+        return _normalize_domain(v)
     
     @field_validator("email", mode="before")
     @classmethod
@@ -1992,6 +2009,16 @@ class CompanyCreateRequest(BaseModel):
         description="User ID of the company owner"
     )
 
+    @field_validator("name", mode="before")
+    @classmethod
+    def _validate_name(cls, v: Any) -> Any:
+        return _require_non_blank(v)
+
+    @field_validator("domain", mode="before")
+    @classmethod
+    def _validate_domain(cls, v: Any) -> Any:
+        return _normalize_domain(v)
+
 
 class CompanyUpdateRequest(BaseModel):
     """Request to update a company."""
@@ -2061,6 +2088,11 @@ class CompanyUpdateRequest(BaseModel):
         default=None,
         description="Whether this company is active"
     )
+
+    @field_validator("domain", mode="before")
+    @classmethod
+    def _validate_domain(cls, v: Any) -> Any:
+        return _normalize_domain(v)
 
 
 class CompanyResponse(BaseModel):

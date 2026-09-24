@@ -161,6 +161,9 @@ class UserOnboardingRecord(BaseModel):
     onboarding_allowed: bool
     updated_at: float | None = None
     updated_by: str | None = None
+    email: str | None = None
+    name: str | None = None
+    role: str | None = None
 
 
 class ToggleOnboardingRequest(BaseModel):
@@ -233,18 +236,44 @@ async def activate_instance(body: ActivateRequest, request: Request) -> Activate
 
 @activation_router.get("/users", response_model=list[UserOnboardingRecord])
 async def list_users_onboarding(request: Request) -> list[UserOnboardingRecord]:
-    """Admin: list all users with their onboarding_allowed status."""
+    """Admin: list registered users (plus any explicit per-id records) with
+    their effective onboarding_allowed status and role.
+
+    The onboarding state file only holds ids an admin has toggled, so listing it
+    alone hid every new sign-up — blocked by the default gate and invisible here.
+    Users are keyed by email, the id the onboarding gate checks (setup/api.py).
+    """
     require_admin(request)
     state = _load_onboarding_state()
-    return [
-        UserOnboardingRecord(
+    records: dict[str, UserOnboardingRecord] = {}
+    try:
+        users = await get_store().users.find({}).to_list(length=1000)
+    except Exception:  # noqa: BLE001 — still show the explicit records
+        log.exception("list_users_onboarding: user lookup failed")
+        users = []
+    for u in users:
+        uid = str(u.get("email") or u.get("_id") or "")
+        if not uid:
+            continue
+        rec = state.get(uid) or {}
+        allowed = rec["onboarding_allowed"] if "onboarding_allowed" in rec else is_user_onboarding_allowed(uid)
+        records[uid] = UserOnboardingRecord(
+            user_id=uid,
+            onboarding_allowed=bool(allowed),
+            updated_at=rec.get("updated_at"),
+            updated_by=rec.get("updated_by"),
+            email=u.get("email"),
+            name=u.get("name"),
+            role=u.get("role") or "user",
+        )
+    for uid, data in state.items():
+        records.setdefault(uid, UserOnboardingRecord(
             user_id=uid,
             onboarding_allowed=data.get("onboarding_allowed", False),
             updated_at=data.get("updated_at"),
             updated_by=data.get("updated_by"),
-        )
-        for uid, data in state.items()
-    ]
+        ))
+    return list(records.values())
 
 
 @activation_router.put("/users/{user_id}/onboarding", response_model=UserOnboardingRecord)

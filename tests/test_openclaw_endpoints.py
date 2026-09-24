@@ -23,13 +23,46 @@ def client(monkeypatch):
     return TestClient(app)
 
 
-def test_openclaw_status_returns_200(client):
-    resp = client.get("/api/openclaw/status")
+@pytest.fixture
+def admin_client(client):
+    """The same client, carrying an admin JWT (status/qr are admin-only)."""
+    from backend.server import ADMIN_EMAIL, create_access_token
+
+    client.headers.update(
+        {"Authorization": f"Bearer {create_access_token('admin-test', ADMIN_EMAIL)}"}
+    )
+    return client
+
+
+@pytest.mark.parametrize("path", ["/api/openclaw/qr", "/api/openclaw/status"])
+def test_pairing_token_endpoints_reject_anonymous(client, path):
+    """Regression: both leaked OPENCLAW_PAIRING_TOKEN, the only credential
+    /api/openclaw/command checks, to unauthenticated callers."""
+    resp = client.get(path)
+    assert resp.status_code == 401
+    assert "test_pairing_token_12345" not in resp.text
+
+
+@pytest.mark.parametrize("path", ["/api/openclaw/qr", "/api/openclaw/status"])
+def test_pairing_token_endpoints_reject_non_admin(client, path, monkeypatch):
+    import backend.server as server
+
+    async def _plain_user(request):
+        return {"_id": "u1", "email": "someone@example.com", "role": "user"}
+
+    monkeypatch.setattr(server, "get_optional_user", _plain_user)
+    resp = client.get(path)
+    assert resp.status_code == 403
+    assert "test_pairing_token_12345" not in resp.text
+
+
+def test_openclaw_status_returns_200(admin_client):
+    resp = admin_client.get("/api/openclaw/status")
     assert resp.status_code == 200
 
 
-def test_openclaw_status_returns_config(client):
-    resp = client.get("/api/openclaw/status")
+def test_openclaw_status_returns_config(admin_client):
+    resp = admin_client.get("/api/openclaw/status")
     data = resp.json()
     assert data["enabled"] is True
     assert data["pairing_token_set"] is True
@@ -39,8 +72,8 @@ def test_openclaw_status_returns_config(client):
     assert "mobile_ui" in data
 
 
-def test_openclaw_qr_returns_payload(client):
-    resp = client.get("/api/openclaw/qr")
+def test_openclaw_qr_returns_payload(admin_client):
+    resp = admin_client.get("/api/openclaw/qr")
     assert resp.status_code == 200
     data = resp.json()
     assert "payload" in data
@@ -50,9 +83,9 @@ def test_openclaw_qr_returns_payload(client):
     assert data["manual_entry"]["path"] == "/openclaw/ws"
 
 
-def test_openclaw_qr_unset_token(client, monkeypatch):
+def test_openclaw_qr_unset_token(admin_client, monkeypatch):
     monkeypatch.delenv("OPENCLAW_PAIRING_TOKEN", raising=False)
-    resp = client.get("/api/openclaw/qr")
+    resp = admin_client.get("/api/openclaw/qr")
     data = resp.json()
     assert "error" in data
 

@@ -17,6 +17,7 @@ import userEvent from '@testing-library/user-event';
 jest.mock('../api', () => ({
   getBrainProviders: jest.fn(),
   setBrainProviderEnabled: jest.fn(),
+  fmtErr: jest.requireActual('../api').fmtErr,
 }));
 
 import * as api from '../api';

@@ -694,7 +694,7 @@ function DoneStep({ onFinish, onRestart, onBack, companyId, companyName }) {
       .then(() => loadSpecialists())
       .catch((e) => {
         const prefix = 'Specialist provisioning reported an issue: ' +
-          (e?.response?.data?.detail?.message || e?.message || 'Unknown error. Check that your LLM providers are reachable.');
+          (api.fmtErr(e?.response?.data?.detail) || e?.message || 'Unknown error. Check that your LLM providers are reachable.');
         // Still try to list — provisioning may have partially succeeded.
         loadSpecialists(prefix);
       })

@@ -10,8 +10,34 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture
 def v4_client(client) -> TestClient:
-    """Return the test client — reuses conftest client which has bootstrap."""
+    """Return the conftest client, signed in as admin — /v4 requires auth."""
+    import os
+
+    from backend.server import ADMIN_EMAIL
+    resp = client.post(
+        "/api/auth/login",
+        json={"email": ADMIN_EMAIL, "password": os.environ["ADMIN_PASSWORD"]},
+    )
+    assert resp.status_code == 200, resp.text
+    client.headers.update({"Authorization": f"Bearer {resp.json()['access_token']}"})
     return client
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("get", "/v4/tasks"),
+        ("get", "/v4/quick-notes"),
+        ("post", "/v4/quick-notes"),
+        ("post", "/v4/report-bug"),
+        ("post", "/v4/improvements/x/resolve"),
+        ("post", "/v4/scheduler/trigger/x"),
+    ],
+)
+def test_v4_rejects_anonymous_callers(client: TestClient, method: str, path: str):
+    """Regression: the v4 router had no auth, so anyone could file notes/bugs."""
+    resp = client.request(method.upper(), path, json={"content": "x", "title": "x"})
+    assert resp.status_code == 401, f"{method} {path} -> {resp.status_code}"
 
 
 @pytest.fixture

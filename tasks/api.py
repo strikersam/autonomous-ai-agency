@@ -25,7 +25,7 @@ from tasks.models import (
     TaskStatus,
     TaskUpdateRequest,
 )
-from tasks.service import TaskWorkflowService
+from tasks.service import TaskRuleError, TaskWorkflowService
 from tasks.service import TaskExecutionCoordinator
 from tasks.store import TaskStore, get_task_store
 log = logging.getLogger("qwen-proxy")
@@ -234,8 +234,10 @@ async def create_task(body: TaskCreateRequest, request: Request, user: Any = Dep
     )
     try:
         await workflow.create_task(task, actor=_user_id(user))
+    except TaskRuleError as exc:
+        raise HTTPException(status_code=400, detail=exc.user_message) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Internal server error") from exc
+        raise HTTPException(status_code=400, detail="Invalid task request") from exc
     _invalidate_task_caches(user_id=_user_id(user))
     return {"task": task.as_dict()}
 
@@ -401,8 +403,10 @@ async def update_task(task_id: str, body: TaskUpdateRequest, request: Request, u
                 review_reason=task.review_reason or "Awaiting review" if body.status is TaskStatus.IN_REVIEW else None,
                 pending_agent_run=True if body.status is TaskStatus.IN_PROGRESS else None,
             )
+        except TaskRuleError as exc:
+            raise HTTPException(status_code=400, detail=exc.user_message) from exc
         except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Internal server error") from exc
+            raise HTTPException(status_code=400, detail="Invalid task request") from exc
 
     await store.update(task)
     _invalidate_task_caches(user_id=_user_id(user))
@@ -481,8 +485,10 @@ async def add_comment(
             comment = task.comments[-1] if task.comments else None
         else:
             comment = workflow.add_comment(task, author=actor, body=body.body, reply_to=body.reply_to)
+    except TaskRuleError as exc:
+        raise HTTPException(status_code=400, detail=exc.user_message) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Internal server error") from exc
+        raise HTTPException(status_code=400, detail="Invalid task request") from exc
     await store.update(task)
     _invalidate_task_caches(user_id=_user_id(user))
     if reengage:
@@ -506,8 +512,10 @@ async def approve_checkpoint(task_id: str, body: ApprovalRequest, request: Reque
             actor=actor,
             reason=body.reason,
         )
+    except TaskRuleError as exc:
+        raise HTTPException(status_code=400, detail=exc.user_message) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Internal server error") from exc
+        raise HTTPException(status_code=400, detail="Invalid task request") from exc
     await store.update(task)
     _invalidate_task_caches(user_id=_user_id(user))
     return {"task": task.as_dict()}
@@ -532,8 +540,10 @@ async def approve_execution(
     workflow = _get_workflow(request)
     try:
         workflow.approve_execution(task, actor=actor, approved=body.approve, reason=body.reason)
+    except TaskRuleError as exc:
+        raise HTTPException(status_code=400, detail=exc.user_message) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Internal server error") from exc
+        raise HTTPException(status_code=400, detail="Invalid task request") from exc
     await store.update(task)
     _invalidate_task_caches(user_id=_user_id(user))
     if body.approve:
@@ -547,8 +557,10 @@ async def retry_task(task_id: str, request: Request, user: Any = Depends(_curren
     workflow = _get_workflow(request)
     try:
         workflow.retry(task, actor=actor)
+    except TaskRuleError as exc:
+        raise HTTPException(status_code=400, detail=exc.user_message) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Internal server error") from exc
+        raise HTTPException(status_code=400, detail="Invalid task request") from exc
     await store.update(task)
     _invalidate_task_caches(user_id=_user_id(user))
     return {"task": task.as_dict()}
@@ -608,8 +620,10 @@ async def follow_up_task(
             message=body.message,
             model_preference=body.model_preference,
         )
+    except TaskRuleError as exc:
+        raise HTTPException(status_code=400, detail=exc.user_message) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Internal server error") from exc
+        raise HTTPException(status_code=400, detail="Invalid task request") from exc
     await store.update(task)
     _invalidate_task_caches(user_id=_user_id(user))
     _queue_task_execution(background_tasks, request, task.task_id)

@@ -297,8 +297,11 @@ async def _cmd_read_file(msg: dict[str, Any]) -> dict[str, Any]:
 
     repo_path = os.environ.get("REPO_PATH", "/app")
     # Safe path resolution — reject traversal
-    full_path = os.path.normpath(os.path.join(repo_path, path))
-    if not full_path.startswith(os.path.abspath(repo_path)):
+    # realpath + commonpath: a bare startswith() let "/app" match "/app-other"
+    # and followed symlinks out of the repo.
+    root = os.path.realpath(repo_path)
+    full_path = os.path.realpath(os.path.join(root, path))
+    if os.path.commonpath([root, full_path]) != root:
         return {"type": "error", "error": "Path traversal rejected"}
 
     try:

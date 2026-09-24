@@ -49,7 +49,7 @@ export default function ProviderHealthToggleCard() {
       setError('');
     } catch (e) {
       // Surface the failure instead of rendering a misleading empty list.
-      setError(e?.response?.data?.detail || e?.message || 'Could not load providers');
+      setError(api.fmtErr(e?.response?.data?.detail) || e?.message || 'Could not load providers');
     } finally {
       setLoaded(true);
     }
@@ -67,7 +67,7 @@ export default function ProviderHealthToggleCard() {
       await api.setBrainProviderEnabled(row.id, !row.enabled);
       await load();
     } catch (e) {
-      setError(e?.response?.data?.detail || e?.message || `Could not toggle ${row.id}`);
+      setError(api.fmtErr(e?.response?.data?.detail) || e?.message || `Could not toggle ${row.id}`);
     } finally {
       setBusy('');
     }

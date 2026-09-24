@@ -499,7 +499,10 @@ function KnowledgeScreen() {
     title: p.title || p.slug || 'Untitled',
     updated: relTime(p.updated_at || p.created_at),
     tags: Array.isArray(p.tags) ? p.tags : [],
-    words: typeof p.content === 'string' ? p.content.trim().split(/\s+/).filter(Boolean).length : 0,
+    // The list endpoint omits `content`; word_count is stored on save.
+    words: typeof p.word_count === 'number'
+      ? p.word_count
+      : (typeof p.content === 'string' ? p.content.trim().split(/\s+/).filter(Boolean).length : 0),
     author: p.created_by || '—',
   }));
 
@@ -531,7 +534,7 @@ function KnowledgeScreen() {
       setShowNewDoc(false); setNewDocTitle(''); setNewDocBody('');
       refetch();
     } catch (err) {
-      alert('Could not create doc: ' + (err?.response?.data?.detail || err.message));
+      alert('Could not create doc: ' + (api.fmtErr(err?.response?.data?.detail) || err.message));
     } finally { setNewDocSaving(false); }
   };
 

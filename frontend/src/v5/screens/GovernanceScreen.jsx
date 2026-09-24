@@ -287,7 +287,7 @@ function PolicyEditor() {
       setText(data?.text ?? '');
       setOriginal(data?.text ?? '');
     } catch (e) {
-      setErr(e?.response?.data?.detail || e?.message || 'Could not load the policy file.');
+      setErr(api.fmtErr(e?.response?.data?.detail) || e?.message || 'Could not load the policy file.');
     }
   }, []);
 
@@ -299,7 +299,7 @@ function PolicyEditor() {
       const { data } = await api.validateGovernancePolicy(text);
       setResult(data);
     } catch (e) {
-      setErr(e?.response?.data?.detail || e?.message || 'Validation failed.');
+      setErr(api.fmtErr(e?.response?.data?.detail) || e?.message || 'Validation failed.');
     } finally { setBusy(false); }
   }, [text]);
 
@@ -310,7 +310,7 @@ function PolicyEditor() {
       setProposed(data);
       setResult(data?.validation ? { ...data.validation, diff: result?.diff } : result);
     } catch (e) {
-      setErr(e?.response?.data?.detail || e?.message || 'Could not open the proposal PR.');
+      setErr(api.fmtErr(e?.response?.data?.detail) || e?.message || 'Could not open the proposal PR.');
     } finally { setBusy(false); }
   }, [text, reason, result]);
 

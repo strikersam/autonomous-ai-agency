@@ -2,6 +2,26 @@
 
 **Updated:** 2026-09-24
 
+## QA pass 2026-09-23 (branch `claude/autonomous-agency-qa-bugs-ut12ye`)
+
+Live QA against a SQLite backend: route map vs every frontend call, anonymous probe of
+every route, Playwright crawl + click-through of all 19 screens, status and schema
+fuzzing. Fixed and tested: six routers and the OpenClaw pairing token open to anonymous
+callers; `/api/activity` decorator on the unauthenticated impl; SQLite ignoring
+projections (`secret_hash` leak); People & access hiding new sign-ups; ObjectId-on-UUID
+500s (sources, authorize-repos); company domain 500; "Internal server error" on 4xx
+rule violations and provider outages; Doctor "Fix all" hitting a nonexistent endpoint;
+`wont_do` handling; 422 detail arrays crashing error banners.
+
+**Follow-up (2026-09-24, same branch):** closed the open items — throttled anonymous
+ticks + constant-time `CRON_SECRET`, anonymous `/api/doctor` without `GH_PAT`, Ollama
+probe SSRF guard, OAuth-unconfigured redirect, fixed-message HTTP details, dead `api.js`
+wrappers. Also found and fixed two more SSRFs (Knowledge URL ingest; scanner/SEO
+redirects). Deliberately left: onboarding toggle still accepts unknown ids (pre-approval
+by email); the "No schedules registered" alert (in production an empty scheduler does
+mean a wipe).
+
+## Previous state
 ## Current state (2026-09-24)
 
 Daily automation: session start had zero open PRs and zero `routine-backlog`

@@ -111,7 +111,7 @@ async def update_workflow_task(
         log.warning("admin_update_task.router.orchestrator_unavailable: %s", exc)
         raise HTTPException(
             status_code=503,
-            detail=f"WorkflowOrchestrator unavailable: {exc}",
+            detail="WorkflowOrchestrator unavailable; see server logs",
         )
 
     try:
@@ -122,11 +122,13 @@ async def update_workflow_task(
         )
     except KeyError:
         raise HTTPException(status_code=404, detail=f"Run {run_id!r} not found")
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail="Internal server error")
+    except ValueError:
+        raise HTTPException(
+            status_code=409, detail="Run is finished or has no original request to update"
+        )
     except Exception as exc:  # noqa: BLE001
         log.exception("admin_update_task.update_task_failed run=%s exc=%s", run_id, exc)
-        raise HTTPException(status_code=500, detail=f"update_task failed: {exc}")
+        raise HTTPException(status_code=500, detail="update_task failed; see server logs")
 
     meta = dict(run._request.metadata or {}) if run._request is not None else {}
     return {
