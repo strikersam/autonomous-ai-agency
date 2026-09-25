@@ -251,10 +251,11 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
         "judge":     "glm-5.2",
     },
     "aerolink": {
-        "planner":   "claude-opus-5",
+        # Updated 2026-09-25: Opus 5.5 replaces Opus 5 as planner/judge (mirrors anthropic provider; $4/$20, 20% cheaper).
+        "planner":   "claude-opus-5-5",
         "executor":  "claude-sonnet-5",
         "verifier":  "claude-sonnet-5",
-        "judge":     "claude-opus-5",
+        "judge":     "claude-opus-5-5",
     },
     "anthropic": {
         # Updated 2026-09-24: Opus 5.5 replaces Opus 5 as planner/judge (released 2026-09-22; 20% cheaper, same capability tier).
@@ -435,6 +436,8 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         "claude-sonnet-4-6",
     ],
     "aerolink": [
+        # Added 2026-09-25: Opus 5.5 as first-position candidate (mirrors anthropic provider).
+        "claude-opus-5-5",
         "claude-opus-5",
         "claude-sonnet-5",
         "claude-opus-4-8",

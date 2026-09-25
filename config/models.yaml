@@ -384,11 +384,14 @@ providers:
     base_url_env: AEROLINK_BASE_URL
     default_base_url: https://capi.aerolink.lat/v1
     role_presets:
-      planner:   claude-opus-5
+      # Updated 2026-09-25: Opus 5.5 replaces Opus 5 as planner/judge (mirrors anthropic provider; $4/$20, 20% cheaper).
+      planner:   claude-opus-5-5
       executor:  claude-sonnet-5
       verifier:  claude-sonnet-5
-      judge:     claude-opus-5
+      judge:     claude-opus-5-5
     candidates:
+      # Added 2026-09-25: Opus 5.5 as first-position candidate (cheaper + same capability tier as Opus 5).
+      - claude-opus-5-5
       - claude-opus-5
       - claude-sonnet-5
       - claude-opus-4-8

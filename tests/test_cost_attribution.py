@@ -298,3 +298,69 @@ class TestTheCostTableHasNoDuplicateKeys:
                 f"{name} declares these twice — the later value silently wins: "
                 f"{duplicates}"
             )
+
+
+class TestNoFuzzyCollisionWithPaidModels:
+    """Regression guard for the fuzzy-match billing bug (PR #1566, row 78).
+
+    ``cost_for_tokens()`` falls back to substring matching when a model id is
+    not in the table.  Free-tier ids (e.g. TokenIn's ``myt/*-free`` aliases)
+    that share a substring with a paid entry would silently be billed at the
+    paid rate if their explicit zero-cost entry were missing.
+
+    This class has two tests:
+
+    * ``test_at_risk_ids_cost_zero`` — exercises ``cost_for_tokens`` for every
+      free id that fuzzy-collides with a paid one.  It passes while each
+      explicit ``(0.0, 0.0)`` entry is present and would fail immediately if
+      one were accidentally removed.
+
+    * ``test_explicit_entries_are_necessary`` — static analysis: for each
+      at-risk id, shows that WITHOUT its explicit entry the fuzzy path would
+      return a nonzero cost, confirming the entry is load-bearing and not
+      decorative.  This is the invariant that would have caught the TokenIn
+      billing bug before it reached production.
+    """
+
+    def _at_risk_ids(self) -> set[str]:
+        table = ct._DEFAULT_COST_TABLE
+        paid = {k for k, v in table.items() if v != (0.0, 0.0)}
+        return {
+            k for k, v in table.items()
+            if v == (0.0, 0.0) and any(
+                p.lower() in k.lower() or k.lower() in p.lower()
+                for p in paid
+            )
+        }
+
+    def test_at_risk_ids_cost_zero(self) -> None:
+        """Every free id that fuzzy-collides with a paid entry must return $0."""
+        at_risk = self._at_risk_ids()
+        assert at_risk, "expected at least some at-risk ids — check test logic"
+        for model_id in sorted(at_risk):
+            cost = ct.cost_for_tokens(model_id, 1_000_000, 0)
+            assert cost == 0.0, (
+                f"{model_id!r} returned ${cost} but should be free — "
+                "its explicit (0.0, 0.0) entry may be missing or shadowed"
+            )
+
+    def test_explicit_entries_are_necessary(self) -> None:
+        """Removing an at-risk id's explicit entry would cause the fuzzy
+        fallback to return a nonzero (paid) cost — proving each entry matters."""
+        table = ct._DEFAULT_COST_TABLE
+        paid = {k: v for k, v in table.items() if v != (0.0, 0.0)}
+
+        at_risk = self._at_risk_ids()
+        assert at_risk, "expected at least some at-risk ids — check test logic"
+
+        for model_id in sorted(at_risk):
+            model_lower = model_id.lower()
+            fuzzy_inp: float = 0.0
+            for paid_id, (inp, _) in paid.items():
+                if paid_id.lower() in model_lower or model_lower in paid_id.lower():
+                    fuzzy_inp = inp
+                    break
+            assert fuzzy_inp > 0.0, (
+                f"{model_id!r}: no paid fuzzy-match with nonzero cost found — "
+                "this id's at-risk status may have changed; update the guard"
+            )
