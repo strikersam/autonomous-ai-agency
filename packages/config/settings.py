@@ -281,9 +281,9 @@ class Settings:
         # ── Code graph (agent/code_graph.py) ────────────────────────────────
         # Structural code queries — who calls a function, what a diff touches —
         # for any of 162 languages, via the codebase-memory-mcp CLI. Opt-in:
-        # the native indexer is not in the default image and indexing a large
-        # repo is too heavy for the 512MB Render free tier. Self-hosted deploys
-        # enable it with `pip install codebase-memory-mcp` and this flag.
+        # the native indexer is not in the default image (INSTALL_CODE_GRAPH
+        # build arg adds it) and a full index of a large repo is too heavy for
+        # the 512MB Render free tier — use CODE_GRAPH_MODE=fast there.
         self.code_graph_enabled_raw: str = os.environ.get(
             "CODE_GRAPH_ENABLED", "false"
         ).lower()
@@ -293,6 +293,13 @@ class Settings:
         self.code_graph_timeout_seconds: int = _env_int(
             "CODE_GRAPH_TIMEOUT_SECONDS", 180
         )
+        # Index depth passed to `index_repository --mode`. "full" adds semantic
+        # edges; "fast" builds the call graph only. Measured on this repo:
+        # full peaks ~395MB / ~34 CPU-s, fast ~65MB / ~7 CPU-s with the same
+        # trace results — fast is what fits the 512MB, 0.15-CPU Render tier.
+        self.code_graph_mode: str = os.environ.get(
+            "CODE_GRAPH_MODE", "full"
+        ).strip().lower()
 
         # ── Operational-incident tracker (agent/operational_incidents.py) ────
         # Operational failures (timeouts, "all runtimes failed", rate limits)
