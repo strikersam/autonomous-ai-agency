@@ -64,11 +64,15 @@ ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 # (TELEGRAM_WEBHOOK_PATH was removed: the Telegram bot uses `getUpdates`
 #  long-polling exclusively and there is no inbound webhook endpoint.
 #  See the module docstring for the full architectural rationale.)
-# Optional override — tell the SPA which localStorage key holds the admin JWT.
-# Most React/Vite apps use "token" or "auth-token"; the admin SPA may use any.
+# The localStorage key the SPA reads its JWT from (frontend/src/AuthContext.js).
+# It was "admin_jwt", a key nothing reads: the SPA saw no token, redirected to
+# /login, and this test timed out every night behind continue-on-error (#1565).
 ADMIN_JWT_LOCALSTORAGE_KEY = os.environ.get(
     "ADMIN_JWT_LOCALSTORAGE_KEY",
-    "admin_jwt").strip()
+    "access_token").strip()
+# The task board that lists awaiting-approval tasks (v5 Work hub, "Happening
+# now" tab). The former /admin/tasks route no longer exists.
+TASK_BOARD_PATH = "/v5/work"
 
 # Tunables — kept generous so a busy cloudflare worker won't flake.
 APPROVAL_DEADLINE_SECONDS = 8.0
@@ -371,6 +375,11 @@ def _poll_task_execution_approved(
             )
             if r.status_code == 200:
                 payload = r.json()
+                # GET /api/tasks/{id} wraps the task as {"task": {...}}, the
+                # same as the POST the seed helper reads; reading the top
+                # level always saw False (#1565).
+                if isinstance(payload.get("task"), dict):
+                    payload = payload["task"]
                 # Some deployments expose execution_approved at top-level,
                 # others nest it under execution.execution_approved.
                 last_value = bool(
@@ -459,7 +468,7 @@ def _open_dashboard(page: Page, jwt: str) -> None:
         }})();
         """
     )
-    page.goto(f"{AGENCY_BASE_URL}/admin/tasks", wait_until="networkidle", timeout=30000)
+    page.goto(f"{AGENCY_BASE_URL}{TASK_BOARD_PATH}", wait_until="networkidle", timeout=30000)
 
 
 def _test_e2e_telegram_approval(admin_jwt: str) -> None:  # noqa: C901  (test code; fl exibility ok)
