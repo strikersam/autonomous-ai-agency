@@ -350,7 +350,7 @@ which of the two is missing.
 | `CODE_GRAPH_BIN` | `codebase-memory-mcp` | Binary name or absolute path. |
 | `CODE_GRAPH_TIMEOUT_SECONDS` | `180` | Upper bound for one (incremental) index of the workspace. |
 | `CODE_GRAPH_MODE` | `full` | `index_repository --mode`: `full`, `moderate` or `fast`. `fast` builds the call graph without semantic edges; on this repo it peaked at ~65MB and ~7 CPU-seconds versus ~395MB and ~34 for `full`, with the same trace results. Use `fast` on the 512MB Render tier. An unknown value falls back to `full` with a warning. |
-| `INSTALL_CODE_GRAPH` | `false` | Docker build arg (`Dockerfile`): `true` installs `codebase-memory-mcp` and pre-downloads its binary (~300MB) into the image. On Render, set it as a service env var — Render passes env vars to the Docker build. |
+| `INSTALL_CODE_GRAPH` | `false` | Docker build arg (`Dockerfile.backend`, the image Render builds): `true` installs `codebase-memory-mcp` and pre-downloads its binary (~300MB) into the image. On Render, set it as a service env var — Render passes env vars to the Docker build. |
 
 ### Memory management
 

@@ -112,6 +112,17 @@ RUN if [ "$INSTALL_PRIME_AGENT" = "true" ]; then \
       prime-agent --version; \
     fi
 
+# Optional code graph for agents (agent/code_graph.py, CODE_GRAPH_ENABLED).
+# Off by default: the native indexer adds ~300MB to the image. The pip package
+# downloads that binary (checksum-verified) on first run, so run it once here
+# rather than inside the first agent request. Render passes service env vars to
+# the build as build args, so INSTALL_CODE_GRAPH=true there turns this on.
+ARG INSTALL_CODE_GRAPH=false
+RUN if [ "$INSTALL_CODE_GRAPH" = "true" ]; then \
+      pip install --no-cache-dir codebase-memory-mcp==0.11.0 \
+      && codebase-memory-mcp --version; \
+    fi
+
 EXPOSE 8001
 
 # ── Memory: cap glibc malloc arenas on small dynos ───────────────────────────
