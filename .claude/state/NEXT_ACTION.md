@@ -23,6 +23,9 @@ invariant was already shipped 2026-09-24** (row 79,
 `TestCandidatesAreDeclaredInLlmCatalog`) — checked before picking today's
 item to avoid duplicating it.
 
+**Update:** PR #1576 merged to master as `fd9f838`, CI green (row 81 marked
+DONE). No further action needed on this branch.
+
 ## #1565 nightly regression (2026-09-25, row 80)
 
 Root-caused and reproduced locally: the browser-login flake was the test's own
