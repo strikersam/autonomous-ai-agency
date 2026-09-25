@@ -136,28 +136,31 @@ open PR and issue to closed.
 - **Check next session:** the next quick note linking a GitHub repo should show
   `✅ fetched` in its draft PR's Source Grounding table.
 
+## Daily automation 2026-09-25 — DONE (row 80)
 ## Prior "next daily run" notes (2026-09-25, mostly resolved — see row 81 above)
 
-- PR #1566 merged to master as `74e2c96` — done (rows 78 and 79 in
-  active-tasks.md). The now-fully-merged branch `routine/daily-2026-09-24`
-  could not be deleted this session (`git push origin --delete` was blocked
-  by the auto-mode permission classifier as a destructive action); it is
-  harmless left in place, but a future session with the right permission
-  posture should clean it up (`branch-cleanup` skill).
-- **Branch-naming collision (root cause worth fixing):** two daily-automation
-  sessions ran the same day and both used the deterministic
-  `routine/daily-2026-09-24` branch name, so their commits interleaved on one
-  branch/PR instead of getting separate PRs — required manual reconciliation
-  of `active-tasks.md`/`NEXT_ACTION.md` mid-session (one session's state-tracker
-  commit silently overwrote the other's "Prior state" section and duplicated a
-  row number) and, separately, CI on the shared PR caught a real cross-change
-  regression (8 stale test assertions) that either change alone would not have
-  triggered. If the same trigger is firing more than once a day (or two
-  triggers point at the same routine), suffix the branch name with a short
-  session id (`routine/daily-2026-09-24-<suffix>`) to avoid this recurring.
+PR [#1578](https://github.com/strikersam/autonomous-ai-agency/pull/1578) open,
+auto-merge armed (squash). Two changes:
+
+1. **Aerolink role_presets aligned to `claude-opus-5-5`** — `config/models.yaml` +
+   `packages/ai/brain_config.py` (rule 4). 11 regression tests in
+   `tests/test_daily_automation_2026_09_25.py`.
+2. **`TestNoFuzzyCollisionWithPaidModels` merged** — two concurrent sessions both
+   added the class independently; merge commit `3f0fc89` reconciles the allowlist
+   approach (other session) with the behavioral `cost_for_tokens()` test (this
+   session). 3 tests total, 47/47 passing. PARITY OK.
+
+## Next daily run (2026-09-26)
+
+- Watch for PR #1578 merging to master.
 - Check for new models from DeepSeek, Google, Groq, Anthropic, NVIDIA NIM
   (Nemotron 4 family rumoured); Claude Sonnet 5.5 / Haiku 5.5 (Anthropic said
   "coming in the coming weeks" alongside Opus 5.5).
+- **Branch-naming collision (root cause still open):** two daily-automation sessions
+  ran the same day on 2026-09-24 AND 2026-09-25 and both used the deterministic
+  `routine/daily-YYYY-MM-DD` branch name. If the same trigger fires more than once
+  a day, consider suffixing with a short session id. The collisions have been benign
+  (merge-resolvable) but they cost a cycle each time.
 - Consider updating `role_presets` for the `aerolink` provider (still uses
   `claude-opus-5` as planner/judge — Opus 5.5 is cheaper and available via
   Aerolink too).
@@ -173,3 +176,5 @@ open PR and issue to closed.
   have caught a prior day's bug before it ever reached CI.
 - Row 50 (provider/model source-of-truth + admin UI): still IN_PROGRESS, P1-P4
   remain; requires full backend deps in the sandbox.
+- `/api/auth/refresh` always 401s on SQLite (ObjectId on UUID ids); production
+  (Mongo) unaffected, but self-hosters see automatic logouts on token expiry.

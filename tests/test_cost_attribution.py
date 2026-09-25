@@ -370,3 +370,14 @@ class TestNoFuzzyCollisionWithPaidModels:
             assert table[paid_id] != (0.0, 0.0), (
                 f"{paid_id} is no longer paid — remove its allowlist entry"
             )
+
+    def test_known_free_ids_cost_zero_via_cost_for_tokens(self) -> None:
+        """Behavioral verification: each known at-risk free id returns $0 via
+        cost_for_tokens, confirming the explicit (0.0, 0.0) entries are in
+        place and are winning over the fuzzy fallback."""
+        for free_id, _paid_id in self.KNOWN_SAME_MODEL_DIFFERENT_PROVIDER:
+            cost = ct.cost_for_tokens(free_id, 1_000_000, 0)
+            assert cost == 0.0, (
+                f"{free_id!r} returned ${cost} but should be free — "
+                "its explicit (0.0, 0.0) entry may be missing or shadowed"
+            )
