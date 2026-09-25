@@ -56,7 +56,7 @@ class SamAlert:
         """Stable id for dedup: volatile ids/numbers stripped, bucketed per UTC day."""
         norm = re.sub(r"[0-9a-f]{6,}|\d+", "#", f"{self.title}|{self.message}".lower())
         day = time.strftime("%Y-%m-%d", time.gmtime())
-        return hashlib.sha1(f"{norm}|{day}".encode()).hexdigest()[:16]
+        return hashlib.sha256(f"{norm}|{day}".encode()).hexdigest()[:16]
 
 
 def detect_alert_intent(text: str) -> str | None:
