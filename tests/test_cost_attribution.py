@@ -298,3 +298,75 @@ class TestTheCostTableHasNoDuplicateKeys:
                 f"{name} declares these twice — the later value silently wins: "
                 f"{duplicates}"
             )
+
+
+class TestNoFuzzyCollisionWithPaidModels:
+    """A free-tier id that shares a substring with a paid id is one accidental
+    table edit away from repeating the 2026-09-24 TokenIn bug (active-tasks.md
+    row 78): two of TokenIn's free ``myt/*-free`` aliases were absent from the
+    table, and ``cost_for_tokens()``'s substring fallback silently matched them
+    to the paid models they re-serve for free, billing $0 traffic at $5+/MTok.
+
+    Every pair below is a deliberate exemption: the free id and the paid id it
+    collides with name the *same underlying model*, served by a different
+    (free) provider — the collision is a naming fact, not a bug, and it would
+    reappear the moment either entry is removed. A new collision not on this
+    list means either the new id is misclassified (fix its rate) or it is a
+    fresh legitimate same-model/different-provider pair that needs its own
+    exemption recorded here with a reason.
+    """
+
+    # (free_id, paid_id_it_collides_with) — see class docstring.
+    KNOWN_SAME_MODEL_DIFFERENT_PROVIDER = {
+        # NVIDIA NIM (free) vs Mistral's own API (paid) — same NeMo 12B model.
+        ("mistralai/mistral-nemotron", "mistral-nemo"),
+        # TokenIn (free re-serve) vs OpenAI (paid) — the bug fixed in row 78.
+        ("myt/gpt-5.6-sol-free", "gpt-5.6-sol"),
+        # TokenIn (free re-serve) vs Anthropic (paid) — the bug fixed in row 78.
+        ("myt/claude-opus-4-8-free", "claude-opus-4-8"),
+        # Groq (free tier) vs Cerebras (paid) — same open-weight GPT-OSS 120B.
+        ("openai/gpt-oss-120b", "gpt-oss-120b"),
+    }
+
+    def test_no_undocumented_fuzzy_collision(self):
+        table = ct._DEFAULT_COST_TABLE
+        zero_keys = [k for k, v in table.items() if v == (0.0, 0.0)]
+        nonzero_keys = [k for k, v in table.items() if v != (0.0, 0.0)]
+
+        undocumented = []
+        for zk in zero_keys:
+            zk_l = zk.lower()
+            for nk in nonzero_keys:
+                nk_l = nk.lower()
+                if nk_l in zk_l or zk_l in nk_l:
+                    if (zk, nk) not in self.KNOWN_SAME_MODEL_DIFFERENT_PROVIDER:
+                        undocumented.append((zk, nk))
+
+        assert not undocumented, (
+            "New fuzzy substring collision(s) between a free and a paid "
+            "cost-table entry — if the free id's exact entry is ever removed, "
+            "cost_for_tokens() will silently fall back to the paid price (the "
+            "2026-09-24 TokenIn bug, active-tasks.md row 78). Either the free "
+            "id is misclassified (fix its rate) or it's a legitimate "
+            "same-model/different-provider pair — add it to "
+            f"KNOWN_SAME_MODEL_DIFFERENT_PROVIDER with a reason: {undocumented}"
+        )
+
+    def test_known_collisions_are_still_present(self):
+        # Guards the allowlist itself: a listed pair that no longer matches
+        # the table (renamed, removed, or repriced) is a stale exemption
+        # that should be deleted, not silently kept around exempting nothing.
+        table = ct._DEFAULT_COST_TABLE
+        for free_id, paid_id in self.KNOWN_SAME_MODEL_DIFFERENT_PROVIDER:
+            assert free_id in table, (
+                f"{free_id} no longer in the cost table — remove its allowlist entry"
+            )
+            assert paid_id in table, (
+                f"{paid_id} no longer in the cost table — remove its allowlist entry"
+            )
+            assert table[free_id] == (0.0, 0.0), (
+                f"{free_id} is no longer zero-cost — remove its allowlist entry"
+            )
+            assert table[paid_id] != (0.0, 0.0), (
+                f"{paid_id} is no longer paid — remove its allowlist entry"
+            )
