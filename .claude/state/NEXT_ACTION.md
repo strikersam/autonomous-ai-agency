@@ -2,6 +2,27 @@
 
 **Updated:** 2026-09-25
 
+## Daily automation 2026-09-25 (row 81)
+
+Session start: 0 open PRs, 0 `routine-backlog` issues (clean slate). Picked
+the still-open suggestion from the "Next daily run" section below rather
+than inventing new work: a `TestNoFuzzyCollisionWithPaidModels`-style CI
+invariant in `tests/test_cost_attribution.py` that generalizes row 78's
+TokenIn fix — it scans every zero-cost cost-table id for a substring
+collision with a paid id (the same check `cost_for_tokens()`'s fuzzy
+fallback performs) and fails on anything not explicitly documented as a
+legitimate same-model/different-provider pair. Verified it fails first
+(emptied the allowlist, reran, caught 4 real live collisions) before
+documenting them. PR [#1576](https://github.com/strikersam/autonomous-ai-agency/pull/1576)
+— open, CI pending; auto-merge to be armed once green. See
+active-tasks.md row 81 for full verification detail.
+
+**The other "Next daily run" suggestion below about a
+`TestPaidModelsCostTrackerCoverage`-style routing-candidates-vs-catalog
+invariant was already shipped 2026-09-24** (row 79,
+`TestCandidatesAreDeclaredInLlmCatalog`) — checked before picking today's
+item to avoid duplicating it.
+
 ## #1565 nightly regression (2026-09-25, row 80)
 
 Root-caused and reproduced locally: the browser-login flake was the test's own
@@ -112,7 +133,7 @@ open PR and issue to closed.
 - **Check next session:** the next quick note linking a GitHub repo should show
   `✅ fetched` in its draft PR's Source Grounding table.
 
-## Next daily run (2026-09-25)
+## Prior "next daily run" notes (2026-09-25, mostly resolved — see row 81 above)
 
 - PR #1566 merged to master as `74e2c96` — done (rows 78 and 79 in
   active-tasks.md). The now-fully-merged branch `routine/daily-2026-09-24`
@@ -137,12 +158,12 @@ open PR and issue to closed.
 - Consider updating `role_presets` for the `aerolink` provider (still uses
   `claude-opus-5` as planner/judge — Opus 5.5 is cheaper and available via
   Aerolink too).
-- Consider a general `TestNoFuzzyCollisionWithPaidModels`-style invariant in
-  `tests/test_cost_attribution.py`: for every id in `_DEFAULT_COST_TABLE` at
-  `(0.0, 0.0)`, assert no *other* table key's fuzzy substring match would
-  return a nonzero cost for it — would have caught today's TokenIn bug (and
-  any future one of the same shape) without needing to spot it by hand.
-- Consider a `TestPaidModelsCostTrackerCoverage`-style invariant for models in routing candidates but absent from the llm catalog.
+- ~~Consider a general `TestNoFuzzyCollisionWithPaidModels`-style invariant~~
+  **Done 2026-09-25, row 81, PR #1576.**
+- ~~Consider a `TestPaidModelsCostTrackerCoverage`-style invariant for models
+  in routing candidates but absent from the llm catalog.~~ **Already done
+  2026-09-24, row 79** (`TestCandidatesAreDeclaredInLlmCatalog`) — this note
+  was stale by the time it was written; checked before starting today's work.
 - Consider extending `TestTheCopiesMayNotDriftFurther`-style CI feedback earlier: a
   pre-commit or PR-description checklist item for "if you touch a reconciled provider's
   candidates in `config/models.yaml`, also update `packages/ai/brain_config.py`" would
