@@ -3068,7 +3068,9 @@ async def sam_chat(body: SamChatRequest, auth: AuthContext = Depends(verify_api_
     returns a concise, voice-friendly response.
     """
     sam = _init_sam()
-    response_text = await sam.process_command(body.text, session_id=body.session_id)
+    response_text = await sam.process_command(
+        body.text, session_id=body.session_id, owner_id=auth.email or "sam-voice",
+    )
     return {
         "text": response_text,
         "session_id": body.session_id,
