@@ -183,7 +183,7 @@ def _make_sam_assistant(owner_id: str) -> Any:
             task title back for confirmation."""
             try:
                 from tasks.models import Task
-                from tasks.store import get_task_store
+                from tasks.service import TaskWorkflowService
 
                 task = Task(
                     owner_id=owner_id or "sam-voice",
@@ -191,12 +191,41 @@ def _make_sam_assistant(owner_id: str) -> Any:
                     description=description[:4000],
                     task_type="voice",
                     tags=["sam-voice"],
+                    source="sam-voice",
                 )
-                created = await get_task_store().create(task)
+                # Through the workflow service, not the raw store: it sets
+                # pending_agent_run, without which the dispatcher never runs it.
+                created = await TaskWorkflowService().create_task(task, actor="sam:voice")
                 return f"Task created: '{created.title}' (id={created.task_id})"
             except Exception as exc:
                 log.warning("create_task failed: %s", exc)
                 return f"Could not create the task: {exc}"
+
+        @function_tool
+        async def check_alerts(self) -> str:
+            """Summarise the open error and warning alerts from the dashboard
+            alerts bell. Call this when the Commander asks about alerts,
+            notifications, or errors."""
+            from agent.sam_actions import summarize_alerts
+
+            try:
+                return await summarize_alerts()
+            except Exception as exc:
+                log.warning("check_alerts failed: %s", exc)
+                return f"Alerts unavailable right now: {exc}"
+
+        @function_tool
+        async def fix_alerts(self) -> str:
+            """Queue agent fix tasks for every open error alert on the alerts
+            bell. Call this when the Commander asks you to fix, resolve, or look
+            into the alerts or errors — do not tell them to do it themselves."""
+            from agent.sam_actions import fix_alerts as _fix_alerts
+
+            try:
+                return await _fix_alerts(owner_id or "sam-voice")
+            except Exception as exc:
+                log.warning("fix_alerts failed: %s", exc)
+                return f"Could not queue fixes: {exc}"
 
     return SamAssistant()
 

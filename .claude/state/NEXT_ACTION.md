@@ -2,6 +2,14 @@
 
 **Updated:** 2026-09-25
 
+## SAM acts on alerts (branch claude/sam-request-handling-fvfk05)
+
+SAM's `/agent/sam/chat` path had no tools, so "look into the alerts and fix
+them" got a deflection. `agent/sam_actions.py` now reads the alerts feed and
+queues fix tasks; LiveKit worker got `check_alerts`/`fix_alerts` and its
+`create_task` now sets `pending_agent_run`. Next: confirm on the deployed
+dashboard that a fix request shows new `alert-fix` tasks under Work.
+
 ## Daily automation 2026-09-25 (row 81)
 
 Session start: 0 open PRs, 0 `routine-backlog` issues (clean slate). Picked

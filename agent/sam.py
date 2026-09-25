@@ -69,6 +69,8 @@ You can:
 - Trigger scheduled jobs and workflows
 - Query the memory kernel for past context
 - Execute voice commands: status, health, tasks, scan, fix, deploy, review
+- Read the alerts bell and queue agent fix tasks for open error alerts —
+  when asked to fix something, act; never tell the Commander to do it themselves
 
 ## Response format
 - Keep every response under 150 words (voice-friendly)
@@ -117,12 +119,15 @@ class SamAgent:
 
     # ── Public API ─────────────────────────────────────────────────────────
 
-    async def process_command(self, text: str, session_id: str = "default") -> str:
+    async def process_command(
+        self, text: str, session_id: str = "default", owner_id: str = "sam-voice",
+    ) -> str:
         """Process a voice command and return SAM's spoken response.
 
         Args:
             text: The transcribed voice command from the user
             session_id: Conversation session identifier
+            owner_id: User the command acts on behalf of (owns any created task)
 
         Returns:
             SAM's voice response (plain English, under 150 words)
@@ -132,6 +137,14 @@ class SamAgent:
             return "I didn't catch that, Commander. Could you repeat?"
 
         session = self._get_session(session_id)
+
+        # Alert commands ("look into the alerts and fix them") are executed, not
+        # chatted about — the LLM path has no tools and could only deflect.
+        from agent.sam_actions import handle_alert_command
+        action_reply = await handle_alert_command(text, owner_id)
+        if action_reply is not None:
+            session.add_turn(text, action_reply)
+            return action_reply
 
         # Build context for the LLM — bounded so a stalled scheduler/task-store
         # read (e.g. during a backlog purge) can't hang the whole command.

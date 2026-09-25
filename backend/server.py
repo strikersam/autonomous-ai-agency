@@ -10196,7 +10196,13 @@ async def sam_chat_backend(body: SamChatRequest, user: dict = Depends(get_curren
     """Send a voice command to SAM and get a spoken response."""
     try:
         sam = _get_backend_sam()
-        response_text = await sam.process_command(body.text, session_id=body.session_id)
+        owner_id = str(
+            user.get("_id") or user.get("id") or user.get("sub")
+            or user.get("email") or "sam-voice"
+        )
+        response_text = await sam.process_command(
+            body.text, session_id=body.session_id, owner_id=owner_id,
+        )
         return {
             "text": response_text,
             "session_id": body.session_id,
