@@ -276,3 +276,53 @@ class TestRunnerWorkspace:
 
         assert "workspace_root" not in loop._handler_params(plain)
         assert loop._handler_params(object()) == frozenset()
+
+
+class TestIndexMode:
+    """CODE_GRAPH_MODE: full does not fit the 512MB / 0.15-CPU Render tier."""
+
+    def test_default_mode_is_full_and_is_passed_to_the_indexer(self, graph, runner) -> None:
+        graph.trace("helper")
+        call = runner.tool_calls("index_repository")[0]
+        assert call[call.index("--mode") + 1] == "full"
+
+    def test_fast_mode_is_passed_to_the_indexer(self, tmp_path, runner) -> None:
+        cg.CodeGraph(tmp_path, binary="cbm", runner=runner, mode="fast").trace("helper")
+        call = runner.tool_calls("index_repository")[0]
+        assert call[call.index("--mode") + 1] == "fast"
+
+    def test_unknown_mode_is_rejected(self, tmp_path, runner) -> None:
+        with pytest.raises(cg.CodeGraphError):
+            cg.CodeGraph(tmp_path, binary="cbm", runner=runner, mode="--help")
+
+    def test_settings_mode_reaches_the_graph_and_bad_values_fall_back(self, tmp_path, monkeypatch) -> None:
+        from packages.config import settings
+
+        monkeypatch.setattr(cg, "_graphs", {})
+        monkeypatch.setattr(settings, "code_graph_mode", "fast")
+        assert cg.get_code_graph(tmp_path).mode == "fast"
+        monkeypatch.setattr(cg, "_graphs", {})
+        monkeypatch.setattr(settings, "code_graph_mode", "turbo")
+        assert cg.get_code_graph(tmp_path).mode == "full"
+
+
+class TestImageInstall:
+    """Dockerfile INSTALL_CODE_GRAPH build arg (Render passes env vars as build args)."""
+
+    DOCKERFILE = (cg.Path(__file__).resolve().parent.parent / "Dockerfile").read_text()
+
+    def test_off_by_default(self) -> None:
+        assert "ARG INSTALL_CODE_GRAPH=false" in self.DOCKERFILE
+
+    def test_pins_the_version_and_prefetches_the_binary(self) -> None:
+        block = self.DOCKERFILE.split("ARG INSTALL_CODE_GRAPH=false", 1)[1].split("\n\n", 1)[0]
+        assert 'if [ "$INSTALL_CODE_GRAPH" = "true" ]' in block
+        assert "codebase-memory-mcp==0.11.0" in block
+        assert "codebase-memory-mcp --version" in block
+
+    def test_new_settings_are_documented(self) -> None:
+        root = cg.Path(__file__).resolve().parent.parent
+        docs = (root / "docs/configuration-reference.md").read_text()
+        env = (root / ".env.example").read_text()
+        for name in ("CODE_GRAPH_MODE", "INSTALL_CODE_GRAPH"):
+            assert f"`{name}`" in docs and name in env, name
