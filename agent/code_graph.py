@@ -32,6 +32,7 @@ import re
 import shutil
 import threading
 import subprocess  # nosec B404 - list-form argv only, fixed binary
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -238,6 +239,35 @@ def _mode(value: str) -> str:
         return value
     log.warning("code_graph: CODE_GRAPH_MODE=%r is not one of %s; using 'full'", value, sorted(MODES))
     return "full"
+
+
+def start_warm_up(root: str | Path) -> threading.Thread | None:
+    """Index ``root`` once in a daemon thread when the code graph is enabled.
+
+    Without this the first agent query pays for the whole index (~45s for this
+    repo at Render's 0.15 CPU in fast mode). The log line it writes is also the
+    only runtime evidence, short of an authenticated agent run, that the
+    indexer works inside the deployed container.
+    """
+    if not code_graph_enabled():
+        return None
+    graph = get_code_graph(root)
+
+    def _run() -> None:
+        started = time.monotonic()
+        try:
+            project = graph.ensure_indexed()
+        except CodeGraphError as exc:
+            log.warning("code_graph: warm-up index of %s failed: %s", graph.root, exc)
+            return
+        log.info(
+            "code_graph: indexed %s (mode=%s, project=%s) in %.1fs",
+            graph.root, graph.mode, project, time.monotonic() - started,
+        )
+
+    thread = threading.Thread(target=_run, name="code-graph-warm-up", daemon=True)
+    thread.start()
+    return thread
 
 
 def code_graph_enabled() -> bool:

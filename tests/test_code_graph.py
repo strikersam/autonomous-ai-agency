@@ -309,7 +309,8 @@ class TestIndexMode:
 class TestImageInstall:
     """Dockerfile INSTALL_CODE_GRAPH build arg (Render passes env vars as build args)."""
 
-    DOCKERFILE = (cg.Path(__file__).resolve().parent.parent / "Dockerfile").read_text()
+    # Render builds Dockerfile.backend (render.yaml dockerfilePath).
+    DOCKERFILE = (cg.Path(__file__).resolve().parent.parent / "Dockerfile.backend").read_text()
 
     def test_off_by_default(self) -> None:
         assert "ARG INSTALL_CODE_GRAPH=false" in self.DOCKERFILE
@@ -326,3 +327,36 @@ class TestImageInstall:
         env = (root / ".env.example").read_text()
         for name in ("CODE_GRAPH_MODE", "INSTALL_CODE_GRAPH"):
             assert f"`{name}`" in docs and name in env, name
+
+
+class TestWarmUp:
+    """start_warm_up pre-builds the index so the first agent query does not pay for it."""
+
+    def test_disabled_does_nothing(self, tmp_path) -> None:
+        assert cg.start_warm_up(tmp_path) is None
+
+    def test_enabled_indexes_once_and_logs(self, tmp_path, monkeypatch, caplog) -> None:
+        runner = FakeRunner()
+        graph = cg.CodeGraph(tmp_path, binary="cbm", runner=runner, mode="fast")
+        monkeypatch.setattr(cg, "code_graph_enabled", lambda: True)
+        monkeypatch.setattr(cg, "get_code_graph", lambda root: graph)
+        with caplog.at_level("INFO", logger="qwen-proxy"):
+            cg.start_warm_up(tmp_path).join(5)
+        call = runner.tool_calls("index_repository")[0]
+        assert call[call.index("--mode") + 1] == "fast"
+        assert "code_graph: indexed" in caplog.text and "mode=fast" in caplog.text
+
+    def test_failure_is_logged_not_raised(self, tmp_path, monkeypatch, caplog) -> None:
+        runner = FakeRunner()
+        runner.fail_with = "out of memory"
+        graph = cg.CodeGraph(tmp_path, binary="cbm", runner=runner)
+        monkeypatch.setattr(cg, "code_graph_enabled", lambda: True)
+        monkeypatch.setattr(cg, "get_code_graph", lambda root: graph)
+        with caplog.at_level("WARNING", logger="qwen-proxy"):
+            cg.start_warm_up(tmp_path).join(5)
+        assert "warm-up index" in caplog.text and "out of memory" in caplog.text
+
+    def test_background_services_start_it(self) -> None:
+        src = (cg.Path(__file__).resolve().parent.parent / "services/background.py").read_text()
+        body = src.split("async def start_background_services", 1)[1].split("\ndef ", 1)[0]
+        assert "_start_code_graph_warm_up(workspace_root)" in body

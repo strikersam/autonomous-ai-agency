@@ -400,6 +400,7 @@ async def start_background_services(
 
     _schedule_self_bootstrap()
     _start_ceo_agency()
+    _start_code_graph_warm_up(workspace_root)
     autonomy_tasks = _start_autonomy_loops(scheduler)
 
     return BackgroundServices(
@@ -410,6 +411,16 @@ async def start_background_services(
         hermes_task=hermes_task,
         skill_refresh_task=skill_refresh_task,
     )
+
+
+def _start_code_graph_warm_up(workspace_root: str | Path) -> None:
+    """Pre-build the agents' code graph (no-op unless CODE_GRAPH_ENABLED)."""
+    try:
+        from agent.code_graph import start_warm_up
+
+        start_warm_up(workspace_root)
+    except Exception:  # never let an optional index block startup
+        log.exception("code_graph warm-up could not start")
 
 
 def _env_on(name: str, default: str = "true") -> bool:
