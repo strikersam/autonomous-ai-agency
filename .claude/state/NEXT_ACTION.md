@@ -1,6 +1,17 @@
 # Next Action
 
-**Updated:** 2026-09-24
+**Updated:** 2026-09-25
+
+## #1565 nightly regression (2026-09-25, row 80)
+
+Root-caused and reproduced locally: the browser-login flake was the test's own
+wait (`networkidle` resolves instantly in the SPA → 500ms for login + redirect);
+the Telegram approval e2e had failed every night behind `continue-on-error`
+(wrong localStorage key, dead route, unwrapped response). Both fixed in
+`tests/e2e/`; hermetic guards in `tests/test_nightly_e2e_helpers.py`.
+**Open, not fixed:** `/api/auth/refresh` calls `ObjectId()` on SQLite UUID ids and
+always 401s there, so on SQLite any expired access token logs the user out.
+Production (Mongo) is unaffected.
 
 ## QA pass 2026-09-23 (branch `claude/autonomous-agency-qa-bugs-ut12ye`)
 

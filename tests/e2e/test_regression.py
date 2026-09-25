@@ -27,6 +27,7 @@ from pathlib import Path
 
 try:
     from playwright.sync_api import sync_playwright, Page, Browser, BrowserContext
+    from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
 except ImportError:
     print("Install playwright: pip install playwright && playwright install chromium")
     sys.exit(1)
@@ -219,21 +220,34 @@ def browser_login(page: Page) -> bool:
     pw_el.fill(ADMIN_PASSWORD)
 
     btn = page.locator('button[type="submit"]:visible, button:has-text("Sign in"):visible, button:has-text("Login"):visible').first
-    if btn.count() > 0:
-        btn.click()
-    else:
-        pw_el.press("Enter")
 
-    page.wait_for_load_state("networkidle", timeout=30000)
-    page.wait_for_timeout(500)
-    if "login" in page.url.lower():
-        # Swallowed-failure trap: a caller checking `if not browser_login(page)`
-        # got a bare False here with no Report.fail — two consecutive nightly
-        # runs (see CI history) failed at exactly this point with zero
-        # diagnostic output, because nothing downstream of this ever printed
-        # why. Report the URL so the next occurrence is actionable instead of
-        # silent.
-        Report.fail("login", f"still on {page.url} after submit — bad credentials or slow backend bootstrap")
+    # Wait on the login response and then the route change, never on
+    # networkidle: the SPA's document reached networkidle before submit, so
+    # wait_for_load_state("networkidle") returned in ~1ms and the old check
+    # gave the login XHR plus React's redirect only a 500ms sleep. A backend a
+    # few seconds into startup (bcrypt + background warm-up) regularly took
+    # longer, and both viewports then reported "still on /login" (#1565).
+    try:
+        with page.expect_response(
+            lambda r: r.url.endswith("/api/auth/login") and r.request.method == "POST",
+            timeout=30000,
+        ) as login_response:
+            if btn.count() > 0:
+                btn.click()
+            else:
+                pw_el.press("Enter")
+        status = login_response.value.status
+    except PlaywrightTimeoutError:
+        Report.fail("login", "submit did not send POST /api/auth/login within 30s")
+        return False
+    if status != 200:
+        Report.fail("login", f"POST /api/auth/login returned {status} — check ADMIN_EMAIL/ADMIN_PASSWORD")
+        return False
+
+    try:
+        page.wait_for_url(lambda url: "/login" not in url, timeout=30000)
+    except PlaywrightTimeoutError:
+        Report.fail("login", f"login returned 200 but the SPA stayed on {page.url} for 30s")
         return False
     return True
 
