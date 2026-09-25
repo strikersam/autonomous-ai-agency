@@ -2,6 +2,30 @@
 
 **Updated:** 2026-09-25
 
+## Daily automation 2026-09-25 (row 81)
+
+Session start: 0 open PRs, 0 `routine-backlog` issues (clean slate). Picked
+the still-open suggestion from the "Next daily run" section below rather
+than inventing new work: a `TestNoFuzzyCollisionWithPaidModels`-style CI
+invariant in `tests/test_cost_attribution.py` that generalizes row 78's
+TokenIn fix — it scans every zero-cost cost-table id for a substring
+collision with a paid id (the same check `cost_for_tokens()`'s fuzzy
+fallback performs) and fails on anything not explicitly documented as a
+legitimate same-model/different-provider pair. Verified it fails first
+(emptied the allowlist, reran, caught 4 real live collisions) before
+documenting them. PR [#1576](https://github.com/strikersam/autonomous-ai-agency/pull/1576)
+— open, CI pending; auto-merge to be armed once green. See
+active-tasks.md row 81 for full verification detail.
+
+**The other "Next daily run" suggestion below about a
+`TestPaidModelsCostTrackerCoverage`-style routing-candidates-vs-catalog
+invariant was already shipped 2026-09-24** (row 79,
+`TestCandidatesAreDeclaredInLlmCatalog`) — checked before picking today's
+item to avoid duplicating it.
+
+**Update:** PR #1576 merged to master as `fd9f838`, CI green (row 81 marked
+DONE). No further action needed on this branch.
+
 ## #1565 nightly regression (2026-09-25, row 80)
 
 Root-caused and reproduced locally: the browser-login flake was the test's own
@@ -113,6 +137,7 @@ open PR and issue to closed.
   `✅ fetched` in its draft PR's Source Grounding table.
 
 ## Daily automation 2026-09-25 — DONE (row 80)
+## Prior "next daily run" notes (2026-09-25, mostly resolved — see row 81 above)
 
 PR [#1578](https://github.com/strikersam/autonomous-ai-agency/pull/1578) open,
 auto-merge armed (squash). Two changes:
@@ -136,6 +161,19 @@ auto-merge armed (squash). Two changes:
   `routine/daily-YYYY-MM-DD` branch name. If the same trigger fires more than once
   a day, consider suffixing with a short session id. The collisions have been benign
   (merge-resolvable) but they cost a cycle each time.
+- Consider updating `role_presets` for the `aerolink` provider (still uses
+  `claude-opus-5` as planner/judge — Opus 5.5 is cheaper and available via
+  Aerolink too).
+- ~~Consider a general `TestNoFuzzyCollisionWithPaidModels`-style invariant~~
+  **Done 2026-09-25, row 81, PR #1576.**
+- ~~Consider a `TestPaidModelsCostTrackerCoverage`-style invariant for models
+  in routing candidates but absent from the llm catalog.~~ **Already done
+  2026-09-24, row 79** (`TestCandidatesAreDeclaredInLlmCatalog`) — this note
+  was stale by the time it was written; checked before starting today's work.
+- Consider extending `TestTheCopiesMayNotDriftFurther`-style CI feedback earlier: a
+  pre-commit or PR-description checklist item for "if you touch a reconciled provider's
+  candidates in `config/models.yaml`, also update `packages/ai/brain_config.py`" would
+  have caught a prior day's bug before it ever reached CI.
 - Row 50 (provider/model source-of-truth + admin UI): still IN_PROGRESS, P1-P4
   remain; requires full backend deps in the sandbox.
 - `/api/auth/refresh` always 401s on SQLite (ObjectId on UUID ids); production

@@ -13,8 +13,9 @@ and ``repowise`` cannot:
 are JavaScript, Go, Java and the rest as often as Python, and for those the
 agent was left grepping. The graph fills that gap without replacing repowise.
 
-Opt-in (``CODE_GRAPH_ENABLED``): the binary is not in the default image, and
-indexing a large repository is too heavy for the 512MB Render free tier.
+Opt-in (``CODE_GRAPH_ENABLED``): the binary is not in the default image, and a
+``full`` index of a large repository is too heavy for the 512MB Render free tier;
+``CODE_GRAPH_MODE=fast`` fits it.
 Self-hosted installs enable it with ``pip install codebase-memory-mcp``.
 
 Every call is a list-form subprocess (rule 12) run in a worker thread (rule
@@ -38,6 +39,7 @@ log = logging.getLogger("qwen-proxy")
 
 LABELS = frozenset({"Function", "Method", "Class", "Module", "File", "Route"})
 DIRECTIONS = frozenset({"inbound", "outbound", "both"})
+MODES = frozenset({"full", "moderate", "fast"})
 _SYMBOL_RE = re.compile(r"^[^\s-][^\s]{0,199}$")          # no leading '-', no spaces
 _REF_RE = re.compile(r"^[A-Za-z0-9._/][A-Za-z0-9._/~^-]{0,199}$")
 _QUERY_TIMEOUT = 60
@@ -58,10 +60,14 @@ class CodeGraph:
         binary: str = "codebase-memory-mcp",
         index_timeout: int = 180,
         runner: Runner = subprocess.run,
+        mode: str = "full",
     ) -> None:
+        if mode not in MODES:
+            raise CodeGraphError(f"mode must be one of {sorted(MODES)}")
         self.root = Path(root).resolve()
         self.binary = binary
         self.index_timeout = index_timeout
+        self.mode = mode
         self._run = runner
         self._project: str | None = None
         self._fingerprint: str | None = None
@@ -147,7 +153,8 @@ class CodeGraph:
             if self._project and fingerprint is not None and fingerprint == self._fingerprint:
                 return self._project
             result = self._json(
-                ["index_repository", "--repo-path", str(self.root)], self.index_timeout
+                ["index_repository", "--repo-path", str(self.root), "--mode", self.mode],
+                self.index_timeout,
             )
             project = result.get("project")
             if not isinstance(project, str) or not project:
@@ -221,8 +228,16 @@ def get_code_graph(root: str | Path) -> CodeGraph:
         _graphs[key] = CodeGraph(
             key, binary=settings.code_graph_bin,
             index_timeout=settings.code_graph_timeout_seconds,
+            mode=_mode(settings.code_graph_mode),
         )
     return _graphs[key]
+
+
+def _mode(value: str) -> str:
+    if value in MODES:
+        return value
+    log.warning("code_graph: CODE_GRAPH_MODE=%r is not one of %s; using 'full'", value, sorted(MODES))
+    return "full"
 
 
 def code_graph_enabled() -> bool:

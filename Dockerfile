@@ -18,6 +18,17 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 # Install Playwright + headless Chromium for website scanning (gucci.com, etc.)
 RUN playwright install --with-deps chromium
 
+# Optional code graph for agents (agent/code_graph.py, CODE_GRAPH_ENABLED).
+# Off by default: the native indexer adds ~300MB to the image. The pip package
+# downloads that binary (checksum-verified) on first run, so run it once here
+# rather than inside the first agent request. Render passes service env vars to
+# the build as build args, so INSTALL_CODE_GRAPH=true there turns this on.
+ARG INSTALL_CODE_GRAPH=false
+RUN if [ "$INSTALL_CODE_GRAPH" = "true" ]; then \
+      pip install --no-cache-dir codebase-memory-mcp==0.11.0 \
+      && codebase-memory-mcp --version; \
+    fi
+
 COPY . /app
 # Ensure packages/ is present even if a future .dockerignore excludes it.
 # V2.0 Modernization moved provider_router, brain_policy, admin_auth,

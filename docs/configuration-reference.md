@@ -335,9 +335,11 @@ Flags) selects the same two backends for the SEO crawler independently.
 Structural code queries for agents — `code_trace` (callers/callees), `code_search`
 (symbols by regex) and `code_impact` (functions a branch's diff can affect) — across
 162 languages, via the [codebase-memory-mcp](https://github.com/DeusData/codebase-memory-mcp)
-CLI. Opt-in: the native indexer is not in the default image and indexing a large
-repository is too heavy for the 512MB Render free tier. Enable on a self-hosted
-install with `pip install codebase-memory-mcp` and `CODE_GRAPH_ENABLED=true`. The
+CLI. Opt-in: the native indexer is not in the default image, and a `full` index of
+a large repository is too heavy for the 512MB Render free tier (`fast` fits). Enable on a self-hosted
+install with `pip install codebase-memory-mcp` and `CODE_GRAPH_ENABLED=true`; on
+Render, set `INSTALL_CODE_GRAPH=true`, `CODE_GRAPH_ENABLED=true` and
+`CODE_GRAPH_MODE=fast`. The
 tools are registered, and advertised to the executor, only when the flag is on
 **and** the binary is found; the `codebase-memory` row on **Providers → MCP** says
 which of the two is missing.
@@ -347,6 +349,8 @@ which of the two is missing.
 | `CODE_GRAPH_ENABLED` | `false` | Register the code-graph tools for agents. |
 | `CODE_GRAPH_BIN` | `codebase-memory-mcp` | Binary name or absolute path. |
 | `CODE_GRAPH_TIMEOUT_SECONDS` | `180` | Upper bound for one (incremental) index of the workspace. |
+| `CODE_GRAPH_MODE` | `full` | `index_repository --mode`: `full`, `moderate` or `fast`. `fast` builds the call graph without semantic edges; on this repo it peaked at ~65MB and ~7 CPU-seconds versus ~395MB and ~34 for `full`, with the same trace results. Use `fast` on the 512MB Render tier. An unknown value falls back to `full` with a warning. |
+| `INSTALL_CODE_GRAPH` | `false` | Docker build arg (`Dockerfile`): `true` installs `codebase-memory-mcp` and pre-downloads its binary (~300MB) into the image. On Render, set it as a service env var — Render passes env vars to the Docker build. |
 
 ### Memory management
 
