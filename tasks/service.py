@@ -530,22 +530,20 @@ _BRAIN_DEFER_LIMIT = 12     # max brain-unavailable deferrals before blocking �
                             # we keep the task queued a little longer than a runtime
                             # outage before parking it as BLOCKED.
 
-# Outward-facing gate (charter Gate Matrix). A human asked to approve/decline
-# outward-facing autonomous work in Telegram before it runs — but autonomous CEO
-# tasks never set requires_approval, so the pre-execution gate below never fired
-# for them. These are the task_types and tags whose work leaves the repo (commits
-# + PR, deploy, release, external write), so the dispatcher promotes them to
-# requires_approval before the first run when AGENCY_GATE_OUTWARD_FACING is on.
-# Internal work (research, self-heal, scheduling, review) is not in the set and
-# stays fully autonomous.
-_OUTWARD_FACING_TASK_TYPES = frozenset({
-    "issue", "issue_intake", "portfolio_initiative", "quick_note",
-    "repository_change", "release", "deploy", "feature", "bug_fix", "refactor",
-    "runtime_change",
-})
-_OUTWARD_FACING_TAGS = frozenset({
-    "code-change", "external-write", "pr-opened", "deploy", "release", "irreversible",
-})
+# Outward-facing gate (charter Gate Matrix). These are the task_types and tags
+# whose work leaves the repo *without* passing through a human merge: deploys,
+# releases, external writes, irreversible operations. The dispatcher promotes
+# them to requires_approval before the first run when AGENCY_GATE_OUTWARD_FACING
+# is on.
+#
+# Work that only commits to an agent branch and opens a PR (bug_fix, feature,
+# refactor, issue intake, quick notes, …) is deliberately NOT here: agents can
+# neither push to a protected branch nor merge (agent/autonomy_gate.py), so the
+# human merge is already the gate. Parking that work *before* it runs as well
+# made the operator approve every fix twice and stalled the agency whenever they
+# were away — the charter puts bug fixes in the autonomous lane.
+_OUTWARD_FACING_TASK_TYPES = frozenset({"release", "deploy", "runtime_change"})
+_OUTWARD_FACING_TAGS = frozenset({"external-write", "deploy", "release", "irreversible"})
 
 
 def _gate_outward_facing_enabled() -> bool:

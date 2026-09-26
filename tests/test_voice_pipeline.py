@@ -69,7 +69,7 @@ async def test_synthesize_times_out_on_stalled_backend(monkeypatch):
     import importlib, voice.tts as tts
     importlib.reload(tts)
     monkeypatch.setattr(tts, "_SYNTHESIZE_TIMEOUT_SEC", 0.05)
-    monkeypatch.setattr(tts, "_synthesize_gtts", lambda text: time.sleep(0.3))
+    monkeypatch.setattr(tts, "_synthesize_gtts", lambda text, fmt="ogg": time.sleep(0.3))
 
     start = time.monotonic()
     result = await tts.synthesize("hello there")
@@ -100,7 +100,7 @@ async def test_synthesize_uses_dedicated_executor_not_default(monkeypatch):
     monkeypatch.setenv("ELEVENLABS_API_KEY", "")
     import importlib, voice.tts as tts
     importlib.reload(tts)
-    monkeypatch.setattr(tts, "_synthesize_gtts", lambda text: b"fake-audio")
+    monkeypatch.setattr(tts, "_synthesize_gtts", lambda text, fmt="ogg": b"fake-audio")
 
     seen_executors = []
     loop = asyncio.get_event_loop()

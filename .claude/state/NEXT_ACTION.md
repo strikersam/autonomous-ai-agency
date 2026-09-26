@@ -2,13 +2,13 @@
 
 **Updated:** 2026-09-25
 
-## SAM acts on alerts (branch claude/sam-request-handling-fvfk05)
+## SAM voice on iOS + CEO triage (branch claude/sam-request-handling-fvfk05)
 
-SAM's `/agent/sam/chat` path had no tools, so "look into the alerts and fix
-them" got a deflection. `agent/sam_actions.py` now reads the alerts feed and
-queues fix tasks; LiveKit worker got `check_alerts`/`fix_alerts` and its
-`create_task` now sets `pending_agent_run`. Next: confirm on the deployed
-dashboard that a fix request shows new `alert-fix` tasks under Work.
+PR #1581 merged (SAM queues alert fixes). Follow-up PR: MP3 TTS + iOS audio
+unlock, PR-only work no longer pre-gated (merge is the gate), and
+`tasks/autonomy_triage.py` run by the dispatcher every ~5 min. After deploy:
+check SAM speaks on iPhone, and that parked `bug_fix` tasks drain from
+"awaiting approval" within ~5 min.
 
 ## Daily automation 2026-09-25 (row 81)
 
