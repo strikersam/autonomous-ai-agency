@@ -4,14 +4,13 @@
 
 ## External learnings audit (branch claude/agency-improvements-ai-learnings-k96er6)
 
-Compared ai-engineering-from-scratch, Hindsight and Paperclip against the repo.
-Shipped: secret/PII redaction on every agent memory write (`redact_secrets()`).
-Then, with owner approval: `AGENCY_KILL_SWITCH` plus per-agent daily caps
-(`AGENT_DAILY_KTOKENS_CAP`, `AGENT_DAILY_USD_CAP`), all live Platform Controls,
-all off by default. Next: set a cap on the deployed dashboard and confirm the
-switch halts the dispatcher. Four gaps remain open in
-`docs/audits/2026-09-26-external-learnings.md`: atomic checkout, goal ancestry,
-evidence-weighted lessons and canary tokens.
+All six gaps from `docs/audits/2026-09-26-external-learnings.md` are built, plus
+memory redaction. One PR, to be merged when CI is green. Shipped: memory
+redaction, kill switch, per-agent daily caps, evidence-weighted lessons, canary
+credential, atomic run lease (fixes the tick/dispatcher double execution) and
+goal ancestry. After deploy: set `AGENT_DAILY_KTOKENS_CAP` on the dashboard,
+and confirm the Telegram alert path works by checking logs for "canary
+credential planted".
 
 ## CEO triage approves trend code changes (branch claude/sam-request-handling-fvfk05)
 

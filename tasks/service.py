@@ -11,7 +11,7 @@ from typing import Any
 from agents.store import AgentDefinition, AgentStore, get_agent_store
 from runtimes.base import RuntimeUnavailableError, TaskResult, TaskSpec
 from runtimes.manager import RuntimeManager, get_runtime_manager
-from tasks.models import Task, TaskComment, TaskStatus
+from tasks.models import Task, TaskComment, TaskStatus, goal_ancestry_block
 from tasks.store import TaskStore, get_task_store
 from agent.workflow import WorkflowEngine, WorkflowPhase, classify_domain
 
@@ -1532,6 +1532,9 @@ class TaskExecutionCoordinator:
         # bloated task comments and logs with the full agent system prompt, making
         # them unreadable. The instruction should carry only task-specific content.
         parts.append(f"Task title: {task.title}")
+        ancestry = goal_ancestry_block(task)
+        if ancestry:
+            parts.append(ancestry)
         if task.description:
             parts.append(f"Task description:\n{task.description.strip()}")
         if task.prompt:

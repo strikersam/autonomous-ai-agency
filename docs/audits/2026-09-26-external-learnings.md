@@ -34,8 +34,14 @@ Each "exists" entry was checked by `grep` against `agent/`, `packages/`, `servic
 
 See `docs/configuration-reference.md` → "Hard stops on autonomous work".
 
+- **Evidence-weighted lessons** (Hindsight). `agent/lessons.py`: success on the same goal counts against lessons; ranking decays with a 14-day half-life.
+- **Canary credential** (curriculum 15/14). `LEGACY_DEPLOY_TOKEN` decoy, checked in agent LLM requests and `web_reach` URLs.
+- **Atomic task checkout** (Paperclip). `tasks/run_lease.py`. This fixed a real double-execution path: `/api/autonomy/tick` bypassed the coordinator's claim.
+- **Goal ancestry** (Paperclip). `Task.goal` / `goal_chain`, rendered into the runtime instruction.
+
 ## Gaps still open
-1. **Atomic task checkout** (Paperclip). `services/shared_state.claim()` exists, but task pickup was not audited to confirm every worker path goes through it. Double-work across workers is the failure mode.
-2. **Goal ancestry on tasks** (Paperclip). `tasks/` has no `parent_goal` / `goal_id` chain, so an executor sees a task title without the goal that produced it.
-3. **Evidence-counted observations** (Hindsight). Lessons count `hits`, but a newer, contradicting lesson does not weaken an old one. Refining lessons instead of just counting them would stop stale lessons from ranking highest indefinitely.
-4. **Canary tokens** (curriculum 15/14). A fake credential in the agent's environment whose use raises an alert. This is cheap and catches exfiltration that composes from allowed actions.
+
+None from this audit. Known limits of what shipped:
+- The spend-cap ledger is per process and resets on restart.
+- On SQLite the run lease is process-local; SQLite deployments are single-process.
+- Only the create API and scheduled jobs populate `goal` today; other intake paths (issues, portfolio) already carry their context in the prompt.
