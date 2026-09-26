@@ -20,6 +20,8 @@ from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from packages.security.redact import redact_secrets
+
 log = logging.getLogger("qwen-agent")
 
 _DEFAULT_DB = ".data/agent.db"
@@ -243,6 +245,7 @@ class PersistentMemoryStore:
         """Save a memory entry with categorization and scoping."""
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         tags_json = json.dumps(tags or [])
+        value = redact_secrets(value)
         
         # Convert None to empty string for consistent UNIQUE constraint
         workspace_id = workspace_id or ''

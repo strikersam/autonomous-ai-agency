@@ -23,6 +23,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from packages.security.redact import redact_secrets
+
 log = logging.getLogger("agent.procedural_memory")
 
 # Maximum records kept in memory.  Records beyond this are evicted (oldest first)
@@ -112,6 +114,9 @@ class ProceduralMemoryStore:
         Duplicate step descriptions for the same goal are deduplicated so the
         store doesn't grow without bound during long runs.
         """
+        goal_summary = redact_secrets(goal_summary)
+        step_description = redact_secrets(step_description)
+        action_summary = redact_secrets(action_summary)
         rid = _record_id(goal_summary, step_description)
         combined_tokens = _tokenize(goal_summary) | _tokenize(step_description)
         rec = ProceduralRecord(

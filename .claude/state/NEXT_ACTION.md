@@ -1,6 +1,15 @@
 # Next Action
 
-**Updated:** 2026-09-25
+**Updated:** 2026-09-26
+
+## External learnings audit (branch claude/agency-improvements-ai-learnings-k96er6)
+
+Compared ai-engineering-from-scratch, Hindsight and Paperclip against the repo.
+Shipped: secret/PII redaction on every agent memory write (`redact_secrets()`).
+The six gaps that remain (kill switch, per-agent spend cap, atomic task checkout,
+goal ancestry, evidence-weighted lessons, canary tokens) are in
+`docs/audits/2026-09-26-external-learnings.md`. The first two need human
+sign-off under rule 40 because they touch `agent/loop.py`, the scheduler and the router.
 
 ## SAM acts on alerts (branch claude/sam-request-handling-fvfk05)
 

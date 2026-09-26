@@ -25,6 +25,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from packages.security.redact import redact_secrets
+
 log = logging.getLogger("qwen-agent")
 
 _DEFAULT_DB = ".data/lessons.db"
@@ -56,7 +58,8 @@ class LessonStore:
         return conn
 
     def record(self, *, phase: str, issue: str, goal: str = "") -> None:
-        issue = (issue or "").strip()[:_MAX_LESSON_CHARS]
+        # Redact before truncating so a token cut in half still matches its pattern.
+        issue = redact_secrets((issue or "").strip())[:_MAX_LESSON_CHARS]
         if not issue:
             return
         signature = hashlib.sha1(
@@ -68,7 +71,7 @@ class LessonStore:
                    VALUES (?, ?, ?, ?, 1, ?)
                    ON CONFLICT(signature) DO UPDATE SET
                      hits = hits + 1, updated_at = excluded.updated_at""",
-                (signature, phase, issue, (goal or "")[:200], time.time()),
+                (signature, phase, issue, redact_secrets(goal or "")[:200], time.time()),
             )
 
     def recent(self, limit: int = 5) -> list[dict[str, Any]]:
