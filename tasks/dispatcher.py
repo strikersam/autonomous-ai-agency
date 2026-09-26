@@ -142,6 +142,11 @@ class TaskDispatcher:
         every = settings.agency_auto_triage_every_polls
         if settings.is_agency_auto_triage_enabled and every > 0 and self._poll_count % every == 0:
             await self._ceo_triage()
+        portfolio_every = settings.portfolio_auto_materialize_every_polls
+        if portfolio_every > 0 and self._poll_count % portfolio_every == 0:
+            from tasks.autonomy_triage import materialize_portfolio
+
+            await materialize_portfolio()
 
         tasks = await self.store.list_pending(limit=self.max_concurrency)
 

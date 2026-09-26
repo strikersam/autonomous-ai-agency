@@ -147,10 +147,17 @@ export default function SamVoiceScreen() {
   // UI says "SAM is speaking". unlockAudio() primes this one element on the
   // tap and every reply is played through it.
   const audioElRef = React.useRef(null);
+  // One AudioContext per recording, closed when it ends. iOS caps how many a
+  // page may hold open; leaking one per tap made the mic stop starting after
+  // a few commands ("tap to speak doesn't register").
+  const audioCtxRef = React.useRef(null);
   const speakTimerRef = React.useRef(null);
 
   React.useEffect(() => () => {
     mountedRef.current = false;
+    if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+      audioCtxRef.current.close().catch(() => {});
+    }
     // Clean up mic on unmount — prevents stuck mic if user navigates away while recording
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(t => t.stop());
@@ -287,8 +294,24 @@ export default function SamVoiceScreen() {
 
   // ── Start listening ────────────────────────────────────────────────────
 
+  const closeAudioCtx = () => {
+    const ctx = audioCtxRef.current;
+    audioCtxRef.current = null;
+    if (ctx && ctx.state !== 'closed') ctx.close().catch(() => {});
+  };
+
+  const pickRecorderMime = () => {
+    if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return '';
+    return ['audio/webm;codecs=opus', 'audio/mp4', 'audio/webm']
+      .find(t => MediaRecorder.isTypeSupported(t)) || '';
+  };
+
+  // NOTE: no unlockAudio() here. Starting playback / speechSynthesis in the
+  // same tap that starts SpeechRecognition flips iOS into a playback audio
+  // session and the recogniser hears little or nothing — SAM then got a
+  // fragment and answered "I don't understand". Audio is unlocked on the
+  // stop tap instead, after recognition has been told to stop.
   const startListening = async () => {
-    unlockAudio();
     setError(null);
     setTranscript('');
     try {
@@ -296,7 +319,9 @@ export default function SamVoiceScreen() {
       streamRef.current = stream;
 
       // Set up audio analyser
+      closeAudioCtx();
       const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      audioCtxRef.current = audioCtx;
       const source = audioCtx.createMediaStreamSource(stream);
       const analyser = audioCtx.createAnalyser();
       analyser.fftSize = 256;
@@ -304,7 +329,8 @@ export default function SamVoiceScreen() {
       analyserRef.current = analyser;
 
       // Start recording
-      const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+      const mimeType = pickRecorderMime();
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       mediaRecorderRef.current = recorder;
       audioChunksRef.current = [];
 
@@ -386,10 +412,15 @@ export default function SamVoiceScreen() {
   // ── Stop listening manually ────────────────────────────────────────────
 
   const stopListening = () => {
-    unlockAudio();
     if (mediaRecorderRef.current?.state === 'recording') {
       mediaRecorderRef.current.stop();
     }
+    // stop() (not abort()) still delivers the final result; do it before
+    // touching audio playback so the last words aren't cut off.
+    if (recognitionRef.current) {
+      try { recognitionRef.current.stop(); } catch (e) { /* already stopped */ }
+    }
+    unlockAudio();
   };
 
   // ── Process recording ──────────────────────────────────────────────────
@@ -401,6 +432,7 @@ export default function SamVoiceScreen() {
       streamRef.current = null;
     }
     analyserRef.current = null;
+    closeAudioCtx();
 
     // Stop live speech recognition (started alongside the recording in
     // startListening) so it finalises promptly instead of continuing to
@@ -413,7 +445,9 @@ export default function SamVoiceScreen() {
       setTimeout(() => { recognitionSettleRef.current?.(); }, 3000);
     }
 
-    const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+    const audioBlob = new Blob(audioChunksRef.current, {
+      type: mediaRecorderRef.current?.mimeType || 'audio/webm',
+    });
     if (audioBlob.size < 100) {
       setState('idle');
       return;
@@ -427,8 +461,14 @@ export default function SamVoiceScreen() {
       // browser produced nothing usable (no SpeechRecognition support,
       // permission/network error, or genuinely no speech detected).
       const liveText = recognitionPromiseRef.current ? await recognitionPromiseRef.current : '';
-      const text = liveText || await transcribeWithBackend(audioBlob);
-      if (!text || !mountedRef.current) { setState('idle'); return; }
+      const text = liveText || await transcribeWithBackend(audioBlob).catch(() => '');
+      if (!mountedRef.current) return;
+      if (!text) {
+        // Never go silently back to idle — say it wasn't heard.
+        setError("Didn't catch that. Tap, speak, then tap again to send — or switch to Type.");
+        setState('idle');
+        return;
+      }
 
       setTranscript(text);
 
@@ -459,7 +499,7 @@ export default function SamVoiceScreen() {
       // original tap/click, not synchronously within the gesture).
       let spoke = false;
       try {
-        const speakRes = await API.post('/agent/sam/speak', { text: samText, format: 'mp3' }, { timeout: 35000 });
+        const speakRes = await API.post('/agent/sam/speak', { text: samText, format: 'mp3' }, { timeout: 10000 });
         const audioB64 = speakRes.data?.audio_b64;
         if (audioB64) {
           const mime = speakRes.data?.format === 'mp3' ? 'audio/mpeg' : 'audio/ogg';
@@ -574,6 +614,7 @@ export default function SamVoiceScreen() {
 
         <button
           onClick={state === 'listening' ? stopListening : startListening}
+          aria-label={state === 'listening' ? 'Stop and send to SAM' : 'Speak to SAM'}
           disabled={state === 'thinking' || liveState !== 'off'}
           style={{
             width: 64, height: 64, borderRadius: '50%', border: 'none', cursor: 'pointer',

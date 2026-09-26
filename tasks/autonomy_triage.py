@@ -19,6 +19,7 @@ LLM's judgement, and every decision is written to the task's execution log.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from dataclasses import dataclass
@@ -61,6 +62,27 @@ async def _open_titles(store: TaskStore) -> dict[str, str]:
     """Normalised title → task_id for tasks already queued to run."""
     pending = await store.list_pending(limit=_SCAN_LIMIT)
     return {_norm_title(t.title): t.task_id for t in pending if _norm_title(t.title)}
+
+
+async def materialize_portfolio() -> int:
+    """Turn the top committed portfolio initiatives into tasks. Never raises.
+
+    The board is rebuilt from live signals in a worker thread — the build is
+    synchronous and some signal collectors start their own event loop, which
+    must not happen on the dispatcher's loop.
+    """
+    try:
+        from agents.portfolio_api import _materialize_and_log, get_service
+
+        svc = get_service()
+        await asyncio.to_thread(svc.ensure_fresh)
+        created = await _materialize_and_log(svc)
+    except Exception:
+        log.exception("Portfolio intake failed")
+        return 0
+    if created:
+        log.info("Portfolio intake: queued %d initiative task(s)", len(created))
+    return len(created)
 
 
 async def triage_gated_tasks(store: TaskStore | None = None) -> TriageResult:
