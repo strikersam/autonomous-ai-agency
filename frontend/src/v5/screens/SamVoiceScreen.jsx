@@ -141,6 +141,13 @@ export default function SamVoiceScreen() {
   // handleRecordingStop force-settle the promise with whatever transcript
   // was captured so far instead of leaving "thinking" stuck forever.
   const recognitionSettleRef = React.useRef(null);
+  // iOS Safari only lets an <audio> element (and speechSynthesis) make sound
+  // if it was first started inside a user gesture. SAM's reply arrives several
+  // async hops after the tap, so a fresh Audio() there stays silent while the
+  // UI says "SAM is speaking". unlockAudio() primes this one element on the
+  // tap and every reply is played through it.
+  const audioElRef = React.useRef(null);
+  const speakTimerRef = React.useRef(null);
 
   React.useEffect(() => () => {
     mountedRef.current = false;
@@ -255,9 +262,33 @@ export default function SamVoiceScreen() {
     }
   };
 
+  // ── Audio unlock (must run synchronously inside a tap) ────────────────
+
+  const unlockAudio = () => {
+    try {
+      if (!audioElRef.current) audioElRef.current = new Audio();
+      const el = audioElRef.current;
+      el.src = 'data:audio/wav;base64,UklGRnQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YVAAAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
+      const p = el.play();
+      if (p && p.catch) p.catch(() => {});
+    } catch (e) { /* no audio support — browser TTS fallback still applies */ }
+    try {
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+      }
+    } catch (e) { /* ignore */ }
+  };
+
+  const finishSpeaking = () => {
+    if (speakTimerRef.current) { clearTimeout(speakTimerRef.current); speakTimerRef.current = null; }
+    if (mountedRef.current) setState(s => (s === 'speaking' ? 'idle' : s));
+  };
+
   // ── Start listening ────────────────────────────────────────────────────
 
   const startListening = async () => {
+    unlockAudio();
     setError(null);
     setTranscript('');
     try {
@@ -313,11 +344,18 @@ export default function SamVoiceScreen() {
         };
         recognitionSettleRef.current = settle;
         recognition.onresult = (event) => {
-          for (let i = event.resultIndex; i < event.results.length; i++) {
-            if (event.results[i].isFinal) {
-              finalText += (finalText ? ' ' : '') + event.results[i][0].transcript;
-            }
+          // Rebuild from the full list every time: iOS Safari re-delivers
+          // earlier finals with a reset resultIndex, so appending from
+          // resultIndex doubled the transcript ("Hey Sam ... Hey Sam ...").
+          // It can also repeat the same final as a new entry — drop a final
+          // identical to the one before it.
+          const finals = [];
+          for (let i = 0; i < event.results.length; i++) {
+            if (!event.results[i].isFinal) continue;
+            const t = event.results[i][0].transcript.trim();
+            if (t && t !== finals[finals.length - 1]) finals.push(t);
           }
+          finalText = finals.join(' ');
         };
         recognition.onerror = settle;
         recognition.onend = settle;
@@ -348,6 +386,7 @@ export default function SamVoiceScreen() {
   // ── Stop listening manually ────────────────────────────────────────────
 
   const stopListening = () => {
+    unlockAudio();
     if (mediaRecorderRef.current?.state === 'recording') {
       mediaRecorderRef.current.stop();
     }
@@ -420,24 +459,30 @@ export default function SamVoiceScreen() {
       // original tap/click, not synchronously within the gesture).
       let spoke = false;
       try {
-        const speakRes = await API.post('/agent/sam/speak', { text: samText }, { timeout: 35000 });
+        const speakRes = await API.post('/agent/sam/speak', { text: samText, format: 'mp3' }, { timeout: 35000 });
         const audioB64 = speakRes.data?.audio_b64;
         if (audioB64) {
-          const audio = new Audio('data:audio/ogg;base64,' + audioB64);
-          audio.onended = () => { if (mountedRef.current) setState('idle'); };
+          const mime = speakRes.data?.format === 'mp3' ? 'audio/mpeg' : 'audio/ogg';
+          const audio = audioElRef.current || new Audio();
+          audioElRef.current = audio;
+          audio.onended = finishSpeaking;
+          audio.onerror = finishSpeaking;
+          audio.src = `data:${mime};base64,${audioB64}`;
           await audio.play();
           spoke = true;
         }
       } catch (e) {
-        // Request failed, or audio.play() was rejected — fall through to
-        // the browser-TTS fallback below.
+        // Request failed, or play() was rejected — use browser TTS below.
       }
 
-      if (!spoke) {
-        trySpeakBrowser(samText);
+      if (!spoke && !trySpeakBrowser(samText)) {
+        finishSpeaking(); // nothing can speak — never leave "SAM is speaking" stuck
+        return;
       }
 
-      setTimeout(() => { if (mountedRef.current && state === 'speaking') setState('idle'); }, 3000);
+      // Backstop in case neither onended fires (e.g. iOS drops the event):
+      // ~70ms per character of speech, capped at 60s.
+      speakTimerRef.current = setTimeout(finishSpeaking, Math.min(60000, 3000 + samText.length * 70));
 
     } catch (err) {
       if (mountedRef.current) {
@@ -476,13 +521,15 @@ export default function SamVoiceScreen() {
   // ── Browser SpeechSynthesis fallback ───────────────────────────────────
 
   const trySpeakBrowser = (text) => {
-    if (!window.speechSynthesis) return;
+    if (!window.speechSynthesis) return false;
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.lang = 'en-US';
     utterance.rate = 0.95;
     utterance.pitch = 1.0;
-    utterance.onend = () => { if (mountedRef.current) setState('idle'); };
+    utterance.onend = finishSpeaking;
+    utterance.onerror = finishSpeaking;
     window.speechSynthesis.speak(utterance);
+    return true;
   };
 
   // ── Render ─────────────────────────────────────────────────────────────

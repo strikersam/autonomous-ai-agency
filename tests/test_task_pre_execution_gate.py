@@ -121,14 +121,14 @@ async def test_reject_execution_moves_to_wont_do(store, workflow):
 
 @pytest.mark.asyncio
 async def test_outward_facing_task_is_auto_gated(store, monkeypatch):
-    # An outward-facing autonomous task (opens a PR) never sets requires_approval,
+    # An outward-facing autonomous task (deploys) never sets requires_approval,
     # so it must be promoted at dispatch and parked for the Telegram prompt.
     monkeypatch.setenv("AGENCY_GATE_OUTWARD_FACING", "true")
     rm = _RecordingRuntimeManager()
     task = Task(
         owner_id="o@x.com",
-        title="Fix issue #42",
-        task_type="issue_intake",       # commits + PR → outward-facing
+        title="Deploy to production",
+        task_type="deploy",             # leaves the repo with no merge gate
         requires_approval=False,
         pending_agent_run=True,
     )
@@ -166,8 +166,8 @@ async def test_outward_facing_gate_respects_disable_flag(store, monkeypatch):
     rm = _RecordingRuntimeManager()
     task = Task(
         owner_id="o@x.com",
-        title="Fix issue #42",
-        task_type="issue_intake",
+        title="Deploy to production",
+        task_type="deploy",
         requires_approval=False,
         pending_agent_run=True,
     )
@@ -176,3 +176,26 @@ async def test_outward_facing_gate_respects_disable_flag(store, monkeypatch):
     await _coordinator(store, rm).execute(task.task_id)
 
     assert rm.calls == 1, "with the gate disabled, outward-facing tasks stay autonomous"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("task_type", ["bug_fix", "issue_intake", "feature", "quick_note"])
+async def test_pr_only_task_runs_without_pre_approval(store, monkeypatch, task_type):
+    # PR-producing work is gated at merge (agents cannot merge or push to a
+    # protected branch), so it must not also park before it runs.
+    monkeypatch.setenv("AGENCY_GATE_OUTWARD_FACING", "true")
+    rm = _RecordingRuntimeManager()
+    task = Task(
+        owner_id="o@x.com",
+        title="Fix alert: provider timeout",
+        task_type=task_type,
+        tags=["alert-fix", "code-change", "pr-opened"],
+        requires_approval=False,
+        pending_agent_run=True,
+    )
+    await store.create(task)
+
+    updated = await _coordinator(store, rm).execute(task.task_id)
+
+    assert rm.calls == 1, "PR-only work must reach the runtime without a prompt"
+    assert updated.requires_approval is False

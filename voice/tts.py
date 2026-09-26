@@ -47,8 +47,12 @@ _SYNTHESIZE_TIMEOUT_SEC = float(os.environ.get("TTS_SYNTHESIZE_TIMEOUT_SEC", "25
 _TTS_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="tts-synth")
 
 
-async def synthesize(text: str) -> bytes | None:
-    """Convert text to OGG voice note bytes. Returns None on failure."""
+async def synthesize(text: str, fmt: str = "ogg") -> bytes | None:
+    """Convert text to voice bytes — OGG Opus (Telegram) or ``fmt="mp3"``.
+
+    MP3 is for browsers: Safari/iOS cannot play OGG Opus, so the SAM screen
+    asks for MP3. Returns None on failure.
+    """
     if not text.strip():
         return None
     backend = _select_backend()
@@ -57,11 +61,11 @@ async def synthesize(text: str) -> bytes | None:
     loop = asyncio.get_event_loop()
     try:
         if backend == "elevenlabs":
-            coro = _synthesize_elevenlabs(text)
+            coro = _synthesize_elevenlabs(text, fmt)
         elif backend == "gtts":
-            coro = loop.run_in_executor(_TTS_EXECUTOR, _synthesize_gtts, text)
+            coro = loop.run_in_executor(_TTS_EXECUTOR, _synthesize_gtts, text, fmt)
         else:
-            coro = loop.run_in_executor(_TTS_EXECUTOR, _synthesize_pyttsx3, text)
+            coro = loop.run_in_executor(_TTS_EXECUTOR, _synthesize_pyttsx3, text, fmt)
         return await asyncio.wait_for(coro, timeout=_SYNTHESIZE_TIMEOUT_SEC)
     except asyncio.TimeoutError:
         log.warning("TTS synthesize timed out (backend=%s, timeout=%ss)", backend, _SYNTHESIZE_TIMEOUT_SEC)
@@ -81,7 +85,7 @@ def _select_backend() -> str:
     return "pyttsx3"
 
 
-async def _synthesize_elevenlabs(text: str) -> bytes | None:
+async def _synthesize_elevenlabs(text: str, fmt: str = "ogg") -> bytes | None:
     import httpx
     try:
         async with httpx.AsyncClient(timeout=30) as client:
@@ -100,26 +104,26 @@ async def _synthesize_elevenlabs(text: str) -> bytes | None:
             )
             resp.raise_for_status()
             mp3_bytes = resp.content
-            return _convert_to_ogg(mp3_bytes, ".mp3")
+            return _convert(mp3_bytes, ".mp3", fmt)
     except Exception as exc:
         log.warning("TTS elevenlabs failed: %s", exc)
         return None
 
 
-def _synthesize_gtts(text: str) -> bytes | None:
+def _synthesize_gtts(text: str, fmt: str = "ogg") -> bytes | None:
     try:
         from gtts import gTTS
         import io
         buf = io.BytesIO()
         gTTS(text=text[:3000], lang=TTS_LANGUAGE, slow=False).write_to_fp(buf)
         mp3_bytes = buf.getvalue()
-        return _convert_to_ogg(mp3_bytes, ".mp3")
+        return _convert(mp3_bytes, ".mp3", fmt)
     except Exception as exc:
         log.warning("TTS gtts failed: %s", exc)
         return None
 
 
-def _synthesize_pyttsx3(text: str) -> bytes | None:
+def _synthesize_pyttsx3(text: str, fmt: str = "ogg") -> bytes | None:
     try:
         import pyttsx3
         engine = pyttsx3.init()
@@ -129,10 +133,33 @@ def _synthesize_pyttsx3(text: str) -> bytes | None:
         engine.runAndWait()
         wav_bytes = Path(wav_path).read_bytes()
         Path(wav_path).unlink(missing_ok=True)
-        return _convert_to_ogg(wav_bytes, ".wav")
+        return _convert(wav_bytes, ".wav", fmt)
     except Exception as exc:
         log.warning("TTS pyttsx3 failed: %s", exc)
         return None
+
+
+def _convert(audio_bytes: bytes, suffix: str, fmt: str) -> bytes | None:
+    """Return *audio_bytes* in *fmt*; MP3 sources pass through untouched for mp3."""
+    if fmt == "mp3":
+        if suffix == ".mp3":
+            return audio_bytes
+        return _convert_to_mp3(audio_bytes, suffix)
+    return _convert_to_ogg(audio_bytes, suffix)
+
+
+def _convert_to_mp3(audio_bytes: bytes, suffix: str) -> bytes | None:
+    """Convert audio to MP3 via pydub+ffmpeg (browser playback)."""
+    try:
+        from pydub import AudioSegment
+        import io
+        seg = AudioSegment.from_file(io.BytesIO(audio_bytes), format=suffix.lstrip("."))
+        buf = io.BytesIO()
+        seg.export(buf, format="mp3", bitrate="48k")
+        return buf.getvalue()
+    except Exception as exc:
+        log.warning("TTS mp3 conversion failed (%s); returning raw bytes", exc)
+        return audio_bytes
 
 
 def _convert_to_ogg(audio_bytes: bytes, suffix: str) -> bytes | None:

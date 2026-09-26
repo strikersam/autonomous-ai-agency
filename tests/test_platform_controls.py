@@ -443,3 +443,20 @@ def test_routes_are_mounted_on_the_backend_app():
     assert http.put("/api/admin/platform-controls", json={"updates": {}}).status_code == 401
     assert http.delete("/api/admin/platform-controls/GOVERNANCE_ENABLED").status_code == 401
     assert http.get("/api/admin/platform-controls-not-a-route").status_code == 404
+
+
+def test_ceo_triage_flags_are_live_admin_controls(clean_overrides):
+    # Operator asked for autonomy flags in the admin panel, not only in Render.
+    from packages.config import settings
+
+    for key in ("AGENCY_AUTO_TRIAGE", "AGENCY_AUTO_TRIAGE_EVERY_POLLS", "AGENCY_GATE_OUTWARD_FACING"):
+        assert get_control(key) is not None, key
+        assert get_control(key).live, key
+
+    control_overrides.apply_overrides({"AGENCY_AUTO_TRIAGE": "false", "AGENCY_AUTO_TRIAGE_EVERY_POLLS": "12"})
+    assert settings.is_agency_auto_triage_enabled is False
+    assert settings.agency_auto_triage_every_polls == 12
+
+    control_overrides.apply_overrides({"AGENCY_GATE_OUTWARD_FACING": "false"})
+    from tasks.service import _gate_outward_facing_enabled
+    assert _gate_outward_facing_enabled() is False

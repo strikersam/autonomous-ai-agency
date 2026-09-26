@@ -495,6 +495,40 @@ _AUTONOMY: tuple[ControlSpec, ...] = (
         risk=RISK_MEDIUM,
     ),
     _toggle(
+        "AGENCY_AUTO_TRIAGE",
+        "CEO triage of parked tasks and alerts",
+        "autonomy",
+        "true",
+        "Every few minutes the CEO approves parked tasks that don't need you, "
+        "rejects parked duplicates, and turns error alerts on the bell into fix "
+        "tasks. Tasks you gated on purpose (deploys, auth/secrets) are never "
+        "touched, and code still reaches master only through a merge you approve.",
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    _number(
+        "AGENCY_AUTO_TRIAGE_EVERY_POLLS",
+        "CEO triage interval (dispatcher polls)",
+        "autonomy",
+        "60",
+        "Dispatcher polls between triage passes — 60 is about 5 minutes at the "
+        "default 5-second poll. 0 disables triage.",
+        live=True,
+        minimum=0,
+        maximum=10000,
+    ),
+    _toggle(
+        "AGENCY_GATE_OUTWARD_FACING",
+        "Ask before deploy / release work runs",
+        "autonomy",
+        "true",
+        "Park deploy, release, runtime-change and external-write tasks for your "
+        "Approve/Reject before the agent runs. Code-change tasks are not parked: "
+        "agents cannot merge, so your merge approval is their gate.",
+        live=True,
+        risk=RISK_HIGH,
+    ),
+    _toggle(
         "RUN_BACKGROUND_IN_WEB",
         "Run background services in the web process",
         "autonomy",
