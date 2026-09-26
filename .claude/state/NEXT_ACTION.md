@@ -158,31 +158,25 @@ auto-merge armed (squash). Two changes:
    approach (other session) with the behavioral `cost_for_tokens()` test (this
    session). 3 tests total, 47/47 passing. PARITY OK.
 
-## Next daily run (2026-09-26)
+## Daily automation 2026-09-26 — DONE (row 82)
 
-- Watch for PR #1578 merging to master.
+Fixed `/api/auth/refresh` always 401-ing on SQLite (bug noted in row 80, never fixed
+at that time). Root cause: `ObjectId(sub)` raises on UUID strings; added string-key
+fallback mirroring `get_optional_user`. 8 tests in `tests/test_daily_automation_2026_09_26.py`,
+all passing. Files: `backend/server.py`. PR on branch `claude/intelligent-gates-5dl5m0`,
+auto-merge to be armed when CI green.
+
+## Next daily run (2026-09-27)
+
 - Check for new models from DeepSeek, Google, Groq, Anthropic, NVIDIA NIM
-  (Nemotron 4 family rumoured); Claude Sonnet 5.5 / Haiku 5.5 (Anthropic said
-  "coming in the coming weeks" alongside Opus 5.5).
+  (Claude Sonnet 5.5 / Haiku 5.5 rumoured "coming weeks" per Anthropic 2026-09-22).
 - **Branch-naming collision (root cause still open):** two daily-automation sessions
   ran the same day on 2026-09-24 AND 2026-09-25 and both used the deterministic
   `routine/daily-YYYY-MM-DD` branch name. If the same trigger fires more than once
   a day, consider suffixing with a short session id. The collisions have been benign
   (merge-resolvable) but they cost a cycle each time.
-- Consider updating `role_presets` for the `aerolink` provider (still uses
-  `claude-opus-5` as planner/judge — Opus 5.5 is cheaper and available via
-  Aerolink too).
-- ~~Consider a general `TestNoFuzzyCollisionWithPaidModels`-style invariant~~
-  **Done 2026-09-25, row 81, PR #1576.**
-- ~~Consider a `TestPaidModelsCostTrackerCoverage`-style invariant for models
-  in routing candidates but absent from the llm catalog.~~ **Already done
-  2026-09-24, row 79** (`TestCandidatesAreDeclaredInLlmCatalog`) — this note
-  was stale by the time it was written; checked before starting today's work.
-- Consider extending `TestTheCopiesMayNotDriftFurther`-style CI feedback earlier: a
-  pre-commit or PR-description checklist item for "if you touch a reconciled provider's
-  candidates in `config/models.yaml`, also update `packages/ai/brain_config.py`" would
-  have caught a prior day's bug before it ever reached CI.
 - Row 50 (provider/model source-of-truth + admin UI): still IN_PROGRESS, P1-P4
   remain; requires full backend deps in the sandbox.
-- `/api/auth/refresh` always 401s on SQLite (ObjectId on UUID ids); production
-  (Mongo) unaffected, but self-hosters see automatic logouts on token expiry.
+- Row 80 (#1565 nightly regression): still `IN_PROGRESS` — PR was open at last
+  check. Verify whether it merged.
+- ~~`/api/auth/refresh` 401s on SQLite~~ **Fixed 2026-09-26, row 82.**

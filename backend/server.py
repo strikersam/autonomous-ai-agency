@@ -4029,13 +4029,18 @@ async def refresh_token(request: Request):
         try:
             user = await get_db().users.find_one({"_id": ObjectId(payload["sub"])})
         except Exception:
+            # ObjectId() rejects plain string IDs used by the SQLite backend.
+            # Fall back to a string-key lookup (mirrors get_optional_user).
             if payload.get("sub") == "admin_user_001":
                 user = {
                     "_id": "admin_user_001",
                     "email": ADMIN_EMAIL,
                 }
             else:
-                user = None
+                try:
+                    user = await get_db().users.find_one({"_id": payload["sub"]})
+                except Exception:
+                    user = None
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         uid = str(user["_id"])
