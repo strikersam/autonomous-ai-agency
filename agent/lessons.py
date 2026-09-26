@@ -78,9 +78,7 @@ class LessonStore:
         issue = redact_secrets((issue or "").strip())[:_MAX_LESSON_CHARS]
         if not issue:
             return
-        signature = hashlib.sha1(
-            f"{phase}|{issue[:120]}".encode(), usedforsecurity=False
-        ).hexdigest()[:16]
+        signature = _signature(phase, issue)
         with self._lock, self._connect() as conn:
             conn.execute(
                 """INSERT INTO lessons (signature, phase, lesson, goal, hits, updated_at)
@@ -125,19 +123,87 @@ class LessonStore:
         ]
 
 
-def _evidence(row: sqlite3.Row, now: float) -> float:
+def _signature(phase: str, issue: str) -> str:
+    return hashlib.sha1(f"{phase}|{issue[:120]}".encode(), usedforsecurity=False).hexdigest()[:16]
+
+
+class MongoLessonStore:
+    """The same lesson store on MongoDB, so lessons survive deploys and restarts.
+
+    Render's free tier has no persistent disk: ``.data/lessons.db`` was wiped on
+    every deploy and cold start, so the agency forgot everything it had learned
+    about a dozen times a day. Same interface and ranking as ``LessonStore``.
+    """
+
+    def __init__(self, collection: Any) -> None:
+        self._coll = collection
+
+    def record(self, *, phase: str, issue: str, goal: str = "") -> None:
+        issue = redact_secrets((issue or "").strip())[:_MAX_LESSON_CHARS]
+        if not issue:
+            return
+        self._coll.update_one(
+            {"_id": _signature(phase, issue)},
+            {"$inc": {"hits": 1}, "$set": {"updated_at": time.time()},
+             "$setOnInsert": {"phase": phase, "lesson": issue, "resolved": 0,
+                              "goal": redact_secrets(goal or "")[:200]}},
+            upsert=True,
+        )
+
+    def resolve_goal(self, goal: str) -> int:
+        goal = redact_secrets(goal or "")[:200]
+        if not goal:
+            return 0
+        res = self._coll.update_many(
+            {"goal": goal, "$expr": {"$lt": ["$resolved", "$hits"]}}, {"$inc": {"resolved": 1}}
+        )
+        return int(res.modified_count)
+
+    def recent(self, limit: int = 5, *, now: float | None = None) -> list[dict[str, Any]]:
+        now = time.time() if now is None else now
+        rows = list(
+            self._coll.find({"$expr": {"$lt": ["$resolved", "$hits"]}})
+            .sort("updated_at", -1)
+            .limit(max(int(limit), _RANK_WINDOW))
+        )
+        ranked = sorted(rows, key=lambda r: _evidence(r, now), reverse=True)
+        return [
+            {"signature": r["_id"], "phase": r.get("phase", ""), "lesson": r.get("lesson", ""),
+             "hits": int(r.get("hits", 1)), "resolved": int(r.get("resolved", 0))}
+            for r in ranked[: int(limit)]
+        ]
+
+
+def _open_mongo_store() -> MongoLessonStore | None:
+    """A Mongo-backed store in production, or ``None`` to use SQLite."""
+    from packages.config import settings
+
+    if settings.is_testing or settings.storage_backend != "mongo":
+        return None
+    try:
+        import pymongo
+
+        client = pymongo.MongoClient(settings.mongo_url, serverSelectionTimeoutMS=2000)
+        client.admin.command("ping")
+        return MongoLessonStore(client[settings.db_name]["agent_lessons"])
+    except Exception as exc:  # noqa: BLE001 - fall back to the local file
+        log.warning("lessons: Mongo unavailable (%s); using local SQLite", exc)
+        return None
+
+
+def _evidence(row: Any, now: float) -> float:
     """Net hits, halved for every half-life since the lesson last recurred."""
     age_days = max(now - float(row["updated_at"]), 0.0) / 86400.0
     return (int(row["hits"]) - int(row["resolved"])) * 0.5 ** (age_days / _HALF_LIFE_DAYS)
 
 
-_store: LessonStore | None = None
+_store: LessonStore | MongoLessonStore | None = None
 
 
-def _get_store() -> LessonStore:
+def _get_store() -> LessonStore | MongoLessonStore:
     global _store
     if _store is None:
-        _store = LessonStore()
+        _store = _open_mongo_store() or LessonStore()
     return _store
 
 
@@ -157,6 +223,24 @@ def record_step_failures(goal: str, step_results: list[dict[str, Any]]) -> None:
             )
     except Exception as exc:  # lessons must never break the run itself
         log.debug("lesson recording skipped: %s", exc)
+
+
+def record_task_timeout(title: str, goal: str, message: str) -> None:
+    """Persist a lesson for a task cut off by its execution timeout. Never raises.
+
+    A timeout cancels the run before ``record_step_failures`` is reached, so the
+    commonest failure used to teach nothing. Every recurrence adds a hit to the
+    same lesson.
+    """
+    try:
+        _get_store().record(
+            phase="dispatch",
+            issue=f"\"{(title or '').strip()[:100]}\" — {message}. Break work like this "
+                  "into smaller steps that each finish well inside the limit.",
+            goal=goal or title,
+        )
+    except Exception as exc:  # lessons must never break the coordinator
+        log.debug("timeout lesson skipped: %s", exc)
 
 
 def record_run_success(goal: str, step_results: list[dict[str, Any]]) -> None:

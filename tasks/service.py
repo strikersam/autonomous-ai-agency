@@ -946,6 +946,8 @@ class TaskExecutionCoordinator:
             # on the next dispatch cycle. The _requeue_or_block_unavailable
             # helper handles the retry-count cap + eventual BLOCKED transition.
             self._requeue_or_block_unavailable(task, asyncio.TimeoutError(), what=message)
+            from agent.lessons import record_task_timeout
+            record_task_timeout(task.title, task.goal or task.title, message)
             # Langfuse trace: task timed out
             try:
                 from langfuse_obs import emit_agency_observation
