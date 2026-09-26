@@ -8758,6 +8758,11 @@ async def autonomy_tick(request: Request) -> dict[str, object]:
         result["ceo"] = {"triggered": False, "skipped": "throttled"}
         result["dispatch"] = {"skipped": "throttled — a tick ran in the last minute"}
         return result
+    from packages.config.autonomy_limits import kill_switch_engaged
+    if kill_switch_engaged():
+        result["ceo"] = {"triggered": False, "skipped": "kill switch engaged"}
+        result["dispatch"] = {"skipped": "kill switch engaged"}
+        return result
 
     # 1. Fire CEO cycle — but SKIP if there are already pending tasks to execute.
     # The CEO cycle takes 10-15s, which eats the tick's timeout and leaves no
@@ -8893,55 +8898,65 @@ async def autonomy_tick(request: Request) -> dict[str, object]:
             result["dispatch"]["task_id"] = task_id
             result["dispatch"]["task_title"] = pending[0].title[:60]
 
-            try:
-                from runtimes.base import TaskSpec
-                from runtimes.adapters.internal_agent import InternalAgentAdapter
-                import services.workflow_orchestrator as _wo
-                task = pending[0]
-                task.status = "in_progress"
-                task.pending_agent_run = False
-                await store.update(task)
-
-                spec = TaskSpec(
-                    task_id=task_id,
-                    instruction=task.prompt or task.title,
-                    task_type=task.task_type or "general",
-                    workspace_path=str(ROOT_DIR),
-                    context={"owner_id": task.owner_id, "title": task.title},
-                )
-                _bypass_token = _wo._BYPASS.set(True)
-                try:
-                    adapter = InternalAgentAdapter({"workspace_root": str(ROOT_DIR)})
-                    exec_result, decision = await asyncio.wait_for(
-                        adapter.execute(spec), timeout=float(os.environ.get("AGENCY_TASK_TIMEOUT_SEC", "40"))
-                    )
-                    task.result = exec_result.output
-                    task.status = "done" if exec_result.success else "failed"
-                    task.error_message = None if exec_result.success else "Execution failed"
-                    await store.update(task)
-                    result["dispatch"]["ran"] = True
-                    result["dispatch"]["result_status"] = task.status
-                    result["dispatch"]["result_error"] = (task.error_message or "")[:100]
-                except asyncio.TimeoutError:
-                    result["dispatch"]["ran"] = False
-                    result["dispatch"]["result_status"] = "timeout"
-                    result["dispatch"]["error"] = "Task timed out (20s) — will retry next cycle"
-                    task.status = "todo"
-                    task.pending_agent_run = True
-                    await store.update(task)
-                finally:
-                    _wo._BYPASS.reset(_bypass_token)
-            except Exception as exc:
+            # Same claim as TaskExecutionCoordinator.execute(): without it this tick
+            # and the dispatcher could run the same task at the same time.
+            from tasks.run_lease import claim_task_run, release_task_run
+            if not await claim_task_run(store, task_id):
                 result["dispatch"]["ran"] = False
-                result["dispatch"]["error"] = str(exc)[:200]
+                result["dispatch"]["skipped"] = "task already running elsewhere"
+            else:
                 try:
-                    task = await store.get(task_id)
-                    if task:
-                        task.status = "failed"
-                        task.error_message = str(exc)[:500]
+                    try:
+                        from runtimes.base import TaskSpec
+                        from runtimes.adapters.internal_agent import InternalAgentAdapter
+                        import services.workflow_orchestrator as _wo
+                        task = pending[0]
+                        task.status = "in_progress"
+                        task.pending_agent_run = False
                         await store.update(task)
-                except Exception:
-                    pass
+
+                        spec = TaskSpec(
+                            task_id=task_id,
+                            instruction=task.prompt or task.title,
+                            task_type=task.task_type or "general",
+                            workspace_path=str(ROOT_DIR),
+                            context={"owner_id": task.owner_id, "title": task.title},
+                        )
+                        _bypass_token = _wo._BYPASS.set(True)
+                        try:
+                            adapter = InternalAgentAdapter({"workspace_root": str(ROOT_DIR)})
+                            exec_result, decision = await asyncio.wait_for(
+                                adapter.execute(spec), timeout=float(os.environ.get("AGENCY_TASK_TIMEOUT_SEC", "40"))
+                            )
+                            task.result = exec_result.output
+                            task.status = "done" if exec_result.success else "failed"
+                            task.error_message = None if exec_result.success else "Execution failed"
+                            await store.update(task)
+                            result["dispatch"]["ran"] = True
+                            result["dispatch"]["result_status"] = task.status
+                            result["dispatch"]["result_error"] = (task.error_message or "")[:100]
+                        except asyncio.TimeoutError:
+                            result["dispatch"]["ran"] = False
+                            result["dispatch"]["result_status"] = "timeout"
+                            result["dispatch"]["error"] = "Task timed out (20s) — will retry next cycle"
+                            task.status = "todo"
+                            task.pending_agent_run = True
+                            await store.update(task)
+                        finally:
+                            _wo._BYPASS.reset(_bypass_token)
+                    except Exception as exc:
+                        result["dispatch"]["ran"] = False
+                        result["dispatch"]["error"] = str(exc)[:200]
+                        try:
+                            task = await store.get(task_id)
+                            if task:
+                                task.status = "failed"
+                                task.error_message = str(exc)[:500]
+                                await store.update(task)
+                        except Exception:
+                            pass
+                finally:
+                    await release_task_run(store, task_id)
         else:
             result["dispatch"]["pending_count"] = 0
             result["dispatch"]["ran"] = False
@@ -9124,6 +9139,10 @@ async def scheduler_tick(request: Request):
     global _last_cron_tick_at
     _last_cron_tick_at = datetime.now(timezone.utc)
     scheduler = get_scheduler()
+    from packages.config.autonomy_limits import kill_switch_engaged
+    if kill_switch_engaged():
+        return {"ok": True, "fired": [], "total_jobs": len(scheduler.list()),
+                "skipped": "kill switch engaged"}
     fired = []
     try:
         # Periodic cleanup: deduplicate schedules by name + remove stale

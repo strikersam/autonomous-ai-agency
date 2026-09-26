@@ -24,6 +24,7 @@ from tasks.models import (
     TaskPriority,
     TaskStatus,
     TaskUpdateRequest,
+    inherit_goal,
 )
 from tasks.service import TaskRuleError, TaskWorkflowService
 from tasks.service import TaskExecutionCoordinator
@@ -231,7 +232,13 @@ async def create_task(body: TaskCreateRequest, request: Request, user: Any = Dep
         story_points=body.story_points,
         sprint_id=body.sprint_id,
         review_reason="Created in review lane" if body.status is TaskStatus.IN_REVIEW else None,
+        goal=body.goal,
     )
+    if body.parent_task_id:
+        # Owner-scoped like every other read here: a user can only nest under
+        # a task they could open themselves.
+        parent, _, _ = await _load_task(request, body.parent_task_id, user)
+        inherit_goal(task, parent)
     try:
         await workflow.create_task(task, actor=_user_id(user))
     except TaskRuleError as exc:

@@ -129,6 +129,14 @@ class Task(BaseModel):
     # "run against the agency checkout" behaviour with zero change.
     company_id: str | None = None
 
+    # Goal ancestry (adapted from Paperclip): why this task exists. ``goal`` is
+    # this task's own purpose. ``goal_chain`` holds its ancestors' goals, root
+    # first, copied from the parent at creation by ``inherit_goal`` so the
+    # runtime prompt can show the whole "why" without walking the store.
+    parent_task_id: str | None = None
+    goal: str | None = Field(default=None, max_length=2000)
+    goal_chain: list[str] = Field(default_factory=list)
+
     # Classification
     status: TaskStatus = TaskStatus.TODO
     priority: TaskPriority = TaskPriority.MEDIUM
@@ -231,6 +239,33 @@ class Task(BaseModel):
         return self.model_dump()
 
 
+_MAX_GOAL_DEPTH = 5
+_MAX_GOAL_CHARS = 500
+
+
+def inherit_goal(child: Task, parent: Task) -> None:
+    """Link *child* under *parent* and carry the parent's goal ancestry down."""
+    child.parent_task_id = parent.task_id
+    chain = [*parent.goal_chain, parent.goal or parent.title]
+    child.goal_chain = [g.strip()[:_MAX_GOAL_CHARS] for g in chain if g and g.strip()][
+        -_MAX_GOAL_DEPTH:
+    ]
+
+
+def goal_ancestry_block(task: Task) -> str:
+    """Prompt block explaining why *task* exists, or '' when nothing is known."""
+    if not task.goal_chain and not task.goal:
+        return ""
+    lines = ["Why this task exists (goal ancestry, top-level goal first):"]
+    depth = 0
+    for depth, ancestor in enumerate(task.goal_chain):
+        lines.append(f"{'  ' * depth}- {ancestor}")
+    if task.goal:
+        indent = "  " * (depth + 1 if task.goal_chain else 0)
+        lines.append(f"{indent}- This task: {task.goal.strip()[:_MAX_GOAL_CHARS]}")
+    return "\n".join(lines)
+
+
 # ── Request/response schemas ──────────────────────────────────────────────────
 
 class TaskCreateRequest(BaseModel):
@@ -249,6 +284,8 @@ class TaskCreateRequest(BaseModel):
     story_points: int | None = Field(default=None, ge=0, le=100)
     sprint_id: str | None = Field(default=None, max_length=64)
     company_id: str | None = Field(default=None, max_length=128)
+    parent_task_id: str | None = Field(default=None, max_length=64)
+    goal: str | None = Field(default=None, max_length=2000)
 
 
 class TaskUpdateRequest(BaseModel):

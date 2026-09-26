@@ -14,7 +14,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+from packages.ai.agent_budget import current_agent, ensure_agent_can_spend, record_agent_spend
 from packages.ai.response_cache import get_cached, put_cached
+from packages.security.canary import ensure_payload_clean
 from packages.ai.rate_limiter import get_tracker as _get_rl_tracker
 
 log = logging.getLogger("llm-provider-router")
@@ -1303,6 +1305,15 @@ class ProviderRouter:
                                 completion_tokens=int(_usage.get("completion_tokens") or 0),
                                 tag=_tag,
                             )
+                            from packages.ai.cost_tracker import cost_for_tokens as _cost_for
+                            record_agent_spend(
+                                _tokens_for_director,
+                                _cost_for(
+                                    model,
+                                    int(_usage.get("prompt_tokens") or 0),
+                                    int(_usage.get("completion_tokens") or 0),
+                                ),
+                            )
                         except Exception:
                             pass
                         return ProviderResult(
@@ -1424,6 +1435,12 @@ class ProviderRouter:
         allow_commercial_fallback: bool = True,
         provider_timeout_sec: float = 300.0,
     ) -> ProviderResult:
+        # Kill switch and per-agent daily cap. A no-op for calls with no bound
+        # agent (human proxy traffic); see packages/ai/agent_budget.py.
+        ensure_agent_can_spend()
+        _agent = current_agent()
+        if _agent is not None:
+            ensure_payload_clean(payload, _agent)
         attempts: list[ProviderAttempt] = []
         deferred_commercial: list[str] = []
         if not self.providers:

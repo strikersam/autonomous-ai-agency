@@ -944,8 +944,9 @@ class AgentRunner:
             # next run's planner sees it (agent/lessons.py). Retry without
             # this is not learning — the same mistake recurs forever.
             try:
-                from agent.lessons import record_step_failures
+                from agent.lessons import record_run_success, record_step_failures
                 record_step_failures(plan.goal, step_results)
+                record_run_success(plan.goal, step_results)
             except Exception:
                 # The learning loop persists failure causes so the next run's
                 # planner avoids them — a broken lessons store means the same
@@ -2690,6 +2691,10 @@ class AgentRunner:
             return ""
 
     def _commit_step(self, description: str, changed_files: list[str]) -> str | None:
+        from packages.config.autonomy_limits import kill_switch_engaged
+        if kill_switch_engaged():
+            log.warning("kill switch engaged — not committing step: %s", description)
+            return None
         try:
             # Bare `nosec` rather than `nosec B603,B607`: bandit 1.9.4's
             # NOSEC_COMMENT_TESTS regex only honours the last code in a

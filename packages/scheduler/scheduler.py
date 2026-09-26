@@ -813,6 +813,11 @@ class AgentScheduler:
         job = self._jobs.get(job_id)
         if not job or not job.enabled:
             return
+        from packages.config.autonomy_limits import kill_switch_engaged
+        if kill_switch_engaged():
+            # Skipped before run-once self-deletion, so the job survives the halt.
+            log.warning("kill switch engaged — not firing job %s (%s)", job_id, job.name)
+            return
         job.last_run = _now()
         job.run_count += 1
         # run-once: self-destruct after first fire so one-shot tasks don't accumulate.

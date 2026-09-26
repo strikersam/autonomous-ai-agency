@@ -71,6 +71,12 @@ def unsafe_target_reason(url: str) -> str | None:
     API, and cloud metadata endpoints. Every entry point here must reject
     loopback/private/link-local/reserved targets before making a request.
     """
+    # Before any DNS lookup: a lookup of attacker.example/<value> already leaks it.
+    from packages.security.canary import contains_canary, trip
+
+    if contains_canary(url):
+        trip("an outbound URL", None)
+        return "URL carries the canary credential"
     try:
         parsed = urllib.parse.urlparse(url)
     except ValueError:

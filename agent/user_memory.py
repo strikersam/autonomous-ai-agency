@@ -12,6 +12,8 @@ import threading
 import time
 from pathlib import Path
 
+from packages.security.redact import redact_secrets
+
 log = logging.getLogger("qwen-agent")
 
 _DEFAULT_DB = ".data/agent.db"
@@ -76,7 +78,8 @@ class UserMemoryStore:
     # ── public API ────────────────────────────────────────────────────────────
 
     def save(self, user_id: str, key: str, value: str) -> None:
-        """Upsert a memory entry for *user_id*."""
+        """Upsert a memory entry for *user_id*. Secrets and PII are redacted first."""
+        value = redact_secrets(value)
         now = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         with self._lock, self._connect() as conn:
             conn.execute(

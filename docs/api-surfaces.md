@@ -42,7 +42,7 @@ If you want the human-friendly product story, start with [../README.md](../READM
 - `/api/observability/*`
 - `/api/github/*`
 - `/api/sync/*`
-- `/api/tasks/*`
+- `/api/tasks/*` — `POST /api/tasks/` accepts optional `goal` and `parent_task_id`. The parent must be a task the caller can open (404 otherwise), and the child inherits its `goal_chain`, which the runtime prompt shows as "Why this task exists".
 - `/api/agents/*`
 - `/api/schedules/*`
 - `/api/routing/*`

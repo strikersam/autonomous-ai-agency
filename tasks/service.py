@@ -11,10 +11,11 @@ from typing import Any
 from agents.store import AgentDefinition, AgentStore, get_agent_store
 from runtimes.base import RuntimeUnavailableError, TaskResult, TaskSpec
 from runtimes.manager import RuntimeManager, get_runtime_manager
-from tasks.models import Task, TaskComment, TaskStatus
+from tasks.models import Task, TaskComment, TaskStatus, goal_ancestry_block
 from tasks.store import TaskStore, get_task_store
 from agent.workflow import WorkflowEngine, WorkflowPhase, classify_domain
-from services.shared_state import claim as _shared_claim, release as _shared_release
+
+from tasks.run_lease import claim_task_run, release_task_run
 
 log = logging.getLogger("qwen-proxy")
 
@@ -1047,13 +1048,11 @@ class TaskExecutionCoordinator:
                 task_status=task.status,
             )
 
-    @staticmethod
-    async def _claim_task(task_id: str) -> bool:
-        return await _shared_claim(f"task:active:{task_id}", ttl=3600)
+    async def _claim_task(self, task_id: str) -> bool:
+        return await claim_task_run(self.store, task_id)
 
-    @staticmethod
-    async def _release_task(task_id: str) -> None:
-        await _shared_release(f"task:active:{task_id}")
+    async def _release_task(self, task_id: str) -> None:
+        await release_task_run(self.store, task_id)
 
     _PRIORITY_EMOJI = {
         "urgent": "\U0001f534",  # red circle
@@ -1533,6 +1532,9 @@ class TaskExecutionCoordinator:
         # bloated task comments and logs with the full agent system prompt, making
         # them unreadable. The instruction should carry only task-specific content.
         parts.append(f"Task title: {task.title}")
+        ancestry = goal_ancestry_block(task)
+        if ancestry:
+            parts.append(ancestry)
         if task.description:
             parts.append(f"Task description:\n{task.description.strip()}")
         if task.prompt:

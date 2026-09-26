@@ -43,6 +43,9 @@ class TaskAutomationService:
             source="scheduler",
             source_id=job.job_id,
             source_run_id=job.job_id,
+            # The job's description is the why: for a CEO directive it is
+            # "[role] directive title". Carried as the task's goal.
+            goal=(getattr(job, "description", None) or None),
         )
         return await self.workflow.create_task(task, actor=f"scheduler:{job.job_id}")
 

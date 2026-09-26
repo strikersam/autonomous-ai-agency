@@ -1,6 +1,16 @@
 # Next Action
 
-**Updated:** 2026-09-25
+**Updated:** 2026-09-26
+
+## External learnings audit (branch claude/agency-improvements-ai-learnings-k96er6)
+
+All six gaps from `docs/audits/2026-09-26-external-learnings.md` are built, plus
+memory redaction. One PR, to be merged when CI is green. Shipped: memory
+redaction, kill switch, per-agent daily caps, evidence-weighted lessons, canary
+credential, atomic run lease (fixes the tick/dispatcher double execution) and
+goal ancestry. After deploy: set `AGENT_DAILY_KTOKENS_CAP` on the dashboard,
+and confirm the Telegram alert path works by checking logs for "canary
+credential planted".
 
 ## CEO triage approves trend code changes (branch claude/sam-request-handling-fvfk05)
 

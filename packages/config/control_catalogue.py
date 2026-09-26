@@ -487,6 +487,52 @@ _BRAIN_ROUTING: tuple[ControlSpec, ...] = (
 
 _AUTONOMY: tuple[ControlSpec, ...] = (
     _toggle(
+        "AGENCY_KILL_SWITCH",
+        "Kill switch — halt all autonomous work",
+        "autonomy",
+        "false",
+        "On: scheduled jobs do not fire, cron ticks do nothing, workflow runs are "
+        "refused, agent commits are skipped and agent LLM calls fail. Human proxy "
+        "and dashboard traffic keep working. Takes effect on the next check, "
+        "mid-run included. Turn off here to resume; nothing turns it off automatically.",
+        live=True,
+        risk=RISK_HIGH,
+    ),
+    _toggle(
+        "AGENCY_CANARY_ENABLED",
+        "Canary credential",
+        "autonomy",
+        "true",
+        "Plants a decoy GitHub token (LEGACY_DEPLOY_TOKEN) in the agents' environment. "
+        "If it ever appears in an agent's LLM request or outbound URL, that action is "
+        "blocked and you get a Telegram alert. Takes effect on the next restart.",
+        risk=RISK_LOW,
+    ),
+    _number(
+        "AGENT_DAILY_KTOKENS_CAP",
+        "Per-agent daily token cap (thousands)",
+        "autonomy",
+        "0",
+        "Once one agent has used this many thousand tokens today (UTC), its next "
+        "LLM call is refused until midnight UTC. 0 = unlimited. Counts are "
+        "per process and reset on restart.",
+        live=True,
+        maximum=1_000_000,
+        risk=RISK_MEDIUM,
+    ),
+    _number(
+        "AGENT_DAILY_USD_CAP",
+        "Per-agent daily spend cap (USD)",
+        "autonomy",
+        "0",
+        "Once one agent has spent this many dollars today (UTC), its next LLM call "
+        "is refused until midnight UTC. Free-tier models cost $0 and never trip "
+        "it. 0 = unlimited.",
+        live=True,
+        maximum=100_000,
+        risk=RISK_MEDIUM,
+    ),
+    _toggle(
         "AGENCY_CEO_ENABLED",
         "CEO orchestration loop",
         "autonomy",
