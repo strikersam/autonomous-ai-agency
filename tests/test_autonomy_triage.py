@@ -127,3 +127,28 @@ async def test_dispatcher_runs_triage_on_cadence(store, monkeypatch, tmp_path):
     await dispatcher._poll_and_execute()
     await dispatcher._poll_and_execute()
     assert len(calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_numbered_titles_are_not_duplicates(store):
+    a = _parked("Fix issue #41", created_at=1.0)
+    b = _parked("Fix issue #42", created_at=2.0)
+    await store.create(a)
+    await store.create(b)
+
+    result = await triage_gated_tasks(store)
+
+    assert (result.approved, result.rejected) == (2, 0)
+
+
+@pytest.mark.asyncio
+async def test_deliberately_gated_duplicate_is_not_rejected(store):
+    queued = Task(owner_id="o@x.com", title="Rotate the JWT secret", pending_agent_run=True)
+    await store.create(queued)
+    manual = _parked("Rotate the JWT secret", promoted=False)
+    await store.create(manual)
+
+    result = await triage_gated_tasks(store)
+
+    assert (result.rejected, result.left_for_human) == (0, 1)
+    assert (await store.get(manual.task_id)).status is TaskStatus.TODO

@@ -7,8 +7,8 @@ the parked tasks that don't need a human:
 * **Approve** a task that was parked only because the dispatcher auto-promoted
   it (``approval_gate_promoted``) and that no longer classifies as outward-facing
   — i.e. PR-only work whose merge is already the human gate.
-* **Reject** a parked task that duplicates an older open task (same normalised
-  title) — it would only redo work already queued.
+* **Reject** an auto-promoted parked task that duplicates an older open task
+  (same normalised title) — it would only redo work already queued.
 
 Tasks created with ``requires_approval`` on purpose (deploys, auth/secrets
 changes, trend items in the 🔴 lane) are never touched: those stay with a human.
@@ -43,7 +43,10 @@ class TriageResult:
 
 
 def _norm_title(title: str) -> str:
-    return re.sub(r"[0-9a-f]{6,}|\d+|\W+", " ", (title or "").lower()).strip()
+    """Lower-case, strip punctuation and long ids/hashes — but keep short
+    numbers, so "Fix issue #41" and "Fix issue #42" stay distinct."""
+    no_ids = re.sub(r"\b\w*[0-9a-f]{12,}\w*\b|\b\d{6,}\b", " ", (title or "").lower())
+    return " ".join(re.sub(r"[^\w]+|_", " ", no_ids).split())
 
 
 def _was_auto_promoted(task: Task) -> bool:
@@ -75,6 +78,11 @@ async def triage_gated_tasks(store: TaskStore | None = None) -> TriageResult:
     for task in sorted(parked, key=lambda t: _ts_to_float(t.created_at)):
         key = _norm_title(task.title)
         try:
+            # Only tasks the dispatcher parked on its own are triage's to
+            # decide; a deliberately gated task is always left for a human.
+            if not _was_auto_promoted(task):
+                result.left_for_human += 1
+                continue
             if key and key in seen and seen[key] != task.task_id:
                 workflow.approve_execution(
                     task, actor=TRIAGE_ACTOR, approved=False,
@@ -86,8 +94,6 @@ async def triage_gated_tasks(store: TaskStore | None = None) -> TriageResult:
                 result.approved += 1
             else:
                 result.left_for_human += 1
-                if key:
-                    seen.setdefault(key, task.task_id)
                 continue
             await store.update(task)
             if key and task.execution_approved:
