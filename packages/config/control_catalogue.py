@@ -498,6 +498,16 @@ _AUTONOMY: tuple[ControlSpec, ...] = (
         live=True,
         risk=RISK_HIGH,
     ),
+    _toggle(
+        "AGENCY_CANARY_ENABLED",
+        "Canary credential",
+        "autonomy",
+        "true",
+        "Plants a decoy GitHub token (LEGACY_DEPLOY_TOKEN) in the agents' environment. "
+        "If it ever appears in an agent's LLM request or outbound URL, that action is "
+        "blocked and you get a Telegram alert. Takes effect on the next restart.",
+        risk=RISK_LOW,
+    ),
     _number(
         "AGENT_DAILY_KTOKENS_CAP",
         "Per-agent daily token cap (thousands)",

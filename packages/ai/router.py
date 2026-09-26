@@ -14,8 +14,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
-from packages.ai.agent_budget import ensure_agent_can_spend, record_agent_spend
+from packages.ai.agent_budget import current_agent, ensure_agent_can_spend, record_agent_spend
 from packages.ai.response_cache import get_cached, put_cached
+from packages.security.canary import ensure_payload_clean
 from packages.ai.rate_limiter import get_tracker as _get_rl_tracker
 
 log = logging.getLogger("llm-provider-router")
@@ -1437,6 +1438,9 @@ class ProviderRouter:
         # Kill switch and per-agent daily cap. A no-op for calls with no bound
         # agent (human proxy traffic); see packages/ai/agent_budget.py.
         ensure_agent_can_spend()
+        _agent = current_agent()
+        if _agent is not None:
+            ensure_payload_clean(payload, _agent)
         attempts: list[ProviderAttempt] = []
         deferred_commercial: list[str] = []
         if not self.providers:

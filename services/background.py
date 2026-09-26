@@ -358,6 +358,10 @@ async def start_background_services(
     scheduler:
         The AgentScheduler singleton; its ``set_on_fire`` handler is wired here.
     """
+    # Before any agent runtime starts, so every agent subprocess inherits the decoy.
+    from packages.config.autonomy_limits import plant_canary
+    plant_canary()
+
     runtime_manager = get_runtime_manager()
 
     task_automation = TaskAutomationService(store=task_store)

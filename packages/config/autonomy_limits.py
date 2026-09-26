@@ -59,3 +59,43 @@ def agent_daily_token_budget() -> int:
 def agent_daily_budget_usd() -> float:
     """Per-agent daily USD ceiling; ``0`` disables the cap."""
     return float(_non_negative("AGENT_DAILY_USD_CAP", float))
+
+
+# ── Canary credential ─────────────────────────────────────────────────────────
+# A decoy GitHub token planted in the process environment, which every agent
+# shell and subprocess inherits. Nothing reads it legitimately, so seeing its
+# value anywhere an agent can send data (an LLM prompt, an outbound URL) means
+# something dumped the environment. That is the alarm (packages/security/canary.py).
+CANARY_ENV = "LEGACY_DEPLOY_TOKEN"
+_canary_value: str | None = None
+
+
+def canary_enabled() -> bool:
+    """``AGENCY_CANARY_ENABLED``, default on."""
+    return os.environ.get("AGENCY_CANARY_ENABLED", "true").strip().lower() in _TRUTHY
+
+
+def plant_canary() -> str | None:
+    """Plant the decoy once per process and return it, or ``None`` when disabled.
+
+    An operator-set value under the same name is left alone and never treated
+    as a canary: it might be real.
+    """
+    global _canary_value
+    if _canary_value is not None:
+        return _canary_value
+    if not canary_enabled() or os.environ.get(CANARY_ENV):
+        return None
+    import secrets
+    import string
+
+    alphabet = string.ascii_letters + string.digits
+    _canary_value = "ghp_" + "".join(secrets.choice(alphabet) for _ in range(36))
+    os.environ[CANARY_ENV] = _canary_value
+    log.info("canary credential planted as %s", CANARY_ENV)
+    return _canary_value
+
+
+def canary_value() -> str | None:
+    """The planted decoy, or ``None`` when none was planted in this process."""
+    return _canary_value
