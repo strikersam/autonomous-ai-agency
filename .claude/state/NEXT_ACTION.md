@@ -13,13 +13,12 @@ switch halts the dispatcher. Four gaps remain open in
 `docs/audits/2026-09-26-external-learnings.md`: atomic checkout, goal ancestry,
 evidence-weighted lessons and canary tokens.
 
-## SAM acts on alerts (branch claude/sam-request-handling-fvfk05)
+## CEO triage approves trend code changes (branch claude/sam-request-handling-fvfk05)
 
-SAM's `/agent/sam/chat` path had no tools, so "look into the alerts and fix
-them" got a deflection. `agent/sam_actions.py` now reads the alerts feed and
-queues fix tasks; LiveKit worker got `check_alerts`/`fix_alerts` and its
-`create_task` now sets `pending_agent_run`. Next: confirm on the deployed
-dashboard that a fix request shows new `alert-fix` tasks under Work.
+#1584/#1585 merged. Operator still saw a full "To be approved" lane: trend
+code-change tasks are created gated and triage skipped them. Follow-up PR adds
+AGENCY_TRIAGE_APPROVE_TRENDS (live admin toggle). After deploy: the lane
+should hold only deploy/release/external-write and person-gated tasks.
 
 ## Daily automation 2026-09-25 (row 81)
 

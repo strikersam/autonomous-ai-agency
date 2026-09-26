@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sys
 import time
 
 from tasks.models import Task, TaskStatus
@@ -109,6 +110,22 @@ class TaskDispatcher:
         except Exception as exc:  # pragma: no cover
             log.error("TaskDispatcher reconciler error: %s", exc, exc_info=True)
 
+    async def _ceo_triage(self) -> None:
+        """Approve/reject parked tasks and queue fixes for open error alerts."""
+        from tasks.autonomy_triage import triage_gated_tasks
+
+        await triage_gated_tasks(self.store)
+        # The alerts feed lives in backend.server; only read it where that app is
+        # already loaded — importing it from the proxy process would boot it.
+        if "backend.server" not in sys.modules:
+            return
+        try:
+            from agent.sam_actions import fix_alerts
+
+            await fix_alerts("system:ceo")
+        except Exception as exc:  # pragma: no cover - defensive loop logging
+            log.error("CEO alert intake error: %s", exc, exc_info=True)
+
     async def _poll_and_execute(self) -> None:
         self._poll_count += 1
 
@@ -122,10 +139,22 @@ class TaskDispatcher:
 
         from packages.config.autonomy_limits import kill_switch_engaged
         if kill_switch_engaged():
-            # Tasks stay pending and resume on the first poll after the switch is off.
+            # Tasks stay pending and resume on the first poll after the switch is off;
+            # CEO triage below is autonomous action too, so it is skipped as well.
             if self._poll_count % _QUEUE_DEPTH_LOG_EVERY == 0:
                 log.warning("TaskDispatcher: kill switch engaged — not picking up tasks")
             return
+
+        # Periodic CEO triage: decide parked tasks and pick up open alerts.
+        from packages.config import settings
+        every = settings.agency_auto_triage_every_polls
+        if settings.is_agency_auto_triage_enabled and every > 0 and self._poll_count % every == 0:
+            await self._ceo_triage()
+        portfolio_every = settings.portfolio_auto_materialize_every_polls
+        if portfolio_every > 0 and self._poll_count % portfolio_every == 0:
+            from tasks.autonomy_triage import materialize_portfolio
+
+            await materialize_portfolio()
 
         tasks = await self.store.list_pending(limit=self.max_concurrency)
 

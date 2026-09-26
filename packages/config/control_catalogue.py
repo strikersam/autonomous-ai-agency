@@ -531,6 +531,52 @@ _AUTONOMY: tuple[ControlSpec, ...] = (
         risk=RISK_MEDIUM,
     ),
     _toggle(
+        "AGENCY_AUTO_TRIAGE",
+        "CEO triage of parked tasks and alerts",
+        "autonomy",
+        "true",
+        "Every few minutes the CEO approves parked tasks that don't need you, "
+        "rejects parked duplicates, and turns error alerts on the bell into fix "
+        "tasks. Tasks you gated on purpose (deploys, auth/secrets) are never "
+        "touched, and code still reaches master only through a merge you approve.",
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    _toggle(
+        "AGENCY_TRIAGE_APPROVE_TRENDS",
+        "CEO triage approves trend code changes",
+        "autonomy",
+        "true",
+        "Trend-scanner tasks that propose a code change are created waiting for "
+        "approval. With this on, CEO triage approves them so an agent drafts the "
+        "PR; the PR itself still waits for your merge. Trend text comes from "
+        "outside sources, so review those PRs with that in mind.",
+        live=True,
+        risk=RISK_HIGH,
+    ),
+    _number(
+        "AGENCY_AUTO_TRIAGE_EVERY_POLLS",
+        "CEO triage interval (dispatcher polls)",
+        "autonomy",
+        "60",
+        "Dispatcher polls between triage passes — 60 is about 5 minutes at the "
+        "default 5-second poll. 0 disables triage.",
+        live=True,
+        minimum=0,
+        maximum=10000,
+    ),
+    _toggle(
+        "AGENCY_GATE_OUTWARD_FACING",
+        "Ask before deploy / release work runs",
+        "autonomy",
+        "true",
+        "Park deploy, release, runtime-change and external-write tasks for your "
+        "Approve/Reject before the agent runs. Code-change tasks are not parked: "
+        "agents cannot merge, so your merge approval is their gate.",
+        live=True,
+        risk=RISK_HIGH,
+    ),
+    _toggle(
         "RUN_BACKGROUND_IN_WEB",
         "Run background services in the web process",
         "autonomy",
@@ -601,6 +647,30 @@ _AUTONOMY: tuple[ControlSpec, ...] = (
         "autonomy",
         "true",
         "Turn portfolio initiatives into executable tasks.",
+    ),
+    _number(
+        "PORTFOLIO_AUTO_MATERIALIZE_EVERY_POLLS",
+        "Portfolio intake interval (dispatcher polls)",
+        "autonomy",
+        "720",
+        "How often the agency turns top portfolio initiatives into tasks on its "
+        "own — 720 is about an hour at the default 5-second poll. 0 means only "
+        "when someone presses refresh on the Portfolio board.",
+        live=True,
+        minimum=0,
+        maximum=100000,
+    ),
+    _number(
+        "PORTFOLIO_MATERIALIZE_MAX",
+        "Portfolio initiatives per intake",
+        "autonomy",
+        "3",
+        "Highest-WSJF initiatives turned into tasks per pass. Raise it to burn "
+        "down the backlog faster; each task plans and runs on the brain, so this "
+        "drives LLM call volume.",
+        live=True,
+        minimum=1,
+        maximum=50,
     ),
     _toggle(
         "CEO_SUPERVISOR_ENABLED",

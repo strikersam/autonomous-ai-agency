@@ -54,7 +54,7 @@ from collections import defaultdict
 
 from dataclasses import dataclass
 
-from typing import AsyncIterator
+from typing import AsyncIterator, Literal
 
 
 
@@ -3044,6 +3044,9 @@ class SamChatRequest(BaseModel):
 
 class SamSpeakRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000, description="Text to synthesise as SAM's voice")
+    format: Literal["ogg", "mp3"] = Field(
+        default="ogg", description="ogg (Telegram) or mp3 (browsers — Safari/iOS can't play OGG)",
+    )
 
 
 
@@ -3087,11 +3090,11 @@ async def sam_speak(body: SamSpeakRequest, auth: AuthContext = Depends(verify_ap
     import base64
     try:
         from voice.tts import synthesize
-        audio_bytes = await synthesize(body.text)
+        audio_bytes = await synthesize(body.text, body.format)
         if audio_bytes:
             return {
                 "audio_b64": base64.b64encode(audio_bytes).decode(),
-                "format": "ogg",
+                "format": body.format,
                 "duration_s": round(len(audio_bytes) / 4000, 1),  # rough estimate
             }
         return {"audio_b64": "", "error": "TTS synthesis returned empty"}

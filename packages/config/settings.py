@@ -99,6 +99,15 @@ class Settings:
 
         # Scheduler
         self.agency_ceo_enabled: str = os.environ.get("AGENCY_CEO_ENABLED", "true").lower()
+        # CEO triage: the dispatcher periodically approves/rejects parked tasks
+        # that don't need a human and turns open error alerts into fix tasks.
+        self.agency_auto_triage: str = os.environ.get("AGENCY_AUTO_TRIAGE", "true").lower()
+        self.agency_auto_triage_every_polls: int = _env_int("AGENCY_AUTO_TRIAGE_EVERY_POLLS", 60)
+        # Trend-driven code changes are created already gated; triage may
+        # approve them too (the PR still waits for a human merge).
+        self.agency_triage_approve_trends: str = os.environ.get(
+            "AGENCY_TRIAGE_APPROVE_TRENDS", "true"
+        ).lower()
         self.run_background_in_web: str = os.environ.get("RUN_BACKGROUND_IN_WEB", "true").lower()
         self.run_hermes_in_process: str = os.environ.get("RUN_HERMES_IN_PROCESS", "true").lower()
         self.cron_secret: str = os.environ.get("CRON_SECRET", "")
@@ -132,6 +141,13 @@ class Settings:
 
         # Portfolio materializer (default ON — flag is the rollback lever)
         self.portfolio_materialize_enabled: str = os.environ.get("PORTFOLIO_MATERIALIZE_ENABLED", "true").lower()
+        # Initiatives turned into tasks per pass, and dispatcher polls between
+        # automatic passes (~1h at the 5 s poll). Before the automatic pass,
+        # materialisation only ran when someone pressed refresh on the board.
+        self.portfolio_materialize_max: int = _env_int("PORTFOLIO_MATERIALIZE_MAX", 3)
+        self.portfolio_auto_materialize_every_polls: int = _env_int(
+            "PORTFOLIO_AUTO_MATERIALIZE_EVERY_POLLS", 720
+        )
 
         # Free-LLM-API model catalog sync (UNIT 8 — default ON).
         # When ON, the catalog (config/models.yaml) + active BrainConfig are
@@ -455,6 +471,14 @@ class Settings:
     @property
     def is_agency_ceo_enabled(self) -> bool:
         return self.agency_ceo_enabled == "true"
+
+    @property
+    def is_agency_auto_triage_enabled(self) -> bool:
+        return self.agency_auto_triage in {"1", "true", "yes", "on"}
+
+    @property
+    def is_triage_approve_trends_enabled(self) -> bool:
+        return self.agency_triage_approve_trends in {"1", "true", "yes", "on"}
 
     @property
     def is_background_in_web(self) -> bool:

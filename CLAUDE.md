@@ -144,7 +144,13 @@ legislated. See `.claude/rules-archive/` for the audit that produced this list a
     `python agent/loop_registry.py audit --check`.
 36. `python -m compileall -q .` must be clean.
 37. A new env var is documented in `docs/configuration-reference.md` and `.env.example`.
-    A new endpoint is documented in `docs/api-surfaces.md`.
+    A new endpoint is documented in `docs/api-surfaces.md`. **A new operator-facing
+    flag, toggle, or tunable is also an admin-panel control**, not a Render-only env
+    var: register it in `packages/config/control_catalogue.py` (it then appears under
+    Settings → Platform controls and overrides persist in the DB), read it through
+    `settings` or at call time so it can be `live=True`, and test that an override
+    takes effect (`tests/test_platform_controls.py`). The operator has said Render
+    flags are unmanageable; only secrets and deploy wiring stay env-only.
 38. Squash-merge to `master`, only with CI green. Never force-push to `master`. Never
     `--no-verify` or otherwise bypass a hook or CI check — fix the root cause.
 
