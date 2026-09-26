@@ -139,6 +139,55 @@ class TaskStore:
     def _collection(self):
         return self._db["tasks"] if self._db is not None else None
 
+    # ── Run lease (atomic checkout) ───────────────────────────────────────────
+    # Adapted from Paperclip's atomic task checkout. The web process and the
+    # worker can both run a dispatcher, and /api/autonomy/tick runs tasks too.
+    # The in-memory shared_state lock only covers one process, so without Redis
+    # two processes could run the same task. On Mongo the lease is one document
+    # per task, keyed by _id: insert-if-absent is atomic, and so is taking over
+    # an expired lease. SQLite and memory mode are single-process deployments,
+    # so a process-local table is enough there. SQLite's insert_one is
+    # INSERT OR REPLACE, which could not provide atomicity anyway.
+
+    def _lease_collection(self):
+        if self._mode != "mongo" or type(self._db).__module__.startswith("packages.storage"):
+            return None
+        return self._db["task_run_leases"]
+
+    async def acquire_run_lease(self, task_id: str, holder: str, ttl_s: float) -> bool:
+        """Take the run lease for *task_id*; False when another holder has it."""
+        now = time.time()
+        coll = self._lease_collection()
+        if coll is None:
+            leases = self.__dict__.setdefault("_local_leases", {})
+            current = leases.get(task_id)
+            if current and current[0] != holder and current[1] > now:
+                return False
+            leases[task_id] = (holder, now + ttl_s)
+            return True
+        doc = {"_id": task_id, "holder": holder, "expires_at": now + ttl_s}
+        try:
+            await coll.insert_one(doc)
+            return True
+        except Exception as exc:
+            if not _is_duplicate_key_error(exc):
+                raise
+        taken = await coll.update_one(
+            {"_id": task_id, "$or": [{"expires_at": {"$lt": now}}, {"holder": holder}]},
+            {"$set": {"holder": holder, "expires_at": now + ttl_s}},
+        )
+        return taken.modified_count == 1 or taken.matched_count == 1
+
+    async def release_run_lease(self, task_id: str, holder: str) -> None:
+        """Drop *holder*'s lease on *task_id*; a lease held by someone else is kept."""
+        coll = self._lease_collection()
+        if coll is None:
+            leases = self.__dict__.get("_local_leases", {})
+            if leases.get(task_id, ("",))[0] == holder:
+                leases.pop(task_id, None)
+            return
+        await coll.delete_one({"_id": task_id, "holder": holder})
+
     # ── CRUD ──────────────────────────────────────────────────────────────────
 
     async def create(self, task: Task) -> Task:
