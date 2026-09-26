@@ -4029,13 +4029,20 @@ async def refresh_token(request: Request):
         try:
             user = await get_db().users.find_one({"_id": ObjectId(payload["sub"])})
         except Exception:
-            if payload.get("sub") == "admin_user_001":
-                user = {
-                    "_id": "admin_user_001",
-                    "email": ADMIN_EMAIL,
-                }
-            else:
+            user = None
+        # SQLite backend stores _id as a plain string (UUID), not a Mongo
+        # ObjectId — the ObjectId() constructor above raises for it. Retry
+        # with the raw string before falling back to the admin-only shim.
+        if user is None:
+            try:
+                user = await get_db().users.find_one({"_id": payload["sub"]})
+            except Exception:
                 user = None
+        if user is None and payload.get("sub") == "admin_user_001":
+            user = {
+                "_id": "admin_user_001",
+                "email": ADMIN_EMAIL,
+            }
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
         uid = str(user["_id"])

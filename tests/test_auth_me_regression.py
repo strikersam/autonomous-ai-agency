@@ -302,3 +302,67 @@ class TestSQLiteStringIdAuthMe:
         except Exception:
             user = None
         assert user is None, "ObjectId(UUID) must fail, triggering the SQLite retry path"
+
+
+# ── SQLite string _id regression for /api/auth/refresh ───────────────────────
+# /api/auth/refresh had the same ObjectId-only lookup as the pre-#871 /api/auth/me,
+# but without the string-_id retry: on STORAGE_BACKEND=sqlite, ObjectId(uuid_sub)
+# always raised, the except swallowed it, and the only fallback was the
+# admin_user_001 literal — so every non-admin refresh 401'd with "User not found"
+# and any self-hosted SQLite user was logged out the moment their access token expired.
+
+
+class TestSQLiteStringIdAuthRefresh:
+    """Verify /api/auth/refresh resolves users with string _id (SQLite path)."""
+
+    def test_sqlite_string_id_user_refreshed(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ):
+        import backend.server
+
+        user_id = str(uuid.uuid4())
+        test_user = {
+            "_id": user_id,
+            "email": "sqlite-refresh@test.local",
+            "name": "SQLite Refresh User",
+            "role": "user",
+        }
+
+        mock_users = MagicMock()
+        mock_users.find_one = AsyncMock(return_value=test_user)
+
+        mock_store = MagicMock()
+        mock_store.users = mock_users
+
+        monkeypatch.setattr(backend.server, "get_db", lambda: mock_store)
+        monkeypatch.setenv("STORAGE_BACKEND", "sqlite")
+
+        refresh = backend.server.create_refresh_token(user_id)
+
+        r = client.post("/api/auth/refresh", json={"refresh_token": refresh})
+        assert r.status_code == 200, (
+            f"Expected 200 for SQLite string _id user, got {r.status_code}: {r.text[:200]}"
+        )
+        assert "access_token" in r.json()
+
+    def test_sqlite_string_id_rejects_unknown_user(
+        self, client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A valid refresh JWT for a non-existent SQLite user → 401, not a crash."""
+        import backend.server
+
+        mock_users = MagicMock()
+        mock_users.find_one = AsyncMock(return_value=None)
+
+        mock_store = MagicMock()
+        mock_store.users = mock_users
+
+        monkeypatch.setattr(backend.server, "get_db", lambda: mock_store)
+        monkeypatch.setenv("STORAGE_BACKEND", "sqlite")
+
+        refresh = backend.server.create_refresh_token(str(uuid.uuid4()))
+
+        r = client.post("/api/auth/refresh", json={"refresh_token": refresh})
+        assert r.status_code == 401, (
+            f"Expected 401 for unknown SQLite user, got {r.status_code}: {r.text[:200]}"
+        )
