@@ -19,11 +19,9 @@ _URI = "mongodb+srv://admin:hunter2pass@cluster0.example.net/db"
 
 
 def _dump(db_path) -> str:
+    """Every row in the database, as the SQL that would recreate it."""
     with sqlite3.connect(db_path) as conn:
-        rows = []
-        for (table,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table'"):
-            rows.extend(str(r) for r in conn.execute(f"SELECT * FROM {table}"))  # noqa: S608
-    return "\n".join(rows)
+        return "\n".join(conn.iterdump())
 
 
 def test_redact_secrets_covers_tokens_uris_and_cards():
