@@ -2,6 +2,16 @@
 
 **Updated:** 2026-09-26
 
+## CEO self-learning (branch claude/agency-improvements-ai-learnings-k96er6)
+
+Built all four pieces the owner approved. The scoreboard, playbook and lessons
+now reach the CEO prompt, timeouts write lessons, and lessons are Mongo-backed.
+After deploy: check `/agent/agency/status` → `playbook` after a CEO cycle, and
+confirm the Render logs show "Agency: not reissuing" for a repeat-failing
+directive. Unresolved: the four 600s-timeout tasks themselves (task_608d…,
+task_9a40…, task_46c1…, task_c368…); the playbook stops their reissue but does
+not diagnose why they are slow.
+
 ## External learnings audit — merged (#1587, `0d80571`)
 
 Shipped and merged 2026-09-26; tracker row 83 archived to

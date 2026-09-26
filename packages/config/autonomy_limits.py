@@ -99,3 +99,11 @@ def plant_canary() -> str | None:
 def canary_value() -> str | None:
     """The planted decoy, or ``None`` when none was planted in this process."""
     return _canary_value
+
+
+def ceo_playbook_enforced() -> bool:
+    """``CEO_PLAYBOOK_ENFORCE``, default on: the CEO drops its own repeat-failing directives.
+
+    Off keeps the learned beliefs in the CEO's prompt but dispatches everything.
+    """
+    return os.environ.get("CEO_PLAYBOOK_ENFORCE", "true").strip().lower() in _TRUTHY

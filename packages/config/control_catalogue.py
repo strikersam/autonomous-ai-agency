@@ -499,6 +499,18 @@ _AUTONOMY: tuple[ControlSpec, ...] = (
         risk=RISK_HIGH,
     ),
     _toggle(
+        "CEO_PLAYBOOK_ENFORCE",
+        "CEO drops its own repeat-failing directives",
+        "autonomy",
+        "true",
+        "The CEO learns from its results: a directive it invented that keeps failing or "
+        "timing out is not reissued until newer evidence outweighs it (evidence halves "
+        "every 14 days). Off keeps the learned beliefs in the CEO's prompt but dispatches "
+        "everything. Owner-requested work is never dropped.",
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    _toggle(
         "AGENCY_CANARY_ENABLED",
         "Canary credential",
         "autonomy",
