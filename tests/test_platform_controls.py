@@ -472,3 +472,11 @@ def test_portfolio_intake_controls_are_live(clean_overrides):
                                        "PORTFOLIO_AUTO_MATERIALIZE_EVERY_POLLS": "120"})
     assert settings.portfolio_materialize_max == 7
     assert settings.portfolio_auto_materialize_every_polls == 120
+
+
+def test_trend_approval_toggle_is_live(clean_overrides):
+    from packages.config import settings
+
+    assert get_control("AGENCY_TRIAGE_APPROVE_TRENDS").live
+    control_overrides.apply_overrides({"AGENCY_TRIAGE_APPROVE_TRENDS": "false"})
+    assert settings.is_triage_approve_trends_enabled is False

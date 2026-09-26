@@ -7,11 +7,15 @@ the parked tasks that don't need a human:
 * **Approve** a task that was parked only because the dispatcher auto-promoted
   it (``approval_gate_promoted``) and that no longer classifies as outward-facing
   — i.e. PR-only work whose merge is already the human gate.
-* **Reject** an auto-promoted parked task that duplicates an older open task
+* **Approve** a trend-scanner code-change task (created gated, 🔴 lane) when
+  ``AGENCY_TRIAGE_APPROVE_TRENDS`` is on: the agent only drafts a PR, which
+  still waits for a human merge. These were the bulk of the "To be approved"
+  lane the operator was left to clear by hand.
+* **Reject** a triageable parked task that duplicates an older open task
   (same normalised title) — it would only redo work already queued.
 
-Tasks created with ``requires_approval`` on purpose (deploys, auth/secrets
-changes, trend items in the 🔴 lane) are never touched: those stay with a human.
+Any other task created with ``requires_approval`` on purpose, and anything
+outward-facing (deploy/release/external write), is never touched.
 
 Decisions are rule-based on purpose: approving work must not hinge on a free-tier
 LLM's judgement, and every decision is written to the task's execution log.
@@ -54,8 +58,21 @@ def _was_auto_promoted(task: Task) -> bool:
     return any(e.event_type == "approval_gate_promoted" for e in task.execution_log)
 
 
-def _auto_approvable(task: Task) -> bool:
-    return _was_auto_promoted(task) and not _is_outward_facing(task)
+def _is_trend_code_change(task: Task) -> bool:
+    from agent.trend_scoping import TREND_OWNER_ID
+
+    return task.task_type == "trend_scoping" and task.owner_id == TREND_OWNER_ID
+
+
+def _triage_may_decide(task: Task) -> bool:
+    """Whether this parked task is triage's to decide (else it waits for a human)."""
+    if _is_outward_facing(task):
+        return False
+    if _was_auto_promoted(task):
+        return True
+    from packages.config import settings
+
+    return settings.is_triage_approve_trends_enabled and _is_trend_code_change(task)
 
 
 async def _open_titles(store: TaskStore) -> dict[str, str]:
@@ -100,9 +117,7 @@ async def triage_gated_tasks(store: TaskStore | None = None) -> TriageResult:
     for task in sorted(parked, key=lambda t: _ts_to_float(t.created_at)):
         key = _norm_title(task.title)
         try:
-            # Only tasks the dispatcher parked on its own are triage's to
-            # decide; a deliberately gated task is always left for a human.
-            if not _was_auto_promoted(task):
+            if not _triage_may_decide(task):
                 result.left_for_human += 1
                 continue
             if key and key in seen and seen[key] != task.task_id:
@@ -111,12 +126,9 @@ async def triage_gated_tasks(store: TaskStore | None = None) -> TriageResult:
                     reason=f"duplicate of open task {seen[key]}",
                 )
                 result.rejected += 1
-            elif _auto_approvable(task):
+            else:
                 workflow.approve_execution(task, actor=TRIAGE_ACTOR, approved=True)
                 result.approved += 1
-            else:
-                result.left_for_human += 1
-                continue
             await store.update(task)
             if key and task.execution_approved:
                 seen.setdefault(key, task.task_id)
