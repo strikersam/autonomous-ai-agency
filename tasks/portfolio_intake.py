@@ -7,22 +7,18 @@ Key design decisions:
   - **Content-derived source_id**: initiative UUIDs regenerate on every
     portfolio rebuild, so we hash (source|title) for a stable key.
   - **Idempotent**: checks store.find_by_source_id() before creating.
-  - **Capped**: at most 3 tasks per refresh (PORTFOLIO_MATERIALIZE_MAX).
+  - **Capped**: at most PORTFOLIO_MATERIALIZE_MAX (default 3) tasks per pass.
   - **Flag-gated**: PORTFOLIO_MATERIALIZE_ENABLED (default true).
 """
 from __future__ import annotations
 
 import hashlib
 import logging
-import os
 from typing import Any
 
 from tasks.models import Task, TaskPriority
 
 log = logging.getLogger("qwen-proxy")
-
-# Cap: max tasks per refresh cycle
-_PORTFOLIO_MATERIALIZE_MAX = int(os.environ.get("PORTFOLIO_MATERIALIZE_MAX", "3"))
 
 # Flag: default ON (read from the canonical config module)
 def _portfolio_materialize_enabled() -> bool:
@@ -89,7 +85,7 @@ async def materialize_committed(
     portfolio: Any,
     *,
     store: Any = None,
-    cap: int = _PORTFOLIO_MATERIALIZE_MAX,
+    cap: int | None = None,
 ) -> list[Task]:
     """Materialize committed portfolio initiatives into tasks.
 
@@ -103,6 +99,10 @@ async def materialize_committed(
     if not _portfolio_materialize_enabled():
         log.debug("portfolio_intake: materialize disabled (PORTFOLIO_MATERIALIZE_ENABLED=false)")
         return []
+
+    if cap is None:
+        from packages.config import settings
+        cap = settings.portfolio_materialize_max
 
     if store is None:
         from tasks.store import get_task_store

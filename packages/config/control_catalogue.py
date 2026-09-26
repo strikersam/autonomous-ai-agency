@@ -600,6 +600,30 @@ _AUTONOMY: tuple[ControlSpec, ...] = (
         "true",
         "Turn portfolio initiatives into executable tasks.",
     ),
+    _number(
+        "PORTFOLIO_AUTO_MATERIALIZE_EVERY_POLLS",
+        "Portfolio intake interval (dispatcher polls)",
+        "autonomy",
+        "720",
+        "How often the agency turns top portfolio initiatives into tasks on its "
+        "own — 720 is about an hour at the default 5-second poll. 0 means only "
+        "when someone presses refresh on the Portfolio board.",
+        live=True,
+        minimum=0,
+        maximum=100000,
+    ),
+    _number(
+        "PORTFOLIO_MATERIALIZE_MAX",
+        "Portfolio initiatives per intake",
+        "autonomy",
+        "3",
+        "Highest-WSJF initiatives turned into tasks per pass. Raise it to burn "
+        "down the backlog faster; each task plans and runs on the brain, so this "
+        "drives LLM call volume.",
+        live=True,
+        minimum=1,
+        maximum=50,
+    ),
     _toggle(
         "CEO_SUPERVISOR_ENABLED",
         "CEO supervisor",

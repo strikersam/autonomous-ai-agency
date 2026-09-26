@@ -2,13 +2,13 @@
 
 **Updated:** 2026-09-25
 
-## SAM voice on iOS + CEO triage (branch claude/sam-request-handling-fvfk05)
+## SAM tap-to-speak + portfolio auto-intake (branch claude/sam-request-handling-fvfk05)
 
-PR #1581 merged (SAM queues alert fixes). Follow-up PR: MP3 TTS + iOS audio
-unlock, PR-only work no longer pre-gated (merge is the gate), and
-`tasks/autonomy_triage.py` run by the dispatcher every ~5 min. After deploy:
-check SAM speaks on iPhone, and that parked `bug_fix` tasks drain from
-"awaiting approval" within ~5 min.
+#1584 merged (MP3 TTS, CEO triage, PR-only work not pre-gated). Follow-up:
+audio unlock moved to the stop tap (start-tap unlock broke iOS recognition),
+AudioContext closed per recording, portfolio intake runs hourly from the
+dispatcher. After deploy: SAM transcribes on iPhone; `[portfolio]` tasks
+appear on the board within ~1 h without pressing refresh.
 
 ## Daily automation 2026-09-25 (row 81)
 

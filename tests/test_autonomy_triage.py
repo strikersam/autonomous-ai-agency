@@ -152,3 +152,75 @@ async def test_deliberately_gated_duplicate_is_not_rejected(store):
 
     assert (result.rejected, result.left_for_human) == (0, 1)
     assert (await store.get(manual.task_id)).status is TaskStatus.TODO
+
+
+@pytest.mark.asyncio
+async def test_portfolio_intake_builds_board_off_loop_and_materializes(monkeypatch):
+    # Regression: portfolio initiatives only became tasks when someone pressed
+    # refresh on the board — nothing ran the materializer on its own.
+    import importlib
+    import threading
+
+    from tasks.autonomy_triage import materialize_portfolio
+
+    # Patch the module object the code under test will import (other tests
+    # swap agents.portfolio_api in sys.modules).
+    portfolio_api = importlib.import_module("agents.portfolio_api")
+
+    loop_thread = threading.get_ident()
+    seen = {}
+
+    class _Svc:
+        def ensure_fresh(self):
+            seen["thread"] = threading.get_ident()
+
+    async def _materialize(svc):
+        return ["task_a", "task_b"]
+
+    monkeypatch.setattr(portfolio_api, "get_service", lambda: _Svc())
+    monkeypatch.setattr(portfolio_api, "_materialize_and_log", _materialize)
+
+    assert await materialize_portfolio() == 2
+    assert seen["thread"] != loop_thread  # sync board build kept off the event loop
+
+
+@pytest.mark.asyncio
+async def test_portfolio_intake_failure_is_swallowed(monkeypatch):
+    import importlib
+
+    from tasks.autonomy_triage import materialize_portfolio
+
+    portfolio_api = importlib.import_module("agents.portfolio_api")
+
+    def _boom():
+        raise RuntimeError("github down")
+
+    monkeypatch.setattr(portfolio_api, "get_service", _boom)
+    assert await materialize_portfolio() == 0
+
+
+@pytest.mark.asyncio
+async def test_dispatcher_runs_portfolio_intake_on_its_own_cadence(store, monkeypatch, tmp_path):
+    from packages.config import settings
+    from tasks import autonomy_triage
+    from tasks.dispatcher import TaskDispatcher
+
+    calls = []
+
+    async def _fake():
+        calls.append(1)
+        return 0
+
+    monkeypatch.setattr(autonomy_triage, "materialize_portfolio", _fake)
+    monkeypatch.setattr(settings, "agency_auto_triage", "false")
+    monkeypatch.setattr(settings, "portfolio_auto_materialize_every_polls", 3)
+    dispatcher = TaskDispatcher(workspace_root=str(tmp_path), store=store)
+
+    for _ in range(6):
+        await dispatcher._poll_and_execute()
+    assert len(calls) == 2
+
+    monkeypatch.setattr(settings, "portfolio_auto_materialize_every_polls", 0)
+    for _ in range(6):
+        await dispatcher._poll_and_execute()
+    assert len(calls) == 2
