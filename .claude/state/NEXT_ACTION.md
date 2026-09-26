@@ -2,13 +2,12 @@
 
 **Updated:** 2026-09-25
 
-## SAM tap-to-speak + portfolio auto-intake (branch claude/sam-request-handling-fvfk05)
+## CEO triage approves trend code changes (branch claude/sam-request-handling-fvfk05)
 
-#1584 merged (MP3 TTS, CEO triage, PR-only work not pre-gated). Follow-up:
-audio unlock moved to the stop tap (start-tap unlock broke iOS recognition),
-AudioContext closed per recording, portfolio intake runs hourly from the
-dispatcher. After deploy: SAM transcribes on iPhone; `[portfolio]` tasks
-appear on the board within ~1 h without pressing refresh.
+#1584/#1585 merged. Operator still saw a full "To be approved" lane: trend
+code-change tasks are created gated and triage skipped them. Follow-up PR adds
+AGENCY_TRIAGE_APPROVE_TRENDS (live admin toggle). After deploy: the lane
+should hold only deploy/release/external-write and person-gated tasks.
 
 ## Daily automation 2026-09-25 (row 81)
 

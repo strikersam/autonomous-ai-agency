@@ -103,6 +103,11 @@ class Settings:
         # that don't need a human and turns open error alerts into fix tasks.
         self.agency_auto_triage: str = os.environ.get("AGENCY_AUTO_TRIAGE", "true").lower()
         self.agency_auto_triage_every_polls: int = _env_int("AGENCY_AUTO_TRIAGE_EVERY_POLLS", 60)
+        # Trend-driven code changes are created already gated; triage may
+        # approve them too (the PR still waits for a human merge).
+        self.agency_triage_approve_trends: str = os.environ.get(
+            "AGENCY_TRIAGE_APPROVE_TRENDS", "true"
+        ).lower()
         self.run_background_in_web: str = os.environ.get("RUN_BACKGROUND_IN_WEB", "true").lower()
         self.run_hermes_in_process: str = os.environ.get("RUN_HERMES_IN_PROCESS", "true").lower()
         self.cron_secret: str = os.environ.get("CRON_SECRET", "")
@@ -470,6 +475,10 @@ class Settings:
     @property
     def is_agency_auto_triage_enabled(self) -> bool:
         return self.agency_auto_triage in {"1", "true", "yes", "on"}
+
+    @property
+    def is_triage_approve_trends_enabled(self) -> bool:
+        return self.agency_triage_approve_trends in {"1", "true", "yes", "on"}
 
     @property
     def is_background_in_web(self) -> bool:

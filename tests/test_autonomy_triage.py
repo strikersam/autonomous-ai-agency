@@ -224,3 +224,71 @@ async def test_dispatcher_runs_portfolio_intake_on_its_own_cadence(store, monkey
     for _ in range(6):
         await dispatcher._poll_and_execute()
     assert len(calls) == 2
+
+
+def _trend(title: str, *, owner: str = "system:trend-scoping", created_at: float = 1.0) -> Task:
+    return Task(
+        owner_id=owner, title=title, task_type="trend_scoping",
+        tags=["trend-scoping", "gate:telegram"], requires_approval=True,
+        pending_agent_run=False, created_at=created_at,
+    )
+
+
+@pytest.mark.asyncio
+async def test_trend_code_change_is_approved_when_enabled(store, monkeypatch):
+    # Regression: trend code-change tasks are created gated, so triage never
+    # touched them and they piled up in "To be approved".
+    from packages.config import settings
+
+    monkeypatch.setattr(settings, "agency_triage_approve_trends", "true")
+    task = _trend("[trend] Upgrade to FastAPI 0.120")
+    await store.create(task)
+
+    result = await triage_gated_tasks(store)
+
+    saved = await store.get(task.task_id)
+    assert result.approved == 1
+    assert saved.execution_approved is True and saved.pending_agent_run is True
+
+
+@pytest.mark.asyncio
+async def test_trend_code_change_left_for_human_when_disabled(store, monkeypatch):
+    from packages.config import settings
+
+    monkeypatch.setattr(settings, "agency_triage_approve_trends", "false")
+    task = _trend("[trend] Upgrade to FastAPI 0.120")
+    await store.create(task)
+
+    result = await triage_gated_tasks(store)
+
+    assert (result.approved, result.left_for_human) == (0, 1)
+    assert (await store.get(task.task_id)).status is TaskStatus.TODO
+
+
+@pytest.mark.asyncio
+async def test_trend_type_from_a_person_is_left_for_human(store, monkeypatch):
+    from packages.config import settings
+
+    monkeypatch.setattr(settings, "agency_triage_approve_trends", "true")
+    task = _trend("[trend] something", owner="boss@x.com")
+    await store.create(task)
+
+    result = await triage_gated_tasks(store)
+
+    assert result.left_for_human == 1
+
+
+@pytest.mark.asyncio
+async def test_duplicate_trend_is_rejected(store, monkeypatch):
+    from packages.config import settings
+
+    monkeypatch.setattr(settings, "agency_triage_approve_trends", "true")
+    first = _trend("[trend] Adopt uv for installs", created_at=1.0)
+    second = _trend("[trend] Adopt uv for installs!", created_at=2.0)
+    await store.create(first)
+    await store.create(second)
+
+    result = await triage_gated_tasks(store)
+
+    assert (result.approved, result.rejected) == (1, 1)
+    assert (await store.get(second.task_id)).status is TaskStatus.WONT_DO

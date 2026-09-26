@@ -506,6 +506,18 @@ _AUTONOMY: tuple[ControlSpec, ...] = (
         live=True,
         risk=RISK_MEDIUM,
     ),
+    _toggle(
+        "AGENCY_TRIAGE_APPROVE_TRENDS",
+        "CEO triage approves trend code changes",
+        "autonomy",
+        "true",
+        "Trend-scanner tasks that propose a code change are created waiting for "
+        "approval. With this on, CEO triage approves them so an agent drafts the "
+        "PR; the PR itself still waits for your merge. Trend text comes from "
+        "outside sources, so review those PRs with that in mind.",
+        live=True,
+        risk=RISK_HIGH,
+    ),
     _number(
         "AGENCY_AUTO_TRIAGE_EVERY_POLLS",
         "CEO triage interval (dispatcher polls)",
