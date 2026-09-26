@@ -7,7 +7,7 @@ import logging
 import os
 import time
 
-from tasks.models import TaskStatus
+from tasks.models import Task, TaskStatus
 from tasks.service import TaskExecutionCoordinator
 from tasks.store import TaskStore, get_task_store
 
@@ -120,6 +120,13 @@ class TaskDispatcher:
         if _AUTO_RETRY_BLOCKED_EVERY > 0 and self._poll_count % _AUTO_RETRY_BLOCKED_EVERY == 0:
             await self._auto_retry_blocked()
 
+        from packages.config.autonomy_limits import kill_switch_engaged
+        if kill_switch_engaged():
+            # Tasks stay pending and resume on the first poll after the switch is off.
+            if self._poll_count % _QUEUE_DEPTH_LOG_EVERY == 0:
+                log.warning("TaskDispatcher: kill switch engaged — not picking up tasks")
+            return
+
         tasks = await self.store.list_pending(limit=self.max_concurrency)
 
         # Emit periodic queue-depth diagnostic
@@ -151,7 +158,14 @@ class TaskDispatcher:
         for task in tasks:
             self._first_seen.setdefault(task.task_id, now)
 
-        await asyncio.gather(*(self._execute_task(task.task_id) for task in tasks))
+        await asyncio.gather(*(self._execute_as_agent(task) for task in tasks))
+
+    async def _execute_as_agent(self, task: Task) -> None:
+        """Run one task with its LLM spend attributed to the assigned agent."""
+        from packages.ai.agent_budget import agent_scope
+
+        with agent_scope(task.agent_id or "task-dispatcher"):
+            await self._execute_task(task.task_id)
 
     async def _execute_task(self, task_id: str) -> None:
         first_seen = self._first_seen.pop(task_id, None)

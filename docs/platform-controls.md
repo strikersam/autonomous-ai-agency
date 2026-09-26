@@ -6,7 +6,7 @@ The screen where feature switches and multi-option settings are chosen, instead
 of editing ~100 `true`/`false` rows in the Render environment editor and waiting
 for a redeploy.
 
-- Catalogue: [`packages/config/control_catalogue.py`](../packages/config/control_catalogue.py) — the 109 declared controls
+- Catalogue: [`packages/config/control_catalogue.py`](../packages/config/control_catalogue.py) — the 113 declared controls
 - Types + builders: [`packages/config/control_specs.py`](../packages/config/control_specs.py)
 - Lookup + validation API: [`packages/config/control_registry.py`](../packages/config/control_registry.py) — import from here
 - Override layer: [`packages/config/control_overrides.py`](../packages/config/control_overrides.py)

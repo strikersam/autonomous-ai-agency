@@ -892,22 +892,35 @@ class Agency:
         except Exception:
             return 0
 
+    async def _run_cycle_as_ceo(self) -> Any:
+        """One CEO cycle with its LLM spend attributed to the ``ceo`` agent."""
+        from packages.ai.agent_budget import agent_scope
+
+        with agent_scope("ceo"):
+            return await self.run_cycle()
+
     def _loop(self) -> None:
         # Fire immediately on startup so the first cycle runs before the
         # instance spins down (Render free tier: 15 min inactivity timeout).
         # Subsequent cycles sleep for self._tick (default 5 min).
+        from packages.config.autonomy_limits import kill_switch_engaged
+
         while self._running:
+            if kill_switch_engaged():
+                log.warning("Agency tick skipped — kill switch engaged")
+                time.sleep(self._tick)
+                continue
             try:
                 if self._main_loop is not None:
                     # Dispatch onto the FastAPI main loop so coroutines can
                     # safely touch Motor/aiosqlite clients bound to it.
                     future = asyncio.run_coroutine_threadsafe(
-                        self.run_cycle(), self._main_loop
+                        self._run_cycle_as_ceo(), self._main_loop
                     )
                     future.result(timeout=300)  # 5-min cap per cycle
                 else:
                     # Fallback: fresh loop (only used before attach_main_loop)
-                    asyncio.run(self.run_cycle())
+                    asyncio.run(self._run_cycle_as_ceo())
             except Exception as exc:
                 log.error("Agency tick error: %s", exc)
             time.sleep(self._tick)

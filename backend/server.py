@@ -8758,6 +8758,11 @@ async def autonomy_tick(request: Request) -> dict[str, object]:
         result["ceo"] = {"triggered": False, "skipped": "throttled"}
         result["dispatch"] = {"skipped": "throttled — a tick ran in the last minute"}
         return result
+    from packages.config.autonomy_limits import kill_switch_engaged
+    if kill_switch_engaged():
+        result["ceo"] = {"triggered": False, "skipped": "kill switch engaged"}
+        result["dispatch"] = {"skipped": "kill switch engaged"}
+        return result
 
     # 1. Fire CEO cycle — but SKIP if there are already pending tasks to execute.
     # The CEO cycle takes 10-15s, which eats the tick's timeout and leaves no
@@ -9124,6 +9129,10 @@ async def scheduler_tick(request: Request):
     global _last_cron_tick_at
     _last_cron_tick_at = datetime.now(timezone.utc)
     scheduler = get_scheduler()
+    from packages.config.autonomy_limits import kill_switch_engaged
+    if kill_switch_engaged():
+        return {"ok": True, "fired": [], "total_jobs": len(scheduler.list()),
+                "skipped": "kill switch engaged"}
     fired = []
     try:
         # Periodic cleanup: deduplicate schedules by name + remove stale

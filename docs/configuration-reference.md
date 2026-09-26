@@ -423,6 +423,27 @@ Full guide: [`docs/governance/README.md`](governance/README.md).
 | `GOVERNANCE_MAX_SANDBOXES` | `8` | Cap on concurrently live sandboxes. Exceeding it raises `SandboxUnavailableError` — backpressure rather than host resource exhaustion. |
 | `GOVERNANCE_ARTIFACTS_DIR` | `.artifacts` | Where sandbox artifacts are captured **before** teardown. |
 
+### Hard stops on autonomous work
+
+`packages/config/autonomy_limits.py`, `packages/ai/agent_budget.py`. All three
+are **live** Platform Controls (Dashboard → System → Platform Controls). A save
+takes effect at the next check, with no restart. Agents can read these values but cannot write them.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AGENCY_KILL_SWITCH` | `false` | `true` halts every autonomous action. The task dispatcher stops picking up work (tasks stay pending). The CEO loop skips its cycles. Scheduled jobs don't fire (run-once jobs are kept, not consumed). Both cron ticks return `skipped: kill switch engaged`. `WorkflowOrchestrator.execute()` returns a failed run. `AgentRunner._commit_step()` commits nothing. Agent-attributed LLM calls raise `KillSwitchEngaged`, which stops a run already in progress at its next LLM call, before the Verifier can pass another diff. Human proxy and dashboard traffic is unaffected. Only a person turns it off. |
+| `AGENT_DAILY_KTOKENS_CAP` | `0` | Per-agent daily token cap, in thousands, per UTC day. When an agent reaches it, its next routed LLM call raises `AgentBudgetExceeded`. `0` = unlimited. |
+| `AGENT_DAILY_USD_CAP` | `0` | The same cap in USD, priced from `packages/ai/cost_tracker.py`. Free-tier models cost $0 and never trip it. `0` = unlimited. |
+
+The agent is bound where work starts. The task dispatcher binds the task's
+`agent_id` (or `task-dispatcher`) and the CEO loop binds `ceo`. The orchestrator
+binds `metadata["agent"]`, else the agent its caller bound, else `orchestrator`, and re-binds to the chosen specialist
+after `select_specialist`. Loops that call the router without a bound agent (the
+trend watcher, the self-heal sweeper) are neither capped nor stopped mid-call.
+The work they create still goes through the gated dispatcher and scheduler.
+Counts are in-memory, per process and reset on restart, the same scope as
+`packages/llm/budget.py`. Streaming responses and cache hits are not counted.
+
 ### Sandbox isolation in production
 
 Render deploys this backend with `env: docker` — the application *is* a

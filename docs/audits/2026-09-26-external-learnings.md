@@ -25,11 +25,17 @@ Each "exists" entry was checked by `grep` against `agent/`, `packages/`, `servic
 
 - **Memory Defense** (Hindsight). All four agent memory stores now call `redact_secrets()` before writing. See the CHANGELOG entry dated 2026-09-26.
 
-## Gaps worth building — each needs a human decision (CLAUDE.md rule 40)
+- **Global kill switch** (curriculum 15/14). `AGENCY_KILL_SWITCH`, a live Platform Control. Built after the owner approved it.
+- **Per-agent daily spend cap** (Paperclip; curriculum 15/13). `AGENT_DAILY_KTOKENS_CAP` / `AGENT_DAILY_USD_CAP`, enforced in `ProviderRouter.chat_completion`.
 
-1. **Global kill switch** (curriculum 15/14). No single flag stops every autonomous loop. It should be a boolean the agents can read but cannot write, checked before every scheduler tick and every `apply_diff()`, and turned back on only by a person. This touches `packages/scheduler/scheduler.py` and `agent/loop.py`.
-2. **Per-agent spend cap with a hard stop** (Paperclip "monthly budgets per agent"; curriculum 15/13). `services/cost_attribution.py` groups spend by model and phase, not by agent, and nothing enforces a limit. It should track spend per agent and refuse the call when that agent's budget runs out. This touches `packages/ai/router.py`.
-3. **Atomic task checkout** (Paperclip). `services/shared_state.claim()` exists, but task pickup was not audited to confirm every worker path goes through it. Double-work across workers is the failure mode.
-4. **Goal ancestry on tasks** (Paperclip). `tasks/` has no `parent_goal` / `goal_id` chain, so an executor sees a task title without the goal that produced it.
-5. **Evidence-counted observations** (Hindsight). Lessons count `hits`, but a newer, contradicting lesson does not weaken an old one. Refining lessons instead of just counting them would stop stale lessons from ranking highest indefinitely.
-6. **Canary tokens** (curriculum 15/14). A fake credential in the agent's environment whose use raises an alert. This is cheap and catches exfiltration that composes from allowed actions.
+  *Correction to the first draft of this audit:* it said "nothing enforces a limit". In fact `packages/llm/budget.py` already
+  tracks spend per agent and has an opt-in global daily/monthly hard stop. But agent traffic goes through
+  `packages/ai/router.py`, which never reaches that tracker, so the existing caps did not cover agents.
+
+See `docs/configuration-reference.md` → "Hard stops on autonomous work".
+
+## Gaps still open
+1. **Atomic task checkout** (Paperclip). `services/shared_state.claim()` exists, but task pickup was not audited to confirm every worker path goes through it. Double-work across workers is the failure mode.
+2. **Goal ancestry on tasks** (Paperclip). `tasks/` has no `parent_goal` / `goal_id` chain, so an executor sees a task title without the goal that produced it.
+3. **Evidence-counted observations** (Hindsight). Lessons count `hits`, but a newer, contradicting lesson does not weaken an old one. Refining lessons instead of just counting them would stop stale lessons from ranking highest indefinitely.
+4. **Canary tokens** (curriculum 15/14). A fake credential in the agent's environment whose use raises an alert. This is cheap and catches exfiltration that composes from allowed actions.

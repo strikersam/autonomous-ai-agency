@@ -818,8 +818,29 @@ class WorkflowOrchestrator:
         Blocks at ApprovalGate unless ``req.auto_approve`` is True.
         If ``resume_run_id`` is provided, resumes from that run and skips
         phases that already have output.
-        Returns the completed WorkflowRun.
+        Returns the completed WorkflowRun. With the kill switch on, returns a
+        failed run without starting any phase.
         """
+        from packages.ai.agent_budget import agent_scope, current_agent
+        from packages.config.autonomy_limits import kill_switch_engaged
+
+        if kill_switch_engaged():
+            run = self._runs.get(resume_run_id or "") or WorkflowRun(
+                user_id=req.user_id, company_id=req.company_id
+            )
+            self._runs[run.run_id] = run
+            run.status = "failed"
+            run.error = "KillSwitchEngaged: AGENCY_KILL_SWITCH is on"
+            log.warning("WorkflowOrchestrator: refused run — kill switch engaged")
+            return run
+        # Keep an agent the caller already bound (e.g. the dispatcher's task agent).
+        agent = str(req.metadata.get("agent") or current_agent() or "orchestrator")
+        with agent_scope(agent):
+            return await self._execute_golden_path(req, resume_run_id=resume_run_id)
+
+    async def _execute_golden_path(
+        self, req: ExecutionRequest, *, resume_run_id: str | None
+    ) -> WorkflowRun:
         if resume_run_id and resume_run_id in self._runs:
             run = self._runs[resume_run_id]
         else:
@@ -883,6 +904,11 @@ class WorkflowOrchestrator:
                 else:
                     await handler(run, req)
                     run.last_heartbeat = time.time()
+
+                # Attribute the rest of the run's LLM spend to the chosen specialist.
+                if phase == Phase.SELECT_SPECIALIST and run.specialist and run.specialist.specialist_names:
+                    from packages.ai.agent_budget import bind_agent
+                    bind_agent(run.specialist.specialist_names[0])
 
                 # #522: Checkpoint after each successful phase.
                 await self._checkpoint(run)
