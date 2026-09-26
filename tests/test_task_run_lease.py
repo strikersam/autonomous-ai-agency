@@ -182,3 +182,15 @@ def test_autonomy_tick_skips_a_task_the_dispatcher_holds(monkeypatch):
     assert body["dispatch"]["task_id"] == task.task_id
     assert body["dispatch"]["skipped"] == "task already running elsewhere"
     assert body["dispatch"]["ran"] is False
+
+
+@pytest.mark.anyio
+async def test_stores_without_a_lease_fall_back_to_the_process_lock():
+    from unittest.mock import MagicMock
+
+    store = MagicMock()  # no acquire_run_lease on its class
+    assert await service.claim_task_run(store, "t-mock") is True
+    assert await service.claim_task_run(store, "t-mock") is False  # process lock held
+    await service.release_task_run(store, "t-mock")
+    assert await service.claim_task_run(store, "t-mock") is True
+    await service.release_task_run(store, "t-mock")

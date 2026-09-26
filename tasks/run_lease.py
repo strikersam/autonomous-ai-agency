@@ -27,6 +27,8 @@ async def claim_task_run(store: Any, task_id: str) -> bool:
     """Take both the in-process lock and the cross-process run lease, or neither."""
     if not await _shared_claim(f"task:active:{task_id}", ttl=int(_RUN_LEASE_TTL_S)):
         return False
+    if not _supports_lease(store):
+        return True
     try:
         if await store.acquire_run_lease(task_id, _RUN_LEASE_HOLDER, _RUN_LEASE_TTL_S):
             return True
@@ -40,9 +42,21 @@ async def claim_task_run(store: Any, task_id: str) -> bool:
 
 async def release_task_run(store: Any, task_id: str) -> None:
     """Release what ``claim_task_run`` took. Never raises."""
+    if not _supports_lease(store):
+        await _shared_release(f"task:active:{task_id}")
+        return
     try:
         await store.release_run_lease(task_id, _RUN_LEASE_HOLDER)
     except Exception:
         log.warning("Run lease release for task %s failed; it expires on its own",
                     task_id, exc_info=True)
     await _shared_release(f"task:active:{task_id}")
+
+
+def _supports_lease(store: Any) -> bool:
+    """True for stores whose class implements the run lease (``TaskStore`` does).
+
+    Checked on the class, not the instance, so a bare ``MagicMock`` store in a
+    unit test falls back to the in-process lock alone instead of failing closed.
+    """
+    return callable(getattr(type(store), "acquire_run_lease", None))
