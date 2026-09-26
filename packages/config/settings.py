@@ -209,6 +209,15 @@ class Settings:
             "OLLAMA_REASONING_EFFORT", ""
         ).strip().lower()
 
+        # Nemotron 3 (the default free NVIDIA NIM brain) thinks by default,
+        # which multiplies latency several-fold and routinely pushes a
+        # plan → execute → verify run past TASK_EXECUTION_TIMEOUT_SEC. Default
+        # "false" sends chat_template_kwargs.enable_thinking=false for those
+        # models; "true" leaves the request untouched (model default: thinking).
+        self.nemotron_thinking: str = os.environ.get(
+            "NEMOTRON_THINKING", "false"
+        ).strip().lower()
+
         # ── Render MCP (platform-level debugging + environment monitoring) ──
         # The agency runs on Render, but nothing inside the process can see the
         # *platform* view: build/deploy failures, OOM kills, restarts, CPU and
@@ -467,6 +476,11 @@ class Settings:
         behaviour)."""
         v = self.ollama_reasoning_effort
         return v if v in ("high", "medium", "low") else ""
+
+    @property
+    def is_nemotron_thinking_enabled(self) -> bool:
+        """True when Nemotron 3 models should keep their default thinking mode."""
+        return self.nemotron_thinking in {"1", "true", "yes", "on"}
 
     @property
     def is_agency_ceo_enabled(self) -> bool:

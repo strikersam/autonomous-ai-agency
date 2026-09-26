@@ -507,6 +507,7 @@ class InternalAgentAdapter(RuntimeAdapter):
                 department=spec.context.get("department"),
                 key_id=spec.context.get("key_id"),
                 session_id=spec.context.get("session_id"),
+                time_budget_s=spec.context.get("time_budget_s"),
             )
         except Exception as exc:
             self._remove_worktree(base_workspace, worktree_path, _worktree_tmp)

@@ -83,6 +83,7 @@ See [docs/claude-code-setup.md](claude-code-setup.md) for full Claude Code setup
 | `AGENT_JUDGE_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | Final release-gate judge model (verdict / security / correctness). |
 | `AGENT_MAX_OUTPUT_TOKENS` | `4096` | Output-token budget for agent-loop LLM calls (planner/executor/verifier). Replaces a hardcoded 16384: a reasoning model given 16384 tokens could run the planner for minutes and time out. Also settable from the Brain card as **Max tokens**; the UI/DB value wins over this env. Raise it if large file writes get truncated. |
 | `AGENT_REQUEST_TIMEOUT_SEC` | `120` | Per-request timeout (seconds) for agent-loop LLM calls, passed to the failover client. Also settable from the Brain card as **Timeout (s)**; the UI/DB value wins. Lower it to fail over to a faster provider sooner, or raise it for a deliberately slow/large model. |
+| `NEMOTRON_THINKING` | `false` | Whether Nemotron 3 models (the default free NVIDIA brain, e.g. `nvidia/nemotron-3-super-120b-a12b`) think before answering. `false` sends `chat_template_kwargs.enable_thinking=false`, which cuts per-call latency several-fold on the free tier; `true` leaves the request untouched. Other models are never affected. Also a live control under Settings → Platform controls → Brain & Model Routing. |
 | `AGENT_WORKSPACE_ROOT` | (repo root) | Absolute path to the workspace the agent operates on. Defaults to the directory containing `proxy.py`. |
 
 ### TokenIn — free frontier gateway

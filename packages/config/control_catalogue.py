@@ -370,6 +370,16 @@ _BRAIN_ROUTING: tuple[ControlSpec, ...] = (
         live=True,
     ),
     _toggle(
+        "NEMOTRON_THINKING",
+        "Nemotron thinking mode",
+        "brain_routing",
+        "false",
+        "Let Nemotron 3 models (the default free NVIDIA brain) think before "
+        "answering. Off is several times faster and keeps agent runs inside "
+        "the task timeout; turn on only for quality over speed.",
+        live=True,
+    ),
+    _toggle(
         "ALLOW_PAID_BRAIN",
         "Allow paid brains",
         "brain_routing",

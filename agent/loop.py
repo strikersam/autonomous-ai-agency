@@ -596,7 +596,12 @@ class AgentRunner:
         memory_store: UserMemoryStore | None = None,
         session_id: str | None = None,
         metadata: dict[str, Any] | None = None,
+        time_budget_s: float | None = None,
     ) -> dict[str, Any]:
+        # ``time_budget_s`` lets the caller (the task coordinator) hand down its
+        # hard execution timeout so the loop stops *between* steps and returns
+        # the work it finished, instead of being cancelled mid-step and losing
+        # all of it. Falls back to AGENT_TIME_BUDGET_S when not given.
         # ``metadata`` is accepted for forward-compatibility (callers like
         # direct_chat.py may pass it) but is not consumed by the core loop.
 
@@ -737,16 +742,21 @@ class AgentRunner:
                 return parallel_result
 
             _run_start_time = time.perf_counter()
-            _time_budget_s = float(os.environ.get("AGENT_TIME_BUDGET_S", "0") or "0")
+            _time_budget_s = time_budget_s or float(os.environ.get("AGENT_TIME_BUDGET_S", "0") or "0")
+            time_budget_exceeded = False
 
             for step in plan.steps[:max_steps]:
-                # Time-budget check: if AGENT_TIME_BUDGET_S is set and we've
-                # exceeded 80% of it, stop early to avoid the hard task-execution
+                # Time-budget check: stop early to avoid the hard task-execution
                 # timeout. This gives the agent time to commit what it has and
-                # produce a report instead of being killed mid-step.
+                # produce a report instead of being killed mid-step. Projecting
+                # the next step from the average so far matters on slow free
+                # models, where one step can take minutes: "80% not yet reached"
+                # alone would start a step that cannot finish in time.
                 if _time_budget_s > 0:
                     elapsed = time.perf_counter() - _run_start_time
-                    if elapsed > _time_budget_s * 0.8:
+                    avg_step = elapsed / len(step_results) if step_results else 0.0
+                    if elapsed + avg_step > _time_budget_s * 0.8:
+                        time_budget_exceeded = True
                         log.warning(
                             "Agent time budget %.0fs exceeded 80%% (%.0fs elapsed) — "
                             "stopping after %d/%d steps",
@@ -972,6 +982,7 @@ class AgentRunner:
                 "steps": step_results,
                 "commits": commits,
                 "summary": summary,
+                "time_budget_exceeded": time_budget_exceeded,
                 "report": self._build_report(plan.goal, step_results, commits, pr_url),
                 "judge": judge,
                 "pr_url": pr_url,
