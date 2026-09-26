@@ -1,6 +1,25 @@
 # Next Action
 
-**Updated:** 2026-09-25
+**Updated:** 2026-09-26
+
+## Daily automation 2026-09-26 (row 82)
+
+Session start: 0 open PRs, 0 `routine-backlog` issues (clean slate). Fixed the
+bug row 80 found-but-left-open: `/api/auth/refresh` always 401'd for
+non-admin users on `STORAGE_BACKEND=sqlite`, because it only tried
+`ObjectId(payload["sub"])` and never retried with the raw UUID string the
+way `get_optional_user()`/the auth middleware already do (PR #871's fix
+never got applied to this sibling endpoint). Fixed with the identical
+retry pattern; 2 new regression tests, verified failing first. PR
+[#1583](https://github.com/strikersam/autonomous-ai-agency/pull/1583) —
+open, CI pending; auto-merge to be armed once green. See active-tasks.md
+row 82 for full verification detail, including the sandbox dependency
+install needed to run any backend test this session (`fastapi`, `motor`,
+`bcrypt`, etc. plus a broken system `cryptography` reinstall) and the
+pre-existing, unrelated `test_bedrock_live.py` baseline failure reported
+but not touched.
+
+## Previous state (2026-09-25)
 
 ## SAM acts on alerts (branch claude/sam-request-handling-fvfk05)
 
@@ -184,5 +203,31 @@ auto-merge armed (squash). Two changes:
   have caught a prior day's bug before it ever reached CI.
 - Row 50 (provider/model source-of-truth + admin UI): still IN_PROGRESS, P1-P4
   remain; requires full backend deps in the sandbox.
-- `/api/auth/refresh` always 401s on SQLite (ObjectId on UUID ids); production
-  (Mongo) unaffected, but self-hosters see automatic logouts on token expiry.
+- ~~`/api/auth/refresh` always 401s on SQLite (ObjectId on UUID ids)~~ **Fixed
+  2026-09-26, row 82, PR #1583.**
+
+## Next daily run (2026-09-27)
+
+- Watch for PR #1583 merging to master (row 82's `/api/auth/refresh` SQLite fix).
+- `tests/test_bedrock_live.py::test_bedrock_direct_boto3_ping` is not gated by a
+  `live`/`integration` pytest marker — only by a `skipif` that checks whether
+  `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` are *set*, not whether they're valid.
+  This sandbox has ambient (invalid) AWS env vars, so the test always runs and
+  always fails with `UnrecognizedClientException`, breaking any attempt at a full
+  `pytest -x` run in a web/cloud session. Worth marking it `@pytest.mark.integration`
+  (or `live`) so `pytest.ini`'s default `-m "not integration"` excludes it like the
+  rest of the live-credential suite — this is a CI-hygiene fix, not urgent, but it
+  cost this session a full-suite run twice.
+- The backend deps this sandbox needed installing from scratch this session
+  (`fastapi`, `pydantic`, `motor`, `bcrypt`, `pytest`, `pyjwt`, `httpx`, `pyyaml`,
+  `pymongo`, `python-dotenv`, `apscheduler`) plus a forced reinstall of a broken
+  system `cryptography` package (Rust-binding panic, `pyo3_runtime.PanicException`)
+  are apparently not persisted between sessions — same documented gap as rows
+  53/55/58/60/61/67-71/73/78/81. If a session image/setup script could pre-install
+  `requirements.txt` plus a working `cryptography`, every daily-automation run would
+  save the ~2 minutes this took and the risk of hitting a version mismatch.
+- Check for new models from DeepSeek, Google, Groq, Anthropic, NVIDIA NIM
+  (Nemotron 4 family rumoured); Claude Sonnet 5.5 / Haiku 5.5 (Anthropic said
+  "coming in the coming weeks" alongside Opus 5.5) — still not seen as of
+  2026-09-26.
+- Row 50 (provider/model source-of-truth + admin UI): still IN_PROGRESS, P1-P4 remain.
