@@ -311,7 +311,7 @@ class ProviderConfig:
                         betas.append("extended-cache-ttl-2025-04-11")
                 try:
                     from packages.config import settings as _cfg
-                    _thinking_budget = _cfg.settings.anthropic_thinking_budget
+                    _thinking_budget = _cfg.anthropic_thinking_budget
                 except Exception:  # noqa: BLE001 — defensive; config load must not break headers
                     _thinking_budget = 0
                 if _thinking_budget > 0:
@@ -1946,7 +1946,7 @@ class ProviderRouter:
 
         try:
             from packages.config import settings as _cfg
-            _thinking_budget = _cfg.settings.anthropic_thinking_budget
+            _thinking_budget = _cfg.anthropic_thinking_budget
         except Exception:  # noqa: BLE001 — defensive; config load must not break payload
             _thinking_budget = 0
         if _thinking_budget > 0 and model_id not in NO_EXTENDED_THINKING_MODELS:

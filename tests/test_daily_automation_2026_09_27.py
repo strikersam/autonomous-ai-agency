@@ -73,34 +73,31 @@ class TestSettingsAnthropicDefaultEffort:
 
 
 class TestSettingsAnthropicThinkingBudget:
-    def _make_settings(self, env: dict[str, str]):
-        saved = {k: os.environ.pop(k, None) for k in env}
-        os.environ.update(env)
-        try:
-            from packages.config.settings import Settings
-            return Settings()
-        finally:
-            for k, v in saved.items():
-                if v is None:
-                    os.environ.pop(k, None)
-                else:
-                    os.environ[k] = v
+    """``anthropic_thinking_budget`` is a live property (re-reads the env var
+    on every access), not an ``__init__``-cached attribute — see
+    TestSettingsHasAnthropicEffortAttribute.test_anthropic_thinking_budget_attribute_declared.
+    So these use `monkeypatch` (restored at test teardown, after the
+    assertion) rather than restoring the env immediately after construction."""
 
-    def test_integer_value_returned(self):
-        s = self._make_settings({"ANTHROPIC_THINKING_BUDGET": "4096"})
-        assert s.anthropic_thinking_budget == 4096
+    def test_integer_value_returned(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_THINKING_BUDGET", "4096")
+        from packages.config.settings import Settings
+        assert Settings().anthropic_thinking_budget == 4096
 
-    def test_zero_default(self):
-        s = self._make_settings({})
-        assert s.anthropic_thinking_budget == 0
+    def test_zero_default(self, monkeypatch):
+        monkeypatch.delenv("ANTHROPIC_THINKING_BUDGET", raising=False)
+        from packages.config.settings import Settings
+        assert Settings().anthropic_thinking_budget == 0
 
-    def test_invalid_string_returns_zero(self):
-        s = self._make_settings({"ANTHROPIC_THINKING_BUDGET": "notanint"})
-        assert s.anthropic_thinking_budget == 0
+    def test_invalid_string_returns_zero(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_THINKING_BUDGET", "notanint")
+        from packages.config.settings import Settings
+        assert Settings().anthropic_thinking_budget == 0
 
-    def test_empty_string_returns_zero(self):
-        s = self._make_settings({"ANTHROPIC_THINKING_BUDGET": ""})
-        assert s.anthropic_thinking_budget == 0
+    def test_empty_string_returns_zero(self, monkeypatch):
+        monkeypatch.setenv("ANTHROPIC_THINKING_BUDGET", "")
+        from packages.config.settings import Settings
+        assert Settings().anthropic_thinking_budget == 0
 
 
 # ---------------------------------------------------------------------------
@@ -183,8 +180,11 @@ class TestSettingsHasAnthropicEffortAttribute:
         assert "self.anthropic_default_effort" in src
 
     def test_anthropic_thinking_budget_attribute_declared(self):
+        """Property (not an __init__-cached attribute): it must re-read the env
+        var live, since a `Settings()` singleton is created once at import
+        time and tests/callers monkeypatch the env var afterwards."""
         src = SETTINGS_PY.read_text()
-        assert "self.anthropic_thinking_budget" in src
+        assert "def anthropic_thinking_budget(self)" in src
 
     def test_only_settings_reads_anthropic_default_effort_env(self):
         """No other module should call os.environ.get('ANTHROPIC_DEFAULT_EFFORT')."""

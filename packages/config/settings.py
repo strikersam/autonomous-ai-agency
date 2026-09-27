@@ -216,12 +216,6 @@ class Settings:
             "ANTHROPIC_DEFAULT_EFFORT", ""
         ).strip().lower()
 
-        # Extended-thinking token budget for older Anthropic non-adaptive models
-        # (e.g. claude-3.7-sonnet). Must stay in settings.py (rule 5). Zero = off.
-        self.anthropic_thinking_budget: int = (
-            lambda v: int(v) if v.isdigit() else 0
-        )(os.environ.get("ANTHROPIC_THINKING_BUDGET", "0").strip())
-
         # ── Render MCP (platform-level debugging + environment monitoring) ──
         # The agency runs on Render, but nothing inside the process can see the
         # *platform* view: build/deploy failures, OOM kills, restarts, CPU and
@@ -491,6 +485,17 @@ class Settings:
         Mirrors Claude Code's ``maxEffortLevel`` concept (Week 37, Sept 2026)."""
         v = self.anthropic_default_effort
         return v if v in ("low", "medium", "high", "xhigh", "max") else ""
+
+    @property
+    def anthropic_thinking_budget(self) -> int:
+        """Extended-thinking token budget for older Anthropic non-adaptive
+        models (e.g. claude-3.7-sonnet). Zero = off.
+
+        Read live rather than cached at ``__init__`` time: callers (and
+        tests) monkeypatch ``ANTHROPIC_THINKING_BUDGET`` per-request/per-test,
+        and a `Settings()` singleton created once at import time would go
+        stale otherwise."""
+        return _env_int("ANTHROPIC_THINKING_BUDGET", 0)
 
     @property
     def is_agency_ceo_enabled(self) -> bool:
