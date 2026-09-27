@@ -73,6 +73,7 @@ from packages.llm.types import (
     TransientError,
     Usage,
 )
+from packages.security.redact import redact_secrets
 
 log = logging.getLogger("llm.router")
 
@@ -653,10 +654,17 @@ class LLMRouter:
                     ),
                     timeout=min(budget.remaining_sec, config.timeout_sec),
                 )
+        except asyncio.CancelledError:
+            # The caller's own deadline fired mid-call. Without this line the
+            # attempt vanished from the logs, which is how a planner timeout
+            # looked like two minutes of silence.
+            _log_attempt(attempt, started, "cancelled by the caller's deadline")
+            raise
         except Exception as exc:
             latency_ms = int((time.monotonic() - started) * 1000)
             attempt.latency_ms = latency_ms
             attempt.error = str(exc)[:300]
+            _log_attempt(attempt, started, f"failed: {type(exc).__name__} {attempt.error[:120]}")
             attempt.status = getattr(exc, "status", None)
             self._penalise(candidate, exc, api_key, latency_ms=latency_ms)
             if isinstance(exc, (PermanentError, TransientError)):
@@ -676,6 +684,7 @@ class LLMRouter:
         latency_ms = response.latency_ms or int((time.monotonic() - started) * 1000)
         attempt.ok = True
         attempt.latency_ms = latency_ms
+        _log_attempt(attempt, started, "ok")
         self._health.record_success(config.id, latency_ms=latency_ms)
         self._keys.record_success(config.id, api_key)
         return attempt, response, None
@@ -1051,6 +1060,15 @@ class LLMRouter:
 
 _router: LLMRouter | None = None
 _lock = threading.Lock()
+
+
+def _log_attempt(attempt: Attempt, started: float, outcome: str) -> None:
+    """One INFO line per provider attempt: who, which model, how long, what happened."""
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    log.info(
+        "llm.router: attempt %s/%s %s in %dms",
+        attempt.provider, attempt.model, redact_secrets(outcome), elapsed_ms,
+    )
 
 
 def _same_provider_next(candidates: list[Candidate], index: int) -> bool:

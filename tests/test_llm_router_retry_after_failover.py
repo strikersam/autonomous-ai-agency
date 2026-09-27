@@ -59,3 +59,33 @@ async def test_a_hung_provider_ends_as_router_exhausted_within_the_budget(
     with pytest.raises(RouterExhausted):
         await router.chat(_request(timeout_sec=30.0))
     assert time.monotonic() - started < 5.0
+
+
+async def test_every_attempt_is_logged_with_provider_model_and_latency(router_factory, caplog):
+    """Production planner timeouts showed two minutes of silence: no attempt was logged."""
+    def handler(request):
+        if request.url.host == "alpha.test":
+            return httpx.Response(500, json={"error": "boom"})
+        return _ok(model="beta-model")
+
+    router = router_factory(handler)
+    with caplog.at_level("INFO", logger="llm.router"):
+        await router.chat(_request())
+    lines = [r.getMessage() for r in caplog.records if "attempt " in r.getMessage()]
+    assert any("alpha/alpha-model failed" in line for line in lines), lines
+    assert any("beta/beta-model ok in" in line for line in lines), lines
+
+
+async def test_an_attempt_cancelled_by_the_caller_is_logged(router_factory, caplog):
+    async def handler(request):
+        await asyncio.sleep(30)
+        return _ok()
+
+    router = router_factory(handler)
+    with caplog.at_level("INFO", logger="llm.router"):
+        with pytest.raises(asyncio.TimeoutError):
+            await asyncio.wait_for(router._dispatch(_request(timeout_sec=30.0)), 0.3)
+    assert any(
+        "alpha/alpha-model cancelled by the caller's deadline" in r.getMessage()
+        for r in caplog.records
+    )
