@@ -2,16 +2,18 @@
 
 **Updated:** 2026-09-27
 
-## Planner timeout fix (branch claude/agency-improvements-ai-learnings-k96er6)
+## Planner timeout — still open (row 86)
 
-The NVIDIA 410 fix (#1592) shipped but did not stop `planning: TimeoutError`.
-The real stall: `LLMRouter._dispatch` slept a Groq 429's clamped `Retry-After`
-(30s) before failing over to a *different* provider, then a slow NVIDIA reply
-overran the planner's 120s budget. Backoff now runs only before retrying the same
-provider; each attempt is bounded by the remaining retry budget. After deploy:
-confirm no `planning: TimeoutError` in Render logs after a groq 429. Still open:
-`anthropic-claude` HTTP 400 (priority -50); saved `nvidia-nim` record's
-`default_model` may still be `z-ai/glm-5.2` (harmless since #1592).
+#1594 (no cross-provider Retry-After sleep) is live and did NOT stop
+`planning: TimeoutError`: after it, successful plans still took 104–117s against a
+120s budget. A parallel session merged #1596/#1597 (NVIDIA + Gemini `timeout_sec: 60`,
+enforced as a wall-clock cap per attempt), betting that NIM hangs rather than runs
+slow. This branch adds one INFO line per router attempt
+(`llm.router: attempt <provider>/<model> <outcome> in <ms>ms`). Next: read those lines
+in Render. If NVIDIA plans legitimately need >60s, the 60s cap is failing good calls;
+raise NVIDIA `timeout_sec` and the Brain card **Timeout (s)** together (the provider
+cap binds first). If it truly hangs, move planning to a faster free model.
+Still open: `anthropic-claude` HTTP 400 (priority -50).
 
 
 ## Daily automation 2026-09-27 — no-op day (row 85)
