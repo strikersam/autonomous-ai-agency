@@ -495,6 +495,7 @@ PROVIDER_TIERS: dict[str, str] = {
     "together":  "free",
     "dashscope": "free",
     "moonshot":  "free",
+    "google":    "free",
     "openrouter": "paid",
     "anthropic": "paid",
     "aerolink":  "paid",

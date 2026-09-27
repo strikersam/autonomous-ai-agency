@@ -48,6 +48,8 @@ except ImportError:
 
 log = logging.getLogger("qwen-agent")
 
+_REPOWISE_TOOLS = frozenset({"get_overview", "get_context", "get_risk", "get_why"})
+
 
 @asynccontextmanager
 async def _timed_phase(phase: str, **context: Any) -> AsyncIterator[None]:
@@ -623,6 +625,11 @@ class AgentRunner:
         # Reset per-run state trackers so a reused AgentRunner instance doesn't
         # carry over halter counts from a prior run.
         self._adaptive_halter = AdaptiveHalter()
+        # Budget clock starts before planning: on a slow free model planning
+        # alone can take two minutes, and the coordinator's hard timeout
+        # counts it. _execute_step reads these to cut its tool loop short.
+        self._run_started = time.perf_counter()
+        self._run_budget_s = time_budget_s or float(os.environ.get("AGENT_TIME_BUDGET_S", "0") or "0")
         # Initialised before the try block so the finally handler can safely
         # reference them even when an exception occurs before assignment.
         plan: Any = None
@@ -741,8 +748,8 @@ class AgentRunner:
                 self._log_event(session_id, "assistant_message", {"summary": parallel_result.get("summary", "")})
                 return parallel_result
 
-            _run_start_time = time.perf_counter()
-            _time_budget_s = time_budget_s or float(os.environ.get("AGENT_TIME_BUDGET_S", "0") or "0")
+            _run_start_time = self._run_started
+            _time_budget_s = self._run_budget_s
             time_budget_exceeded = False
 
             for step in plan.steps[:max_steps]:
@@ -1160,6 +1167,18 @@ class AgentRunner:
         plan.steps = plan.steps[:max_steps]
         return plan
 
+    def _exploration_time_up(self) -> bool:
+        """True once 60% of the run's time budget is spent (never without a budget).
+
+        The remaining 40% covers the write and verify calls of the current step
+        and the judge, which cannot be skipped the way exploration can.
+        """
+        budget = getattr(self, "_run_budget_s", 0.0) or 0.0
+        started = getattr(self, "_run_started", None)
+        if budget <= 0 or started is None:
+            return False
+        return time.perf_counter() - started > budget * 0.6
+
     async def _execute_step(
         self,
         goal: str,
@@ -1222,6 +1241,16 @@ class AgentRunner:
         tool_retry_count = 0
         max_tool_retries = 3
         for remaining in range(15, 0, -1):
+            # Up to 15 sequential tool-selection calls at 5-160s each on a free
+            # model is what pushed one step past the whole task timeout in
+            # production. Once the run budget is mostly spent, stop gathering
+            # context and let the step write and verify with what it has.
+            if observations and self._exploration_time_up():
+                observations.append(
+                    {"tool": "time_budget", "result": "exploration stopped: run time budget nearly spent"}
+                )
+                self._log_event(session_id, "time_budget_exploration_stop", {"step_id": step.get("id")})
+                break
             # Stuck detection (OpenHands pattern): when the recent observations
             # repeat or alternate without progress, stop the tool loop instead
             # of spending the remaining LLM-call budget on the same mistake.
@@ -1897,7 +1926,54 @@ class AgentRunner:
                 "day_of_week": now.strftime("%A"),
             }
 
+        # Repowise codebase-intelligence tools. build_tool_prompt() advertises
+        # these, but they were never dispatched, so every call a model made to
+        # one cost a full LLM round-trip for an "Unsupported tool" error.
+        # They shell out to git, so they run off the event loop.
+        if tool in _REPOWISE_TOOLS:
+            return await asyncio.to_thread(self._run_repowise_tool, tool, args)
+
         raise ValueError(f"Unsupported tool: {tool}")
+
+    def _run_repowise_tool(self, tool: str, args: dict[str, Any]) -> Any:
+        """Run one read-only Repowise tool on the workspace (sync; call via to_thread)."""
+        def _as_list(value: Any) -> list[str] | None:
+            if value is None:
+                return None
+            return [str(v) for v in value] if isinstance(value, (list, tuple)) else [str(value)]
+
+        if tool == "get_overview":
+            return self.tools.get_overview()
+        if tool == "get_context":
+            targets = self._workspace_targets(_as_list(args.get("targets")) or [])
+            if not targets:
+                return "[tool error: get_context needs targets inside the workspace]"
+            return self.tools.get_context(targets, include=_as_list(args.get("include")))
+        if tool == "get_risk":
+            return self.tools.get_risk(
+                targets=_as_list(args.get("targets")), changed_files=_as_list(args.get("changed_files")),
+            )
+        return self.tools.get_why(str(args.get("target", "")))
+
+    def _workspace_targets(self, targets: list[str]) -> list[str]:
+        """Keep only targets that stay inside the workspace (CLAUDE.md rule 13).
+
+        Repowise's get_context joins a target onto the root and reads it with no
+        boundary check, and also accepts ``symbol:path`` and glob forms, so the
+        path part of each is checked through ``_resolve_path`` first. Any ``..``
+        segment is refused outright: inside a glob it could match outside.
+        """
+        safe: list[str] = []
+        for target in targets:
+            path_part = target.split(":", 1)[1] if ":" in target else target
+            if not path_part or ".." in Path(path_part).parts or Path(path_part).is_absolute():
+                continue
+            try:
+                self.tools._resolve_path(path_part)
+            except ValueError:
+                continue
+            safe.append(target)
+        return safe
 
     # ------------------------------------------------------------------
     # Event log helpers  (stateless harness / durable session log)

@@ -262,7 +262,11 @@ class OpenAICompatible(LLMProvider):
         if request.response_format:
             payload["response_format"] = request.response_format
         payload.update(request.extra)
-        return payload
+        # The agent loop's calls reach NVIDIA through this gateway, so the
+        # Nemotron thinking switch has to be applied here too — applying it only
+        # in packages/ai left production planning at 105-120s per call.
+        from packages.ai.router import with_nemotron_thinking_off
+        return with_nemotron_thinking_off(payload)
 
     async def chat(
         self, request: LLMRequest, *, model: str, api_key: str, client: httpx.AsyncClient
