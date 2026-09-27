@@ -756,7 +756,9 @@ _PROVIDER_REGISTRY: list[dict[str, Any]] = [
     {
         "id": "google",
         "name": "Google Gemini",
-        "tier": "paid",
+        # Free: a key from a project without billing is quota-limited, not
+        # charged (config/models.yaml carries the same tier).
+        "tier": "free",
         "key_env": "GOOGLE_API_KEY",
         "base_url_env": "GOOGLE_BASE_URL",
         # Gemini's OpenAI-compatible surface lives under /v1beta/openai. The bare

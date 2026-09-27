@@ -159,3 +159,134 @@ def test_runner_without_budget_runs_every_step(tmp_path: Path, monkeypatch):
     result = _run_with_budget(tmp_path, monkeypatch, budget=None)
     assert [s["step_id"] for s in result["steps"]] == [1, 2, 3]
     assert result["time_budget_exceeded"] is False
+
+
+# ── 3. Exploration inside a step respects the run budget ─────────────────────
+
+
+def _explore(tmp_path: Path, monkeypatch, budget: float) -> int:
+    clock = _FakeClock()
+    monkeypatch.setattr(loop_mod, "time", clock)
+    root = tmp_path / "repo"
+    root.mkdir()
+    for i in range(20):
+        (root / f"f{i}.txt").write_text("x\n", encoding="utf-8")
+    runner = AgentRunner(ollama_base="http://localhost:11434", workspace_root=root)
+    runner._run_started = 0.0
+    runner._run_budget_s = budget
+    calls = 0
+
+    async def fake_chat_json(_model: str, _messages: list[dict[str, str]]) -> dict[str, Any]:
+        nonlocal calls
+        clock.now += 30.0  # each tool-selection call takes 30s
+        calls += 1
+        return {"tool": "read_file", "args": {"path": f"f{calls}.txt"}}
+
+    async def fake_chat_text(_model: str, _messages: list[dict[str, str]]) -> str:
+        return "analysis done"
+
+    runner._chat_json = fake_chat_json  # type: ignore[method-assign]
+    runner._chat_text = fake_chat_text  # type: ignore[method-assign]
+    step = {"id": 1, "description": "look around", "files": [], "type": "analyze"}
+    asyncio.run(runner._execute_step("goal", step, None))
+    return calls
+
+
+def test_step_stops_exploring_once_budget_is_mostly_spent(tmp_path: Path, monkeypatch):
+    # Budget 100s → exploration stops past 60s: calls at t=0, 30, 60, then stop.
+    assert _explore(tmp_path, monkeypatch, budget=100.0) == 3
+
+
+def test_step_without_budget_explores_until_its_call_cap(tmp_path: Path, monkeypatch):
+    assert _explore(tmp_path, monkeypatch, budget=0.0) == 15
+
+
+def test_run_budget_clock_includes_planning(tmp_path: Path, monkeypatch):
+    """Planning time counts: a 70s plan against a 100s budget leaves room for one step."""
+    monkeypatch.delenv("AGENT_TIME_BUDGET_S", raising=False)
+    clock = _FakeClock()
+    monkeypatch.setattr(loop_mod, "time", clock)
+    root = tmp_path / "repo"
+    root.mkdir()
+    runner = AgentRunner(ollama_base="http://localhost:11434", workspace_root=root)
+    plan = AgentPlan.model_validate({
+        "goal": "g",
+        "steps": [{"id": i, "description": f"s{i}", "files": ["a.py"], "type": "edit"} for i in (1, 2)],
+    })
+
+    async def fake_plan(*_a: Any, **_k: Any) -> AgentPlan:
+        clock.now += 70.0
+        return plan
+
+    async def fake_step(_goal: str, step: dict[str, Any], *_a: Any, **_k: Any) -> dict[str, Any]:
+        clock.now += 5.0
+        return {"step_id": step["id"], "status": "applied", "changed_files": [], "issues": []}
+
+    async def fake_chat_text(_model: str, _messages: list[dict[str, str]]) -> str:
+        return '{"verdict":"APPROVED","security":"PASS","correctness":"PASS","notes":""}'
+
+    runner._generate_plan = fake_plan  # type: ignore[method-assign]
+    runner._execute_step = fake_step  # type: ignore[method-assign]
+    runner._chat_text = fake_chat_text  # type: ignore[method-assign]
+    result = asyncio.run(runner.run(
+        instruction="go", history=[], requested_model=None,
+        auto_commit=False, max_steps=5, time_budget_s=100.0,
+    ))
+    # Step 1 starts at 70s (< 80s); step 2 would start at 75 + 5 projected = 80 → stop.
+    assert [s["step_id"] for s in result["steps"]] == [1]
+    assert result["time_budget_exceeded"] is True
+
+
+# ── 4. Gemini is a free-tier provider ────────────────────────────────────────
+
+
+def test_google_gemini_is_free_tier():
+    from packages.ai.brain_config import get_provider_tier
+    from services.brain_failover import _PROVIDER_REGISTRY
+
+    assert get_provider_tier("google") == "free"
+    assert {s["id"]: s["tier"] for s in _PROVIDER_REGISTRY}["google"] == "free"
+
+
+# ── 5. Advertised Repowise tools are dispatched, inside the workspace ────────
+
+
+def _runner_with_files(tmp_path: Path) -> AgentRunner:
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / "app.py").write_text("print('hi')\n", encoding="utf-8")
+    (tmp_path / "secret.txt").write_text("TOP-SECRET\n", encoding="utf-8")
+    return AgentRunner(ollama_base="http://localhost:11434", workspace_root=root)
+
+
+def test_repowise_tools_no_longer_unsupported(tmp_path: Path):
+    runner = _runner_with_files(tmp_path)
+    overview = asyncio.run(runner._dispatch_tool_unguarded("get_overview", {}))
+    assert isinstance(overview, dict)
+    context = asyncio.run(runner._dispatch_tool_unguarded("get_context", {"targets": ["app.py"]}))
+    assert "print('hi')" in context
+    assert asyncio.run(runner._dispatch_tool_unguarded("get_why", {"target": "app.py"}))
+
+
+@pytest.mark.parametrize("target", ["../secret.txt", "*/../../secret.txt", "fn:../secret.txt", str(Path("/etc/passwd"))])
+def test_get_context_refuses_targets_outside_the_workspace(tmp_path: Path, target: str):
+    runner = _runner_with_files(tmp_path)
+    out = asyncio.run(runner._dispatch_tool_unguarded("get_context", {"targets": [target]}))
+    assert "TOP-SECRET" not in out
+    assert "root:" not in out
+
+
+# ── 6. The packages/llm gateway (the agent loop's real path) applies it too ──
+
+
+def test_llm_gateway_openai_payload_disables_nemotron_thinking(clean_overrides):
+    from packages.llm.providers.base import OpenAICompatible
+    from packages.llm.types import LLMRequest
+
+    control_overrides.apply_overrides({})
+    provider = OpenAICompatible.__new__(OpenAICompatible)
+    request = LLMRequest(messages=[{"role": "user", "content": "hi"}])
+    payload = provider.build_payload(request, "nvidia/nemotron-3-super-120b-a12b")
+    assert payload["chat_template_kwargs"] == {"enable_thinking": False}
+    other = provider.build_payload(request, "openai/gpt-oss-120b")
+    assert "chat_template_kwargs" not in other

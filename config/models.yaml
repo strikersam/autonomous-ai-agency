@@ -404,8 +404,11 @@ providers:
       - claude-haiku-4-5-20251001
 
   google:
-    display_name: Google Gemini (paid)
-    tier: paid
+    # Free tier: a Gemini API key from a Google Cloud project without billing
+    # enabled is rate-limited (per-model RPM/RPD), never charged. Treated as
+    # free so it joins the free failover chain without ALLOW_PAID_BRAIN.
+    display_name: Google Gemini (free tier)
+    tier: free
     key_env: GOOGLE_API_KEY
     base_url_env: GOOGLE_BASE_URL
     default_base_url: https://generativelanguage.googleapis.com/v1beta/openai
