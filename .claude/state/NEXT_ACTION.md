@@ -1,6 +1,30 @@
 # Next Action
 
-**Updated:** 2026-09-26
+**Updated:** 2026-09-27
+
+## Daily automation 2026-09-27 — no-op day (row 85)
+
+Clean slate at session start (0 open PRs, 0 open issues). All ship gates green
+(`compileall`, catalog consistency, changelog parity, loop registry audit).
+Installed the full `requirements.txt` in-sandbox (a first — prior sessions
+usually reported "could not run full pytest", see row 85 for the full list)
+and got a real baseline: 563 passed before hitting the one known,
+already-documented Mongo-dependent failure (`test_auth_me_regression.py`,
+see `tests/conftest.py` lines 80-96 for why `STORAGE_BACKEND` is deliberately
+left unpinned in tests). No `mongod` in this sandbox, so that test can't be
+made green here; not a new bug. Investigated two candidate bugs
+(`ceo_playbook.py` retry double-counting; a 409-hit env-var doc scan) and
+ruled both out — the first is intentional per its own test, the second is
+mostly false positives from an unscoped full-repo grep. Found and fixed one
+real thing: active-tasks.md row 84 (CEO self-learning) was still marked
+`IN_PROGRESS` though both its PRs (#1587, #1589) are on master — corrected.
+No code shipped today; see row 85 for full detail.
+
+**If picked up next:** the 409-hit env-var doc scan needs a proper allowlist
+(internal/test-only vars) before it's a usable rule-37 check — don't rerun
+the raw grep, scope it as its own task first.
+
+## Prior update: 2026-09-26
 
 ## CEO self-learning (branch claude/agency-improvements-ai-learnings-k96er6)
 
