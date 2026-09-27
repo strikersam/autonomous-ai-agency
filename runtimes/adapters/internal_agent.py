@@ -143,6 +143,23 @@ def _best_cloud_primary_base(local_ollama_base: str) -> str:
     return local_ollama_base
 
 
+def _remaining_budget_s(context: dict[str, Any]) -> float | None:
+    """Seconds left before the caller's ``time_budget_deadline`` (epoch), or None.
+
+    Floors at 1s so a run that starts after the deadline stops at its first
+    step boundary instead of falling back to "no budget". A bare
+    ``time_budget_s`` is still honoured for callers that pass a duration.
+    """
+    deadline = context.get("time_budget_deadline")
+    if deadline is not None:
+        try:
+            return max(1.0, float(deadline) - time.time())
+        except (TypeError, ValueError):
+            return None
+    budget = context.get("time_budget_s")
+    return float(budget) if budget else None
+
+
 class InternalAgentAdapter(RuntimeAdapter):
     """Built-in agent loop — Nvidia NIM primary, Ollama fallback."""
 
@@ -507,7 +524,7 @@ class InternalAgentAdapter(RuntimeAdapter):
                 department=spec.context.get("department"),
                 key_id=spec.context.get("key_id"),
                 session_id=spec.context.get("session_id"),
-                time_budget_s=spec.context.get("time_budget_s"),
+                time_budget_s=_remaining_budget_s(spec.context),
             )
         except Exception as exc:
             self._remove_worktree(base_workspace, worktree_path, _worktree_tmp)

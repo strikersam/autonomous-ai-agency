@@ -136,6 +136,11 @@ providers:
     weight: 1.0
     max_concurrency: 6
     requests_per_minute: 40
+    # Per-attempt cap, below the agent's 120s request budget. Production on
+    # 2026-09-27 showed NIM either answering a planner call in ~2s or hanging
+    # silently until the whole 120s budget was gone, with no failover. At 60s
+    # a hung call leaves the router half the budget to try the next provider.
+    timeout_sec: 60
     default_model: ${NVIDIA_DEFAULT_MODEL:-nvidia/nemotron-3-super-120b-a12b}
     notes: The always-on free floor. Kept last among free tiers on purpose.
 

@@ -8,7 +8,7 @@ Two failure modes made agency tasks on free providers time out at
    unless the ``NEMOTRON_THINKING`` control says otherwise.
 2. The agent loop's own time budget defaulted to off, so the coordinator's
    ``asyncio.wait_for`` cancelled the run mid-step and every finished step was
-   lost. The coordinator now hands its timeout down as ``time_budget_s``.
+   lost. The coordinator now hands down a ``time_budget_deadline``.
 """
 
 from __future__ import annotations
@@ -95,8 +95,27 @@ def test_build_spec_passes_time_budget_below_the_hard_timeout():
         workspace_root=os.path.join(tempfile.gettempdir(), "test-workspace"),  # nosec B108
         execution_timeout_s=600,
     )
+    before = real_time.time()
     spec = coord._build_spec(Task(owner_id="u", title="t"), agent=None)
-    assert spec.context["time_budget_s"] == pytest.approx(540)
+    assert spec.context["time_budget_deadline"] == pytest.approx(before + 540, abs=5)
+
+
+def test_budget_shrinks_across_runtime_retries():
+    """The deadline is absolute: a retry on a fallback runtime gets what is left."""
+    from runtimes.adapters.internal_agent import _remaining_budget_s
+
+    now = real_time.time()
+    assert _remaining_budget_s({"time_budget_deadline": now + 300}) == pytest.approx(300, abs=2)
+    assert _remaining_budget_s({"time_budget_deadline": now - 50}) == 1.0
+    assert _remaining_budget_s({"time_budget_s": 120}) == 120.0
+    assert _remaining_budget_s({}) is None
+
+
+def test_nvidia_attempts_are_capped_below_the_request_budget():
+    from packages.llm.config import reload_config
+
+    cfg = reload_config()
+    assert cfg.providers["nvidia"].timeout_sec == 60
 
 
 class _FakeClock:
