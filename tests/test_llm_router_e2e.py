@@ -578,3 +578,32 @@ async def test_a_hung_provider_fails_over_after_its_timeout_sec(router_factory):
 
     assert response.provider == "beta"
     assert loop.time() - started < 5, "the hung attempt was not cut at alpha's timeout_sec"
+
+
+async def test_after_a_timeout_other_providers_are_tried_before_the_same_one(router_factory):
+    """Production 2026-09-27: a hung NVIDIA model used 60s, the router then
+    spent the rest of the budget on a second NVIDIA model, and the idle free
+    provider (Mistral) was never tried."""
+    from packages.llm.config import ModelConfig
+
+    seen: list[str] = []
+
+    async def handler(request):
+        body = json.loads(request.content)
+        seen.append(f"{request.url.host}:{body['model']}")
+        if request.url.host == "alpha.test":
+            await asyncio.sleep(10)
+        return _ok(model=body["model"])
+
+    llm_registry.get_registry().register(ModelConfig(
+        id="alpha-model-2", provider="alpha", context_window=32768,
+        supports_tools=True, supports_json=True, priority=11,
+    ))
+    router = router_factory(handler)
+    llm_config.get_config().providers["alpha"].timeout_sec = 0.3
+
+    response = await router.chat(_request(temperature=0.9))
+
+    assert response.provider == "beta"
+    assert seen[0].startswith("alpha.test:")
+    assert seen[1].startswith("beta.test:"), f"after alpha timed out, tried {seen[1]} before beta"

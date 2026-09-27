@@ -573,6 +573,14 @@ class LLMRouter:
                 return response
 
             last_error = error
+            if _is_timeout(error):
+                # A hung provider rarely answers its next model inside what is
+                # left of the budget: production spent 60s on one NVIDIA model,
+                # then the rest on another, and never reached a free provider
+                # that was idle. Try every other provider before coming back.
+                candidates[index + 1:] = _other_providers_first(
+                    candidates[index + 1:], provider_id
+                )
             if isinstance(error, PermanentError):
                 if request.pin_model or self._is_fatal(error):
                     raise error
@@ -1069,6 +1077,18 @@ def _log_attempt(attempt: Attempt, started: float, outcome: str) -> None:
         "llm.router: attempt %s/%s %s in %dms",
         attempt.provider, attempt.model, redact_secrets(outcome), elapsed_ms,
     )
+
+
+def _is_timeout(error: BaseException | None) -> bool:
+    """Whether ``error`` is an attempt that ran out of time (not a refusal)."""
+    return isinstance(error, (asyncio.TimeoutError, TimeoutError, httpx.TimeoutException))
+
+
+def _other_providers_first(remaining: list[Candidate], provider_id: str) -> list[Candidate]:
+    """``remaining`` with ``provider_id``'s candidates moved to the back, order kept."""
+    others = [c for c in remaining if c.provider.id != provider_id]
+    same = [c for c in remaining if c.provider.id == provider_id]
+    return others + same
 
 
 def _same_provider_next(candidates: list[Candidate], index: int) -> bool:
