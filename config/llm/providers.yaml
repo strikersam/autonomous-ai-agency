@@ -152,6 +152,7 @@ providers:
     priority: 26
     max_concurrency: 4
     requests_per_minute: 15
+    timeout_sec: 60             # wall clock per attempt; see nvidia above
     default_model: ${GEMINI_DEFAULT_MODEL:-gemini-2.5-flash}
     notes: 1M context — the escalation target when a conversation overflows.
 
