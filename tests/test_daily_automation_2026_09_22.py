@@ -61,89 +61,18 @@ def _cost_tracker_source() -> str:
 
 
 # ── 1. deepseek-ai/deepseek-v4.1-flash: NVIDIA NIM ─────────────────────────
+#
+# Added 2026-09-22 unprobed; removed 2026-09-27 after every production attempt
+# timed out at the 60s cap (5 of 5) and it was routed first for planner calls.
 
 class TestDeepSeekNIMEntry:
-    """deepseek-ai/deepseek-v4.1-flash must be in NIM catalog and candidates."""
+    """deepseek-ai/deepseek-v4.1-flash stays out of NVIDIA routing until probed."""
 
-    def test_nim_deepseek_flash_in_llm_catalog(self) -> None:
-        catalog = _llm_catalog()
-        assert "deepseek-ai/deepseek-v4.1-flash" in catalog, (
-            "deepseek-ai/deepseek-v4.1-flash missing from config/llm/models.yaml"
-        )
+    def test_nim_deepseek_flash_not_in_llm_catalog(self) -> None:
+        assert "deepseek-ai/deepseek-v4.1-flash" not in _llm_catalog()
 
-    def test_nim_deepseek_flash_provider_is_nvidia(self) -> None:
-        catalog = _llm_catalog()
-        entry = catalog.get("deepseek-ai/deepseek-v4.1-flash", {})
-        assert entry.get("provider") == "nvidia", (
-            "deepseek-ai/deepseek-v4.1-flash should declare provider: nvidia"
-        )
-
-    def test_nim_deepseek_flash_conservative_tools_flag(self) -> None:
-        """Not yet probed on this NIM account — must default conservative."""
-        catalog = _llm_catalog()
-        entry = catalog.get("deepseek-ai/deepseek-v4.1-flash", {})
-        assert entry.get("supports_tools") is False, (
-            "deepseek-ai/deepseek-v4.1-flash: supports_tools must remain false "
-            "until live-probed on this NIM account"
-        )
-
-    def test_nim_deepseek_flash_in_nvidia_candidates(self) -> None:
-        cands = _routing_candidates().get("nvidia", [])
-        assert "deepseek-ai/deepseek-v4.1-flash" in cands, (
-            "deepseek-ai/deepseek-v4.1-flash missing from NVIDIA NIM candidates"
-        )
-
-    def test_nim_deepseek_flash_is_last_nvidia_candidate(self) -> None:
-        """Unprobed model must sit at the end of the failover chain."""
-        cands = _routing_candidates().get("nvidia", [])
-        assert cands and cands[-1] == "deepseek-ai/deepseek-v4.1-flash", (
-            f"deepseek-ai/deepseek-v4.1-flash should be the last NVIDIA candidate "
-            f"(unprobed), got last={cands[-1] if cands else 'empty'}"
-        )
-
-    def test_nim_deepseek_flash_primary_candidate_unchanged(self) -> None:
-        """Adding a new fallback must not displace the primary."""
-        cands = _routing_candidates().get("nvidia", [])
-        assert cands and cands[0] == "nvidia/nemotron-3-super-120b-a12b", (
-            f"Primary NVIDIA candidate must still be nemotron-3-super-120b-a12b, "
-            f"got {cands[0] if cands else 'empty'}"
-        )
-
-    def test_nim_deepseek_flash_supports_images(self) -> None:
-        catalog = _llm_catalog()
-        entry = catalog.get("deepseek-ai/deepseek-v4.1-flash", {})
-        assert entry.get("supports_images") is True, (
-            "deepseek-ai/deepseek-v4.1-flash must declare supports_images: true "
-            "(same multimodal model as deepseek-flash)"
-        )
-
-    def test_nim_deepseek_flash_context_window(self) -> None:
-        catalog = _llm_catalog()
-        entry = catalog.get("deepseek-ai/deepseek-v4.1-flash", {})
-        cw = entry.get("context_window")
-        assert cw == 1000000, (
-            f"deepseek-ai/deepseek-v4.1-flash context_window should be 1_000_000, got {cw}"
-        )
-
-    def test_nim_deepseek_flash_free_in_cost_tracker(self) -> None:
-        src = _cost_tracker_source()
-        assert '"deepseek-ai/deepseek-v4.1-flash"' in src, (
-            "deepseek-ai/deepseek-v4.1-flash missing from packages/ai/cost_tracker.py"
-        )
-        # Free NIM model — must not be priced (would inflate billing dashboards)
-        import ast
-        tree = ast.parse(src)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Dict):
-                for k, v in zip(node.keys, node.values):
-                    if isinstance(k, ast.Constant) and k.value == "deepseek-ai/deepseek-v4.1-flash":
-                        if isinstance(v, ast.Tuple) and len(v.elts) == 2:
-                            inp = ast.literal_eval(v.elts[0])
-                            out = ast.literal_eval(v.elts[1])
-                            assert inp == 0.0 and out == 0.0, (
-                                f"deepseek-ai/deepseek-v4.1-flash is free on NIM; "
-                                f"cost_tracker shows ({inp}, {out})"
-                            )
+    def test_nim_deepseek_flash_not_in_nvidia_candidates(self) -> None:
+        assert "deepseek-ai/deepseek-v4.1-flash" not in _routing_candidates().get("nvidia", [])
 
 
 # ── 2. Kimi K2 pricing correction ───────────────────────────────────────────

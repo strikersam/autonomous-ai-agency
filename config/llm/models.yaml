@@ -90,23 +90,11 @@ models:
     priority: 34
     speed_tier: slow
 
-  # DeepSeek V4.1-Flash on NVIDIA NIM: NIM-accelerated deployment of DeepSeek's
-  # V4.1-Flash model detected in the NIM catalogue 2026-09-22. 552B MoE,
-  # multimodal (text + images), 1M-token context. Same model as ``deepseek-flash``
-  # on the DeepSeek direct API, served here via NIM with no API cost.
-  # Not yet live-probed on this account — conservative ``supports_tools: false``
-  # until probed. Source: NVIDIA NIM catalogue tracker, 2026-09-22.
-  deepseek-ai/deepseek-v4.1-flash:
-    provider: nvidia
-    display_name: DeepSeek V4.1-Flash (NVIDIA NIM)
-    context_window: 1000000
-    supports_tools: false           # not probed on NIM — conservative default
-    supports_function_calling: false
-    supports_images: true
-    supports_streaming: true
-    supports_reasoning: true
-    priority: 35
-    speed_tier: fast
+  # deepseek-ai/deepseek-v4.1-flash was declared here on 2026-09-22 without a
+  # live probe. In production on 2026-09-27 every attempt to it timed out at
+  # the 60s cap (5 of 5), and its declared 1M-token window put it first for
+  # planner requests, so each agent call lost 60s before reaching a model that
+  # answers. Re-add only after a live completion probe.
 
   # Kimi K2: Moonshot AI MoE model hosted on Groq (Aug 2026). ~1M context,
   # function calling supported. Groq self-serve tier: $1.00/$3.00 per MTok
