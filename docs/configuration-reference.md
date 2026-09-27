@@ -85,6 +85,13 @@ See [docs/claude-code-setup.md](claude-code-setup.md) for full Claude Code setup
 | `AGENT_REQUEST_TIMEOUT_SEC` | `120` | Per-request timeout (seconds) for agent-loop LLM calls, passed to the failover client. Also settable from the Brain card as **Timeout (s)**; the UI/DB value wins. Lower it to fail over to a faster provider sooner, or raise it for a deliberately slow/large model. |
 | `AGENT_WORKSPACE_ROOT` | (repo root) | Absolute path to the workspace the agent operates on. Defaults to the directory containing `proxy.py`. |
 
+### Anthropic provider tuning
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ANTHROPIC_DEFAULT_EFFORT` | _(unset)_ | Default effort level for Anthropic adaptive-thinking models (`output_config.effort`). Valid values: `low`, `medium`, `high`, `xhigh`, `max`. Unset = model decides. Overridable per-request; also configurable live from Settings → Platform controls. Mirrors Claude Code's `maxEffortLevel` concept (Week 37, September 2026). |
+| `ANTHROPIC_THINKING_BUDGET` | `0` | Extended-thinking token budget for legacy Anthropic models that support `thinking.type="enabled"` (e.g. claude-3.7-sonnet). Zero disables extended thinking. Not applicable to adaptive-thinking models (Opus 5, Sonnet 5, Fable 5, Mythos) — use `ANTHROPIC_DEFAULT_EFFORT` for those. |
+
 ### TokenIn — free frontier gateway
 
 [tokenin.my.id](https://tokenin.my.id/dashboard/models) is a free, OpenAI-compatible

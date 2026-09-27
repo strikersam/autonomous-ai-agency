@@ -209,6 +209,13 @@ class Settings:
             "OLLAMA_REASONING_EFFORT", ""
         ).strip().lower()
 
+        # Default effort level for Anthropic adaptive-thinking models
+        # (output_config.effort). Mirrors Claude Code's maxEffortLevel concept.
+        # Valid values: low / medium / high / xhigh / max; empty = let model decide.
+        self.anthropic_default_effort: str = os.environ.get(
+            "ANTHROPIC_DEFAULT_EFFORT", ""
+        ).strip().lower()
+
         # ── Render MCP (platform-level debugging + environment monitoring) ──
         # The agency runs on Render, but nothing inside the process can see the
         # *platform* view: build/deploy failures, OOM kills, restarts, CPU and
@@ -467,6 +474,28 @@ class Settings:
         behaviour)."""
         v = self.ollama_reasoning_effort
         return v if v in ("high", "medium", "low") else ""
+
+    @property
+    def anthropic_default_effort_value(self) -> str:
+        """Validated effort level for Anthropic adaptive-thinking models, or ``""``.
+
+        Returns one of ``"low"`` / ``"medium"`` / ``"high"`` / ``"xhigh"`` /
+        ``"max"`` when ``ANTHROPIC_DEFAULT_EFFORT`` is set to a valid value, else
+        ``""`` (meaning: don't send output_config.effort — let the model decide).
+        Mirrors Claude Code's ``maxEffortLevel`` concept (Week 37, Sept 2026)."""
+        v = self.anthropic_default_effort
+        return v if v in ("low", "medium", "high", "xhigh", "max") else ""
+
+    @property
+    def anthropic_thinking_budget(self) -> int:
+        """Extended-thinking token budget for older Anthropic non-adaptive
+        models (e.g. claude-3.7-sonnet). Zero = off.
+
+        Read live rather than cached at ``__init__`` time: callers (and
+        tests) monkeypatch ``ANTHROPIC_THINKING_BUDGET`` per-request/per-test,
+        and a `Settings()` singleton created once at import time would go
+        stale otherwise."""
+        return _env_int("ANTHROPIC_THINKING_BUDGET", 0)
 
     @property
     def is_agency_ceo_enabled(self) -> bool:

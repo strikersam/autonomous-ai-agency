@@ -310,10 +310,9 @@ class ProviderConfig:
                     ).strip().lower() == "1h":
                         betas.append("extended-cache-ttl-2025-04-11")
                 try:
-                    _thinking_budget = int(
-                        os.environ.get("ANTHROPIC_THINKING_BUDGET", "0") or "0"
-                    )
-                except ValueError:
+                    from packages.config import settings as _cfg
+                    _thinking_budget = _cfg.anthropic_thinking_budget
+                except Exception:  # noqa: BLE001 — defensive; config load must not break headers
                     _thinking_budget = 0
                 if _thinking_budget > 0:
                     betas.append("interleaved-thinking-2025-05-14")
@@ -1946,10 +1945,9 @@ class ProviderRouter:
             out["temperature"] = float(payload.get("temperature") or 0.3)
 
         try:
-            _thinking_budget = int(
-                os.environ.get("ANTHROPIC_THINKING_BUDGET", "0") or "0"
-            )
-        except ValueError:
+            from packages.config import settings as _cfg
+            _thinking_budget = _cfg.anthropic_thinking_budget
+        except Exception:  # noqa: BLE001 — defensive; config load must not break payload
             _thinking_budget = 0
         if _thinking_budget > 0 and model_id not in NO_EXTENDED_THINKING_MODELS:
             out["thinking"] = {"type": "enabled", "budget_tokens": _thinking_budget}
