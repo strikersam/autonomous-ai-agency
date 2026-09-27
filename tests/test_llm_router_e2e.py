@@ -607,3 +607,24 @@ async def test_after_a_timeout_other_providers_are_tried_before_the_same_one(rou
     assert response.provider == "beta"
     assert seen[0].startswith("alpha.test:")
     assert seen[1].startswith("beta.test:"), f"after alpha timed out, tried {seen[1]} before beta"
+
+
+async def test_a_retired_model_is_not_retried_on_the_next_request(router_factory):
+    """Production 2026-09-27: two retired Gemini ids answered 404 on every call
+    and burned 2 of the 6 attempts each time. A 404/410 model is skipped for an hour."""
+    seen: list[str] = []
+
+    def handler(request):
+        seen.append(request.url.host)
+        if request.url.host == "alpha.test":
+            return httpx.Response(404, json={"error": {"message": "model not found"}})
+        return _ok(model="beta-model")
+
+    router = router_factory(handler)
+    first = await router.chat(_request(temperature=0.9))
+    assert first.provider == "beta" and "alpha.test" in seen
+
+    seen.clear()
+    second = await router.chat(_request(temperature=0.8))  # different body, no cache hit
+    assert second.provider == "beta"
+    assert "alpha.test" not in seen, "the 404 model was tried again"
