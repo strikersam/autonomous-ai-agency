@@ -2,14 +2,16 @@
 
 **Updated:** 2026-09-27
 
-## NVIDIA 410 benching fix (branch claude/agency-improvements-ai-learnings-k96er6)
+## Planner timeout fix (branch claude/agency-improvements-ai-learnings-k96er6)
 
-Root cause of the four `planning: TimeoutError` tasks: the saved `nvidia-nim`
-provider record's `default_model` is the dead `z-ai/glm-5.2`, and a 410 on it cooled
-NVIDIA for 300s. The router now falls back to the catalogue's live models and
-benches only when none are left. After deploy: confirm no "Provider nvidia-nim placed
-on cooldown for 300s" after a glm-5.2 410. Still open: `anthropic-claude` returns HTTP 400
-(priority -50, tried first) — likely a bad model id or no credit; owner runs free-only.
+The NVIDIA 410 fix (#1592) shipped but did not stop `planning: TimeoutError`.
+The real stall: `LLMRouter._dispatch` slept a Groq 429's clamped `Retry-After`
+(30s) before failing over to a *different* provider, then a slow NVIDIA reply
+overran the planner's 120s budget. Backoff now runs only before retrying the same
+provider; each attempt is bounded by the remaining retry budget. After deploy:
+confirm no `planning: TimeoutError` in Render logs after a groq 429. Still open:
+`anthropic-claude` HTTP 400 (priority -50); saved `nvidia-nim` record's
+`default_model` may still be `z-ai/glm-5.2` (harmless since #1592).
 
 
 ## Daily automation 2026-09-27 — no-op day (row 85)

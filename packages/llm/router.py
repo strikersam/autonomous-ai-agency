@@ -512,7 +512,7 @@ class LLMRouter:
         client = await self._http()
         started = time.monotonic()
 
-        for candidate in candidates:
+        for index, candidate in enumerate(candidates):
             if budget.exhausted():
                 break
             provider = self._providers.get(candidate.provider.id)
@@ -579,6 +579,11 @@ class LLMRouter:
                 # parameter) is not permanent for the next — keep going.
                 continue
 
+            # Back off only before retrying the *same* provider. A Retry-After
+            # describes the provider that sent it; sleeping on Groq's 30s window
+            # before trying NVIDIA spent a quarter of the planner's budget idle.
+            if not _same_provider_next(candidates, index):
+                continue
             delay = compute_delay(
                 budget.used,
                 self._config.routing.retry,
@@ -635,8 +640,14 @@ class LLMRouter:
                     return None, None, None
                 budget.charge()
                 started = time.monotonic()
-                response = await provider.chat(
-                    prepared, model=candidate.model.id, api_key=api_key, client=client
+                # Bound the call by what is left of the request's budget, so a
+                # hung provider surfaces as a router failure (and a penalty)
+                # rather than an anonymous TimeoutError from the queue above.
+                response = await asyncio.wait_for(
+                    provider.chat(
+                        prepared, model=candidate.model.id, api_key=api_key, client=client
+                    ),
+                    timeout=budget.remaining_sec,
                 )
         except Exception as exc:
             latency_ms = int((time.monotonic() - started) * 1000)
@@ -1036,6 +1047,14 @@ class LLMRouter:
 
 _router: LLMRouter | None = None
 _lock = threading.Lock()
+
+
+def _same_provider_next(candidates: list[Candidate], index: int) -> bool:
+    """Whether the candidate after ``index`` is on the same provider."""
+    following = index + 1
+    return following < len(candidates) and (
+        candidates[following].provider.id == candidates[index].provider.id
+    )
 
 
 def get_router() -> LLMRouter:
