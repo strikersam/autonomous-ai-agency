@@ -108,6 +108,11 @@ class LLMRouter:
         self._dedupe: Deduplicator[LLMResponse] = Deduplicator(routing.dedupe_window_sec)
         self._context = ContextManager(summarise=build_summariser(self._summariser_chat))
         self._gauges_refreshed_at = 0.0
+        # (provider, model) -> monotonic time until which it is skipped. A
+        # retired model answers 404/410 on every request, and without memory
+        # the router spent attempts on it each time (2026-09-27: two retired
+        # Gemini ids burned 2 of 6 attempts per call).
+        self._dead_models: dict[tuple[str, str], float] = {}
 
         self._build_providers()
 
@@ -397,6 +402,8 @@ class LLMRouter:
 
             for model in self._models_for(config, pinned, request, allow_paid):
                 if not model.supports_chat:
+                    continue
+                if self._model_is_dead(provider_id, model.id):
                     continue
                 if request.requires_tools() and not (
                     model.supports_tools or model.supports_function_calling
@@ -770,6 +777,15 @@ class LLMRouter:
         # key-scoped rate limit whichever number the provider dresses it in —
         # Groq announces its tokens-per-minute ceiling with a 413 — and it
         # needs the cooldown-and-rotate treatment, not a breaker failure.
+        if scope == "model" or status in _DEAD_MODEL_STATUSES:
+            self._dead_models[(provider_id, candidate.model.id)] = (
+                time.monotonic() + _DEAD_MODEL_COOLDOWN_SEC
+            )
+            log.info(
+                "llm.router: skipping %s/%s for %.0fs (%s)",
+                provider_id, candidate.model.id, _DEAD_MODEL_COOLDOWN_SEC, status or scope,
+            )
+
         if scope == "key":
             quota = "quota" in str(error).lower()
             self._keys.record_rate_limit(
@@ -813,6 +829,16 @@ class LLMRouter:
             auto_disable(provider_id, describe(status, str(error)[:120]))
         if self._health.get(provider_id).state.value == "open":
             self._metrics.record_breaker_trip(provider=provider_id)
+
+    def _model_is_dead(self, provider_id: str, model_id: str) -> bool:
+        """Whether ``model_id`` on ``provider_id`` is inside its dead-model cooldown."""
+        until = self._dead_models.get((provider_id, model_id))
+        if until is None:
+            return False
+        if time.monotonic() >= until:
+            del self._dead_models[(provider_id, model_id)]
+            return False
+        return True
 
     @staticmethod
     def _is_fatal(error: PermanentError) -> bool:
@@ -1077,6 +1103,13 @@ def _log_attempt(attempt: Attempt, started: float, outcome: str) -> None:
         "llm.router: attempt %s/%s %s in %dms",
         attempt.provider, attempt.model, redact_secrets(outcome), elapsed_ms,
     )
+
+
+# A model that answers "not found" or "gone" is retired, not busy; retrying it
+# within the hour only spends attempts. Same window as packages/ai/router.py's
+# PROVIDER_DEAD_MODEL_COOLDOWN_SECONDS default.
+_DEAD_MODEL_STATUSES = frozenset({404, 410})
+_DEAD_MODEL_COOLDOWN_SEC = 3600.0
 
 
 def _is_timeout(error: BaseException | None) -> bool:
