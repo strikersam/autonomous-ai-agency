@@ -2,6 +2,17 @@
 
 **Updated:** 2026-09-27
 
+## NVIDIA blueprint adoption (branch claude/nvidia-agency-intelligence-cdvumr, no PR yet)
+
+Two commits pushed: planner lessons ranked by relevance (RAG blueprint hybrid
+retrieval) and dependency CVEs prioritised by first-party import reachability
+(vulnerability-analysis blueprint). Next candidates, not started: AI-Q-style
+shallow/deep depth classification before planning; NemoClaw-style egress host
+allowlist in `agent/web_reach.py` (rule 15/40, needs human sign-off). Checked and
+skipped: llm-router (router/classifier.py already does intent routing),
+data-flywheel and safety-for-agentic-ai (deprecated Apr 2026), portfolio-optimization
+(GPU-only), Retail-Agentic-Commerce (checkout protocol, off-mission).
+
 ## Planner timeout fix (branch claude/agency-improvements-ai-learnings-k96er6)
 
 The NVIDIA 410 fix (#1592) shipped but did not stop `planning: TimeoutError`.
