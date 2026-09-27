@@ -643,11 +643,15 @@ class LLMRouter:
                 # Bound the call by what is left of the request's budget, so a
                 # hung provider surfaces as a router failure (and a penalty)
                 # rather than an anonymous TimeoutError from the queue above.
+                # Also by the provider's own timeout_sec, as wall clock: httpx
+                # applies that value per read, so a provider that holds the
+                # connection open never trips it, and in production one hung
+                # NVIDIA call spent the planner's whole 120s with no failover.
                 response = await asyncio.wait_for(
                     provider.chat(
                         prepared, model=candidate.model.id, api_key=api_key, client=client
                     ),
-                    timeout=budget.remaining_sec,
+                    timeout=min(budget.remaining_sec, config.timeout_sec),
                 )
         except Exception as exc:
             latency_ms = int((time.monotonic() - started) * 1000)

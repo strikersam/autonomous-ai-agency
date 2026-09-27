@@ -557,3 +557,24 @@ async def test_status_reports_the_full_routing_picture(router_factory):
     assert alpha["health"]["success_rate"] == 1.0
     # Key material never appears in anything the dashboard renders.
     assert "alpha-key-1" not in json.dumps(status)
+
+
+async def test_a_hung_provider_fails_over_after_its_timeout_sec(router_factory):
+    """timeout_sec is wall clock per attempt, not only an httpx read timeout.
+
+    Production 2026-09-27: one hung NVIDIA call held the planner's whole 120s
+    budget, because the attempt was bounded only by the request budget.
+    """
+    async def handler(request):
+        if request.url.host == "alpha.test":
+            await asyncio.sleep(10)  # hangs well past alpha's timeout_sec
+        return _ok(model="beta-model")
+
+    router = router_factory(handler)
+    llm_config.get_config().providers["alpha"].timeout_sec = 0.3
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    response = await router.chat(_request(temperature=0.9))
+
+    assert response.provider == "beta"
+    assert loop.time() - started < 5, "the hung attempt was not cut at alpha's timeout_sec"
