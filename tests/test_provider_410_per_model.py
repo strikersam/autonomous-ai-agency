@@ -166,3 +166,72 @@ async def test_all_models_dead_cools_the_provider(monkeypatch):
     # Failed over to the next provider, and the dead one is on cooldown.
     assert result.provider.provider_id == "ollama"
     assert await is_provider_on_cooldown("nvidia") is True
+
+
+# ── A stale default_model must not bench a provider that has live models ─────
+# Production 2026-09-26: the CEO's call failed on anthropic-claude (400) and fell
+# over to nvidia-nim, whose saved default_model was z-ai/glm-5.2 (410 since
+# 2026-08-28). On a fallback provider only default_model is a candidate, so
+# every fallback call hit the dead model and cooled NVIDIA, the main free brain,
+# for 300s, starving the planner into "planning: TimeoutError".
+
+_LIVE = "nvidia/nemotron-3-super-120b-a12b"  # first live catalogue model
+
+
+def _stale_nim() -> ProviderConfig:
+    return ProviderConfig(
+        "nvidia-nim", "openai-compatible", "https://integrate.api.nvidia.com/v1",
+        default_model="z-ai/glm-5.2", priority=0,
+    )
+
+
+def _failing_primary() -> ProviderConfig:
+    return ProviderConfig(
+        "anthropic-claude", "openai-compatible", "https://example.invalid/v1",
+        default_model="claude-x", priority=-50,
+    )
+
+
+@pytest.mark.anyio
+async def test_stale_default_on_fallback_provider_serves_a_catalogue_model(monkeypatch):
+    tried: list[tuple[str, str]] = []
+
+    async def fake_post_chat(self, provider, payload, timeout_sec):
+        tried.append((provider.provider_id, payload["model"]))
+        if provider.provider_id == "anthropic-claude":
+            return httpx.Response(400, json={"error": "bad request"})
+        if payload["model"] == "z-ai/glm-5.2":
+            return httpx.Response(410, json={"error": "Gone"})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr(ProviderRouter, "_post_chat", fake_post_chat)
+    router = ProviderRouter([_failing_primary(), _stale_nim()])
+    payload = {"model": "claude-x", "messages": [{"role": "user", "content": "plan"}]}
+
+    result = await router.chat_completion(payload, max_retries=0)
+    assert (result.provider.provider_id, result.model) == ("nvidia-nim", _LIVE)
+    assert await is_provider_on_cooldown("nvidia-nim") is False
+    assert _is_model_dead("nvidia-nim", "z-ai/glm-5.2")
+
+    # Next call never touches the dead model again: no second 410.
+    tried.clear()
+    await router.chat_completion(dict(payload), max_retries=0)
+    assert ("nvidia-nim", "z-ai/glm-5.2") not in tried
+    assert await is_provider_on_cooldown("nvidia-nim") is False
+
+
+@pytest.mark.anyio
+async def test_provider_without_a_catalogue_entry_is_still_benched_when_all_dead(monkeypatch):
+    async def fake_post_chat(self, provider, payload, timeout_sec):
+        return httpx.Response(410, json={"error": "Gone"})
+
+    monkeypatch.setattr(ProviderRouter, "_post_chat", fake_post_chat)
+    custom = ProviderConfig("my-gateway", "openai-compatible", "https://gw.example/v1",
+                            default_model="gone-model", priority=0)
+    with pytest.raises(Exception):
+        await ProviderRouter([custom]).chat_completion(
+            {"model": "gone-model", "messages": [{"role": "user", "content": "x"}]},
+            max_retries=0,
+        )
+    assert await is_provider_on_cooldown("my-gateway") is True
+
