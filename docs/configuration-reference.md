@@ -86,6 +86,13 @@ See [docs/claude-code-setup.md](claude-code-setup.md) for full Claude Code setup
 | `NEMOTRON_THINKING` | `false` | Whether Nemotron 3 models (the default free NVIDIA brain, e.g. `nvidia/nemotron-3-super-120b-a12b`) think before answering. `false` sends `chat_template_kwargs.enable_thinking=false`, which cuts per-call latency several-fold on the free tier; `true` leaves the request untouched. Other models are never affected. Also a live control under Settings → Platform controls → Brain & Model Routing. |
 | `AGENT_WORKSPACE_ROOT` | (repo root) | Absolute path to the workspace the agent operates on. Defaults to the directory containing `proxy.py`. |
 
+### Anthropic provider tuning
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ANTHROPIC_DEFAULT_EFFORT` | _(unset)_ | Default effort level for Anthropic adaptive-thinking models (`output_config.effort`). Valid values: `low`, `medium`, `high`, `xhigh`, `max`. Unset = model decides. Overridable per-request; also configurable live from Settings → Platform controls. Mirrors Claude Code's `maxEffortLevel` concept (Week 37, September 2026). |
+| `ANTHROPIC_THINKING_BUDGET` | `0` | Extended-thinking token budget for legacy Anthropic models that support `thinking.type="enabled"` (e.g. claude-3.7-sonnet). Zero disables extended thinking. Not applicable to adaptive-thinking models (Opus 5, Sonnet 5, Fable 5, Mythos) — use `ANTHROPIC_DEFAULT_EFFORT` for those. |
+
 ### TokenIn — free frontier gateway
 
 [tokenin.my.id](https://tokenin.my.id/dashboard/models) is a free, OpenAI-compatible
@@ -439,6 +446,7 @@ takes effect at the next check, with no restart. Agents can read these values bu
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `AGENCY_KILL_SWITCH` | `false` | `true` halts every autonomous action. The task dispatcher stops picking up work (tasks stay pending). The CEO loop skips its cycles. Scheduled jobs don't fire (run-once jobs are kept, not consumed). Both cron ticks return `skipped: kill switch engaged`. `WorkflowOrchestrator.execute()` returns a failed run. `AgentRunner._commit_step()` commits nothing. Agent-attributed LLM calls raise `KillSwitchEngaged`, which stops a run already in progress at its next LLM call, before the Verifier can pass another diff. Human proxy and dashboard traffic is unaffected. Only a person turns it off. |
+| `CEO_PLAYBOOK_ENFORCE` | `true` | The CEO learns from its own results (`agent/ceo_playbook.py`). Each cycle it counts every task outcome once (done, failed, blocked, timed out) against the directive that produced it and the role it went to. It then derives standing beliefs, such as "this directive keeps failing", "role X is reliable" or "role Y is struggling". A directive's weight is net failures, halved every 14 days without new evidence. With this on, a directive the CEO invents is not reissued while its weight is 2 or more. Off keeps the beliefs in the CEO's prompt but dispatches everything. Owner-requested quick notes are never dropped. Live. |
 | `AGENCY_CANARY_ENABLED` | `true` | Plants a decoy GitHub token as `LEGACY_DEPLOY_TOKEN` in the process environment at startup, so every agent subprocess inherits it. If its value appears in an agent's LLM request or in a URL passed to `agent/web_reach.py` (checked before DNS), that action raises `CanaryTripped` and the operator gets a Telegram alert that names the agent but never the value. It does not engage the kill switch. A value you set yourself under that name is never overwritten or treated as a canary. Restart required. |
 | `AGENT_DAILY_KTOKENS_CAP` | `0` | Per-agent daily token cap, in thousands, per UTC day. When an agent reaches it, its next routed LLM call raises `AgentBudgetExceeded`. `0` = unlimited. |
 | `AGENT_DAILY_USD_CAP` | `0` | The same cap in USD, priced from `packages/ai/cost_tracker.py`. Free-tier models cost $0 and never trip it. `0` = unlimited. |

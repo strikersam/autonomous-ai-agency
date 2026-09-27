@@ -369,6 +369,30 @@ _BRAIN_ROUTING: tuple[ControlSpec, ...] = (
         ),
         live=True,
     ),
+    ControlSpec(
+        key="ANTHROPIC_DEFAULT_EFFORT",
+        label="Anthropic default effort",
+        group="brain_routing",
+        kind=KIND_CHOICE,
+        default="",
+        help=(
+            "Default effort level sent as output_config.effort on every "
+            "Anthropic adaptive-thinking call (Opus 5.5, Fable 5, Mythos, "
+            "Sonnet 5…). Unset lets the model decide. Mirrors Claude Code's "
+            "maxEffortLevel setting (introduced Week 37, September 2026). "
+            "Per-request effort from the caller still overrides this."
+        ),
+        options=(
+            ControlOption("", "Auto (model decides)", "Recommended — the field is not sent."),
+            ControlOption("low", "Low", "Minimal reasoning. Fastest and cheapest."),
+            ControlOption("medium", "Medium", "Balanced reasoning depth."),
+            ControlOption("high", "High", "Extended reasoning for complex tasks."),
+            ControlOption("xhigh", "Extra-high", "Maximum effort for hardest tasks."),
+            ControlOption("max", "Max", "Exhaustive reasoning; highest cost."),
+        ),
+        live=True,
+        requires=("ANTHROPIC_API_KEY",),
+    ),
     _toggle(
         "NEMOTRON_THINKING",
         "Nemotron thinking mode",
@@ -507,6 +531,18 @@ _AUTONOMY: tuple[ControlSpec, ...] = (
         "mid-run included. Turn off here to resume; nothing turns it off automatically.",
         live=True,
         risk=RISK_HIGH,
+    ),
+    _toggle(
+        "CEO_PLAYBOOK_ENFORCE",
+        "CEO drops its own repeat-failing directives",
+        "autonomy",
+        "true",
+        "The CEO learns from its results: a directive it invented that keeps failing or "
+        "timing out is not reissued until newer evidence outweighs it (evidence halves "
+        "every 14 days). Off keeps the learned beliefs in the CEO's prompt but dispatches "
+        "everything. Owner-requested work is never dropped.",
+        live=True,
+        risk=RISK_MEDIUM,
     ),
     _toggle(
         "AGENCY_CANARY_ENABLED",

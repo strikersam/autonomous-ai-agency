@@ -1,16 +1,57 @@
 # Next Action
 
-**Updated:** 2026-09-26
+**Updated:** 2026-09-27
 
-## External learnings audit (branch claude/agency-improvements-ai-learnings-k96er6)
+## NVIDIA 410 benching fix (branch claude/agency-improvements-ai-learnings-k96er6)
 
-All six gaps from `docs/audits/2026-09-26-external-learnings.md` are built, plus
-memory redaction. One PR, to be merged when CI is green. Shipped: memory
-redaction, kill switch, per-agent daily caps, evidence-weighted lessons, canary
-credential, atomic run lease (fixes the tick/dispatcher double execution) and
-goal ancestry. After deploy: set `AGENT_DAILY_KTOKENS_CAP` on the dashboard,
-and confirm the Telegram alert path works by checking logs for "canary
-credential planted".
+Root cause of the four `planning: TimeoutError` tasks: the saved `nvidia-nim`
+provider record's `default_model` is the dead `z-ai/glm-5.2`, and a 410 on it cooled
+NVIDIA for 300s. The router now falls back to the catalogue's live models and
+benches only when none are left. After deploy: confirm no "Provider nvidia-nim placed
+on cooldown for 300s" after a glm-5.2 410. Still open: `anthropic-claude` returns HTTP 400
+(priority -50, tried first) — likely a bad model id or no credit; owner runs free-only.
+
+
+## Daily automation 2026-09-27 — no-op day (row 85)
+
+Clean slate at session start (0 open PRs, 0 open issues). All ship gates green
+(`compileall`, catalog consistency, changelog parity, loop registry audit).
+Installed the full `requirements.txt` in-sandbox (a first — prior sessions
+usually reported "could not run full pytest", see row 85 for the full list)
+and got a real baseline: 563 passed before hitting the one known,
+already-documented Mongo-dependent failure (`test_auth_me_regression.py`,
+see `tests/conftest.py` lines 80-96 for why `STORAGE_BACKEND` is deliberately
+left unpinned in tests). No `mongod` in this sandbox, so that test can't be
+made green here; not a new bug. Investigated two candidate bugs
+(`ceo_playbook.py` retry double-counting; a 409-hit env-var doc scan) and
+ruled both out — the first is intentional per its own test, the second is
+mostly false positives from an unscoped full-repo grep. Found and fixed one
+real thing: active-tasks.md row 84 (CEO self-learning) was still marked
+`IN_PROGRESS` though both its PRs (#1587, #1589) are on master — corrected.
+No code shipped today; see row 85 for full detail.
+
+**If picked up next:** the 409-hit env-var doc scan needs a proper allowlist
+(internal/test-only vars) before it's a usable rule-37 check — don't rerun
+the raw grep, scope it as its own task first.
+
+## Prior update: 2026-09-26
+
+## CEO self-learning (branch claude/agency-improvements-ai-learnings-k96er6)
+
+Built all four pieces the owner approved. The scoreboard, playbook and lessons
+now reach the CEO prompt, timeouts write lessons, and lessons are Mongo-backed.
+After deploy: check `/agent/agency/status` → `playbook` after a CEO cycle, and
+confirm the Render logs show "Agency: not reissuing" for a repeat-failing
+directive. Unresolved: the four 600s-timeout tasks themselves (task_608d…,
+task_9a40…, task_46c1…, task_c368…); the playbook stops their reissue but does
+not diagnose why they are slow.
+
+## External learnings audit — merged (#1587, `0d80571`)
+
+Shipped and merged 2026-09-26; tracker row 83 archived to
+`.claude/state/archive/completed-2026-09.md`. Per the owner, per-agent daily
+caps stay at 0 (unlimited): every agent runs on free models. Still unchecked on
+the live deploy: the "canary credential planted" log line on the backend.
 
 ## CEO triage approves trend code changes (branch claude/sam-request-handling-fvfk05)
 

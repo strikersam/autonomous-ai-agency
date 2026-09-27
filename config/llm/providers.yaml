@@ -231,3 +231,4 @@ providers:
     default_model: ${ANTHROPIC_DEFAULT_MODEL:-claude-sonnet-5}
     prompt_caching: ${ANTHROPIC_PROMPT_CACHING:-true}
     thinking_budget: ${ANTHROPIC_THINKING_BUDGET:-0}
+    default_effort: ${ANTHROPIC_DEFAULT_EFFORT:-}

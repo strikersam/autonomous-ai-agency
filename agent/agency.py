@@ -325,6 +325,7 @@ class Agency:
             "recent_cycles": [c.as_dict() for c in self._history[-5:]],
             "roles": [r.value for r in AgentRole],
             "runtime_routing": {k.value: v for k, v in _ROLE_RUNTIME_PREFERENCE.items()},
+            "playbook": _playbook_snapshot(),
         }
 
     # ── Main cycle ────────────────────────────────────────────────────────────
@@ -367,6 +368,11 @@ class Agency:
 
         state_context = self._build_state_context()
         state_context["quick_notes"] = self._last_quick_notes
+        # Self-learning: outcomes of past directives, standing beliefs, lessons.
+        from agent import ceo_playbook
+        state_context["learning"] = await ceo_playbook.learning_context()
+        # Owner-requested work is never suppressed by what the CEO has learned.
+        owner_requested = {d.directive_id for d in qn_directives}
 
         # ── Company-aware CEO assessment ────────────────────────────
         # The CEO now considers ALL onboarded companies (not just the
@@ -388,11 +394,17 @@ class Agency:
         }
         deduped: list[AgentDirective] = []
         for directive in (qn_directives + ceo_directives):
+            learned = (
+                None if directive.directive_id in owner_requested
+                else ceo_playbook.should_suppress(directive.title)
+            )
             if directive.title in recent_titles:
                 log.debug(
                     "Agency: skipping duplicate directive '%s' (already pending/running)",
                     directive.title,
                 )
+            elif learned:
+                log.info("Agency: not reissuing '%s' — playbook: %s", directive.title, learned)
             else:
                 deduped.append(directive)
                 recent_titles.add(directive.title)
@@ -1024,6 +1036,12 @@ async def _company_advisory_context(company_id: str) -> dict[str, Any] | None:
     }
 
 
+def _playbook_snapshot() -> dict[str, Any]:
+    from agent import ceo_playbook
+
+    return ceo_playbook.snapshot()
+
+
 def _build_ceo_prompt(state: dict[str, Any], cycle: int) -> str:
     lines = [f"# Agency state — cycle {cycle} at {_now_str()}\n"]
 
@@ -1099,6 +1117,10 @@ def _build_ceo_prompt(state: dict[str, Any], cycle: int) -> str:
             if verdict:
                 line += f" — {verdict[:100]}"
             lines.append(line)
+
+    learning = state.get("learning") or ""
+    if learning:
+        lines.append("\n" + learning)
 
     lines.append(
         "\n## Instructions\n"
