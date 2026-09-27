@@ -2,6 +2,16 @@
 
 **Updated:** 2026-09-27
 
+## NVIDIA 410 benching fix (branch claude/agency-improvements-ai-learnings-k96er6)
+
+Root cause of the four `planning: TimeoutError` tasks: the saved `nvidia-nim`
+provider record's `default_model` is the dead `z-ai/glm-5.2`, and a 410 on it cooled
+NVIDIA for 300s. The router now falls back to the catalogue's live models and
+benches only when none are left. After deploy: confirm no "Provider nvidia-nim placed
+on cooldown for 300s" after a glm-5.2 410. Still open: `anthropic-claude` returns HTTP 400
+(priority -50, tried first) — likely a bad model id or no credit; owner runs free-only.
+
+
 ## Daily automation 2026-09-27 — no-op day (row 85)
 
 Clean slate at session start (0 open PRs, 0 open issues). All ship gates green

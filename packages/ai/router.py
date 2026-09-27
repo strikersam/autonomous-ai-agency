@@ -94,6 +94,29 @@ def _mark_model_dead(provider_id: str, model: str) -> None:
     )
 
 
+def _catalogue_models(provider: "ProviderConfig") -> list[str]:
+    """Models ``config/models.yaml`` lists for *provider*, or ``[]`` when it lists none."""
+    key = "nvidia" if provider.provider_id in _NVIDIA_PROVIDER_IDS else provider.provider_id
+    try:
+        from packages.ai.brain_config import PROVIDER_CANDIDATES
+    except Exception:  # noqa: BLE001 - the catalogue is a fallback, never a dependency
+        return []
+    return list(PROVIDER_CANDIDATES.get(key) or [])
+
+
+def _live_models(provider: "ProviderConfig", models: list[str]) -> list[str]:
+    return [m for m in models if not _is_model_dead(provider.provider_id, m)]
+
+
+def _extend_with_live_catalogue(provider: "ProviderConfig", candidates: list[str]) -> None:
+    """After a 410, queue the catalogue's live models if nothing live is left to try."""
+    if _live_models(provider, candidates):
+        return
+    for model in _live_models(provider, _catalogue_models(provider)):
+        if model not in candidates:
+            candidates.append(model)
+
+
 def _is_model_dead(provider_id: str, model: str) -> bool:
     """Return True if (provider, model) is on the dead list and not yet expired."""
     expiry = _dead_models.get(_dead_model_key(provider_id, model))
@@ -1217,7 +1240,10 @@ class ProviderRouter:
         last_was_419 = False
         rate_limited = False
         retry_after_sec: float | None = None
-        for model in self._candidate_models(provider, original_model, model_fallbacks, is_primary):
+        candidates = self._candidate_models(provider, original_model, model_fallbacks, is_primary)
+        # Iterated as a live list: a 410 below can append the catalogue's live
+        # models, so the same request continues on this provider.
+        for model in candidates:
             provider_payload = {**payload, "model": model, "stream": False}
             for attempt_number in range(max_retries + 1):
                 # Proactive pacing — no-op unless the operator has set
@@ -1343,6 +1369,7 @@ class ProviderRouter:
                         # post-loop cooldown below still applies.
                         last_status = 410
                         _mark_model_dead(provider.provider_id, model)
+                        _extend_with_live_catalogue(provider, candidates)
                         break  # stop retrying this model; try next candidate
                     if response.status_code == 419:
                         # NVIDIA NIM per-model concurrency limit:
@@ -1394,8 +1421,14 @@ class ProviderRouter:
                 # advanced to the next candidate above.
                 break
         # Apply failure-type-aware cooldown: auth errors last longer than transient failures.
-        if last_status == 410:
-            # Permanent removal — long cooldown so we don't keep trying a dead endpoint.
+        if last_status == 410 and _live_models(provider, candidates):
+            # Only the model is gone and it is already marked dead; the provider
+            # still has live models, so it must not be benched. A stale
+            # default_model used to cool NVIDIA, the main free brain, for 300s on
+            # every fallback call, starving the planner into TimeoutErrors.
+            pass
+        elif last_status == 410:
+            # Every model this provider knows is gone — long cooldown.
             await mark_provider_failed(provider.provider_id, _AUTH_FAILURE_COOLDOWN_SECONDS)
         elif rate_limited:
             # Exponential backoff: each consecutive 429 doubles the cooldown.
@@ -1670,7 +1703,13 @@ class ProviderRouter:
         # the provider is still re-probed (a recovered model refreshes itself on
         # the next 200; a still-dead one just re-marks itself).
         live = [m for m in deduped if not _is_model_dead(provider.provider_id, m)]
-        return live or deduped
+        if live:
+            return live
+        # Every configured model is dead, e.g. a provider record whose
+        # default_model predates a catalogue cleanup. Use the live-probed models
+        # config/models.yaml lists for this provider before re-probing the dead ones.
+        catalogue = _live_models(provider, _catalogue_models(provider))
+        return catalogue or deduped
 
     async def _post_chat(
         self,

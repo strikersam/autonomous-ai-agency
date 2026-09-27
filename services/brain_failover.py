@@ -542,16 +542,16 @@ _PROVIDER_REGISTRY: list[dict[str, Any]] = [
         "key_env": "NVIDIA_API_KEY",
         "base_url_env": "NVIDIA_BASE_URL",
         "default_base_url": "https://integrate.api.nvidia.com",
-        "default_model": "meta/llama-3.3-70b-instruct",
+        # Fallback only: replaced at import by config/models.yaml's live-probed
+        # candidates (see below). Kept in step with it so an import failure
+        # cannot resurrect ids that answer 410/404 (glm-5.2, llama-4-*, ...).
+        "default_model": "nvidia/nemotron-3-super-120b-a12b",
         "models": [
-            "meta/llama-3.3-70b-instruct",
-            "meta/llama-4-maverick-17b-128e-instruct",
-            "meta/llama-4-scout-17b-16e-instruct",
-            "z-ai/glm-5.2",
-            "z-ai/glm-5.1",
-            "nvidia/llama-3.1-nemotron-70b-instruct",
-            "meta/llama-3.1-8b-instruct",
-            "deepseek-ai/deepseek-r1",
+            "nvidia/nemotron-3-super-120b-a12b",
+            "nvidia/nemotron-3-ultra-550b-a55b",
+            "mistralai/mistral-nemotron",
+            "openai/gpt-oss-120b",
+            "openai/gpt-oss-20b",
         ],
         "cooldown": 90.0,  # NVIDIA rate limits are ~40 req/min — 90s cooldown
     },
@@ -807,15 +807,15 @@ _MODEL_ALIASES: dict[str, dict[str, str]] = {
         "dashscope": "qwen-plus",  # fallback
         "zhipu": "glm-4-flash",  # fallback
     },
+    # No "nvidia" entry: NIM retired both ids (410 since 2026-08-28), so a GLM
+    # request that fails over to NVIDIA must use NVIDIA's own live model.
     "z-ai/glm-5.2": {
         "zhipu": "glm-5.2",
         "zai": "glm-5.2",
-        "nvidia": "z-ai/glm-5.2",
     },
     "z-ai/glm-5.1": {
         "zhipu": "glm-5.1",
         "zai": "glm-5.1",
-        "nvidia": "z-ai/glm-5.1",
     },
     # Llama 4 cross-provider aliases (Meta, July 2026)
     "meta/llama-4-maverick-17b-128e-instruct": {
