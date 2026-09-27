@@ -309,3 +309,25 @@ def test_llm_gateway_openai_payload_disables_nemotron_thinking(clean_overrides):
     assert payload["chat_template_kwargs"] == {"enable_thinking": False}
     other = provider.build_payload(request, "openai/gpt-oss-120b")
     assert "chat_template_kwargs" not in other
+
+
+# ── 7. Mistral is a free fallback in the gateway ─────────────────────────────
+
+
+def test_mistral_is_reachable_without_paid_routing(monkeypatch):
+    """Operator-confirmed free key: Mistral must survive the allow_paid=False filter."""
+    from packages.llm import config as llm_config
+    from packages.llm import registry as llm_registry
+
+    monkeypatch.delenv("LLM_CONFIG_DIR", raising=False)
+    llm_config.reset()
+    llm_registry.reset()
+    try:
+        cfg = llm_config.get_config()
+        assert cfg.providers["mistral"].tier == "free"
+        assert cfg.providers["mistral"].timeout_sec == 60
+        free = llm_registry.get_registry().candidates(provider_id="mistral", allow_paid=False)
+        assert {"mistral-small-latest", "mistral-large-latest"} <= {m.id for m in free}
+    finally:
+        llm_config.reset()
+        llm_registry.reset()

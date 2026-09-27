@@ -512,8 +512,12 @@ models:
   # list but had no llm/models.yaml entry, causing them to default to
   # `supports_tools: false` and be silently excluded from every tool-calling
   # request. Capabilities declared from Mistral documentation (docs.mistral.ai),
-  # 2026-09-19. Pricing from mistral.ai/pricing, 2026-09-19 (approximate — may
-  # differ from current rates; verify before billing-sensitive deploys).
+  # 2026-09-19.
+  #
+  # Costs are zero because this deployment's Mistral key is on the free tier
+  # (operator-confirmed 2026-09-27). The router admits only zero-cost models
+  # when allow_paid is off, so with list prices here Mistral was never tried.
+  # A billed key must restore list prices (the per-model comments below).
 
   # Mistral Large (latest checkpoint). Best Mistral model for complex reasoning,
   # coding, and multilingual tasks. 128K context, native function calling.
@@ -527,8 +531,8 @@ models:
     supports_function_calling: true
     supports_json: true
     supports_streaming: true
-    input_cost_per_1m: 3.00
-    output_cost_per_1m: 9.00
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
     priority: 61
     speed_tier: medium
 
@@ -544,8 +548,8 @@ models:
     supports_function_calling: true
     supports_json: true
     supports_streaming: true
-    input_cost_per_1m: 0.10
-    output_cost_per_1m: 0.30
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
     priority: 62
     speed_tier: fast
 
@@ -561,8 +565,8 @@ models:
     supports_function_calling: true
     supports_json: true
     supports_streaming: true
-    input_cost_per_1m: 0.30
-    output_cost_per_1m: 0.90
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
     priority: 64
     speed_tier: fast
 
@@ -579,8 +583,8 @@ models:
     supports_function_calling: true
     supports_json: true
     supports_streaming: true
-    input_cost_per_1m: 0.15
-    output_cost_per_1m: 0.15
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
     priority: 65
     speed_tier: fast
 
