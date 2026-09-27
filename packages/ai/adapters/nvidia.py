@@ -56,6 +56,8 @@ class NvidiaProvider(Provider):
         headers = {"Authorization": f"Bearer {settings.nvidia_api_key}", "Content-Type": "application/json"}
         payload = {"model": model or settings.nvidia_default_model, "messages": messages,
                    "temperature": temperature, "max_tokens": max_tokens, "stream": True}
+        from packages.ai.router import with_nemotron_thinking_off
+        payload = with_nemotron_thinking_off(payload)
         async with httpx.AsyncClient(timeout=300) as client:
             async with client.stream("POST", url, json=payload, headers=headers) as resp:
                 resp.raise_for_status()

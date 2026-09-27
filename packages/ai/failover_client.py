@@ -527,7 +527,9 @@ async def _try_provider(
     This also keeps ``agent/log_monitor``'s ERROR-triggered issue-filing from
     opening a ticket for a provider the system successfully failed over.
     """
-    from packages.ai.router import ProviderRouter, with_ollama_reasoning_effort
+    from packages.ai.router import (
+        ProviderRouter, with_nemotron_thinking_off, with_ollama_reasoning_effort,
+    )
 
     requested_model = str(payload.get("model") or "")
     # Key rotation: pick this attempt's key from the provider's pool. Falls back
@@ -560,9 +562,9 @@ async def _try_provider(
             return None, last_error or f"{provider.id} skipped (budget spent)"
         budget.charge()
         call_payload = {**payload, "model": try_model}
-        post_payload = with_ollama_reasoning_effort(
+        post_payload = with_nemotron_thinking_off(with_ollama_reasoning_effort(
             call_payload, is_ollama=_is_ollama(provider)
-        )
+        ))
         if is_anthropic:
             post_payload = ProviderRouter._anthropic_payload(post_payload)
 

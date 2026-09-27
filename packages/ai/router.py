@@ -452,6 +452,32 @@ def with_ollama_reasoning_effort(payload: dict[str, Any], *, is_ollama: bool) ->
     return {**payload, "reasoning_effort": effort}
 
 
+def _nemotron_thinking_enabled() -> bool:
+    """Return the ``NEMOTRON_THINKING`` setting. Never raises."""
+    try:
+        from packages.config import settings
+        return settings.is_nemotron_thinking_enabled
+    except Exception:  # noqa: BLE001 — defensive; config load must not break calls
+        return True
+
+
+def with_nemotron_thinking_off(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return *payload* with thinking disabled for Nemotron 3 models.
+
+    Nemotron 3 gates reasoning on its chat template and thinks by default; the
+    documented switch is ``chat_template_kwargs.enable_thinking=false``. Scoped
+    by model id, not provider, because the kwarg is a property of the model's
+    template. No-op — the SAME object is returned — for other models, when
+    ``NEMOTRON_THINKING`` is on, or when the caller already set the field.
+    """
+    model = str(payload.get("model") or "").lower()
+    if "nemotron-3" not in model or "chat_template_kwargs" in payload:
+        return payload
+    if _nemotron_thinking_enabled():
+        return payload
+    return {**payload, "chat_template_kwargs": {"enable_thinking": False}}
+
+
 def extract_openai_text(data: Any) -> str:
     if not isinstance(data, dict):
         return ""
@@ -1736,9 +1762,9 @@ class ProviderRouter:
                     response, str(payload.get("model") or "")
                 )
             url = _openai_url(provider.normalized_base_url, "/chat/completions")
-            post_payload = with_ollama_reasoning_effort(
+            post_payload = with_nemotron_thinking_off(with_ollama_reasoning_effort(
                 payload, is_ollama=(provider.type == "ollama")
-            )
+            ))
             response = await client.post(url, json=post_payload, headers=headers)
             if response.status_code == 404 and provider.type == "ollama":
                 native = await client.post(
