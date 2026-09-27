@@ -230,3 +230,7 @@ auto-merge to be armed when CI green.
 - Row 80 (#1565 nightly regression): still `IN_PROGRESS` — PR was open at last
   check. Verify whether it merged.
 - ~~`/api/auth/refresh` 401s on SQLite~~ **Fixed 2026-09-26, row 82.**
+
+## 2026-09-26 — free-model speed (branch claude/free-model-agency-performance-r923uk)
+- Shipped: Nemotron 3 thinking off by default (`NEMOTRON_THINKING` control), coordinator time budget handed to AgentRunner so 600s timeouts return finished steps.
+- Next: after deploy, compare task `phase_end ... elapsed_s` for planning/execute_step before vs after; consider moving Gemini (free-tier key) into the free chain once billing state is confirmed.

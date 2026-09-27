@@ -1287,6 +1287,11 @@ class TaskExecutionCoordinator:
                 }
                 for comment in task.comments[-20:]
             ],
+            # The runner stops between steps before this is spent, so a task
+            # that outgrows the hard timeout below returns its finished steps
+            # instead of being cancelled mid-step with nothing to show. 10% is
+            # held back for the judge call and worktree teardown.
+            "time_budget_s": self.execution_timeout_s * 0.9,
         }
 
         # ── Onboarded company repo wiring (roadmap ★5 — E2B sandbox) ──────

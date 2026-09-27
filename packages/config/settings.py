@@ -209,6 +209,15 @@ class Settings:
             "OLLAMA_REASONING_EFFORT", ""
         ).strip().lower()
 
+        # Nemotron 3 (the default free NVIDIA NIM brain) thinks by default,
+        # which multiplies latency several-fold and routinely pushes a
+        # plan → execute → verify run past TASK_EXECUTION_TIMEOUT_SEC. Default
+        # "false" sends chat_template_kwargs.enable_thinking=false for those
+        # models; "true" leaves the request untouched (model default: thinking).
+        self.nemotron_thinking: str = os.environ.get(
+            "NEMOTRON_THINKING", "false"
+        ).strip().lower()
+
         # Default effort level for Anthropic adaptive-thinking models
         # (output_config.effort). Mirrors Claude Code's maxEffortLevel concept.
         # Valid values: low / medium / high / xhigh / max; empty = let model decide.
@@ -474,6 +483,11 @@ class Settings:
         behaviour)."""
         v = self.ollama_reasoning_effort
         return v if v in ("high", "medium", "low") else ""
+
+    @property
+    def is_nemotron_thinking_enabled(self) -> bool:
+        """True when Nemotron 3 models should keep their default thinking mode."""
+        return self.nemotron_thinking in {"1", "true", "yes", "on"}
 
     @property
     def anthropic_default_effort_value(self) -> str:
