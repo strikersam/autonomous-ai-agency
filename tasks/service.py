@@ -1290,8 +1290,12 @@ class TaskExecutionCoordinator:
             # The runner stops between steps before this is spent, so a task
             # that outgrows the hard timeout below returns its finished steps
             # instead of being cancelled mid-step with nothing to show. 10% is
-            # held back for the judge call and worktree teardown.
-            "time_budget_s": self.execution_timeout_s * 0.9,
+            # held back for the judge call and worktree teardown. An absolute
+            # wall-clock deadline, not a duration: the runtime manager retries
+            # a failed run on a fallback runtime (Hermes forwards this context
+            # over HTTP), and a duration restarted on every retry while the
+            # hard timeout kept counting.
+            "time_budget_deadline": time.time() + self.execution_timeout_s * 0.9,
         }
 
         # ── Onboarded company repo wiring (roadmap ★5 — E2B sandbox) ──────
