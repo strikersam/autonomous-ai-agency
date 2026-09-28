@@ -1,0 +1,167 @@
+"""scripts/prompt_audit.py — Audit CLAUDE.md and AGENTS.md for staleness.
+
+Checks two categories of drift:
+  (a) File paths referenced in backticks that no longer exist in the repo.
+  (b) Model IDs mentioned that are not present in config/models.yaml.
+
+Non-blocking: prints findings to stdout and exits 0.  This is an informational
+report, not a hard CI gate — false positives are possible (e.g. a path mentioned
+as an example, not as a real file), so review findings before acting on them.
+
+Usage:
+    python scripts/prompt_audit.py
+    python scripts/prompt_audit.py --files CLAUDE.md AGENTS.md
+"""
+from __future__ import annotations
+
+import argparse
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).parent.parent
+
+
+# ── Model ID loading ─────────────────────────────────────────────────────────
+
+def _load_model_ids() -> set[str]:
+    """Return every model id listed in config/models.yaml candidates/role_presets."""
+    models_yaml = ROOT / "config" / "models.yaml"
+    if not models_yaml.exists():
+        return set()
+    try:
+        import yaml  # type: ignore[import-untyped]
+    except ImportError:
+        return set()
+    try:
+        with open(models_yaml) as fh:
+            data = yaml.safe_load(fh)
+    except Exception:
+        return set()
+    ids: set[str] = set()
+    providers = (data or {}).get("providers", {}) or {}
+    for prov in providers.values():
+        if not isinstance(prov, dict):
+            continue
+        for key in ("candidates", "fallback_candidates"):
+            for entry in prov.get(key) or []:
+                if isinstance(entry, str):
+                    ids.add(entry)
+                elif isinstance(entry, dict) and "id" in entry:
+                    ids.add(entry["id"])
+        presets = prov.get("role_presets") or {}
+        if isinstance(presets, dict):
+            for v in presets.values():
+                if isinstance(v, str):
+                    ids.add(v)
+    return ids
+
+
+# ── Path extraction ──────────────────────────────────────────────────────────
+
+# Match backtick-delimited tokens that look like file paths
+# (contain a slash or a dot followed by a known extension).
+_PATH_RE = re.compile(
+    r"`([a-zA-Z0-9_./@-][a-zA-Z0-9_./@ -]*\.[a-zA-Z]{1,6})`"
+)
+_PATH_EXTS = {
+    ".py", ".yaml", ".yml", ".json", ".md", ".txt", ".sh", ".toml",
+    ".cfg", ".ini", ".env", ".js", ".ts", ".jsx", ".tsx", ".html",
+    ".css", ".sql", ".lock", ".pem", ".crt",
+}
+
+
+def _check_file_paths(text: str, source: str) -> list[str]:
+    findings: list[str] = []
+    for m in _PATH_RE.finditer(text):
+        candidate = m.group(1).strip()
+        ext = Path(candidate).suffix.lower()
+        if ext not in _PATH_EXTS:
+            continue
+        # Skip obvious non-paths: bare filenames without a directory separator
+        # that look like example text (e.g. `file.txt` in a sentence).
+        if "/" not in candidate and not candidate.startswith("."):
+            continue
+        if not (ROOT / candidate).exists():
+            findings.append(f"  {source}: path `{candidate}` does not exist")
+    return findings
+
+
+# ── Model ID extraction ──────────────────────────────────────────────────────
+
+# Pattern for model IDs: provider/model-id  or  bare ids with version numbers
+# like `claude-sonnet-5`, `nvidia/llama-3.3-nemotron-super-49b-v1`.
+_MODEL_RE = re.compile(
+    r"`([a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._/-]+|"
+    r"(?:claude|gpt|gemini|deepseek|llama|mistral|qwen|nvidia|meta|openai|groq)"
+    r"[a-z0-9._/-]+)`",
+    re.IGNORECASE,
+)
+
+
+def _check_model_ids(text: str, source: str, known_ids: set[str]) -> list[str]:
+    if not known_ids:
+        return []
+    findings: list[str] = []
+    for m in _MODEL_RE.finditer(text):
+        candidate = m.group(1).strip()
+        # Only flag if it looks like a real model id (has a digit somewhere).
+        if not re.search(r"\d", candidate):
+            continue
+        # Fuzzy check: the candidate or any known id is a substring of the other.
+        matched = any(
+            candidate.lower() in kid.lower() or kid.lower() in candidate.lower()
+            for kid in known_ids
+        )
+        if not matched:
+            findings.append(
+                f"  {source}: model `{candidate}` not found in config/models.yaml"
+            )
+    return findings
+
+
+# ── Main ─────────────────────────────────────────────────────────────────────
+
+def audit(files: list[Path]) -> int:
+    known_ids = _load_model_ids()
+    if not known_ids:
+        print("[prompt-audit] WARNING: could not load config/models.yaml — "
+              "model-id checks skipped")
+
+    all_findings: list[str] = []
+    for path in files:
+        if not path.exists():
+            print(f"[prompt-audit] SKIP  {path} (not found)")
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        try:
+            rel = str(path.relative_to(ROOT))
+        except ValueError:
+            rel = str(path)
+        all_findings.extend(_check_file_paths(text, rel))
+        all_findings.extend(_check_model_ids(text, rel, known_ids))
+
+    if all_findings:
+        print(f"[prompt-audit] {len(all_findings)} finding(s):\n")
+        for f in all_findings:
+            print(f)
+    else:
+        print("[prompt-audit] No staleness found.")
+
+    return 0  # non-blocking: always exit 0
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__,
+                                     formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument(
+        "--files", nargs="+", default=["CLAUDE.md", "AGENTS.md"],
+        help="Files to audit (default: CLAUDE.md AGENTS.md)",
+    )
+    args = parser.parse_args()
+    files = [ROOT / f for f in args.files]
+    sys.exit(audit(files))
+
+
+if __name__ == "__main__":
+    main()
