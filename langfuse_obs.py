@@ -128,6 +128,7 @@ def _emit_langfuse_http_sync(
     meta: dict[str, Any],
     task_name: str,
     session_id: str | None = None,
+    prompt_id: str | None = None,
 ) -> None:
     base = _base_url()
     pk, sk = _env_val("LANGFUSE_PUBLIC_KEY"), _env_val("LANGFUSE_SECRET_KEY")
@@ -138,6 +139,8 @@ def _emit_langfuse_http_sync(
     tags = _department_trace_tags(department)
     if session_id:
         tags = tags + [f"session:{session_id}"]
+    if prompt_id:
+        tags = tags + [f"prompt:{prompt_id}"]
 
     trace_body: dict[str, Any] = {
         "id": trace_id,
@@ -149,6 +152,8 @@ def _emit_langfuse_http_sync(
     }
     if session_id:
         trace_body["sessionId"] = session_id
+    if prompt_id:
+        trace_body.setdefault("metadata", {})["prompt_id"] = prompt_id
     gen_body: dict[str, Any] = {
         "id": gen_id,
         "traceId": trace_id,
@@ -187,6 +192,7 @@ def _emit_sdk(
     department: str,
     model: str,
     session_id: str | None = None,
+    prompt_id: str | None = None,
     messages: Any,
     output_text: str,
     prompt_tokens: int,
@@ -196,18 +202,26 @@ def _emit_sdk(
 ) -> None:
     msg_in = _truncate_for_langfuse(messages)
     out = _truncate_for_langfuse(output_text)
+    tags = _department_trace_tags(department)
+    if session_id:
+        tags = tags + [f"session:{session_id}"]
+    if prompt_id:
+        tags = tags + [f"prompt:{prompt_id}"]
+    trace_meta: dict[str, Any] = {"department": department}
+    if prompt_id:
+        trace_meta["prompt_id"] = prompt_id
     try:
         trace = lf.trace(
             name=task_name,
             user_id=email,
-            metadata={"department": department},
-            tags=_department_trace_tags(department),
+            metadata=trace_meta,
+            tags=tags,
         )
     except TypeError:
         trace = lf.trace(
             name=task_name,
             user_id=email,
-            metadata={"department": department},
+            metadata=trace_meta,
         )
     trace.generation(
         name=task_name,
@@ -239,6 +253,7 @@ def emit_chat_observation(
     routing_meta: dict[str, Any] | None = None,
     task_name: str = "chat completion",
     session_id: str | None = None,
+    prompt_id: str | None = None,
 ) -> None:
     """Record one generation in Langfuse (SDK first, then REST fallback).
 
@@ -323,6 +338,7 @@ def emit_chat_observation(
                 meta=meta,
                 task_name=task_name,
                 session_id=session_id,
+                prompt_id=prompt_id,
             )
         except Exception as e:
             log.warning("Langfuse HTTP-only emit failed: %s", e)
@@ -338,6 +354,7 @@ def emit_chat_observation(
             department=department,
             model=model,
             session_id=session_id,
+            prompt_id=prompt_id,
             messages=messages,
             output_text=output_text,
             prompt_tokens=prompt_tokens,
@@ -360,6 +377,7 @@ def emit_chat_observation(
                 meta=meta,
                 task_name=task_name,
                 session_id=session_id,
+                prompt_id=prompt_id,
             )
         except Exception as e2:
             log.warning("Langfuse HTTP fallback failed: %s", e2)

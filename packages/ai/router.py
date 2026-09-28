@@ -1349,11 +1349,13 @@ class ProviderRouter:
                                 _tag = classify_task(messages=payload.get("messages") or [])
                             except Exception:
                                 pass
+                            _cached = int(_usage.get("cache_read_input_tokens") or 0)
                             _record_cost(
                                 model,
                                 provider_id=provider.provider_id,
                                 prompt_tokens=int(_usage.get("prompt_tokens") or 0),
                                 completion_tokens=int(_usage.get("completion_tokens") or 0),
+                                cached_tokens=_cached,
                                 tag=_tag,
                             )
                             from packages.ai.cost_tracker import cost_for_tokens as _cost_for
@@ -1363,6 +1365,7 @@ class ProviderRouter:
                                     model,
                                     int(_usage.get("prompt_tokens") or 0),
                                     int(_usage.get("completion_tokens") or 0),
+                                    _cached,
                                 ),
                             )
                         except Exception:

@@ -231,14 +231,39 @@ def _build_cost_table() -> dict[str, tuple[float, float]]:
 
 _COST_TABLE: dict[str, tuple[float, float]] = _build_cost_table()
 
+# Cache-read discount fraction per model-id prefix (multiplied against the input rate).
+# Anthropic: cache reads at 10 % of the input rate (platform.claude.com/docs/en/about-claude/pricing).
+# Google Gemini: cached content billed at 25 % of the input rate (ai.google.dev/gemini-api/docs/caching).
+# DeepSeek API: cache hit at 1/50th of the input rate (api-docs.deepseek.com/quick_start/pricing).
+_CACHE_READ_FRACTIONS: tuple[tuple[str, float], ...] = (
+    ("claude-", 0.10),
+    ("gemini-", 0.25),
+    ("deepseek-chat", 0.02),
+    ("deepseek-reasoner", 0.02),
+    ("deepseek-flash", 0.02),
+)
+
+
+def _cache_read_fraction(model: str) -> float:
+    """Return the cache-read cost fraction for *model* (1.0 = no discount known)."""
+    ml = model.lower()
+    for prefix, frac in _CACHE_READ_FRACTIONS:
+        if ml.startswith(prefix):
+            return frac
+    return 1.0
+
 
 def cost_for_tokens(
-    model: str, prompt_tokens: int, completion_tokens: int
+    model: str, prompt_tokens: int, completion_tokens: int, cached_tokens: int = 0
 ) -> float:
     """Return the USD cost for (prompt_tokens, completion_tokens) on *model*.
 
-    Returns 0.0 for unknown / free-tier models.  Calculation:
-      cost = (prompt_tokens * input_$/M + completion_tokens * output_$/M) / 1_000_000
+    ``cached_tokens`` are a subset of ``prompt_tokens`` that the provider served
+    from its prompt cache.  Supported providers bill cache reads at a fraction of
+    the standard input rate (see ``_CACHE_READ_FRACTIONS``); unsupported providers
+    treat cached tokens as ordinary input tokens (fraction = 1.0).
+
+    Returns 0.0 for unknown / free-tier models.
     """
     costs = _COST_TABLE.get(model)
     if costs is None:
@@ -251,7 +276,15 @@ def cost_for_tokens(
     if costs is None:
         return 0.0
     input_per_m, output_per_m = costs
-    return (prompt_tokens * input_per_m + completion_tokens * output_per_m) / 1_000_000.0
+    # Price cached and non-cached input tokens separately.
+    cached = max(0, min(cached_tokens, prompt_tokens))
+    non_cached = prompt_tokens - cached
+    frac = _cache_read_fraction(model)
+    return (
+        non_cached * input_per_m
+        + cached * input_per_m * frac
+        + completion_tokens * output_per_m
+    ) / 1_000_000.0
 
 
 # ── Aggregate store ───────────────────────────────────────────────────────────
@@ -284,6 +317,7 @@ def record_usage(
     provider_id: str = "",
     prompt_tokens: int = 0,
     completion_tokens: int = 0,
+    cached_tokens: int = 0,
     tag: str = "untagged",
 ) -> None:
     """Record token usage for *model* (fire-and-forget, never raises).
@@ -291,10 +325,12 @@ def record_usage(
     ``tag`` is a coarse task-category label (see router/classifier.py's
     ``classify_task()``) used to break down spend by kind of work, not just
     by model — callers that don't have a category default to "untagged".
+    ``cached_tokens`` is the subset of ``prompt_tokens`` served from cache;
+    see ``cost_for_tokens`` for how providers discount them.
     """
     global _total_calls, _total_cost_usd
     try:
-        cost = cost_for_tokens(model, prompt_tokens, completion_tokens)
+        cost = cost_for_tokens(model, prompt_tokens, completion_tokens, cached_tokens)
         entry = _stats[model]
         entry["calls"] += 1
         entry["prompt_tokens"] += prompt_tokens

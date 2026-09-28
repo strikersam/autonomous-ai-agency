@@ -386,6 +386,7 @@ The latest change log lives in [**docs/changelog.md**](docs/changelog.md). Recen
 <details>
 <summary>More releases</summary>
 
+- **`X-Claude-Code-Prompt-Id` Langfuse trace grouping** — an optional request header that groups every tool-call round trip serving one Claude Code prompt under a `prompt:<id>` Langfuse tag, alongside the existing session grouping.
 - **`reasoning_budget` shorthand** — `low\|medium\|high\|max` maps to per-provider thinking budgets on any supported model.
 - **Chat-path context pruning** — long `/v1/chat/completions` conversations are auto-trimmed before forwarding.
 - **Structured output strict mode + refusal handling** — the OpenAI `json_schema` + `strict: true` pattern, translated for providers that don't support it natively.

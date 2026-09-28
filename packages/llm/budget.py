@@ -170,6 +170,7 @@ class BudgetTracker:
                 model=model,
                 prompt_tokens=usage.prompt_tokens,
                 completion_tokens=usage.completion_tokens,
+                cached_tokens=usage.cached_tokens,
             )
         except Exception as exc:  # pragma: no cover - signature drift
             log.debug("llm.budget: cost_tracker mirror skipped (%s)", exc)
