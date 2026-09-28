@@ -303,6 +303,7 @@ async def handle_openai_chat_completions(
         or request.headers.get("x-session-id")
         or None
     )
+    prompt_id = request.headers.get("x-claude-code-prompt-id") or None
     messages_for_routing = payload.get("messages")
     routing = get_router().route(
         requested_model=model or None,
@@ -343,7 +344,7 @@ async def handle_openai_chat_completions(
 
     if exact_output is not None:
         usage_completion_tokens = max(len(exact_output) // 4, 1) if exact_output else 0
-        await _emit_safely(email, department, key_id, model, messages, exact_output, 0, usage_completion_tokens, routing_meta=routing_meta, session_id=session_id)
+        await _emit_safely(email, department, key_id, model, messages, exact_output, 0, usage_completion_tokens, routing_meta=routing_meta, session_id=session_id, prompt_id=prompt_id)
         if stream:
             async def _single_exact_stream() -> AsyncIterator[bytes]:
                 yield _openai_chat_stream_bytes(exact_output, model)
@@ -372,7 +373,7 @@ async def handle_openai_chat_completions(
 
     if stream:
         return StreamingResponse(
-            _stream_openai_chat(target_url, headers, forward, email, department, key_id, model, messages, routing_meta=routing_meta, session_id=session_id),
+            _stream_openai_chat(target_url, headers, forward, email, department, key_id, model, messages, routing_meta=routing_meta, session_id=session_id, prompt_id=prompt_id),
             media_type="text/event-stream",
             headers={
                 "X-Accel-Buffering": "no",
@@ -390,7 +391,7 @@ async def handle_openai_chat_completions(
         return JSONResponse(content=resp.text, status_code=resp.status_code)
 
     out_text, pt, ct = _openai_usage_from_response(data)
-    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta, session_id=session_id)
+    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta, session_id=session_id, prompt_id=prompt_id)
     return JSONResponse(
         content=data,
         status_code=resp.status_code,
@@ -433,6 +434,7 @@ async def _emit_safely(
     ct: int,
     routing_meta: dict[str, Any] | None = None,
     session_id: str | None = None,
+    prompt_id: str | None = None,
 ) -> None:
     try:
         await asyncio.to_thread(
@@ -447,6 +449,7 @@ async def _emit_safely(
             completion_tokens=ct,
             routing_meta=routing_meta,
             session_id=session_id,
+            prompt_id=prompt_id,
         )
     except Exception as e:
         log.warning("Observation emit error: %s", e)
@@ -500,6 +503,7 @@ async def _stream_openai_chat(
     messages: Any,
     routing_meta: dict[str, Any] | None = None,
     session_id: str | None = None,
+    prompt_id: str | None = None,
 ) -> AsyncIterator[bytes]:
     buf = bytearray()
     line_buf = bytearray()
@@ -538,7 +542,7 @@ async def _stream_openai_chat(
         # Rough fallback if usage was not present in stream
         est = max(len(out_text) // 4, 1)
         ct = est
-    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta, session_id=session_id)
+    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta, session_id=session_id, prompt_id=prompt_id)
 
 
 async def handle_ollama_native_chat(
@@ -571,6 +575,7 @@ async def handle_ollama_native_chat(
         or request.headers.get("x-session-id")
         or None
     )
+    prompt_id = request.headers.get("x-claude-code-prompt-id") or None
     routing = get_router().route(
         requested_model=model or None,
         messages=messages if isinstance(messages, list) else None,
@@ -598,7 +603,7 @@ async def handle_ollama_native_chat(
 
     if stream:
         return StreamingResponse(
-            _stream_ollama_chat(target_url, headers, body, email, department, key_id, model, messages, routing_meta=routing_meta, session_id=session_id),
+            _stream_ollama_chat(target_url, headers, body, email, department, key_id, model, messages, routing_meta=routing_meta, session_id=session_id, prompt_id=prompt_id),
             media_type="application/x-ndjson",
         )
 
@@ -618,7 +623,7 @@ async def handle_ollama_native_chat(
         pt = int(data.get("prompt_eval_count") or 0)
         ct = int(data.get("eval_count") or 0)
 
-    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta, session_id=session_id)
+    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta, session_id=session_id, prompt_id=prompt_id)
     return JSONResponse(content=data, status_code=resp.status_code)
 
 
@@ -633,6 +638,7 @@ async def _stream_ollama_chat(
     messages: Any,
     routing_meta: dict[str, Any] | None = None,
     session_id: str | None = None,
+    prompt_id: str | None = None,
 ) -> AsyncIterator[bytes]:
     buf = bytearray()
     async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
@@ -648,7 +654,7 @@ async def _stream_ollama_chat(
     if pt == 0 and ct == 0 and out_text:
         est = max(len(out_text) // 4, 1)
         ct = est
-    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta, session_id=session_id)
+    await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta, session_id=session_id, prompt_id=prompt_id)
 
 
 def _parse_ollama_ndjson(buffer: bytes) -> tuple[str, int, int]:
