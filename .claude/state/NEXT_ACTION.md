@@ -1,37 +1,55 @@
 # Next Action
 
-**Updated:** 2026-09-28
+**Updated:** 2026-09-28 (second session, row 88)
 
-## Daily automation 2026-09-28 — DONE (row 87)
+## Daily automation 2026-09-28 — DONE (row 87, merged; row 88, docs follow-up)
 
-Three W40 backlog items shipped on branch `claude/intelligent-gates-fkv7zw`.
-PR opened, waiting for CI.
+Row 87's three W40 backlog items are **merged to master** as #1612 (verify with
+`git log origin/master` if this note is more than a day old — the "waiting for CI"
+line above was stale by the time this second session started).
 
 1. **Prompt-cache billing** (`packages/ai/cost_tracker.py`, `packages/ai/router.py`,
    `packages/llm/budget.py`): `cost_for_tokens()` and `record_usage()` accept
    `cached_tokens`; Anthropic 10%, Gemini 25%, DeepSeek 2%.
 2. **X-Claude-Code-Prompt-Id** (`langfuse_obs.py`, `chat_handlers.py`,
    `handlers/anthropic_compat.py`, `proxy.py`): header extracted and threaded to
-   `emit_chat_observation` as `prompt_id`; emitted as `prompt:<id>` tag in Langfuse.
+   `emit_chat_observation` as `prompt_id`; emitted as `prompt:<id>` tag + metadata
+   field in Langfuse.
 3. **Prompt-audit script** (`scripts/prompt_audit.py`): flags stale file paths and
    unknown model IDs in CLAUDE.md/AGENTS.md; non-blocking.
-
-22 tests (`tests/test_daily_automation_2026_09_28.py`); 58 total green.
-Gates: `compileall` clean, `check_changelog_parity` PARITY OK, `loop_registry` drift none.
 
 **Item deferred (needs rule-40 human approval before touching router/):**
 Item 3 from the W40 backlog — operator deny-list for model IDs in `router/`. Requires
 human sign-off per CLAUDE.md rule 40 (change spanning >5 files in `router/`).
 
+**Row 88 (a second, concurrent 2026-09-28 session):** picked the same backlog item
+(prompt-id forwarding) before row 87 landed, built it independently, then discovered
+the collision at PR-creation time. Closed the duplicate PR (#1613) without merging
+and shipped only the genuinely new remainder — `docs/api-surfaces.md` had no
+"Observability request headers" reference at all for any of the four
+`X-Claude-Code-*` headers — as docs-only PR #1614 (auto-merge armed). See row 88
+for the full account, including why item 2 of the backlog issue (#1611) was not
+picked: its "cached tokens billed at full price" premise didn't hold up under direct
+code verification (the opposite is true — they're currently unbilled).
+
+**One backlog item from #1611 remains unaddressed:** item 3, the operator model
+deny-list (deferred above, needs rule-40 human sign-off). Items 1, 2, and 4 all
+shipped in row 87 (#1612).
+
 ## Next daily run (2026-09-29)
 
-- Verify CI on the PR from today's session (branch `claude/intelligent-gates-fkv7zw`).
+- Confirm PR #1614 merged (docs-only, auto-merge armed 2026-09-28 — verify it didn't
+  get stuck on a required check with no code to fix).
 - Check for new models from Anthropic / Google / NVIDIA NIM (Claude Sonnet 5.5 / Haiku
   5.5 rumoured "coming weeks" as of 2026-09-22).
 - Row 86 planner timeout is still open — read the new attempt logs from Render to
   determine if NVIDIA truly hangs or just runs slow, then raise `timeout_sec`/Brain
   card timeout or switch planning to a faster free model.
 - Consider operator deny-list (W40 item 3) if the human approves router/ changes.
+- **Check for a fresh `routine-backlog` issue before re-researching from scratch** —
+  two sessions independently re-derived the same shortlist on 2026-09-28 (rows 87/88)
+  because both started from a clean slate at nearly the same time; if a same-week
+  issue already exists, read it instead of re-running the ecosystem scan.
 
 **Updated:** 2026-09-27
 
