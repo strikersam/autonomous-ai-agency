@@ -1,5 +1,38 @@
 # Next Action
 
+**Updated:** 2026-09-28
+
+## Daily automation 2026-09-28 — DONE (row 87)
+
+Three W40 backlog items shipped on branch `claude/intelligent-gates-fkv7zw`.
+PR opened, waiting for CI.
+
+1. **Prompt-cache billing** (`packages/ai/cost_tracker.py`, `packages/ai/router.py`,
+   `packages/llm/budget.py`): `cost_for_tokens()` and `record_usage()` accept
+   `cached_tokens`; Anthropic 10%, Gemini 25%, DeepSeek 2%.
+2. **X-Claude-Code-Prompt-Id** (`langfuse_obs.py`, `chat_handlers.py`,
+   `handlers/anthropic_compat.py`, `proxy.py`): header extracted and threaded to
+   `emit_chat_observation` as `prompt_id`; emitted as `prompt:<id>` tag in Langfuse.
+3. **Prompt-audit script** (`scripts/prompt_audit.py`): flags stale file paths and
+   unknown model IDs in CLAUDE.md/AGENTS.md; non-blocking.
+
+22 tests (`tests/test_daily_automation_2026_09_28.py`); 58 total green.
+Gates: `compileall` clean, `check_changelog_parity` PARITY OK, `loop_registry` drift none.
+
+**Item deferred (needs rule-40 human approval before touching router/):**
+Item 3 from the W40 backlog — operator deny-list for model IDs in `router/`. Requires
+human sign-off per CLAUDE.md rule 40 (change spanning >5 files in `router/`).
+
+## Next daily run (2026-09-29)
+
+- Verify CI on the PR from today's session (branch `claude/intelligent-gates-fkv7zw`).
+- Check for new models from Anthropic / Google / NVIDIA NIM (Claude Sonnet 5.5 / Haiku
+  5.5 rumoured "coming weeks" as of 2026-09-22).
+- Row 86 planner timeout is still open — read the new attempt logs from Render to
+  determine if NVIDIA truly hangs or just runs slow, then raise `timeout_sec`/Brain
+  card timeout or switch planning to a faster free model.
+- Consider operator deny-list (W40 item 3) if the human approves router/ changes.
+
 **Updated:** 2026-09-27
 
 ## Planner timeout — still open (row 86)
