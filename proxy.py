@@ -3279,6 +3279,8 @@ async def proxy_request(request: Request, target_path: str, auth: AuthContext | 
                         or None
                     )
 
+                    _proxy_prompt_id = request.headers.get("x-claude-code-prompt-id") or None
+
                     await asyncio.to_thread(
 
                         emit_chat_observation,
@@ -3304,6 +3306,8 @@ async def proxy_request(request: Request, target_path: str, auth: AuthContext | 
                         task_name="generation",
 
                         session_id=_proxy_session_id,
+
+                        prompt_id=_proxy_prompt_id,
 
                     )
 

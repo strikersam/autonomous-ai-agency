@@ -157,6 +157,26 @@ This backend is typically used with:
 
 ---
 
+## Observability request headers
+
+Optional, case-insensitive headers read on the chat-completion entry points
+(`chat_handlers.py`, `handlers/anthropic_compat.py`, and the legacy tracker in
+`proxy.py`). Absent → no-op; present → forwarded into the Langfuse trace for
+that request as a tag (`langfuse_obs.py`). Neither header is required by any
+client; both exist only so a Claude Code client can group its own traces.
+
+- `X-Claude-Code-Session-Id` (fallback: `X-Session-Id`) — one Claude Code
+  session. Tagged as `session:<id>` and set as the trace's first-class
+  `sessionId` field.
+- `X-Claude-Code-Prompt-Id` — one user prompt within a session; a session can
+  span several tool-call round trips, each landing as a separate trace today.
+  Tagged as `prompt:<id>`. Langfuse has no first-class `promptId` trace field,
+  so this is tag-only.
+- `X-Claude-Code-Agent-Type`, `X-Claude-Code-Request-Class` — recorded into
+  the trace's generation metadata (not tags).
+
+---
+
 ## Supporting technical docs
 
 - [Feature guide](features.md)

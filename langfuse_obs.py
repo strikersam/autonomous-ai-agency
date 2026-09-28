@@ -128,6 +128,7 @@ def _emit_langfuse_http_sync(
     meta: dict[str, Any],
     task_name: str,
     session_id: str | None = None,
+    prompt_id: str | None = None,
 ) -> None:
     base = _base_url()
     pk, sk = _env_val("LANGFUSE_PUBLIC_KEY"), _env_val("LANGFUSE_SECRET_KEY")
@@ -138,6 +139,8 @@ def _emit_langfuse_http_sync(
     tags = _department_trace_tags(department)
     if session_id:
         tags = tags + [f"session:{session_id}"]
+    if prompt_id:
+        tags = tags + [f"prompt:{prompt_id}"]
 
     trace_body: dict[str, Any] = {
         "id": trace_id,
@@ -239,6 +242,7 @@ def emit_chat_observation(
     routing_meta: dict[str, Any] | None = None,
     task_name: str = "chat completion",
     session_id: str | None = None,
+    prompt_id: str | None = None,
 ) -> None:
     """Record one generation in Langfuse (SDK first, then REST fallback).
 
@@ -249,6 +253,11 @@ def emit_chat_observation(
                        model selection mode, task category, selection source, etc.
                        Pass ``None`` to omit routing fields (legacy callers).
         task_name:     The name of the action (e.g. "chat completion", "agent planning").
+        session_id:    ``X-Claude-Code-Session-Id`` — groups every request in one
+                       Claude Code session under a ``session:<id>`` trace tag.
+        prompt_id:     ``X-Claude-Code-Prompt-Id`` — finer-grained sibling of
+                       ``session_id``: groups every tool-call round trip that
+                       serves one user prompt under a ``prompt:<id>`` trace tag.
     """
     if not _langfuse_enabled():
         return
@@ -323,6 +332,7 @@ def emit_chat_observation(
                 meta=meta,
                 task_name=task_name,
                 session_id=session_id,
+                prompt_id=prompt_id,
             )
         except Exception as e:
             log.warning("Langfuse HTTP-only emit failed: %s", e)
@@ -360,6 +370,7 @@ def emit_chat_observation(
                 meta=meta,
                 task_name=task_name,
                 session_id=session_id,
+                prompt_id=prompt_id,
             )
         except Exception as e2:
             log.warning("Langfuse HTTP fallback failed: %s", e2)
