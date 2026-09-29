@@ -99,3 +99,24 @@ def test_seed_never_sends_the_env_key_to_a_hand_set_base_url():
     }
     seed = {"base_url": "https://integrate.api.nvidia.com/v1", "api_key": "env-key"}
     assert "api_key" not in _seed_sync_update(existing, seed)
+
+
+@pytest.mark.asyncio
+async def test_non_admin_cannot_delete_a_provider(monkeypatch):
+    monkeypatch.setattr(server, "get_db", lambda: _DB())
+    with pytest.raises(server.HTTPException) as exc:
+        await server.delete_provider("nvidia-nim", {"_id": "u1", "role": "user"})
+    assert exc.value.status_code == 403
+
+
+def test_without_a_default_the_active_provider_is_free_not_the_first_seeded():
+    records = [
+        {"provider_id": "anthropic-claude", "type": "anthropic", "status": "configured",
+         "base_url": "https://api.anthropic.com", "priority": -50},
+        {"provider_id": "ollama-local", "type": "ollama", "status": "unconfigured",
+         "base_url": "http://localhost:11434", "priority": 0},
+        {"provider_id": "nvidia-nim", "type": "openai-compatible", "status": "configured",
+         "base_url": "https://integrate.api.nvidia.com", "priority": -10},
+    ]
+    assert server._preferred_provider(records)["provider_id"] == "nvidia-nim"
+    assert server._preferred_provider([]) is None

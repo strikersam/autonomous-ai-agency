@@ -4069,11 +4069,25 @@ async def refresh_token(request: Request):
 # ─── LLM Engine ─────────────────────────────────────────────────────────────────
 
 
+def _preferred_provider(records: list[dict]) -> Optional[dict]:
+    """Best record when none is marked default: configured, then free-first order.
+
+    ``find_one({})`` returned the first seeded record, the paid
+    ``anthropic-claude``; as the primary it bypassed the paid-fallback gate.
+    """
+    from packages.ai.router import provider_sort_key
+
+    if not records:
+        return None
+    configured = [r for r in records if r.get("status") == "configured"] or records
+    return min(configured, key=provider_sort_key)
+
+
 async def get_active_provider():
     try:
         prov = await get_db().providers.find_one({"is_default": True})
         if not prov:
-            prov = await get_db().providers.find_one({})
+            prov = _preferred_provider(await get_db().providers.find({}).to_list(200))
         return prov
     except Exception:
         return None
@@ -6667,6 +6681,7 @@ async def sync_provider_to_render(
 
 @app.delete("/api/providers/{provider_id}")
 async def delete_provider(provider_id: str, user: dict = Depends(get_current_user)):
+    _require_admin(user)
     try:
         result = await get_db().providers.delete_one({"provider_id": provider_id})
         if result.deleted_count == 0:
