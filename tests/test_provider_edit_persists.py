@@ -69,7 +69,7 @@ async def test_edit_pins_the_changed_fields_and_refreshes_the_brain(monkeypatch)
     monkeypatch.setattr(brain, "invalidate_brain_cache", lambda: invalidated.append(True))
 
     body = ProviderUpdate(default_model="nvidia/nemotron-3-super-120b-a12b")
-    out = await server.update_provider("nvidia-nim", body, {"_id": "admin"})
+    out = await server.update_provider("nvidia-nim", body, {"_id": "admin", "role": "admin"})
 
     assert out == {"ok": True}
     written = db.providers.updates[0]
@@ -77,3 +77,25 @@ async def test_edit_pins_the_changed_fields_and_refreshes_the_brain(monkeypatch)
     assert written["operator_overrides.default_model"] is True
     assert "operator_overrides.priority" not in written
     assert invalidated == [True]
+
+
+@pytest.mark.asyncio
+async def test_non_admin_cannot_edit_a_provider(monkeypatch):
+    db = _DB()
+    monkeypatch.setattr(server, "get_db", lambda: db)
+    with pytest.raises(server.HTTPException) as exc:
+        await server.update_provider(
+            "nvidia-nim", ProviderUpdate(base_url="https://evil.example/v1"),
+            {"_id": "u1", "role": "user"},
+        )
+    assert exc.value.status_code == 403
+    assert db.providers.updates == []
+
+
+def test_seed_never_sends_the_env_key_to_a_hand_set_base_url():
+    existing = {
+        "base_url": "https://elsewhere.example/v1", "api_key": "hand-set",
+        "operator_overrides": {"base_url": True},
+    }
+    seed = {"base_url": "https://integrate.api.nvidia.com/v1", "api_key": "env-key"}
+    assert "api_key" not in _seed_sync_update(existing, seed)
