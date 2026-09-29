@@ -285,18 +285,10 @@ models:
     priority: 14
     speed_tier: medium
 
-  gemini-2.0-flash:
-    provider: google
-    display_name: Gemini 2.0 Flash
-    context_window: 1048576
-    max_output_tokens: 8192
-    supports_tools: true
-    supports_function_calling: true
-    supports_json: true
-    supports_images: true
-    supports_streaming: true
-    priority: 28
-    speed_tier: fast
+  # gemini-2.0-flash and gemini-1.5-flash were removed on 2026-09-29: Google's
+  # API answers HTTP 404 for both. In production on 2026-09-27 every attempt
+  # 404'd, and each one used up one of the router's max_attempts per request.
+  # Re-add only after a live completion probe.
 
   # Gemini 3.1 Pro: Google's frontier reasoning model (GA Aug 2026). Tiered
   # pricing — $2.00/$12.00 per MTok (≤200K), higher above. Lower bound tracked
@@ -375,23 +367,6 @@ models:
     output_cost_per_1m: 3.75
     priority: 10
     speed_tier: fast
-
-  # Gemini 1.5 Flash: Google's 1M-context multimodal model (GA May 2024).
-  # Predecessor to 2.5 Flash; still listed as a Google candidate fallback.
-  # Free tier: 15 RPM, 1M TPM. Source: ai.google.dev/pricing, 2026-09-19.
-  gemini-1.5-flash:
-    provider: google
-    display_name: Gemini 1.5 Flash
-    context_window: 1048576
-    max_output_tokens: 8192
-    supports_tools: true
-    supports_function_calling: true
-    supports_json: true
-    supports_images: true
-    supports_streaming: true
-    priority: 16
-    speed_tier: fast
-    max_requests_per_minute: 15
 
   # Gemini 1.5 Pro: Google's 2M-context multimodal model (GA May 2024).
   # Predecessor to 2.5 Pro; listed as a Google candidate fallback.

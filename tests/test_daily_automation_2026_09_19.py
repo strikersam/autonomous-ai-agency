@@ -160,34 +160,30 @@ class TestTogetherAiEntries:
 
 
 class TestGemini15Entries:
-    """gemini-1.5-flash and gemini-1.5-pro now have catalog entries."""
+    """gemini-1.5-pro has a catalog entry; gemini-1.5-flash was retired (HTTP 404)."""
 
-    def test_gemini_15_flash_in_google_candidates(self):
-        assert "gemini-1.5-flash" in _routing_candidates().get("google", [])
+    def test_gemini_15_flash_is_retired_from_google_candidates(self):
+        # 2026-09-29: superseded. Google answers HTTP 404 for gemini-1.5-flash;
+        # in production on 2026-09-27 every attempt 404'd and spent one of the
+        # router's per-request attempts, so it left the rotation.
+        for retired in ("gemini-1.5-flash", "gemini-2.0-flash"):
+            assert retired not in _routing_candidates().get("google", [])
 
     def test_gemini_15_pro_in_google_candidates(self):
         assert "gemini-1.5-pro" in _routing_candidates().get("google", [])
 
-    def test_gemini_15_flash_has_catalog_entry(self):
-        assert "gemini-1.5-flash" in _llm_catalog()
+    def test_gemini_15_flash_has_no_catalog_entry(self):
+        for retired in ("gemini-1.5-flash", "gemini-2.0-flash"):
+            assert retired not in _llm_catalog()
 
     def test_gemini_15_pro_has_catalog_entry(self):
         assert "gemini-1.5-pro" in _llm_catalog()
 
-    def test_gemini_15_flash_provider(self):
-        assert _llm_catalog()["gemini-1.5-flash"]["provider"] == "google"
-
     def test_gemini_15_pro_provider(self):
         assert _llm_catalog()["gemini-1.5-pro"]["provider"] == "google"
 
-    def test_gemini_15_flash_supports_tools(self):
-        assert _llm_catalog()["gemini-1.5-flash"].get("supports_tools") is True
-
     def test_gemini_15_pro_supports_tools(self):
         assert _llm_catalog()["gemini-1.5-pro"].get("supports_tools") is True
-
-    def test_gemini_15_flash_context_window(self):
-        assert _llm_catalog()["gemini-1.5-flash"]["context_window"] == 1048576
 
     def test_gemini_15_pro_context_window(self):
         # 2M tokens

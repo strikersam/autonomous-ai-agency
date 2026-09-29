@@ -71,19 +71,14 @@ shipped in row 87 (#1612).
 
 **Updated:** 2026-09-27
 
-## Planner timeout — still open (row 86)
+## Planner timeout — closed (row 86)
 
-#1594 (no cross-provider Retry-After sleep) is live and did NOT stop
-`planning: TimeoutError`: after it, successful plans still took 104–117s against a
-120s budget. A parallel session merged #1596/#1597 (NVIDIA + Gemini `timeout_sec: 60`,
-enforced as a wall-clock cap per attempt), betting that NIM hangs rather than runs
-slow. This branch adds one INFO line per router attempt
-(`llm.router: attempt <provider>/<model> <outcome> in <ms>ms`). Next: read those lines
-in Render. If NVIDIA plans legitimately need >60s, the 60s cap is failing good calls;
-raise NVIDIA `timeout_sec` and the Brain card **Timeout (s)** together (the provider
-cap binds first). If it truly hangs, move planning to a faster free model.
-Still open: `anthropic-claude` HTTP 400 (priority -50).
-
+Root cause, from the per-attempt router logs (#1599): `nvidia/deepseek-v4.1-flash`
+timed out at 60s on every call and sat first for planning; #1600 removed it. The
+two retired Gemini ids (`gemini-1.5-flash`, `gemini-2.0-flash`, HTTP 404) are
+removed on this branch. Still open, not actioned: `gemini-2.0-flash` is the default
+in `docker/agent_runtime.py` and in the frontend's `ProvidersScreen.jsx`;
+`anthropic-claude` returns HTTP 400 (priority -50).
 
 ## Daily automation 2026-09-27 — no-op day (row 85)
 
