@@ -251,17 +251,17 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
         "judge":     "glm-5.2",
     },
     "aerolink": {
-        # Updated 2026-09-25: Opus 5.5 replaces Opus 5 as planner/judge (mirrors anthropic provider; $4/$20, 20% cheaper).
+        # Updated 2026-09-29: Sonnet 5.5 replaces Sonnet 5 as executor/verifier (mirrors anthropic provider; $1.6/$8, 20% cheaper).
         "planner":   "claude-opus-5-5",
-        "executor":  "claude-sonnet-5",
-        "verifier":  "claude-sonnet-5",
+        "executor":  "claude-sonnet-5-5",
+        "verifier":  "claude-sonnet-5-5",
         "judge":     "claude-opus-5-5",
     },
     "anthropic": {
-        # Updated 2026-09-24: Opus 5.5 replaces Opus 5 as planner/judge (released 2026-09-22; 20% cheaper, same capability tier).
+        # Updated 2026-09-29: Sonnet 5.5 replaces Sonnet 5 as executor/verifier (released 2026-09-29; 20% cheaper, same capability tier).
         "planner":   "claude-opus-5-5",
-        "executor":  "claude-sonnet-5",
-        "verifier":  "claude-sonnet-5",
+        "executor":  "claude-sonnet-5-5",
+        "verifier":  "claude-sonnet-5-5",
         "judge":     "claude-opus-5-5",
     },
     "google": {
@@ -426,6 +426,8 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         # Added 2026-09-24: Opus 5.5 (released 2026-09-22), 20% cheaper than Opus 5.
         "claude-opus-5-5",
         "claude-opus-5",
+        # Added 2026-09-29: Sonnet 5.5 (released 2026-09-29), 20% cheaper than Sonnet 5 ($1.6/$8).
+        "claude-sonnet-5-5",
         "claude-sonnet-5",
         "claude-fable-5",
         # Added 2026-09-14: Fable 5.1 (confirmed model id from system env).
@@ -438,6 +440,8 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         # Added 2026-09-25: Opus 5.5 as first-position candidate (mirrors anthropic provider).
         "claude-opus-5-5",
         "claude-opus-5",
+        # Added 2026-09-29: Sonnet 5.5 as executor/verifier model (20% cheaper than Sonnet 5).
+        "claude-sonnet-5-5",
         "claude-sonnet-5",
         "claude-opus-4-8",
         "claude-opus-4-7",

@@ -1,6 +1,24 @@
 # Next Action
 
-**Updated:** 2026-09-28 (second session, row 88)
+**Updated:** 2026-09-29 (row 85)
+
+## Daily automation 2026-09-29 — IN_PROGRESS (row 85, PR #1616)
+
+`claude-sonnet-5-5` (Sonnet 5.5) added to model registry; executor/verifier
+role_presets updated on anthropic + aerolink from `claude-sonnet-5` to
+`claude-sonnet-5-5` (20% cheaper, $1.6/$8 per MTok). 25 new tests, 641/641
+daily-automation suite passes. PR #1616 open on `claude/intelligent-gates-n8dgox`,
+watching CI; merge when green.
+
+**Next daily run (2026-09-30):**
+- Confirm PR #1616 merged.
+- Check for any new Anthropic/Google/NVIDIA model announcements.
+- Consider operator model deny-list (W40 item 3, still deferred) if rule-40 human
+  approval lands.
+- Row 86 (planner timeout): still open — read new Render attempt logs to determine
+  if NVIDIA truly hangs after the 60s-cap change.
+
+---
 
 ## Daily automation 2026-09-28 — DONE (row 87, merged; row 88, docs follow-up)
 

@@ -702,6 +702,44 @@ models:
     priority: 63
     speed_tier: medium
 
+  # Sonnet 5.5: updated Sonnet 5 release (2026-09-29). Same 1M context and 64K
+  # output as Sonnet 5. Pricing estimated at $1.6/$8 per MTok (20% cheaper than
+  # Sonnet 5's $2/$10, following the Opus 5→5.5 precedent). Replaces Sonnet 5
+  # as the default executor/verifier role model.
+  claude-sonnet-5-5:
+    provider: anthropic
+    display_name: Claude Sonnet 5.5
+    context_window: 1048576
+    max_output_tokens: 64000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 1.6
+    output_cost_per_1m: 8.0
+    priority: 64
+    speed_tier: medium
+    aliases: [sonnet5.5]
+
+  # Dated alias pinned to the September 2026 Sonnet 5.5 checkpoint.
+  claude-sonnet-5-5-20260929:
+    provider: anthropic
+    display_name: Claude Sonnet 5.5 (2026-09-29)
+    context_window: 1048576
+    max_output_tokens: 64000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 1.6
+    output_cost_per_1m: 8.0
+    priority: 64
+    speed_tier: medium
+
   # Opus 5: flagship, most capable Claude model (2026). 1M context window, 128K
   # max output. Pricing: $5/$25 per MTok input/output (source: platform.claude.com/docs/en/about-claude/pricing, 2026-09-06).
   claude-opus-5:

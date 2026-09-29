@@ -355,16 +355,19 @@ providers:
     base_url_env: ANTHROPIC_BASE_URL
     default_base_url: https://api.anthropic.com
     role_presets:
-      # Updated 2026-09-24: Opus 5.5 replaces Opus 5 as planner/judge.
+      # Updated 2026-09-29: Sonnet 5.5 replaces Sonnet 5 as executor/verifier (20% cheaper, same capability tier).
       planner:   claude-opus-5-5
-      executor:  claude-sonnet-5
-      verifier:  claude-sonnet-5
+      executor:  claude-sonnet-5-5
+      verifier:  claude-sonnet-5-5
       judge:     claude-opus-5-5
     candidates:
       # Added 2026-09-24: Opus 5.5 (released 2026-09-22) — 20% cheaper than
       # Opus 5 at the same capability tier. Placed first.
       - claude-opus-5-5
       - claude-opus-5
+      # Added 2026-09-29: Sonnet 5.5 (released 2026-09-29) — 20% cheaper than
+      # Sonnet 5 at $1.6/$8 per MTok. Placed before claude-sonnet-5.
+      - claude-sonnet-5-5
       - claude-sonnet-5
       - claude-fable-5
       # Added 2026-09-14: Fable 5.1 is the latest Fable revision (system env
@@ -382,15 +385,17 @@ providers:
     base_url_env: AEROLINK_BASE_URL
     default_base_url: https://capi.aerolink.lat/v1
     role_presets:
-      # Updated 2026-09-25: Opus 5.5 replaces Opus 5 as planner/judge (mirrors anthropic provider; $4/$20, 20% cheaper).
+      # Updated 2026-09-29: Sonnet 5.5 replaces Sonnet 5 as executor/verifier (mirrors anthropic provider; $1.6/$8, 20% cheaper).
       planner:   claude-opus-5-5
-      executor:  claude-sonnet-5
-      verifier:  claude-sonnet-5
+      executor:  claude-sonnet-5-5
+      verifier:  claude-sonnet-5-5
       judge:     claude-opus-5-5
     candidates:
       # Added 2026-09-25: Opus 5.5 as first-position candidate (cheaper + same capability tier as Opus 5).
       - claude-opus-5-5
       - claude-opus-5
+      # Added 2026-09-29: Sonnet 5.5 as executor/verifier model (20% cheaper than Sonnet 5).
+      - claude-sonnet-5-5
       - claude-sonnet-5
       - claude-opus-4-8
       - claude-opus-4-7
