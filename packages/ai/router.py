@@ -501,7 +501,6 @@ _COMMERCIAL_PROVIDER_IDS = {
     "zhipu",
     "dashscope",
     "minimax",
-    "google-gemini",
     "moonshot",
 }
 _FREE_CLOUD_PROVIDER_IDS = {
@@ -523,6 +522,8 @@ _FREE_CLOUD_PROVIDER_IDS = {
     "sambanova",
     "mistral",
     "google-gemini-free",
+    # The seeded Gemini record: the operator's Google key is on the free tier.
+    "google-gemini",
     "cloudflare-ai",
     "opencode-zen",
     # Kimi (Moonshot) reached via a no-API-key web bridge — classified FREE so the
@@ -728,10 +729,14 @@ def _normalized_provider_type(record: dict[str, Any]) -> str:
 class ProviderRouter:
     """Priority-ordered LLM provider fallback with health checks and retries."""
 
-    def __init__(self, providers: list[ProviderConfig]) -> None:
+    def __init__(
+        self, providers: list[ProviderConfig], *, keep_order: bool = False
+    ) -> None:
+        """Dedupe *providers*; sort by priority unless *keep_order* is set."""
+        ordered = providers if keep_order else sorted(providers, key=lambda p: p.priority)
         seen: set[tuple[str, str]] = set()
         unique: list[ProviderConfig] = []
-        for provider in sorted(providers, key=lambda p: p.priority):
+        for provider in ordered:
             key = (provider.provider_id, provider.normalized_base_url)
             if provider.normalized_base_url and key not in seen:
                 seen.add(key)
@@ -1207,15 +1212,21 @@ class ProviderRouter:
             else:
                 providers_with_order.append((index, cfg))
 
+        # Paid providers go after every free one: the seeded anthropic-claude
+        # record has priority -50 and otherwise became the first fallback.
         providers = [
             cfg for _, cfg in sorted(
                 providers_with_order,
-                key=lambda item: (item[1].priority, item[0]),
+                key=lambda item: (
+                    is_commercial_provider(item[1]), item[1].priority, item[0],
+                ),
             )
         ]
         if selected is not None:
             providers = [selected, *providers]
-        return cls(providers)
+        # keep_order: re-sorting by raw priority would drop the primary and put
+        # the paid anthropic-claude seed (-50) ahead of every free provider.
+        return cls(providers, keep_order=True)
 
     async def health_check(self, provider: ProviderConfig) -> bool:
         try:
