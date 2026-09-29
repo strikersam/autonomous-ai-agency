@@ -707,3 +707,25 @@ async def test_free_only_policy_uses_a_registered_free_provider(monkeypatch):
 
     assert result.provider.provider_id == "together-free"
     assert "together-free" in calls
+
+
+_SEEDED = [
+    {"provider_id": "anthropic-claude", "type": "anthropic", "base_url": "https://api.anthropic.com", "priority": -50},
+    {"provider_id": "nvidia-nim", "type": "openai-compatible", "base_url": "https://integrate.api.nvidia.com", "priority": -10},
+    {"provider_id": "google-gemini", "type": "openai-compatible", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai", "priority": 20},
+    {"provider_id": "ollama-local", "type": "ollama", "base_url": "http://localhost:11434", "priority": 5},
+]
+
+
+def test_from_provider_records_keeps_the_primary_first():
+    # The constructor re-sorted by raw priority, so the paid anthropic-claude
+    # seed (-50) led every router and the chosen primary was ignored.
+    router = ProviderRouter.from_provider_records(_SEEDED, primary_provider_id="nvidia-nim")
+    assert router.providers[0].provider_id == "nvidia-nim"
+
+
+def test_from_provider_records_puts_paid_fallbacks_after_free_ones():
+    router = ProviderRouter.from_provider_records(_SEEDED, primary_provider_id="nvidia-nim")
+    assert [p.provider_id for p in router.providers] == [
+        "nvidia-nim", "ollama-local", "google-gemini", "anthropic-claude",
+    ]
