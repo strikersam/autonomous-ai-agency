@@ -3206,28 +3206,7 @@ async def seed_default_providers():
             p["created_at"] = datetime.now(timezone.utc).isoformat()
             await get_db().providers.insert_one(p)
         else:
-            # Always sync env-var-backed fields so .env changes take effect
-            # without requiring a manual DB wipe.
-            update: dict = {}
-            if p.get("api_key") and existing.get("api_key") != p["api_key"]:
-                update["api_key"] = p["api_key"]
-            if p.get("base_url") and existing.get("base_url") != p["base_url"]:
-                update["base_url"] = p["base_url"]
-            # Sync default_model so changing OLLAMA_MODEL / DEEPSEEK_MODEL etc in .env
-            # is immediately reflected without a DB wipe.
-            if (
-                p.get("default_model")
-                and existing.get("default_model") != p["default_model"]
-            ):
-                update["default_model"] = p["default_model"]
-            # Re-sync status when an api_key is now present but status was "unconfigured"
-            new_status = p.get("status", "")
-            if new_status and new_status != existing.get("status", ""):
-                update["status"] = new_status
-            # Sync priority so the fallback ordering is always correct
-            new_priority = p.get("priority")
-            if new_priority is not None and existing.get("priority") != new_priority:
-                update["priority"] = new_priority
+            update = _seed_sync_update(existing, p)
             if update:
                 await get_db().providers.update_one(
                     {"provider_id": p["provider_id"]}, {"$set": update}
@@ -3237,6 +3216,40 @@ async def seed_default_providers():
                     p["provider_id"],
                     list(update.keys()),
                 )
+
+
+# Fields an operator can change from the Providers screen. Once edited there,
+# the startup seed stops overwriting them: it runs on every boot, and on the
+# Render free tier that meant a saved default_model or priority was silently
+# reverted to the env/code default within the hour ("edit doesn't work").
+_OPERATOR_EDITABLE_PROVIDER_FIELDS = ("name", "base_url", "api_key", "default_model", "priority")
+
+
+def _seed_sync_update(existing: dict, seed: dict) -> dict:
+    """Env-backed fields the startup seed should write onto an existing record.
+
+    Syncs env changes (a new key, base URL, model or priority) into the stored
+    record without a DB wipe, but never over a field the operator set by hand.
+    """
+    edited = existing.get("operator_overrides") or {}
+    update: dict = {}
+    for field in ("api_key", "base_url", "default_model"):
+        if field in edited:
+            continue
+        if seed.get(field) and existing.get(field) != seed[field]:
+            update[field] = seed[field]
+    # Re-sync status when an api_key is now present but status was "unconfigured"
+    new_status = seed.get("status", "")
+    if new_status and new_status != existing.get("status", ""):
+        update["status"] = new_status
+    new_priority = seed.get("priority")
+    if (
+        "priority" not in edited
+        and new_priority is not None
+        and existing.get("priority") != new_priority
+    ):
+        update["priority"] = new_priority
+    return update
 
 
 def _builtin_provider_records() -> list[dict]:
@@ -6529,6 +6542,9 @@ async def update_provider(
     updates = {}
     for k, v in body.model_dump(exclude_none=True).items():
         updates[k] = v
+        if k in _OPERATOR_EDITABLE_PROVIDER_FIELDS:
+            # Pin the field so the next startup seed does not revert it.
+            updates[f"operator_overrides.{k}"] = True
     try:
         if body.is_default:
             await get_db().providers.update_many(
@@ -6545,6 +6561,10 @@ async def update_provider(
     except Exception as exc:
         log.warning("update_provider: DB operation failed for %s (%s)", provider_id, exc)
         raise HTTPException(status_code=503, detail="Database temporarily unavailable — try again in a moment.") from exc
+    # The resolved brain is cached in-process; without this the dashboard and
+    # the agents keep the old model until the next restart.
+    from packages.ai.brain import invalidate_brain_cache
+    invalidate_brain_cache()
     await log_activity(
         "provider", f"Updated provider: {provider_id}", user_id=user["_id"]
     )
