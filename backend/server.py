@@ -3233,8 +3233,11 @@ def _seed_sync_update(existing: dict, seed: dict) -> dict:
     """
     edited = existing.get("operator_overrides") or {}
     update: dict = {}
+    # A hand-set base URL keeps its hand-set key: never ship the env credential
+    # to an endpoint the deploy did not choose.
+    foreign_url = "base_url" in edited and existing.get("base_url") != seed.get("base_url")
     for field in ("api_key", "base_url", "default_model"):
-        if field in edited:
+        if field in edited or (field == "api_key" and foreign_url):
             continue
         if seed.get(field) and existing.get(field) != seed[field]:
             update[field] = seed[field]
@@ -6539,6 +6542,7 @@ async def create_provider(body: ProviderCreate, user: dict = Depends(get_current
 async def update_provider(
     provider_id: str, body: ProviderUpdate, user: dict = Depends(get_current_user)
 ):
+    _require_admin(user)
     updates = {}
     for k, v in body.model_dump(exclude_none=True).items():
         updates[k] = v
