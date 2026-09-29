@@ -37,13 +37,19 @@ class TestAerolinkRolePresetsUpdated:
         preset = models_yaml["providers"]["aerolink"]["role_presets"]
         assert preset["judge"] == "claude-opus-5-5"
 
-    def test_aerolink_executor_is_sonnet_5(self, models_yaml):
+    def test_aerolink_executor_is_sonnet_tier(self, models_yaml):
+        # Updated 2026-09-29: executor moved to claude-sonnet-5-5 (20% cheaper).
+        # The invariant is that executor stays in the Sonnet family.
         preset = models_yaml["providers"]["aerolink"]["role_presets"]
-        assert preset["executor"] == "claude-sonnet-5"
+        assert preset["executor"].startswith("claude-sonnet-5"), (
+            f"Aerolink executor ({preset['executor']!r}) should be a claude-sonnet-5 "
+            "family model"
+        )
 
-    def test_aerolink_verifier_is_sonnet_5(self, models_yaml):
+    def test_aerolink_verifier_is_sonnet_tier(self, models_yaml):
+        # Updated 2026-09-29: verifier moved to claude-sonnet-5-5 (20% cheaper).
         preset = models_yaml["providers"]["aerolink"]["role_presets"]
-        assert preset["verifier"] == "claude-sonnet-5"
+        assert preset["verifier"].startswith("claude-sonnet-5")
 
     def test_aerolink_and_anthropic_presets_use_same_planner(self, models_yaml):
         aerolink = models_yaml["providers"]["aerolink"]["role_presets"]["planner"]

@@ -345,6 +345,7 @@ async def _stream_anthropic_sse(
     start_time: float,
     routing_meta: dict[str, Any] | None = None,
     session_id: str | None = None,
+    prompt_id: str | None = None,
 ) -> AsyncIterator[bytes]:
     """Translate Ollama OpenAI SSE stream → Anthropic SSE stream."""
 
@@ -455,6 +456,7 @@ async def _stream_anthropic_sse(
         ttft_ms=ttft_ms or 0,
         routing_meta=routing_meta,
         session_id=session_id,
+        prompt_id=prompt_id,
     )
 
 
@@ -473,6 +475,7 @@ async def _emit_safely(
     ttft_ms: int = 0,
     routing_meta: dict[str, Any] | None = None,
     session_id: str | None = None,
+    prompt_id: str | None = None,
 ) -> None:
     try:
         await asyncio.to_thread(
@@ -489,6 +492,7 @@ async def _emit_safely(
             ttft_ms=ttft_ms,
             routing_meta=routing_meta,
             session_id=session_id,
+            prompt_id=prompt_id,
         )
     except Exception as exc:
         log.warning("Anthropic compat Langfuse emit error: %s", exc)
@@ -547,6 +551,7 @@ async def handle_anthropic_messages(
         or request.headers.get("x-session-id")
         or None
     )
+    prompt_id = request.headers.get("x-claude-code-prompt-id") or None
     _cc_agent_type = request.headers.get("x-claude-code-agent-type")
     _cc_request_class = request.headers.get("x-claude-code-request-class")
     if _cc_agent_type:
@@ -613,6 +618,7 @@ async def handle_anthropic_messages(
                 email, department, key_id, openai_messages, start_time,
                 routing_meta=routing_meta,
                 session_id=session_id,
+                prompt_id=prompt_id,
             ),
             media_type="text/event-stream",
             headers={
@@ -650,6 +656,7 @@ async def handle_anthropic_messages(
         pt, ct, latency_ms=latency_ms,
         routing_meta=routing_meta,
         session_id=session_id,
+        prompt_id=prompt_id,
     )
 
     return JSONResponse(

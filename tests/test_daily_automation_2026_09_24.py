@@ -256,11 +256,13 @@ class TestClaudeOpus55RolePresets:
             f"anthropic judge preset must be {_MODEL_ID}, got {presets.get('judge')}"
         )
 
-    def test_anthropic_executor_preset_unchanged(self) -> None:
-        """Executor should still use Sonnet 5 — only planner/judge upgraded."""
+    def test_anthropic_executor_preset_is_sonnet_family(self) -> None:
+        # Updated 2026-09-29: executor moved to claude-sonnet-5-5 (20% cheaper).
+        # Invariant: executor stays in the claude-sonnet-5 family.
         presets = _routing_presets().get("anthropic", {})
-        assert presets.get("executor") == "claude-sonnet-5", (
-            f"anthropic executor preset must remain claude-sonnet-5"
+        assert presets.get("executor", "").startswith("claude-sonnet-5"), (
+            f"anthropic executor preset must be in the claude-sonnet-5 family, "
+            f"got {presets.get('executor')!r}"
         )
 
 
