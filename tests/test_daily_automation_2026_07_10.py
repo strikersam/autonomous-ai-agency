@@ -185,13 +185,19 @@ class TestBrainConfigUpdates:
         bc = self._bc()
         assert bc.PROVIDER_PRESETS["anthropic"]["planner"] == "claude-opus-5-5"
 
-    def test_anthropic_preset_uses_claude_sonnet5_for_executor(self):
+    def test_anthropic_preset_uses_claude_sonnet5_family_for_executor(self):
+        # Updated 2026-09-29: executor moved to claude-sonnet-5-5 (20% cheaper).
         bc = self._bc()
-        assert bc.PROVIDER_PRESETS["anthropic"]["executor"] == "claude-sonnet-5"
+        assert bc.PROVIDER_PRESETS["anthropic"]["executor"].startswith("claude-sonnet-5"), (
+            "anthropic executor preset must be in the claude-sonnet-5 family"
+        )
 
     def test_aerolink_preset_updated_to_latest_claude(self):
+        # Updated 2026-09-29: executor moved to claude-sonnet-5-5 (20% cheaper).
         bc = self._bc()
-        assert bc.PROVIDER_PRESETS["aerolink"]["executor"] == "claude-sonnet-5"
+        assert bc.PROVIDER_PRESETS["aerolink"]["executor"].startswith("claude-sonnet-5"), (
+            "aerolink executor preset must be in the claude-sonnet-5 family"
+        )
 
     def test_groq_planner_preset_is_a_live_rotation_candidate(self):
         """The durable property, not the id of the week.

@@ -111,10 +111,14 @@ class TestFable51CandidatesUpdated:
         candidate (20% cheaper than opus-5, same capability tier), pushing
         claude-opus-5 to second and claude-sonnet-5 to third.
         """
+        # Updated 2026-09-29: claude-sonnet-5-5 inserted at index 2, pushing
+        # claude-sonnet-5 to fourth. Invariants: opus-5-5 first, opus-5 second,
+        # sonnet-5-5 third, sonnet-5 present as fallback.
         cands = _routing_candidates().get("anthropic", [])
         assert cands[0] == "claude-opus-5-5", "claude-opus-5-5 must be first"
         assert cands[1] == "claude-opus-5", "claude-opus-5 must remain second"
-        assert cands[2] == "claude-sonnet-5", "claude-sonnet-5 must remain third"
+        assert cands[2] == "claude-sonnet-5-5", "claude-sonnet-5-5 must be third (added 2026-09-29)"
+        assert "claude-sonnet-5" in cands, "claude-sonnet-5 must remain as fallback"
 
 
 # ── 2. Google candidates: Gemini 3.x models ─────────────────────────────────
