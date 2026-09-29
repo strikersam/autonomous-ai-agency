@@ -768,7 +768,7 @@ _PROVIDER_REGISTRY: list[dict[str, Any]] = [
         # /v1beta/openai form.
         "default_base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
         "default_model": "gemini-2.5-flash",
-        "models": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.0-flash", "gemini-1.5-pro", "gemini-1.5-flash"],
+        "models": ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-1.5-pro"],
         "cooldown": 30.0,
     },
     {

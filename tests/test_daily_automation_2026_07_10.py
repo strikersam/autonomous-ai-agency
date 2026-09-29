@@ -84,9 +84,13 @@ class TestBrainFailoverModelUpdates:
         google = self._by_id("google")
         assert "gemini-2.5-flash" in google["models"]
 
-    def test_google_still_has_gemini_20_flash_for_compat(self):
+    def test_google_no_longer_offers_retired_gemini_20_flash(self):
+        # 2026-09-29: superseded. Kept "for compat" on 2026-07-10, but Google
+        # now answers HTTP 404 for gemini-2.0-flash (and gemini-1.5-flash), so
+        # every attempt failed and used up a router attempt.
         google = self._by_id("google")
-        assert "gemini-2.0-flash" in google["models"]
+        for retired in ("gemini-2.0-flash", "gemini-1.5-flash"):
+            assert retired not in google["models"]
 
     def test_anthropic_default_is_claude_opus5(self):
         # 2026-08-03: superseded by the claude-opus-5 catalog update, which
