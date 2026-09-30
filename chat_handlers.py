@@ -17,6 +17,14 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from agent.context_pruner import ContextPruner
 from langfuse_obs import emit_chat_observation
+from packages.gateway import config as _gw_config
+from packages.gateway import proxy_cache as _gw_cache
+from packages.gateway import token_quota as _gw_quota
+from packages.gateway.context import begin_call, finish_current
+from packages.gateway.hygiene import get_request_id
+from packages.gateway.prompt_policy import apply_prompt_policy
+from packages.gateway.sanitizer import sanitize_payload
+from packages.gateway.upstream_retry import post_with_retries
 from router import get_router
 from router.health import invalidate_cache as _invalidate_health_cache
 
@@ -34,9 +42,9 @@ async def _post_with_fallback(
     The body is a JSON object with a ``"model"`` key.  Each retry swaps in the
     next model name.  Returns the last response regardless of status.
     """
+    retries = _gw_config.upstream_retries()
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-            resp = await client.post(url, content=body, headers=headers)
+        resp = await post_with_retries(url, body, headers, retries)
     except httpx.ConnectError as exc:
         raise HTTPException(status_code=503, detail=f"LLM backend unreachable: {exc}") from exc
 
@@ -57,8 +65,7 @@ async def _post_with_fallback(
         payload["model"] = fallback
         retry_body = json.dumps(payload).encode("utf-8")
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=10.0)) as client:
-                resp = await client.post(url, content=retry_body, headers=headers)
+            resp = await post_with_retries(url, retry_body, headers, retries)
         except httpx.ConnectError as exc:
             raise HTTPException(status_code=503, detail=f"LLM backend unreachable: {exc}") from exc
         if resp.status_code < 500:
@@ -274,6 +281,14 @@ def _openai_chat_stream_bytes(content: str, model: str) -> bytes:
     return b"".join(payload)
 
 
+def _gateway_headers(mode: str, model: str, consumer: str, cache_state: str | None) -> dict[str, str]:
+    """Response headers for a non-streaming completion: routing, token quota, X-Cache."""
+    headers = {"X-Routing-Mode": mode, "X-Routing-Model": model, **_gw_quota.rate_limit_headers(consumer)}
+    if cache_state:
+        headers["X-Cache"] = cache_state
+    return headers
+
+
 async def handle_openai_chat_completions(
     *,
     request: Request,
@@ -282,6 +297,8 @@ async def handle_openai_chat_completions(
     department: str,
     key_id: str | None,
 ) -> JSONResponse | StreamingResponse:
+    gw = begin_call(request, key_id)
+    gw.enforce_quota()
     body = await request.body()
 
     try:
@@ -321,6 +338,8 @@ async def handle_openai_chat_completions(
         routing_meta["cc_agent_type"] = _cc_agent_type
     if _cc_request_class:
         routing_meta["cc_request_class"] = _cc_request_class
+    if gw.request_id:
+        routing_meta["request_id"] = gw.request_id
 
     # Rewrite model in payload so it reaches Ollama correctly.
     # Only rewrite if the router actually changed or resolved the model.
@@ -329,6 +348,8 @@ async def handle_openai_chat_completions(
         payload["model"] = resolved_model
         model = resolved_model
 
+    payload = await apply_prompt_policy(payload)
+    payload = sanitize_payload(payload)
     payload = _inject_default_system_prompt(payload)
     payload = _apply_chat_defaults(payload)
     payload = _apply_reasoning_budget(payload)
@@ -370,6 +391,8 @@ async def handle_openai_chat_completions(
     content_type = request.headers.get("content-type", "application/json")
     target_url = f"{ollama_base}/v1/chat/completions"
     headers = {"Content-Type": content_type}
+    if gw.request_id:
+        headers["X-Request-Id"] = gw.request_id
 
     if stream:
         return StreamingResponse(
@@ -383,19 +406,31 @@ async def handle_openai_chat_completions(
             },
         )
 
-    resp = await _post_with_fallback(target_url, forward, headers, routing.fallback_chain)
+    cache_state, cached = await _gw_cache.lookup(gw.consumer, payload)
+    if cached is not None:
+        gw.finish(model, 0, 0, outcome="cache_hit")
+        return JSONResponse(content=cached, headers=_gateway_headers(routing.mode, model, gw.consumer, cache_state))
+
+    try:
+        resp = await _post_with_fallback(target_url, forward, headers, routing.fallback_chain)
+    except HTTPException:
+        gw.finish(model, 0, 0, outcome="error")
+        raise
+    gw.status = resp.status_code
 
     if resp.headers.get("content-type", "").startswith("application/json"):
         data = resp.json()
     else:
+        gw.finish(model, 0, 0)
         return JSONResponse(content=resp.text, status_code=resp.status_code)
 
     out_text, pt, ct = _openai_usage_from_response(data)
     await _emit_safely(email, department, key_id, model, messages, out_text, pt, ct, routing_meta=routing_meta, session_id=session_id, prompt_id=prompt_id)
+    await _gw_cache.store(gw.consumer, payload, data, resp.status_code)
     return JSONResponse(
         content=data,
         status_code=resp.status_code,
-        headers={"X-Routing-Mode": routing.mode, "X-Routing-Model": model},
+        headers=_gateway_headers(routing.mode, model, gw.consumer, cache_state),
     )
 
 
@@ -436,6 +471,7 @@ async def _emit_safely(
     session_id: str | None = None,
     prompt_id: str | None = None,
 ) -> None:
+    finish_current(model, pt, ct)
     try:
         await asyncio.to_thread(
             emit_chat_observation,
@@ -600,6 +636,8 @@ async def handle_ollama_native_chat(
     content_type = request.headers.get("content-type", "application/json")
     target_url = f"{ollama_base}/api/chat"
     headers = {"Content-Type": content_type}
+    if get_request_id():
+        headers["X-Request-Id"] = get_request_id()
 
     if stream:
         return StreamingResponse(

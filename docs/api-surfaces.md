@@ -16,6 +16,9 @@ If you want the human-friendly product story, start with [../README.md](../READM
 ### Ollama-compatible
 - `/api/*` passthrough for Ollama-native routes such as chat and generate
 
+### AI gateway (`packages/gateway/api.py`)
+- `GET /gateway/metrics` — Prometheus text (`text/plain; version=0.0.4`) of per-request proxy usage: provider, model, prompt/completion tokens, latency, cost and outcome, labelled per consumer (capped at 50 values, then `other`). Requires an API key (`Authorization: Bearer` or `x-api-key`); `401` without one. Returns `404` unless `GATEWAY_USAGE_METRICS_ENABLED` is on. See [configuration-reference.md](configuration-reference.md#ai-gateway-hardening).
+
 ### Built-in admin and web UI
 - `/admin/ui/*`
 - `/admin/api/*`
