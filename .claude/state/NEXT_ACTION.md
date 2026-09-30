@@ -1,22 +1,32 @@
 # Next Action
 
-**Updated:** 2026-09-29 (row 85)
+**Updated:** 2026-09-30 (row 89)
 
-## Daily automation 2026-09-29 — IN_PROGRESS (row 85, PR #1616)
+## Daily automation 2026-09-30 — DONE (row 89, PR TBD)
 
-`claude-sonnet-5-5` (Sonnet 5.5) added to model registry; executor/verifier
-role_presets updated on anthropic + aerolink from `claude-sonnet-5` to
-`claude-sonnet-5-5` (20% cheaper, $1.6/$8 per MTok). 25 new tests, 641/641
-daily-automation suite passes. PR #1616 open on `claude/intelligent-gates-n8dgox`,
-watching CI; merge when green.
+Two changes to `packages/ai/cost_tracker.py` shipped:
 
-**Next daily run (2026-09-30):**
-- Confirm PR #1616 merged.
-- Check for any new Anthropic/Google/NVIDIA model announcements.
+1. **`_CACHE_READ_FRACTIONS` per-model overrides** for `claude-fable-5-1` (2.5%),
+   `claude-mythos-5-1` (2.5%), `claude-opus-5-5` (5%) — the 10% flat-rate for all
+   other `claude-` models is unchanged. Code comments already documented the Fable 5.1
+   rate at 0.025x; the fractions table now matches. Source: platform.claude.com pricing.
+
+2. **GPT-6 family cost table entries** — `gpt-6-astra` ($10/$50/MTok), `gpt-6-luna`
+   ($0.1/$0.5/MTok), `gpt-6.1-sol` ($2/$10/MTok) added for cost attribution when
+   models are reached via OpenRouter/OpenAI. Not added to any provider's candidates.
+   Source: platform.openai.com/docs/models, 2026-09-30.
+
+29 new tests, 29/29 pass. Gates: `compileall` clean, changelog PARITY OK, loop
+registry drift none. Branch: `claude/intelligent-gates-r0q0r2`; PR [#1622](https://github.com/strikersam/autonomous-ai-agency/pull/1622) open against master; merge when CI is green.
+
+**Next daily run (2026-10-01):**
+- Confirm PR for row 89 merged.
+- Check Anthropic pricing page again for Haiku 5.5 release (not yet released as of
+  2026-09-30); add when confirmed.
 - Consider operator model deny-list (W40 item 3, still deferred) if rule-40 human
   approval lands.
-- Row 86 (planner timeout): still open — read new Render attempt logs to determine
-  if NVIDIA truly hangs after the 60s-cap change.
+- Row 84 (`ANTHROPIC_DEFAULT_EFFORT`) still `IN_PROGRESS` on
+  `routine/daily-2026-09-27` — verify whether it merged.
 
 ---
 
