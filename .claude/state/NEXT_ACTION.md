@@ -17,8 +17,7 @@ Two changes to `packages/ai/cost_tracker.py` shipped:
    Source: platform.openai.com/docs/models, 2026-09-30.
 
 29 new tests, 29/29 pass. Gates: `compileall` clean, changelog PARITY OK, loop
-registry drift none. Branch: `claude/intelligent-gates-r0q0r2`; PR opened against
-master; merge when CI is green.
+registry drift none. Branch: `claude/intelligent-gates-r0q0r2`; PR [#1622](https://github.com/strikersam/autonomous-ai-agency/pull/1622) open against master; merge when CI is green.
 
 **Next daily run (2026-10-01):**
 - Confirm PR for row 89 merged.
