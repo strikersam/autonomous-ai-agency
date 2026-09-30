@@ -282,12 +282,12 @@ function EditProviderForm({ provider, onUpdate, onClose }) {
     <div style={{ borderRadius:18, border:'1px solid rgba(196,181,253,0.25)', background:'rgba(196,181,253,0.05)', padding:'16px', marginBottom:14 }}>
       <div style={{ fontSize:13, fontWeight:800, color:'#fff', marginBottom:2 }}>Edit provider</div>
       <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', marginBottom:12 }}>{provider.provider_id}</div>
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:10, marginBottom:10 }}>
         <input value={name} onChange={e=>setName(e.target.value)} placeholder="Display name" style={fld}/>
         <input value={priority} onChange={e=>setPriority(e.target.value)} placeholder="Priority (lower = first)" inputMode="numeric" style={{ ...fld, fontFamily:'var(--font-mono)' }}/>
       </div>
       <input value={baseUrl} onChange={e=>setBaseUrl(e.target.value)} placeholder="Base URL (https://api.example.com/v1)" style={{ ...fld, fontFamily:'var(--font-mono)', marginBottom:10 }}/>
-      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12 }}>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:10, marginBottom:12 }}>
         <input type="password" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder={provider.api_key_masked ? `Leave blank to keep (${provider.api_key_masked})` : 'API key (optional)'} style={{ ...fld, fontFamily:'var(--font-mono)' }}/>
         <input value={model} onChange={e=>setModel(e.target.value)} placeholder="Default model" style={{ ...fld, fontFamily:'var(--font-mono)' }}/>
       </div>
@@ -772,6 +772,11 @@ function ProvidersScreen() {
             onDeleteProvider={handleDelete}
             onTestProvider={api.testProvider}
             onSetRenderKey={api.syncProviderToRender}
+            onSetDefault={handleSetDefault}
+            editingId={editingId}
+            renderEditor={(prov) => (
+              <EditProviderForm provider={prov} onUpdate={handleUpdate} onClose={() => setEditingId(null)} />
+            )}
             refreshStored={refetch}
           />
 
@@ -794,14 +799,6 @@ function ProvidersScreen() {
             </button>
           </div>
           {showAdd && <div style={{ marginTop: 10 }}><AddProviderForm onCreate={handleCreate} onClose={() => setShowAdd(false)} /></div>}
-          {editingId && (() => {
-            const editing = providers.find(p => p.provider_id === editingId);
-            return editing ? (
-              <div style={{ marginTop: 10 }}>
-                <EditProviderForm provider={editing} onUpdate={handleUpdate} onClose={() => setEditingId(null)} />
-              </div>
-            ) : null;
-          })()}
 
           {/* Routing rules. Previously rendered *inside* the "N configured
               providers" label, which nested a grid inside a text node and
