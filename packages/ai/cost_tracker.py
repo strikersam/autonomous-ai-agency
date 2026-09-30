@@ -114,9 +114,9 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "claude-sonnet-5-5": (1.6, 8.0),      # Sonnet 5.5 — $1.6/$8 per MTok (released 2026-09-29; 20% cheaper than Sonnet 5)
     "claude-sonnet-5-5-20260929": (1.6, 8.0),  # Sonnet 5.5 versioned ID
     "claude-fable-5": (10.0, 50.0),        # Fable 5 — $10/$50 per MTok (gated flagship)
-    "claude-fable-5-1": (10.0, 50.0),      # Fable 5.1 — $10/$50, cache reads 0.025x base
+    "claude-fable-5-1": (10.0, 50.0),      # Fable 5.1 — $10/$50; cache reads 2.5 % (see _CACHE_READ_FRACTIONS)
     "claude-mythos-5": (10.0, 50.0),       # Mythos 5 — same as Fable 5 (restricted)
-    "claude-mythos-5-1": (10.0, 50.0),     # Mythos 5.1 — released 2026-09-01 (restricted)
+    "claude-mythos-5-1": (10.0, 50.0),     # Mythos 5.1 — $10/$50; cache reads 2.5 % (see _CACHE_READ_FRACTIONS)
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-sonnet-4-5": (3.0, 15.0),        # Sonnet 4.5 — $3/$15 per MTok (same tier as 4.6)
     "claude-opus-4-8": (5.0, 25.0),        # Opus 4.8 — $5/$25 per MTok (same tier as Opus 5)
@@ -130,6 +130,12 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "gpt-5.6-sol": (5.0, 30.0),            # Sol: complex reasoning/coding, o3 successor
     "gpt-5.6-terra": (1.5, 7.5),           # Terra: balanced/lower cost
     "gpt-5.6-luna": (0.5, 2.0),            # Luna: fast/high-volume
+    # --- OpenAI (paid) — GPT-6 family (September 2026) ---
+    # Source: platform.openai.com/docs/models, 2026-09-30. Not yet on NVIDIA NIM;
+    # entries here cover direct-OpenAI or proxied usage via OpenRouter/similar.
+    "gpt-6-astra": (10.0, 50.0),           # Astra: frontier reasoning, $10/$50 per MTok (released Sept 4)
+    "gpt-6-luna": (0.1, 0.5),              # Luna: fast/high-volume, $0.1/$0.5 per MTok (released Sept 22)
+    "gpt-6.1-sol": (2.0, 10.0),            # gpt-6.1-sol: $2/$10 per MTok (released Sept 29)
     "gpt-4o": (2.5, 10.0),
     "gpt-4o-mini": (0.15, 0.6),
     "o1": (15.0, 60.0),
@@ -234,10 +240,19 @@ def _build_cost_table() -> dict[str, tuple[float, float]]:
 _COST_TABLE: dict[str, tuple[float, float]] = _build_cost_table()
 
 # Cache-read discount fraction per model-id prefix (multiplied against the input rate).
-# Anthropic: cache reads at 10 % of the input rate (platform.claude.com/docs/en/about-claude/pricing).
+# Anthropic: most Claude models bill cache reads at 10 % of the input rate.
+#   Exceptions (per platform.claude.com/docs/en/about-claude/pricing, 2026-09-30):
+#     Fable 5.1 / Mythos 5.1 — 2.5 % ($0.25/MTok on a $10/MTok input rate).
+#     Opus 5.5              — 5 %   ($0.20/MTok on a $4/MTok input rate).
 # Google Gemini: cached content billed at 25 % of the input rate (ai.google.dev/gemini-api/docs/caching).
 # DeepSeek API: cache hit at 1/50th of the input rate (api-docs.deepseek.com/quick_start/pricing).
+# Per-model overrides must appear before the generic "claude-" prefix below.
 _CACHE_READ_FRACTIONS: tuple[tuple[str, float], ...] = (
+    # Per-model Anthropic overrides (more-specific prefixes before "claude-").
+    ("claude-fable-5-1", 0.025),   # Fable 5.1 — 2.5 % of input rate
+    ("claude-mythos-5-1", 0.025),  # Mythos 5.1 — same gated tier as Fable 5.1
+    ("claude-opus-5-5", 0.05),     # Opus 5.5  — 5 % of input rate
+    # Generic fallbacks.
     ("claude-", 0.10),
     ("gemini-", 0.25),
     ("deepseek-chat", 0.02),
