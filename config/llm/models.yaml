@@ -90,23 +90,11 @@ models:
     priority: 34
     speed_tier: slow
 
-  # DeepSeek V4.1-Flash on NVIDIA NIM: NIM-accelerated deployment of DeepSeek's
-  # V4.1-Flash model detected in the NIM catalogue 2026-09-22. 552B MoE,
-  # multimodal (text + images), 1M-token context. Same model as ``deepseek-flash``
-  # on the DeepSeek direct API, served here via NIM with no API cost.
-  # Not yet live-probed on this account — conservative ``supports_tools: false``
-  # until probed. Source: NVIDIA NIM catalogue tracker, 2026-09-22.
-  deepseek-ai/deepseek-v4.1-flash:
-    provider: nvidia
-    display_name: DeepSeek V4.1-Flash (NVIDIA NIM)
-    context_window: 1000000
-    supports_tools: false           # not probed on NIM — conservative default
-    supports_function_calling: false
-    supports_images: true
-    supports_streaming: true
-    supports_reasoning: true
-    priority: 35
-    speed_tier: fast
+  # deepseek-ai/deepseek-v4.1-flash was declared here on 2026-09-22 without a
+  # live probe. In production on 2026-09-27 every attempt to it timed out at
+  # the 60s cap (5 of 5), and its declared 1M-token window put it first for
+  # planner requests, so each agent call lost 60s before reaching a model that
+  # answers. Re-add only after a live completion probe.
 
   # Kimi K2: Moonshot AI MoE model hosted on Groq (Aug 2026). ~1M context,
   # function calling supported. Groq self-serve tier: $1.00/$3.00 per MTok
@@ -297,18 +285,10 @@ models:
     priority: 14
     speed_tier: medium
 
-  gemini-2.0-flash:
-    provider: google
-    display_name: Gemini 2.0 Flash
-    context_window: 1048576
-    max_output_tokens: 8192
-    supports_tools: true
-    supports_function_calling: true
-    supports_json: true
-    supports_images: true
-    supports_streaming: true
-    priority: 28
-    speed_tier: fast
+  # gemini-2.0-flash and gemini-1.5-flash were removed on 2026-09-29: Google's
+  # API answers HTTP 404 for both. In production on 2026-09-27 every attempt
+  # 404'd, and each one used up one of the router's max_attempts per request.
+  # Re-add only after a live completion probe.
 
   # Gemini 3.1 Pro: Google's frontier reasoning model (GA Aug 2026). Tiered
   # pricing — $2.00/$12.00 per MTok (≤200K), higher above. Lower bound tracked
@@ -387,23 +367,6 @@ models:
     output_cost_per_1m: 3.75
     priority: 10
     speed_tier: fast
-
-  # Gemini 1.5 Flash: Google's 1M-context multimodal model (GA May 2024).
-  # Predecessor to 2.5 Flash; still listed as a Google candidate fallback.
-  # Free tier: 15 RPM, 1M TPM. Source: ai.google.dev/pricing, 2026-09-19.
-  gemini-1.5-flash:
-    provider: google
-    display_name: Gemini 1.5 Flash
-    context_window: 1048576
-    max_output_tokens: 8192
-    supports_tools: true
-    supports_function_calling: true
-    supports_json: true
-    supports_images: true
-    supports_streaming: true
-    priority: 16
-    speed_tier: fast
-    max_requests_per_minute: 15
 
   # Gemini 1.5 Pro: Google's 2M-context multimodal model (GA May 2024).
   # Predecessor to 2.5 Pro; listed as a Google candidate fallback.
@@ -512,8 +475,12 @@ models:
   # list but had no llm/models.yaml entry, causing them to default to
   # `supports_tools: false` and be silently excluded from every tool-calling
   # request. Capabilities declared from Mistral documentation (docs.mistral.ai),
-  # 2026-09-19. Pricing from mistral.ai/pricing, 2026-09-19 (approximate — may
-  # differ from current rates; verify before billing-sensitive deploys).
+  # 2026-09-19.
+  #
+  # Costs are zero because this deployment's Mistral key is on the free tier
+  # (operator-confirmed 2026-09-27). The router admits only zero-cost models
+  # when allow_paid is off, so with list prices here Mistral was never tried.
+  # A billed key must restore list prices (the per-model comments below).
 
   # Mistral Large (latest checkpoint). Best Mistral model for complex reasoning,
   # coding, and multilingual tasks. 128K context, native function calling.
@@ -527,8 +494,8 @@ models:
     supports_function_calling: true
     supports_json: true
     supports_streaming: true
-    input_cost_per_1m: 3.00
-    output_cost_per_1m: 9.00
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
     priority: 61
     speed_tier: medium
 
@@ -544,8 +511,8 @@ models:
     supports_function_calling: true
     supports_json: true
     supports_streaming: true
-    input_cost_per_1m: 0.10
-    output_cost_per_1m: 0.30
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
     priority: 62
     speed_tier: fast
 
@@ -561,8 +528,8 @@ models:
     supports_function_calling: true
     supports_json: true
     supports_streaming: true
-    input_cost_per_1m: 0.30
-    output_cost_per_1m: 0.90
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
     priority: 64
     speed_tier: fast
 
@@ -579,8 +546,8 @@ models:
     supports_function_calling: true
     supports_json: true
     supports_streaming: true
-    input_cost_per_1m: 0.15
-    output_cost_per_1m: 0.15
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
     priority: 65
     speed_tier: fast
 
@@ -708,6 +675,44 @@ models:
     input_cost_per_1m: 2.0
     output_cost_per_1m: 10.0
     priority: 63
+    speed_tier: medium
+
+  # Sonnet 5.5: updated Sonnet 5 release (2026-09-29). Same 1M context and 64K
+  # output as Sonnet 5. Pricing estimated at $1.6/$8 per MTok (20% cheaper than
+  # Sonnet 5's $2/$10, following the Opus 5→5.5 precedent). Replaces Sonnet 5
+  # as the default executor/verifier role model.
+  claude-sonnet-5-5:
+    provider: anthropic
+    display_name: Claude Sonnet 5.5
+    context_window: 1048576
+    max_output_tokens: 64000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 1.6
+    output_cost_per_1m: 8.0
+    priority: 64
+    speed_tier: medium
+    aliases: [sonnet5.5]
+
+  # Dated alias pinned to the September 2026 Sonnet 5.5 checkpoint.
+  claude-sonnet-5-5-20260929:
+    provider: anthropic
+    display_name: Claude Sonnet 5.5 (2026-09-29)
+    context_window: 1048576
+    max_output_tokens: 64000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 1.6
+    output_cost_per_1m: 8.0
+    priority: 64
     speed_tier: medium
 
   # Opus 5: flagship, most capable Claude model (2026). 1M context window, 128K

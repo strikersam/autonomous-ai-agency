@@ -557,3 +557,74 @@ async def test_status_reports_the_full_routing_picture(router_factory):
     assert alpha["health"]["success_rate"] == 1.0
     # Key material never appears in anything the dashboard renders.
     assert "alpha-key-1" not in json.dumps(status)
+
+
+async def test_a_hung_provider_fails_over_after_its_timeout_sec(router_factory):
+    """timeout_sec is wall clock per attempt, not only an httpx read timeout.
+
+    Production 2026-09-27: one hung NVIDIA call held the planner's whole 120s
+    budget, because the attempt was bounded only by the request budget.
+    """
+    async def handler(request):
+        if request.url.host == "alpha.test":
+            await asyncio.sleep(10)  # hangs well past alpha's timeout_sec
+        return _ok(model="beta-model")
+
+    router = router_factory(handler)
+    llm_config.get_config().providers["alpha"].timeout_sec = 0.3
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    response = await router.chat(_request(temperature=0.9))
+
+    assert response.provider == "beta"
+    assert loop.time() - started < 5, "the hung attempt was not cut at alpha's timeout_sec"
+
+
+async def test_after_a_timeout_other_providers_are_tried_before_the_same_one(router_factory):
+    """Production 2026-09-27: a hung NVIDIA model used 60s, the router then
+    spent the rest of the budget on a second NVIDIA model, and the idle free
+    provider (Mistral) was never tried."""
+    from packages.llm.config import ModelConfig
+
+    seen: list[str] = []
+
+    async def handler(request):
+        body = json.loads(request.content)
+        seen.append(f"{request.url.host}:{body['model']}")
+        if request.url.host == "alpha.test":
+            await asyncio.sleep(10)
+        return _ok(model=body["model"])
+
+    llm_registry.get_registry().register(ModelConfig(
+        id="alpha-model-2", provider="alpha", context_window=32768,
+        supports_tools=True, supports_json=True, priority=11,
+    ))
+    router = router_factory(handler)
+    llm_config.get_config().providers["alpha"].timeout_sec = 0.3
+
+    response = await router.chat(_request(temperature=0.9))
+
+    assert response.provider == "beta"
+    assert seen[0].startswith("alpha.test:")
+    assert seen[1].startswith("beta.test:"), f"after alpha timed out, tried {seen[1]} before beta"
+
+
+async def test_a_retired_model_is_not_retried_on_the_next_request(router_factory):
+    """Production 2026-09-27: two retired Gemini ids answered 404 on every call
+    and burned 2 of the 6 attempts each time. A 404/410 model is skipped for an hour."""
+    seen: list[str] = []
+
+    def handler(request):
+        seen.append(request.url.host)
+        if request.url.host == "alpha.test":
+            return httpx.Response(404, json={"error": {"message": "model not found"}})
+        return _ok(model="beta-model")
+
+    router = router_factory(handler)
+    first = await router.chat(_request(temperature=0.9))
+    assert first.provider == "beta" and "alpha.test" in seen
+
+    seen.clear()
+    second = await router.chat(_request(temperature=0.8))  # different body, no cache hit
+    assert second.provider == "beta"
+    assert "alpha.test" not in seen, "the 404 model was tried again"

@@ -99,10 +99,8 @@ providers:
       - mistralai/mistral-nemotron
       - openai/gpt-oss-120b
       - openai/gpt-oss-20b
-      # DeepSeek V4.1-Flash on NIM — detected in the NIM catalogue 2026-09-22.
-      # Not yet live-probed on this account; placed last as a conservative fallback.
-      # Per catalog: supports_tools: false until probed.
-      - deepseek-ai/deepseek-v4.1-flash
+      # deepseek-ai/deepseek-v4.1-flash removed 2026-09-27: never probed, and
+      # every production attempt timed out (5 of 5). Re-add after a live probe.
 
   # tokenin.my.id — free OpenAI-compatible gateway fronting a rotating pool of
   # frontier models (GPT-5.6, Claude Opus 4.8, Gemini 3.5 Flash, GLM 5.3,
@@ -357,16 +355,19 @@ providers:
     base_url_env: ANTHROPIC_BASE_URL
     default_base_url: https://api.anthropic.com
     role_presets:
-      # Updated 2026-09-24: Opus 5.5 replaces Opus 5 as planner/judge.
+      # Updated 2026-09-29: Sonnet 5.5 replaces Sonnet 5 as executor/verifier (20% cheaper, same capability tier).
       planner:   claude-opus-5-5
-      executor:  claude-sonnet-5
-      verifier:  claude-sonnet-5
+      executor:  claude-sonnet-5-5
+      verifier:  claude-sonnet-5-5
       judge:     claude-opus-5-5
     candidates:
       # Added 2026-09-24: Opus 5.5 (released 2026-09-22) — 20% cheaper than
       # Opus 5 at the same capability tier. Placed first.
       - claude-opus-5-5
       - claude-opus-5
+      # Added 2026-09-29: Sonnet 5.5 (released 2026-09-29) — 20% cheaper than
+      # Sonnet 5 at $1.6/$8 per MTok. Placed before claude-sonnet-5.
+      - claude-sonnet-5-5
       - claude-sonnet-5
       - claude-fable-5
       # Added 2026-09-14: Fable 5.1 is the latest Fable revision (system env
@@ -384,15 +385,17 @@ providers:
     base_url_env: AEROLINK_BASE_URL
     default_base_url: https://capi.aerolink.lat/v1
     role_presets:
-      # Updated 2026-09-25: Opus 5.5 replaces Opus 5 as planner/judge (mirrors anthropic provider; $4/$20, 20% cheaper).
+      # Updated 2026-09-29: Sonnet 5.5 replaces Sonnet 5 as executor/verifier (mirrors anthropic provider; $1.6/$8, 20% cheaper).
       planner:   claude-opus-5-5
-      executor:  claude-sonnet-5
-      verifier:  claude-sonnet-5
+      executor:  claude-sonnet-5-5
+      verifier:  claude-sonnet-5-5
       judge:     claude-opus-5-5
     candidates:
       # Added 2026-09-25: Opus 5.5 as first-position candidate (cheaper + same capability tier as Opus 5).
       - claude-opus-5-5
       - claude-opus-5
+      # Added 2026-09-29: Sonnet 5.5 as executor/verifier model (20% cheaper than Sonnet 5).
+      - claude-sonnet-5-5
       - claude-sonnet-5
       - claude-opus-4-8
       - claude-opus-4-7
@@ -420,7 +423,6 @@ providers:
     candidates:
       - gemini-2.5-flash
       - gemini-2.5-pro
-      - gemini-2.0-flash
       # Added 2026-09-14: Gemini 3.x models added to llm catalog in PR #1485.
       # Placed after proven 2.5 entries until live-probed; flash variants then
       # lite tier then flagship pro. Context: 1M tokens each, supports_tools true.
@@ -429,7 +431,6 @@ providers:
       - gemini-3.5-flash-lite
       - gemini-3.1-pro
       - gemini-1.5-pro
-      - gemini-1.5-flash
 
   # ── Old local-colibri comment divider (kept for backwards-compat in any older
   #     editor that diff-position-grepped for "Local Ollama" — re-inserted

@@ -442,7 +442,7 @@ def test_put_handler_writes_priority_to_mongo_set(monkeypatch):
     from backend.server import update_provider, ProviderUpdate
 
     body = ProviderUpdate(priority=99, default_model="meta/llama-3.3-70b-instruct")
-    user = {"_id": "u_test", "email": "admin@llmrelay.local"}
+    user = {"_id": "u_test", "email": "admin@llmrelay.local", "role": "admin"}
 
     result = _asyncio.run(update_provider(provider_id="nvidia-nim", body=body, user=user))
 

@@ -152,6 +152,7 @@ providers:
     priority: 26
     max_concurrency: 4
     requests_per_minute: 15
+    timeout_sec: 60             # wall clock per attempt; see nvidia above
     default_model: ${GEMINI_DEFAULT_MODEL:-gemini-2.5-flash}
     notes: 1M context — the escalation target when a conversation overflows.
 
@@ -197,9 +198,15 @@ providers:
     kind: openai
     base_url: ${MISTRAL_BASE_URL:-https://api.mistral.ai/v1}
     key_env: [MISTRAL_API_KEY]
-    tier: cheap
+    # Free: this deployment's key is on La Plateforme's free tier
+    # (operator-confirmed 2026-09-27), matching config/models.yaml and
+    # PROVIDER_TIERS. As "cheap" it was never tried without allow_paid, so
+    # with Groq and Gemini out of quota and Cerebras on 402, NVIDIA was the
+    # planner's only free path.
+    tier: free
     priority: 48
     max_concurrency: 8
+    timeout_sec: 60             # wall clock per attempt; see nvidia above
 
   # ── Premium cloud (tier: premium) ──────────────────────────────────────
   # Last resort. ALLOW_PAID_BRAIN must be explicitly true (packages/ai/brain.py).
