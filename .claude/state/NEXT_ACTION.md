@@ -81,6 +81,28 @@ shipped in row 87 (#1612).
 
 **Updated:** 2026-09-27
 
+## NVIDIA blueprint adoption (branch claude/nvidia-agency-intelligence-cdvumr → PR to master)
+
+Shipped: planner lessons ranked by relevance (RAG blueprint hybrid retrieval);
+dependency CVEs prioritised by first-party import reachability
+(vulnerability-analysis blueprint). The two remaining candidates already exist:
+AI-Q intent/depth routing is `agent/intent.py`; the NemoClaw egress allowlist is
+`WEB_REACH_ALLOWED_DOMAINS`/`WEB_REACH_BLOCKED_DOMAINS` plus the observe-mode
+governance policy in `agent/web_reach.py`. Checked and skipped: llm-router
+(`router/classifier.py`), data-flywheel and safety-for-agentic-ai (deprecated
+Apr 2026), portfolio-optimization (GPU-only), Retail-Agentic-Commerce (off-mission).
+After merge: nothing pending from this line of work.
+
+## Planner timeout fix (branch claude/agency-improvements-ai-learnings-k96er6)
+
+The NVIDIA 410 fix (#1592) shipped but did not stop `planning: TimeoutError`.
+The real stall: `LLMRouter._dispatch` slept a Groq 429's clamped `Retry-After`
+(30s) before failing over to a *different* provider, then a slow NVIDIA reply
+overran the planner's 120s budget. Backoff now runs only before retrying the same
+provider; each attempt is bounded by the remaining retry budget. After deploy:
+confirm no `planning: TimeoutError` in Render logs after a groq 429. Still open:
+`anthropic-claude` HTTP 400 (priority -50); saved `nvidia-nim` record's
+`default_model` may still be `z-ai/glm-5.2` (harmless since #1592).
 ## Planner timeout — closed (row 86)
 
 Root cause, from the per-attempt router logs (#1599): `nvidia/deepseek-v4.1-flash`

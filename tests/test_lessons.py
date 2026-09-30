@@ -61,3 +61,26 @@ def test_never_raises(monkeypatch):
     monkeypatch.setattr(lessons_mod, "_store", Broken())
     assert recent_lessons_block() == ""
     record_step_failures("g", [{"status": "failed", "issues": ["x"]}])  # must not raise
+
+
+def _seed_loud_unrelated(store):
+    for n in range(6):
+        for _ in range(3):
+            store.record(phase="execute", issue=f"Docker build step {n} ran out of disk")
+    store.record(phase="verify", issue="Sitemap XML failed schema validation for canonical URLs")
+
+
+def test_query_surfaces_relevant_lesson_beyond_evidence_top_n(tmp_path, monkeypatch):
+    store = _fresh_store(tmp_path, monkeypatch)
+    _seed_loud_unrelated(store)
+    assert "Sitemap" not in recent_lessons_block(limit=5)
+    block = recent_lessons_block(limit=5, query="regenerate the sitemap with canonical URLs")
+    lines = block.splitlines()[1:]
+    assert len(lines) == 5
+    assert "Sitemap XML failed" in lines[0]
+
+
+def test_query_without_match_keeps_evidence_order(tmp_path, monkeypatch):
+    store = _fresh_store(tmp_path, monkeypatch)
+    _seed_loud_unrelated(store)
+    assert recent_lessons_block(limit=5, query="zzz qqq") == recent_lessons_block(limit=5)
