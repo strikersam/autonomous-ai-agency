@@ -254,6 +254,20 @@ def _rrf(
     return sorted(fused.items(), key=lambda x: -x[1])
 
 
+def hybrid_rank(query: str, docs: list[Document], k: int) -> list[tuple[int, float]]:
+    """Return ``(doc_index, fused_score)`` for docs sharing any term with *query*.
+
+    Keyword and TF-IDF rankings fused with RRF — the dense+sparse hybrid the
+    NVIDIA RAG blueprint uses, without an embedding service. Docs with no
+    query-term overlap are omitted rather than ranked last.
+    """
+    if not docs or k <= 0:
+        return []
+    kw = _keyword_search(query, docs, k)
+    tf = _TFIDFIndex(docs).query(query, k)
+    return _rrf([kw, tf])[:k]
+
+
 # ---------------------------------------------------------------------------
 # Memory turn scoring with recency decay
 # ---------------------------------------------------------------------------

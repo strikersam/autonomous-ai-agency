@@ -344,23 +344,14 @@ class SecurityScanner:
             data = json.loads(raw)
             # Safety v3 format: list of vulnerability dicts
             vulns = data if isinstance(data, list) else data.get("vulnerabilities", [])
-            findings = []
-            for v in vulns[:15]:
-                pkg = v.get("package_name") or v.get("name") or "unknown"
-                installed = v.get("analyzed_version") or v.get("installed_version") or "?"
-                cve = v.get("cve") or ""
-                advisory = v.get("advisory") or v.get("description") or ""
-                findings.append(SecurityFinding(
-                    scanner="safety",
-                    severity="high",
-                    title=f"CVE in {pkg} {installed}: {(advisory[:60] + '…') if len(advisory) > 60 else advisory}",
-                    description=(
-                        f"Package `{pkg}` version `{installed}` has a known vulnerability.\n\n"
-                        f"Advisory: {advisory[:400]}\n"
-                        f"Fix: upgrade to `{v.get('fixed_versions', ['latest'])[0] if v.get('fixed_versions') else 'latest'}`"
-                    ),
-                    cve=cve,
-                ))
+            from agent.dependency_reachability import first_party_imports
+
+            imports = first_party_imports(self._root)
+            findings = [_safety_finding(v, imports) for v in vulns]
+            # Directly imported packages first, so the cap never hides a
+            # reachable CVE behind transitive ones.
+            findings.sort(key=lambda f: f.severity != "high")
+            findings = findings[:15]
             log.info("SecurityScanner/safety: %d CVEs found", len(findings))
             return findings
         except json.JSONDecodeError:
@@ -411,6 +402,40 @@ class SecurityScanner:
                         return findings  # cap early to avoid flooding
         log.info("SecurityScanner/secrets: %d potential secrets found", len(findings))
         return findings
+
+
+def _safety_finding(v: dict[str, Any], imports: set[str]) -> SecurityFinding:
+    """One safety vulnerability as a finding, prioritised by reachability.
+
+    A CVE in a package no first-party module imports is most likely transitive
+    (NVIDIA vulnerability-analysis blueprint: present is not reachable), so it
+    is ``medium`` rather than ``high``. That schedules its fix daily instead of
+    within a minute; the finding itself is never dropped.
+    """
+    from agent.dependency_reachability import is_directly_imported
+
+    pkg = v.get("package_name") or v.get("name") or "unknown"
+    installed = v.get("analyzed_version") or v.get("installed_version") or "?"
+    advisory = v.get("advisory") or v.get("description") or ""
+    fixed = v.get("fixed_versions") or ["latest"]
+    direct = is_directly_imported(pkg, imports)
+    reach = (
+        "imported directly by first-party code."
+        if direct else
+        "no first-party import found; likely transitive. Confirm the parent package does not reach it."
+    )
+    return SecurityFinding(
+        scanner="safety",
+        severity="high" if direct else "medium",
+        title=f"CVE in {pkg} {installed}: {(advisory[:60] + '…') if len(advisory) > 60 else advisory}",
+        description=(
+            f"Package `{pkg}` version `{installed}` has a known vulnerability.\n\n"
+            f"Advisory: {advisory[:400]}\n"
+            f"Fix: upgrade to `{fixed[0]}`\n"
+            f"Reachability: {reach}"
+        ),
+        cve=v.get("cve") or "",
+    )
 
 
 def _tool_available(name: str) -> bool:
