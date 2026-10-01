@@ -5,8 +5,9 @@ Checks two categories of drift:
   (b) Model IDs mentioned that are in neither config/models.yaml (routing) nor
       config/llm/models.yaml (the full model catalogue).
 
-A model id on a line that says it is deprecated, retired or removed is a
-deliberate mention and is not flagged.
+A model id immediately followed (or preceded) by "deprecated", "retired" or
+"removed" is a deliberate mention and is not flagged; other ids on the same
+line still are.
 
 Non-blocking: prints findings to stdout and exits 0.  This is an informational
 report, not a hard CI gate — false positives are possible (e.g. a path mentioned
@@ -120,7 +121,7 @@ def _check_file_paths(text: str, source: str) -> list[str]:
 # like `claude-sonnet-5`, `nvidia/llama-3.3-nemotron-super-49b-v1`.
 _MODEL_RE = re.compile(
     r"`([a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._/-]+|"
-    r"(?:claude|gpt|gemini|deepseek|llama|mistral|qwen|nvidia|meta|openai|groq)"
+    r"(?:claude|gpt|gemini|deepseek|llama|mistral|qwen|nvidia|meta|openai|groq|kimi|gemma|glm|phi)"
     r"[a-z0-9._/-]+)`",
     re.IGNORECASE,
 )
@@ -138,22 +139,31 @@ def _is_path_not_model(candidate: str) -> bool:
     )
 
 
+# How close a deprecation word must be to excuse one id, not the whole line:
+# "`deepseek-r1-70b` deprecated" and "retired `x`" excuse only that id.
+_MENTION_AFTER = 12
+_MENTION_BEFORE = 12
+
+
 def _check_model_ids(text: str, source: str, known_ids: set[str]) -> list[str]:
     if not known_ids:
         return []
     findings: list[str] = []
     for line in text.splitlines():
-        if _DELIBERATE_MENTION.search(line):
-            continue
         findings.extend(_unknown_models_in(line, source, known_ids))
     return findings
+
+
+def _deliberate(line: str, start: int, end: int) -> bool:
+    window = line[max(0, start - _MENTION_BEFORE):start] + line[end:end + _MENTION_AFTER]
+    return bool(_DELIBERATE_MENTION.search(window))
 
 
 def _unknown_models_in(line: str, source: str, known_ids: set[str]) -> list[str]:
     findings: list[str] = []
     for m in _MODEL_RE.finditer(line):
         candidate = m.group(1).strip()
-        if _is_path_not_model(candidate):
+        if _is_path_not_model(candidate) or _deliberate(line, m.start(), m.end()):
             continue
         # Only flag if it looks like a real model id (has a digit somewhere).
         if not re.search(r"\d", candidate):

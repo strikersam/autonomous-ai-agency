@@ -55,6 +55,13 @@ class TestModels:
         assert len(findings) == 1 and "made-up-99b" in findings[0]
 
     def test_the_full_catalogue_counts_as_known(self, audit) -> None:
-        ids = audit._load_model_ids()
-        assert "qwen-qwq-32b" in ids  # declared only in config/llm/models.yaml
+        import yaml
+
+        catalogue = set(yaml.safe_load((ROOT / "config/llm/models.yaml").read_text())["models"])
+        assert catalogue and catalogue <= audit._load_model_ids()
+
+    def test_a_deprecation_word_excuses_only_its_own_id(self, audit) -> None:
+        line = "| Groq | `gpt-oss-120b`, `kimi-k2-gone` — `deepseek-r1-70b` deprecated Aug 2026 |"
+        findings = audit._check_model_ids(line, "X.md", {"gpt-oss-120b"})
+        assert len(findings) == 1 and "kimi-k2-gone" in findings[0]
 

@@ -172,50 +172,21 @@ class TestGemini3xCostTracker:
         assert pro_in > flash_in, "3.1 Pro must be more expensive than 3.7 Flash"
 
 
-# ── 3. Groq catalog entries (Kimi K2, QwQ-32B) ───────────────────────────────
+# ── 3. Groq catalog entries (Kimi K2, QwQ-32B) — retired 2026-10-01 ────────────
 
 class TestGroqNewModelsCatalog:
-    """Kimi K2 and QwQ-32B must have catalog entries so the router includes them."""
+    """Kimi K2 and QwQ-32B left the catalogue: Groq answers 404 / 400 "model
+    unavailable" for both. In production on 2026-09-30 and 10-01 every attempt
+    failed, and each one used up one of the router's per-request attempts. They
+    were added here on 2026-09-13 and asserted present until then; the router
+    that was meant to benefit from them never once got an answer from either.
+    """
 
-    def test_kimi_k2_in_catalog(self) -> None:
-        models = _cfg().models
-        assert "moonshotai/kimi-k2-instruct" in models, (
-            "moonshotai/kimi-k2-instruct missing from catalog — "
-            "router will silently exclude it from tool-calling requests"
-        )
+    def test_kimi_k2_is_retired_from_the_catalog(self) -> None:
+        assert "moonshotai/kimi-k2-instruct" not in _cfg().models
 
-    def test_qwq_32b_in_catalog(self) -> None:
-        models = _cfg().models
-        assert "qwen-qwq-32b" in models, (
-            "qwen-qwq-32b missing from catalog — "
-            "router will silently exclude it from tool-calling requests"
-        )
-
-    def test_kimi_k2_supports_tools(self) -> None:
-        m = _cfg().models["moonshotai/kimi-k2-instruct"]
-        assert m.supports_tools is True, "kimi-k2-instruct: supports_tools must be True"
-
-    def test_qwq_32b_supports_tools(self) -> None:
-        m = _cfg().models["qwen-qwq-32b"]
-        assert m.supports_tools is True, "qwen-qwq-32b: supports_tools must be True"
-
-    def test_qwq_32b_supports_reasoning(self) -> None:
-        m = _cfg().models["qwen-qwq-32b"]
-        assert m.supports_reasoning is True, "qwen-qwq-32b: supports_reasoning must be True"
-
-    def test_kimi_k2_provider_is_groq(self) -> None:
-        m = _cfg().models["moonshotai/kimi-k2-instruct"]
-        assert m.provider == "groq", "kimi-k2-instruct: provider must be groq"
-
-    def test_qwq_32b_provider_is_groq(self) -> None:
-        m = _cfg().models["qwen-qwq-32b"]
-        assert m.provider == "groq", "qwen-qwq-32b: provider must be groq"
-
-    def test_kimi_k2_large_context(self) -> None:
-        m = _cfg().models["moonshotai/kimi-k2-instruct"]
-        assert m.context_window >= 1_000_000, (
-            "kimi-k2-instruct context_window must reflect 1M context"
-        )
+    def test_qwq_32b_is_retired_from_the_catalog(self) -> None:
+        assert "qwen-qwq-32b" not in _cfg().models
 
 
 # ── 4. CLAUDE.md Groq reference is current ───────────────────────────────────

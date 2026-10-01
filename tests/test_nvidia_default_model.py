@@ -99,8 +99,12 @@ class TestTheStaticFloorLeadsWithVerifiedIds:
     def test_the_default_is_tried_first(self) -> None:
         assert self._floor_ids()[0] == EXPECTED
 
-    def test_the_fallback_is_tried_second(self) -> None:
-        assert self._floor_ids()[1] == self.FALLBACK
+    def test_a_retired_fallback_is_not_in_the_floor(self) -> None:
+        # 2026-10-01: mistral-nemotron was the second id here (probed 200 on
+        # 2026-08-28). NVIDIA now answers HTTP 410 for it, and for gpt-oss-120b,
+        # so the floor is the default alone until another id is probed live.
+        assert self.FALLBACK not in self._floor_ids()
+        assert "openai/gpt-oss-120b" not in self._floor_ids()
 
     def test_no_retired_id_survives_in_the_floor(self) -> None:
         assert not set(self._floor_ids()) & set(RETIRED)
