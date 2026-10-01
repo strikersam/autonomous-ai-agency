@@ -197,9 +197,9 @@ Four rules, extracted verbatim into two production prompt paths:
 issue-context agent, and `agents/profiles.py` binds all five CRISPY roles to it.
 
 They exist because **the agents that read this file are not all Claude Code.** The
-plan→execute→verify loop runs on `nvidia/llama-3.3-nemotron-super-49b-v1` and similar
+plan→execute→verify loop runs on `nvidia/nemotron-3-super-120b-a12b` and similar
 open-weights models with no harness system prompt behind them. A coding-assistant
-harness already enforces most of this; a 49B model called through
+harness already enforces most of this; an open-weights model called through
 `packages/ai/router.py` does not.
 
 The 2026-08 audit cut this section from 2,908 words to these four rules. What was cut
@@ -270,7 +270,7 @@ the Render service name still carry that name.
 |----------|---------|---------|
 | NVIDIA NIM | `NVIDIA_API_KEY` | Free LLM (`nvidia/nemotron-3-super-120b-a12b`) |
 | Cerebras | `CEREBRAS_API_KEY` | Fast LLM (`gpt-oss-120b`, paid tier — see CHANGELOG 2026-08-29) |
-| Groq | `GROQ_API_KEY` | Free fast LLM (`gpt-oss-120b`, `kimi-k2-instruct`, `qwen-qwq-32b` — `deepseek-r1-70b` deprecated self-serve Aug 2026) |
+| Groq | `GROQ_API_KEY` | Free fast LLM (`openai/gpt-oss-120b`, `openai/gpt-oss-20b`, `qwen/qwen3.8-27b` — `deepseek-r1-70b` deprecated self-serve Aug 2026) |
 | Anthropic | `ANTHROPIC_API_KEY` | Paid LLM (Claude) |
 | Ollama | `OLLAMA_BASE` | Local LLM |
 | GitHub / Google OAuth | `*_CLIENT_ID` / `*_CLIENT_SECRET` | Social login (`packages/auth/oauth.py`) |
@@ -320,8 +320,8 @@ sources. Rule 14 governs every URL any of this touches.
 
 ### Scheduler
 
-`agent/scheduler.py` wraps APScheduler over a durable store
-(`services/scheduler_store.py`). `force_cleanup()` runs on every cron tick and at
+`packages/scheduler/scheduler.py` wraps APScheduler over a durable store
+(`packages/scheduler/store.py`). `force_cleanup()` runs on every cron tick and at
 startup — this is deliberate, and it is what stops failed run-once tasks from
 multiplying in the database.
 
@@ -390,7 +390,7 @@ change behaviour most:
 | `RATE_LIMIT_RPM` | `60` | Per-key request limit |
 | `AGENT_WORKSPACE_ROOT` | `.` | Agent filesystem sandbox root |
 | `NVIDIA_DEFAULT_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | Free NVIDIA NIM model |
-| `AGENT_{PLANNER,EXECUTOR,VERIFIER,JUDGE}_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | Per-role LLMs |
+| `AGENT_{PLANNER,EXECUTOR,VERIFIER,JUDGE}_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | Per-role LLMs (judge falls back to the verifier's model) |
 | `BRAIN_WATCHDOG_MAX_FAILURES` | `3` | Failover threshold |
 | `ACTIVATION_REQUIRED` | `true` | `false` for self-hosted |
 | `RUN_HERMES_IN_PROCESS` | `true` | Hermes on port 8100 |

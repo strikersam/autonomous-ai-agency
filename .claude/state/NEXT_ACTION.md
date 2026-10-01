@@ -1,6 +1,14 @@
 # Next Action
 
-**Updated:** 2026-09-30 (row 89)
+**Updated:** 2026-10-01 (row 90)
+
+## Open-queue ritual 2026-10-01 (row 90, PR #1628)
+
+PR #1628 closes #1615 (trend digest false action-required) and #1611 (all four
+backlog items: 1/2/4 verified on master, item 4 audit made accurate + doc drift
+fixed, item 3 `DENIED_MODEL_IDS` operator deny-list). After merge: confirm
+#1611/#1615 closed and master CI green. Known, not fixed: `/api/auth/refresh`
+401s on SQLite (ObjectId on UUID) — see row 80.
 
 ## Daily automation 2026-09-30 — DONE (row 89, PR TBD)
 

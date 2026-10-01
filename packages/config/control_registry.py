@@ -7,7 +7,7 @@ general ``os.environ`` write primitive.
 Split three ways so the executable part stays small and reviewable:
 
 * :mod:`packages.config.control_specs` — the types and builders
-* :mod:`packages.config.control_catalogue` — the 109 declared controls
+* :mod:`packages.config.control_catalogue` — the declared controls
 * this module — lookup, grouping, and coercion
 
 Re-exports the types and the catalogue, so ``from
@@ -17,6 +17,7 @@ working regardless of which file a given name physically lives in.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from packages.config.control_catalogue import CONTROLS, GROUPS
@@ -27,6 +28,7 @@ from packages.config.control_specs import (
     FALSEY,
     KIND_CHOICE,
     KIND_NUMBER,
+    KIND_TEXT,
     KIND_TOGGLE,
     RISK_HIGH,
     RISK_LOW,
@@ -40,6 +42,7 @@ __all__ = [
     "GROUPS",
     "KIND_CHOICE",
     "KIND_NUMBER",
+    "KIND_TEXT",
     "KIND_TOGGLE",
     "RISK_HIGH",
     "RISK_LOW",
@@ -105,7 +108,31 @@ def coerce(key: str, value: Any) -> str:
         return _coerce_toggle(value)
     if spec.kind == KIND_NUMBER:
         return _coerce_number(spec, value)
+    if spec.kind == KIND_TEXT:
+        return _coerce_text(spec, value)
     return _coerce_choice(spec, value)
+
+
+# One identifier per comma: letters, digits and . _ : / @ - plus fnmatch's * ?.
+# Anything else (spaces inside an entry, quotes, ;) is a typo or an injection
+# attempt, and is rejected rather than silently stored.
+_TEXT_ITEM = re.compile(r"^[A-Za-z0-9._:/@*?\-]{1,200}$")
+_TEXT_MAX_ITEMS = 100
+
+
+def _coerce_text(spec: ControlSpec, value: Any) -> str:
+    raw = "" if value is None else str(value)
+    items: list[str] = []
+    for part in raw.split(","):
+        item = part.strip()
+        if not item or item in items:
+            continue
+        if not _TEXT_ITEM.match(item):
+            raise ValueError(f"{spec.key}: {item!r} is not a valid entry")
+        items.append(item)
+    if len(items) > _TEXT_MAX_ITEMS:
+        raise ValueError(f"{spec.key} accepts at most {_TEXT_MAX_ITEMS} entries")
+    return ",".join(items)
 
 
 def _coerce_toggle(value: Any) -> str:

@@ -1,4 +1,4 @@
-"""packages/config/control_catalogue.py — the 109 operator-facing controls.
+"""packages/config/control_catalogue.py — the operator-facing controls.
 
 The declarative table itself: which feature switches and multi-option settings
 an operator may change from the dashboard, and what each one means. The types
@@ -51,6 +51,7 @@ from packages.config.control_specs import (
     ControlSpec,
     KIND_CHOICE,
     KIND_NUMBER,
+    KIND_TEXT,
     KIND_TOGGLE,
     RISK_HIGH,
     RISK_LOW,
@@ -330,6 +331,20 @@ _BRAIN_ROUTING: tuple[ControlSpec, ...] = (
             ControlOption("ollama", "Ollama (local)", "Prefer local inference. Needs OLLAMA_BASE."),
             ControlOption("colibri", "Colibri (local GLM)", "Local JustVugg/colibri on :8081. Needs COLIBRI_URL."),
             ControlOption("local-brain", "Local brain (llama-server)", "llama-server on :8072. Needs LOCAL_BRAIN_URL."),
+        ),
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    ControlSpec(
+        key="DENIED_MODEL_IDS",
+        label="Denied model ids",
+        group="brain_routing",
+        kind=KIND_TEXT,
+        default="",
+        help=(
+            "Comma-separated model ids that are never dispatched, on any provider "
+            "(globs allowed, e.g. claude-opus-*). Routing falls through to the next "
+            "allowed model. Empty denies nothing."
         ),
         live=True,
         risk=RISK_MEDIUM,

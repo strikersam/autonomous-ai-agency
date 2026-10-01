@@ -275,7 +275,7 @@ mechanically what would otherwise have to be prose:
 | **The rules** | `CLAUDE.md` §1 |
 | Naming, log levels, fixtures, performance targets | `ENGINEERING_STANDARDS.md` |
 | Architecture overview | `docs/architecture/overview.md`, `ARCHITECTURE.md` |
-| Model routing | `docs/architecture/model-routing.md`, `router/CLAUDE.md` |
+| Model routing | `router/CLAUDE.md` |
 | Agent orchestration | `docs/architecture/agent-orchestration.md`, `agent/CLAUDE.md` |
 | Configuration | `docs/configuration-reference.md` |
 | Runbooks, ADRs, changelog | `docs/` |

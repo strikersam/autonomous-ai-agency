@@ -333,6 +333,12 @@ class Settings:
             "CODE_GRAPH_MODE", "full"
         ).strip().lower()
 
+        # ── Model deny-list (packages/ai/model_policy.py) ────────────────────
+        # Comma-separated model ids (fnmatch globs allowed) that are never
+        # dispatched, on any provider. An operator control (Platform controls),
+        # re-read per call, so a block lands without a redeploy.
+        self.denied_model_ids_raw: str = os.environ.get("DENIED_MODEL_IDS", "")
+
         # ── Operational-incident tracker (agent/operational_incidents.py) ────
         # Operational failures (timeouts, "all runtimes failed", rate limits)
         # never become code-fix tasks — an LLM editing source cannot fix a
@@ -447,6 +453,12 @@ class Settings:
     def browser_automation_enabled(self) -> bool:
         """When True, agents may drive a real browser (agent/browser.py)."""
         return self.browser_automation_enabled_raw in {"1", "true", "yes", "on"}
+
+    @property
+    def denied_model_patterns(self) -> tuple[str, ...]:
+        """Lower-cased DENIED_MODEL_IDS entries; empty when nothing is denied."""
+        parts = (p.strip().lower() for p in self.denied_model_ids_raw.split(","))
+        return tuple(p for p in parts if p)
 
     @property
     def code_graph_enabled(self) -> bool:

@@ -239,3 +239,43 @@ test('a search hit inside a collapsed group is still shown', async () => {
   expect(screen.getByText('Governance layer')).toBeInTheDocument();
   expect(screen.queryByText('Default runtime')).not.toBeInTheDocument();
 });
+
+test('a text control edits as free text and Apply sends it', async () => {
+  const textGroup = {
+    id: 'brain_routing',
+    label: 'Brain & Routing',
+    help: '',
+    controls: [{
+      key: 'DENIED_MODEL_IDS',
+      label: 'Denied model ids',
+      group: 'brain_routing',
+      kind: 'text',
+      default: '',
+      help: 'Comma-separated model ids that are never dispatched.',
+      options: [],
+      live: true,
+      risk: 'medium',
+      requires: [],
+      minimum: null,
+      maximum: null,
+      value: '',
+      source: 'default',
+      env_value: null,
+      override_value: null,
+      missing_requirements: [],
+    }],
+  };
+  getPlatformControls.mockResolvedValue({ data: snapshot({ groups: [textGroup] }) });
+  setPlatformControls.mockResolvedValue({
+    data: { ...snapshot({ groups: [textGroup] }), changed: ['DENIED_MODEL_IDS'], restart_required: [] },
+  });
+  render(<ControlsScreen />);
+
+  const input = await screen.findByRole('textbox', { name: 'Denied model ids' });
+  fireEvent.change(input, { target: { value: 'gpt-6-sol,claude-opus-*' } });
+  fireEvent.click(screen.getByRole('button', { name: /Apply/ }));
+
+  await waitFor(() => expect(setPlatformControls).toHaveBeenCalledWith({
+    DENIED_MODEL_IDS: 'gpt-6-sol,claude-opus-*',
+  }));
+});
