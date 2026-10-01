@@ -161,9 +161,9 @@ function Meter({ value, color, width = 54, title }) {
   );
 }
 
-function StatTile({ label, value, sub, tone = '#fff' }) {
+function StatTile({ label, value, sub, tone = '#fff', className }) {
   return (
-    <div style={{
+    <div className={className} style={{
       flex: '1 1 96px', minWidth: 96, padding: '9px 12px', borderRadius: 12,
       background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.07)',
     }}>
@@ -672,6 +672,9 @@ export default function ProviderConsole({
   onTogglePaid,
   policyBusy,
   refreshStored,
+  // 'providers' = serving bar + list, 'routing' = paid/strategy controls,
+  // 'all' = both (the historical single-page layout).
+  section = 'all',
 }) {
   const [status, setStatus]   = React.useState(null);
   const [routed, setRouted]   = React.useState([]);
@@ -701,8 +704,17 @@ export default function ProviderConsole({
 
   React.useEffect(() => {
     load();
-    const timer = setInterval(load, 15000);   // live enough to watch a failover
-    return () => clearInterval(timer);
+    // Live enough to watch a failover, but only while someone is looking:
+    // a backgrounded tab no longer polls two endpoints every 15s.
+    const timer = setInterval(() => {
+      if (typeof document === 'undefined' || !document.hidden) load();
+    }, 15000);
+    const onVisible = () => { if (!document.hidden) load(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [load]);
 
   const rows = React.useMemo(
@@ -742,7 +754,7 @@ export default function ProviderConsole({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
       {/* ── Serving bar: what the router would pick right now, and why. ──── */}
-      <div style={{
+      {section !== 'routing' && <div style={{
         borderRadius: 18, padding: '15px 17px',
         border: `1px solid ${serving ? 'rgba(70,217,164,0.26)' : 'rgba(255,255,255,0.09)'}`,
         background: serving
@@ -792,18 +804,18 @@ export default function ProviderConsole({
             <StatTile label="In rotation" value={liveCount} sub={`${rows.length} known`} />
             <StatTile label="429s seen" value={totalRateLimits}
                       tone={totalRateLimits > 0 ? '#ffbd66' : '#fff'} sub="rolling window" />
-            <StatTile label="Queue" value={queue.depth ?? 0}
+            <StatTile className="pc-metric" label="Queue" value={queue.depth ?? 0}
                       sub={queue.max_depth ? `max ${queue.max_depth}` : ''} />
-            <StatTile label="Cache" value={`${Math.round((cache.overall_hit_rate || 0) * 100)}%`} sub="hit rate" />
-            <StatTile label="Spend" value={`$${(budget.spend_today_usd ?? 0).toFixed(2)}`}
+            <StatTile className="pc-metric" label="Cache" value={`${Math.round((cache.overall_hit_rate || 0) * 100)}%`} sub="hit rate" />
+            <StatTile className="pc-metric" label="Spend" value={`$${(budget.spend_today_usd ?? 0).toFixed(2)}`}
                       sub={budget.daily_usd ? `of $${budget.daily_usd}/day` : 'today'} />
-            <StatTile label="Tokens" value={compact(totals.total_tokens || 0)} sub="this process" />
+            <StatTile className="pc-metric" label="Tokens" value={compact(totals.total_tokens || 0)} sub="this process" />
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* ── Control rail: every switch that used to be its own card. ─────── */}
-      <div style={{
+      {section !== 'providers' && <div style={{
         borderRadius: 16, padding: '14px 17px',
         border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.025)',
         display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-start',
@@ -857,7 +869,7 @@ export default function ProviderConsole({
             Reload config
           </RowButton>
         </div>
-      </div>
+      </div>}
 
       {(notice || error) && (
         <div style={{
@@ -868,7 +880,7 @@ export default function ProviderConsole({
       )}
 
       {/* ── One table. Filters instead of separate sections. ─────────────── */}
-      <div>
+      {section !== 'routing' && <div>
         <div style={{
           display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 10,
         }}>
@@ -937,7 +949,7 @@ export default function ProviderConsole({
             />
           ))}
         </div>
-      </div>
+      </div>}
     </div>
   );
 }
