@@ -175,6 +175,18 @@ function ControlRow({ control, pending, onChange, onReset, busy }) {
             style={{ ...FIELD, width: 104, fontFamily: 'var(--font-mono)' }}
           />
         )}
+        {control.kind === 'text' && (
+          <input
+            type="text"
+            value={value}
+            disabled={busy}
+            aria-label={control.label}
+            placeholder="comma-separated"
+            spellCheck={false}
+            onChange={(e) => onChange(control.key, e.target.value)}
+            style={{ ...FIELD, width: 240, fontFamily: 'var(--font-mono)' }}
+          />
+        )}
         <button
           type="button"
           onClick={() => onReset(control.key)}
