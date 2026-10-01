@@ -549,8 +549,6 @@ _PROVIDER_REGISTRY: list[dict[str, Any]] = [
         "models": [
             "nvidia/nemotron-3-super-120b-a12b",
             "nvidia/nemotron-3-ultra-550b-a55b",
-            "mistralai/mistral-nemotron",
-            "openai/gpt-oss-120b",
             "openai/gpt-oss-20b",
         ],
         "cooldown": 90.0,  # NVIDIA rate limits are ~40 req/min — 90s cooldown

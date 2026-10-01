@@ -105,12 +105,20 @@ confirm no `planning: TimeoutError` in Render logs after a groq 429. Still open:
 `default_model` may still be `z-ai/glm-5.2` (harmless since #1592).
 ## Planner timeout — closed (row 86)
 
-Root cause, from the per-attempt router logs (#1599): `nvidia/deepseek-v4.1-flash`
-timed out at 60s on every call and sat first for planning; #1600 removed it. The
-two retired Gemini ids (`gemini-1.5-flash`, `gemini-2.0-flash`, HTTP 404) are
-removed on this branch. Still open, not actioned: `gemini-2.0-flash` is the default
-in `docker/agent_runtime.py` and in the frontend's `ProvidersScreen.jsx`;
-`anthropic-claude` returns HTTP 400 (priority -50).
+Planning now takes 2–7s (was 104–120s). Root causes, all found from the per-attempt
+router logs (#1599): a hung `nvidia/deepseek-v4.1-flash` (#1600), a cross-provider
+Retry-After sleep (#1594), two retired Gemini models (#1620), and — this branch —
+four more dead models (nvidia mistral-nemotron + gpt-oss-120b, groq qwen-qwq-32b +
+kimi-k2-instruct). Still open, not actioned:
+- `LLMRouter` keeps no memory of a 410/404'd model, so the next retirement wastes an
+  attempt on every request until someone prunes a list by hand. CLAUDE.md rule 4
+  already says 410 means permanent removal plus a long cooldown; `packages/ai/router.py`
+  does that, `packages/llm/router.py` does not. Candidate for its own PR.
+- Groq `gpt-oss-120b`/`-20b` intermittently answer HTTP 400 "Tool choice is none, but
+  model called a tool". Non-fatal (the router fails over, ~0.5s lost) and the model
+  quirk is not fixable on our side; left alone.
+- `gemini-2.0-flash` is still the default in `docker/agent_runtime.py` and in the
+  frontend's `ProvidersScreen.jsx`; `anthropic-claude` returns HTTP 400 (priority -50).
 
 ## Daily automation 2026-09-27 — no-op day (row 85)
 
