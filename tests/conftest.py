@@ -390,8 +390,33 @@ def _clear_response_cache():
     rc._misses = 0
 
 
+def _stop_leaked_aiosqlite_workers() -> list:
+    """Send the stop sentinel to aiosqlite connections the suite never closed.
+
+    aiosqlite runs each connection on a non-daemon worker thread, so under
+    ``STORAGE_BACKEND=sqlite`` a store dropped by ``reset_store()`` without
+    ``close()`` keeps the interpreter alive after every test has passed.
+    """
+    try:
+        import aiosqlite
+    except ImportError:
+        return []
+    import gc
+
+    stopped = []
+    for obj in gc.get_objects():
+        if isinstance(obj, aiosqlite.Connection) and obj._thread.is_alive():
+            try:
+                obj.stop()
+                stopped.append(obj._thread)
+            except Exception:  # best effort: a dead loop must not fail the session
+                pass
+    return stopped
+
+
 def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001 - pytest hook signature
-    """Report threads that will stop the interpreter from exiting.
+    """Stop leaked aiosqlite workers, then report threads that will stop the
+    interpreter from exiting.
 
     A suite can pass every test and still hang: a non-daemon thread blocked on
     a queue keeps the process alive after pytest returns. That is invisible in
@@ -407,6 +432,8 @@ def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001 - pytest hook sig
     import sys
     import threading
 
+    for worker in _stop_leaked_aiosqlite_workers():
+        worker.join(timeout=2)
     lingering = [
         t for t in threading.enumerate()
         if not t.daemon and t is not threading.main_thread() and t.is_alive()
