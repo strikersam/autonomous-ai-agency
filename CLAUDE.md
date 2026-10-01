@@ -197,9 +197,9 @@ Four rules, extracted verbatim into two production prompt paths:
 issue-context agent, and `agents/profiles.py` binds all five CRISPY roles to it.
 
 They exist because **the agents that read this file are not all Claude Code.** The
-plan→execute→verify loop runs on `nvidia/llama-3.3-nemotron-super-49b-v1` and similar
+plan→execute→verify loop runs on `nvidia/nemotron-3-super-120b-a12b` and similar
 open-weights models with no harness system prompt behind them. A coding-assistant
-harness already enforces most of this; a 49B model called through
+harness already enforces most of this; an open-weights model called through
 `packages/ai/router.py` does not.
 
 The 2026-08 audit cut this section from 2,908 words to these four rules. What was cut
@@ -320,8 +320,8 @@ sources. Rule 14 governs every URL any of this touches.
 
 ### Scheduler
 
-`agent/scheduler.py` wraps APScheduler over a durable store
-(`services/scheduler_store.py`). `force_cleanup()` runs on every cron tick and at
+`packages/scheduler/scheduler.py` wraps APScheduler over a durable store
+(`packages/scheduler/store.py`). `force_cleanup()` runs on every cron tick and at
 startup — this is deliberate, and it is what stops failed run-once tasks from
 multiplying in the database.
 
@@ -390,7 +390,7 @@ change behaviour most:
 | `RATE_LIMIT_RPM` | `60` | Per-key request limit |
 | `AGENT_WORKSPACE_ROOT` | `.` | Agent filesystem sandbox root |
 | `NVIDIA_DEFAULT_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | Free NVIDIA NIM model |
-| `AGENT_{PLANNER,EXECUTOR,VERIFIER,JUDGE}_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | Per-role LLMs |
+| `AGENT_{PLANNER,EXECUTOR,VERIFIER,JUDGE}_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | Per-role LLMs (judge falls back to the verifier's model) |
 | `BRAIN_WATCHDOG_MAX_FAILURES` | `3` | Failover threshold |
 | `ACTIVATION_REQUIRED` | `true` | `false` for self-hosted |
 | `RUN_HERMES_IN_PROCESS` | `true` | Hermes on port 8100 |

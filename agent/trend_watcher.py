@@ -155,11 +155,32 @@ _SCORE_SATURATION_HITS = 12.0
 # support or an API/behaviour change worth routing work — not for a routine patch. We
 # consume Ollama as a service (OLLAMA_BASE), never as a vendored dependency, so a
 # version bump on its own is informational, not a "dependency upgrade" task.
+# Phrases that on their own announce something for us to act on.
 _OLLAMA_ACTIONABLE_KEYWORDS = (
     "new model", "model support", "now supports", "add support", "api change",
-    "breaking", "function calling", "tool call", "tool use", "vision",
-    "embedding", "structured output",
+    "breaking",
 )
+# Capability words that are actionable only on a line that also announces
+# something new: "Structured outputs on thinking models now apply in a single
+# pass, making them faster" (v0.34.4) is a speed-up, not new capability, yet the
+# bare word opened a "[Trend Digest]" issue with nothing to do (#1615).
+_OLLAMA_CAPABILITY_KEYWORDS = (
+    "function calling", "tool call", "tool use", "vision", "embedding",
+    "structured output",
+)
+_OLLAMA_ADDITIVE_WORDS = ("support", "added", "adds ", "introduc", "new ", "now available")
+
+
+def _ollama_notes_actionable(title: str, body: str) -> bool:
+    """True when release notes signal new model/API support, not just fixes."""
+    blob = f"{title}\n{body}".lower()
+    if any(kw in blob for kw in _OLLAMA_ACTIONABLE_KEYWORDS):
+        return True
+    return any(
+        any(kw in line for kw in _OLLAMA_CAPABILITY_KEYWORDS)
+        and any(w in line for w in _OLLAMA_ADDITIVE_WORDS)
+        for line in blob.splitlines()
+    )
 
 # Reddit user-agent (required or Reddit returns 429/403)
 _REDDIT_HEADERS = {"User-Agent": "local-llm-server/4.1 (trend-watcher; +https://github.com/strikersam/local-llm-server)"}
@@ -327,8 +348,7 @@ class TrendWatcher:
                 if not is_latest and content_score < self._min_relevance:
                     continue
                 score = min(0.4 + content_score, 0.9) if is_latest else content_score
-                blob = f"{title}\n{body}".lower()
-                actionable = any(kw in blob for kw in _OLLAMA_ACTIONABLE_KEYWORDS)
+                actionable = _ollama_notes_actionable(title, body)
                 tags = ["ollama", "release"]
                 if actionable:
                     tags += ["model-support", "action-required"]

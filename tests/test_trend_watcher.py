@@ -563,6 +563,40 @@ async def test_fetch_ollama_routine_latest_not_actionable(tmp_watcher):
     assert alerts[0].relevance_score < 0.95
 
 
+@pytest.mark.asyncio
+async def test_fetch_ollama_capability_word_in_a_fix_line_is_not_actionable(tmp_watcher):
+    """v0.34.4 (#1615): 'structured outputs ... faster' is a speed-up, not new
+    capability, and must not open an action-required digest issue."""
+    payload = [{
+        "tag_name": "v0.34.4",
+        "body": (
+            "## What's Changed\n"
+            "* Structured outputs on thinking models now apply in a single pass, "
+            "making them faster and more reliable\n"
+            "* Fixed intermittent model not found errors with large local libraries\n"
+            "* Gemma 4 now selects the best image resolution on Apple Silicon"
+        ),
+        "html_url": "https://github.com/ollama/ollama/releases/tag/v0.34.4",
+        "published_at": "2026-09-23T10:00:00Z",
+    }]
+    client = _FakeClient({"ollama/ollama/releases": payload})
+    async with client as c:
+        alerts = await tmp_watcher._fetch_ollama_releases(c)
+    assert len(alerts) == 1
+    assert "action-required" not in alerts[0].tags
+
+
+@pytest.mark.parametrize("body", [
+    "Added structured outputs for the /api/chat endpoint",
+    "Embedding models now support batch input",
+    "Introducing tool calling for Qwen 4",
+])
+def test_ollama_capability_announcements_stay_actionable(body) -> None:
+    from agent.trend_watcher import _ollama_notes_actionable
+
+    assert _ollama_notes_actionable("Ollama v1 released", body) is True
+
+
 _HN_TOP_IDS = [111, 222]
 _HN_ITEM_OFFTOPIC = {
     "title": "OpenShot 4.0: Record, Edit, and Color Like Never Before",
