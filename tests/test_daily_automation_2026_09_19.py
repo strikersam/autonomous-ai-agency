@@ -76,27 +76,20 @@ class TestNvidiaNemotronEntries:
     """mistralai/mistral-nemotron and nvidia/nemotron-3-ultra-550b-a55b now have
     llm/models.yaml catalog entries."""
 
-    def test_mistral_nemotron_in_nvidia_candidates(self):
-        assert "mistralai/mistral-nemotron" in _routing_candidates().get("nvidia", [])
+    def test_mistral_nemotron_is_retired_from_nvidia_candidates(self):
+        # 2026-10-01: superseded. NVIDIA answers HTTP 410 for it (dozens of
+        # attempts on 2026-09-30/10-01, none succeeded).
+        assert "mistralai/mistral-nemotron" not in _routing_candidates().get("nvidia", [])
 
     def test_nemotron_ultra_in_nvidia_candidates(self):
         assert "nvidia/nemotron-3-ultra-550b-a55b" in _routing_candidates().get("nvidia", [])
 
-    def test_mistral_nemotron_has_catalog_entry(self):
-        catalog = _llm_catalog()
-        assert "mistralai/mistral-nemotron" in catalog, (
-            "mistralai/mistral-nemotron missing from config/llm/models.yaml; "
-            "without an entry it defaults to supports_tools:false and is "
-            "silently excluded from tool-calling requests"
-        )
+    def test_mistral_nemotron_has_no_catalog_entry(self):
+        assert "mistralai/mistral-nemotron" not in _llm_catalog()
 
     def test_nemotron_ultra_has_catalog_entry(self):
         catalog = _llm_catalog()
         assert "nvidia/nemotron-3-ultra-550b-a55b" in catalog
-
-    def test_mistral_nemotron_provider_is_nvidia(self):
-        entry = _llm_catalog()["mistralai/mistral-nemotron"]
-        assert entry.get("provider") == "nvidia"
 
     def test_nemotron_ultra_provider_is_nvidia(self):
         entry = _llm_catalog()["nvidia/nemotron-3-ultra-550b-a55b"]
