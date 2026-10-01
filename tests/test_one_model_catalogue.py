@@ -247,19 +247,29 @@ class TestOneIdCanBelongToSeveralProviders:
 
         return ModelRegistry(reload_config())
 
-    def test_gpt_oss_is_declared_once_for_both_providers(self) -> None:
-        model = self._registry().get("openai/gpt-oss-120b")
+    def test_gpt_oss_20b_is_declared_once_for_both_providers(self) -> None:
+        model = self._registry().get("openai/gpt-oss-20b")
         assert model is not None
         assert model.provider == "nvidia"                  # primary
         assert "groq" in model.extra_providers             # and served by groq
+
+    def test_gpt_oss_120b_is_groq_only_since_nvidia_retired_it(self) -> None:
+        # 2026-10-01: NVIDIA answers HTTP 410 for it (every attempt, none
+        # succeeded). Groq still serves it, so the id stays — for Groq alone.
+        model = self._registry().get("openai/gpt-oss-120b")
+        assert model is not None
+        assert model.provider == "groq"
+        assert not model.extra_providers
+        nvidia_ids = {m.id for m in self._registry().for_provider("nvidia")}
+        assert "openai/gpt-oss-120b" not in nvidia_ids
 
     def test_for_provider_binds_the_shared_model_to_each(self) -> None:
         reg = self._registry()
         for provider in ("nvidia", "groq"):
             ids = {m.id: m for m in reg.for_provider(provider)}
-            assert "openai/gpt-oss-120b" in ids, f"{provider} missing gpt-oss"
+            assert "openai/gpt-oss-20b" in ids, f"{provider} missing gpt-oss-20b"
             # returned copy is bound to the asked-for provider, so it routes right
-            assert ids["openai/gpt-oss-120b"].provider == provider
+            assert ids["openai/gpt-oss-20b"].provider == provider
 
     def test_groq_offers_a_live_tool_capable_candidate(self) -> None:
         """Groq's rotation must contain a real, tool-capable model — the three

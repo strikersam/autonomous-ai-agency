@@ -160,9 +160,11 @@ class TestNvidiaNimFreeTierCostEntries:
     ]
 
     def test_in_llm_catalog(self):
+        # 2026-10-01: mistral-nemotron left the catalogue (NVIDIA answers 410);
+        # only the ultra model is still declared. Both keep their cost rows.
         catalog = _llm_catalog()
-        for m in self.MODELS:
-            assert m in catalog, f"{m} missing from config/llm/models.yaml"
+        assert "nvidia/nemotron-3-ultra-550b-a55b" in catalog
+        assert "mistralai/mistral-nemotron" not in catalog
 
     def test_in_cost_tracker(self):
         src = _cost_tracker_src()

@@ -359,8 +359,8 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         # 200 with a real tool_call at 23:25 and again on 2026-08-29 07:37.
         # Kept behind the default, which has answered on every probe.
         "nvidia/nemotron-3-ultra-550b-a55b",
-        "mistralai/mistral-nemotron",
-        "openai/gpt-oss-120b",
+        # mistralai/mistral-nemotron and openai/gpt-oss-120b removed 2026-10-01:
+        # NVIDIA answers HTTP 410 for both (gpt-oss-120b is still served by Groq).
         "openai/gpt-oss-20b",
         # deepseek-ai/deepseek-v4.1-flash removed 2026-09-27: never probed, and
         # every production attempt timed out. Mirrors config/models.yaml.

@@ -120,28 +120,11 @@ class TestKimiK2PricingCorrection:
             "moonshotai/kimi-k2-instruct not found in cost_tracker.py"
         )
 
-    def test_kimi_k2_catalog_input_cost_updated(self) -> None:
-        catalog = _llm_catalog()
-        entry = catalog.get("moonshotai/kimi-k2-instruct", {})
-        inp = entry.get("input_cost_per_1m")
-        assert inp == 1.0, (
-            f"moonshotai/kimi-k2-instruct input_cost_per_1m should be 1.0, got {inp}"
-        )
-
-    def test_kimi_k2_catalog_output_cost_updated(self) -> None:
-        catalog = _llm_catalog()
-        entry = catalog.get("moonshotai/kimi-k2-instruct", {})
-        out = entry.get("output_cost_per_1m")
-        assert out == 3.0, (
-            f"moonshotai/kimi-k2-instruct output_cost_per_1m should be 3.0, got {out}"
-        )
-
-    def test_kimi_k2_capabilities_unchanged(self) -> None:
-        """Price correction must not alter capability flags."""
-        catalog = _llm_catalog()
-        entry = catalog.get("moonshotai/kimi-k2-instruct", {})
-        assert entry.get("supports_tools") is True, "Kimi K2 supports_tools must still be true"
-        assert entry.get("context_window") == 1000000, "Kimi K2 context_window must still be 1M"
+    def test_kimi_k2_is_retired_from_the_llm_catalog(self) -> None:
+        # 2026-10-01: Groq answers HTTP 404 for it on every attempt, so the
+        # routing catalogue no longer declares it. The cost_tracker price above
+        # stays so historical cost lookups still resolve.
+        assert "moonshotai/kimi-k2-instruct" not in _llm_catalog()
 
     def test_kimi_k2_not_in_groq_candidates(self) -> None:
         """Kimi K2 is known-dead on Groq self-serve (HTTP 404); must not be a candidate.
