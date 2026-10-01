@@ -1,6 +1,22 @@
 # Next Action
 
-**Updated:** 2026-09-29 (row 85)
+**Updated:** 2026-10-01
+
+## AI gateway hardening — PUSHED, no PR yet (branch `claude/ai-gateway-hardening`)
+
+New `packages/gateway/` (all toggles default off except rule-41 security
+headers): request-id sanitising + upstream propagation, request size limit,
+per-consumer token quotas, prompt policy, outbound PII sanitiser, usage metrics
+at `/gateway/metrics`, upstream retry with budget, per-consumer proxy cache.
+Full suite on SQLite: 7991 passed. Plus two test-only fixes: telegram webhook
+sleep patch scoped to the bot module; leaked aiosqlite workers stopped at
+session end (they hung the pre-push hook).
+
+**Next:** open a PR if the operator asks; then decide on the flagged items —
+proxy `/v1` bypasses `packages/ai/router.py` (rule 2), `CORS_ORIGINS` falls
+back to `*` (rule 41), IP allow/deny and per-key model ACLs deferred (rule 15).
+
+---
 
 ## Daily automation 2026-09-29 — IN_PROGRESS (row 85, PR #1616)
 
