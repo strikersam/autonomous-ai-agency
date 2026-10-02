@@ -30,6 +30,8 @@ BOT_BLOCK_MARKERS = (
     "captcha", "are you a human", "bot detection", "cf-chl", "just a moment",
     "unusual traffic", "request blocked", "pardon our interruption",
 )
+# Network-level failures that mean "this client is being stalled", not "bad URL".
+_ESCALATABLE_ERRORS = (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError)
 # Below this many bytes a 200 "HTML" response is almost certainly a stub/challenge.
 _MIN_REAL_HTML_BYTES = 1500
 
@@ -260,9 +262,27 @@ class ResilientFetcher:
     def __init__(self, primary: PageFetcher, browser: Optional[PageFetcher]) -> None:
         self._primary = primary
         self._browser = browser
+        # Set once the primary backend errors out (timeout / reset). Akamai
+        # tarpits non-browser TLS clients instead of answering 403, so every
+        # later httpx request would burn the full timeout before escalating.
+        self._primary_unreachable = False
 
     async def get(self, url: str) -> FetchResult:
-        result = await self._primary.get(url)
+        if self._browser is not None and self._primary_unreachable:
+            return await self._browser_get(url)
+        try:
+            result = await self._primary.get(url)
+        except _ESCALATABLE_ERRORS as exc:
+            # Only network-level failures escalate. The SSRF hook raises a bare
+            # ``httpx.RequestError``, which must never be retried in a browser.
+            if self._browser is None:
+                raise
+            log.info(
+                "SEO fetch: primary failed on %s (%s) - escalating to browser for the rest of the crawl",
+                url, type(exc).__name__,
+            )
+            self._primary_unreachable = True
+            return await self._browser_get(url)
         if self._browser is not None and looks_blocked(result):
             log.info(
                 "SEO fetch: bot-block on %s (status %s) - escalating to browser",
@@ -277,6 +297,12 @@ class ResilientFetcher:
                 return escalated
             except Exception as exc:  # noqa: BLE001 - fall back to primary result
                 log.warning("SEO fetch: browser fallback failed for %s: %s", url, exc)
+        return result
+
+    async def _browser_get(self, url: str) -> FetchResult:
+        assert self._browser is not None
+        result = await self._browser.get(url)
+        result.via = "browser-fallback"
         return result
 
     async def get_text(self, url: str) -> Tuple[str, int]:
