@@ -25,7 +25,7 @@ only place that writes to the filesystem.
 
 Per-role models come from `AGENT_PLANNER_MODEL`, `AGENT_EXECUTOR_MODEL`,
 `AGENT_VERIFIER_MODEL`, and `AGENT_JUDGE_MODEL`, all defaulting to
-`nvidia/llama-3.3-nemotron-super-49b-v1`. Override in `.env` to test without large
+`nvidia/nemotron-3-super-120b-a12b` (the judge falls back to the verifier's model). Override in `.env` to test without large
 models.
 
 ---

@@ -826,3 +826,10 @@ textarea:focus-visible {
   .fx-aurora::before, .fx-aurora::after, .fx-halo::before { animation: none !important; }
   .card-3d { transform: none !important; }
 }
+
+/* Provider console: on a phone the four metric columns squeezed the provider
+   name to a few characters. Hide them; the state pill and the expanded row
+   still carry the same information. */
+@media (max-width: 640px) {
+  .pc-metric { display: none !important; }
+}

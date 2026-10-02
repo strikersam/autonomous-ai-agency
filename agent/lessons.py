@@ -43,6 +43,8 @@ _HALF_LIFE_DAYS = 14.0
 # Rows considered when ranking. Bounded so recall stays O(1) on a store that
 # has been collecting lessons for months.
 _RANK_WINDOW = 500
+# Strongest lessons searched for ones relevant to the current task.
+_RELEVANCE_POOL = 25
 
 
 class LessonStore:
@@ -254,10 +256,35 @@ def record_run_success(goal: str, step_results: list[dict[str, Any]]) -> None:
         log.debug("lesson resolution skipped: %s", exc)
 
 
-def recent_lessons_block(limit: int = 5) -> str:
-    """Formatted prompt block of recent lessons, or '' when none exist."""
+def _prefer_relevant(lessons: list[dict[str, Any]], query: str, limit: int) -> list[dict[str, Any]]:
+    """Lessons relevant to *query* first, then the strongest remaining ones.
+
+    Without a query the planner saw the top-N by evidence alone, so a lesson
+    about the very task at hand lost its slot to louder, unrelated failures.
+    The count never grows, and with no match the evidence order is unchanged.
+    """
+    from agent.rag_context import Document, hybrid_rank
+
+    docs = [Document(id=str(i), title="", content=e.get("lesson", ""))
+            for i, e in enumerate(lessons)]
+    relevant = [i for i, _ in hybrid_rank(query, docs, limit)]
+    chosen = set(relevant)
+    rest = [i for i in range(len(lessons)) if i not in chosen]
+    return [lessons[i] for i in (relevant + rest)[:limit]]
+
+
+def recent_lessons_block(limit: int = 5, *, query: str = "") -> str:
+    """Formatted prompt block of recent lessons, or '' when none exist.
+
+    With *query*, lessons matching it are chosen from a wider evidence-ranked
+    pool (``_RELEVANCE_POOL``) ahead of unrelated ones.
+    """
     try:
-        lessons = _get_store().recent(limit)
+        if query.strip():
+            pool = _get_store().recent(max(limit, _RELEVANCE_POOL))
+            lessons = _prefer_relevant(pool, query, limit)
+        else:
+            lessons = _get_store().recent(limit)
     except Exception as exc:
         log.debug("lesson recall skipped: %s", exc)
         return ""

@@ -1115,7 +1115,7 @@ class AgentRunner:
         # planner avoids known failure modes (agent/lessons.py).
         try:
             from agent.lessons import recent_lessons_block
-            _lessons = recent_lessons_block()
+            _lessons = recent_lessons_block(query=instruction)
             if _lessons and messages and messages[0].get("role") == "system":
                 messages[0]["content"] = f"{messages[0]['content']}\n\n{_lessons}"
         except Exception as exc:

@@ -170,8 +170,8 @@ def reset_cache() -> None:
 # failure this module was written to end. Do not add an id you have not probed.
 NVIDIA_CANDIDATE_MODELS: list[tuple[str, str]] = [
     ("nvidia/nemotron-3-super-120b-a12b", "Nemotron 3 Super (probed live 2026-08-28)"),
-    ("mistralai/mistral-nemotron", "Mistral Nemotron (probed live 2026-08-28)"),
-    ("openai/gpt-oss-120b", "GPT-OSS 120B (probed live 2026-08-28)"),
+    # mistralai/mistral-nemotron and openai/gpt-oss-120b were probed 200 on
+    # 2026-08-28 and answer HTTP 410 on NVIDIA as of 2026-09-30; removed 2026-10-01.
 ]
 
 NVIDIA_MODEL_IDS: list[str] = [model_id for model_id, _label in NVIDIA_CANDIDATE_MODELS]

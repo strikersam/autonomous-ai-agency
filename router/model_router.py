@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import logging
 import os
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from router.classifier import classify_task
@@ -299,7 +299,12 @@ class ModelRouter:
     Callers should treat the returned ``RoutingDecision`` as immutable.
     """
 
-    def route(
+    def route(self, **kwargs: Any) -> RoutingDecision:
+        """Select a model (see :meth:`_route` for the arguments), then apply the
+        operator deny-list (DENIED_MODEL_IDS) to the decision."""
+        return _apply_deny_list(self._route(**kwargs))
+
+    def _route(
         self,
         *,
         requested_model: str | None = None,
@@ -512,6 +517,34 @@ class ModelRouter:
         # requests like Claude Opus to unrelated models. Only short local
         # aliases should be rewritten to an installed equivalent.
         return requested_model in _LOCAL_SHORT_ALIASES
+
+
+def _apply_deny_list(decision: RoutingDecision) -> RoutingDecision:
+    """Remove denied ids from the decision; never raises (rule 21).
+
+    A denied ``resolved_model`` is replaced by the first allowed fallback. When
+    every option is denied the decision is returned unchanged, so
+    ``resolved_model`` stays non-empty; the dispatch layer
+    (``packages/ai/router.py``) still refuses to send it.
+    """
+    try:
+        from packages.ai.model_policy import drop_denied, is_model_denied
+
+        chain = drop_denied(list(decision.fallback_chain))
+        if not is_model_denied(decision.resolved_model):
+            return replace(decision, fallback_chain=chain)
+        if not chain:
+            log.warning("ModelRouter: %r and every fallback are denied", decision.resolved_model)
+            return decision
+        return replace(
+            decision,
+            resolved_model=chain[0],
+            fallback_chain=chain[1:],
+            routing_reason=f"{decision.routing_reason} (denied {decision.resolved_model} → {chain[0]})",
+        )
+    except Exception:  # noqa: BLE001 — route() must never raise
+        log.exception("ModelRouter: deny-list check failed; decision unchanged")
+        return decision
 
 
 # ── Module-level singleton ─────────────────────────────────────────────────────

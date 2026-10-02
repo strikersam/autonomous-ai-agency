@@ -17,22 +17,41 @@ proxy `/v1` bypasses `packages/ai/router.py` (rule 2), `CORS_ORIGINS` falls
 back to `*` (rule 41), IP allow/deny and per-key model ACLs deferred (rule 15).
 
 ---
+**Updated:** 2026-10-01 (row 90)
 
-## Daily automation 2026-09-29 — IN_PROGRESS (row 85, PR #1616)
+## Open-queue ritual 2026-10-01 (row 90, PR #1628)
 
-`claude-sonnet-5-5` (Sonnet 5.5) added to model registry; executor/verifier
-role_presets updated on anthropic + aerolink from `claude-sonnet-5` to
-`claude-sonnet-5-5` (20% cheaper, $1.6/$8 per MTok). 25 new tests, 641/641
-daily-automation suite passes. PR #1616 open on `claude/intelligent-gates-n8dgox`,
-watching CI; merge when green.
+PR #1628 closes #1615 (trend digest false action-required) and #1611 (all four
+backlog items: 1/2/4 verified on master, item 4 audit made accurate + doc drift
+fixed, item 3 `DENIED_MODEL_IDS` operator deny-list). After merge: confirm
+#1611/#1615 closed and master CI green. Known, not fixed: `/api/auth/refresh`
+401s on SQLite (ObjectId on UUID) — see row 80.
 
-**Next daily run (2026-09-30):**
-- Confirm PR #1616 merged.
-- Check for any new Anthropic/Google/NVIDIA model announcements.
+## Daily automation 2026-09-30 — DONE (row 89, PR TBD)
+
+Two changes to `packages/ai/cost_tracker.py` shipped:
+
+1. **`_CACHE_READ_FRACTIONS` per-model overrides** for `claude-fable-5-1` (2.5%),
+   `claude-mythos-5-1` (2.5%), `claude-opus-5-5` (5%) — the 10% flat-rate for all
+   other `claude-` models is unchanged. Code comments already documented the Fable 5.1
+   rate at 0.025x; the fractions table now matches. Source: platform.claude.com pricing.
+
+2. **GPT-6 family cost table entries** — `gpt-6-astra` ($10/$50/MTok), `gpt-6-luna`
+   ($0.1/$0.5/MTok), `gpt-6.1-sol` ($2/$10/MTok) added for cost attribution when
+   models are reached via OpenRouter/OpenAI. Not added to any provider's candidates.
+   Source: platform.openai.com/docs/models, 2026-09-30.
+
+29 new tests, 29/29 pass. Gates: `compileall` clean, changelog PARITY OK, loop
+registry drift none. Branch: `claude/intelligent-gates-r0q0r2`; PR [#1622](https://github.com/strikersam/autonomous-ai-agency/pull/1622) open against master; merge when CI is green.
+
+**Next daily run (2026-10-01):**
+- Confirm PR for row 89 merged.
+- Check Anthropic pricing page again for Haiku 5.5 release (not yet released as of
+  2026-09-30); add when confirmed.
 - Consider operator model deny-list (W40 item 3, still deferred) if rule-40 human
   approval lands.
-- Row 86 (planner timeout): still open — read new Render attempt logs to determine
-  if NVIDIA truly hangs after the 60s-cap change.
+- Row 84 (`ANTHROPIC_DEFAULT_EFFORT`) still `IN_PROGRESS` on
+  `routine/daily-2026-09-27` — verify whether it merged.
 
 ---
 
@@ -87,14 +106,44 @@ shipped in row 87 (#1612).
 
 **Updated:** 2026-09-27
 
+## NVIDIA blueprint adoption (branch claude/nvidia-agency-intelligence-cdvumr → PR to master)
+
+Shipped: planner lessons ranked by relevance (RAG blueprint hybrid retrieval);
+dependency CVEs prioritised by first-party import reachability
+(vulnerability-analysis blueprint). The two remaining candidates already exist:
+AI-Q intent/depth routing is `agent/intent.py`; the NemoClaw egress allowlist is
+`WEB_REACH_ALLOWED_DOMAINS`/`WEB_REACH_BLOCKED_DOMAINS` plus the observe-mode
+governance policy in `agent/web_reach.py`. Checked and skipped: llm-router
+(`router/classifier.py`), data-flywheel and safety-for-agentic-ai (deprecated
+Apr 2026), portfolio-optimization (GPU-only), Retail-Agentic-Commerce (off-mission).
+After merge: nothing pending from this line of work.
+
+## Planner timeout fix (branch claude/agency-improvements-ai-learnings-k96er6)
+
+The NVIDIA 410 fix (#1592) shipped but did not stop `planning: TimeoutError`.
+The real stall: `LLMRouter._dispatch` slept a Groq 429's clamped `Retry-After`
+(30s) before failing over to a *different* provider, then a slow NVIDIA reply
+overran the planner's 120s budget. Backoff now runs only before retrying the same
+provider; each attempt is bounded by the remaining retry budget. After deploy:
+confirm no `planning: TimeoutError` in Render logs after a groq 429. Still open:
+`anthropic-claude` HTTP 400 (priority -50); saved `nvidia-nim` record's
+`default_model` may still be `z-ai/glm-5.2` (harmless since #1592).
 ## Planner timeout — closed (row 86)
 
-Root cause, from the per-attempt router logs (#1599): `nvidia/deepseek-v4.1-flash`
-timed out at 60s on every call and sat first for planning; #1600 removed it. The
-two retired Gemini ids (`gemini-1.5-flash`, `gemini-2.0-flash`, HTTP 404) are
-removed on this branch. Still open, not actioned: `gemini-2.0-flash` is the default
-in `docker/agent_runtime.py` and in the frontend's `ProvidersScreen.jsx`;
-`anthropic-claude` returns HTTP 400 (priority -50).
+Planning now takes 2–7s (was 104–120s). Root causes, all found from the per-attempt
+router logs (#1599): a hung `nvidia/deepseek-v4.1-flash` (#1600), a cross-provider
+Retry-After sleep (#1594), two retired Gemini models (#1620), and — this branch —
+four more dead models (nvidia mistral-nemotron + gpt-oss-120b, groq qwen-qwq-32b +
+kimi-k2-instruct). Still open, not actioned:
+- `LLMRouter` keeps no memory of a 410/404'd model, so the next retirement wastes an
+  attempt on every request until someone prunes a list by hand. CLAUDE.md rule 4
+  already says 410 means permanent removal plus a long cooldown; `packages/ai/router.py`
+  does that, `packages/llm/router.py` does not. Candidate for its own PR.
+- Groq `gpt-oss-120b`/`-20b` intermittently answer HTTP 400 "Tool choice is none, but
+  model called a tool". Non-fatal (the router fails over, ~0.5s lost) and the model
+  quirk is not fixable on our side; left alone.
+- `gemini-2.0-flash` is still the default in `docker/agent_runtime.py` and in the
+  frontend's `ProvidersScreen.jsx`; `anthropic-claude` returns HTTP 400 (priority -50).
 
 ## Daily automation 2026-09-27 — no-op day (row 85)
 

@@ -58,6 +58,7 @@ deliberately invalidated before fallback retries — that is not a bug.
 | `ROUTER_EXTRA_MODELS` | Add models at runtime: `name:type:strength1+strength2` |
 | `ROUTER_HEALTH_CHECK_ENABLED` | `false` disables health filtering (useful in tests) |
 | `ROUTER_HEALTH_CACHE_TTL` | Health cache TTL in seconds (default 60) |
+| `DENIED_MODEL_IDS` | Operator deny-list (`packages/ai/model_policy.py`): `route()` moves a denied `resolved_model` to the next allowed fallback and drops denied ids from `fallback_chain`; if every option is denied the decision is left unchanged so `resolved_model` stays non-empty (rule 21) and dispatch refuses it |
 | `ROUTER_FAST_RESPONSE_CHARS` | Char threshold for `fast_response` classification (default 200) |
 | `AGENT_EXECUTOR_MODEL` | Final fallback when nothing else resolves |
 

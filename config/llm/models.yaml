@@ -45,9 +45,9 @@ models:
     speed_tier: fast                # ~12B active params/token
 
   openai/gpt-oss-120b:
-    # Served by both NVIDIA NIM and Groq (probed live on each account). One
-    # catalogue entry, two providers — see ModelConfig.extra_providers.
-    providers: [nvidia, groq]
+    # Served by Groq only since 2026-10-01: NVIDIA NIM answers HTTP 410 for it
+    # (see the removal note below). gpt-oss-20b is still served by both.
+    provider: groq
     display_name: GPT-OSS 120B
     supports_tools: true            # probed: returned tool_calls[get_weather]
     supports_function_calling: true
@@ -62,19 +62,11 @@ models:
     supports_streaming: true
     priority: 30
 
-  # Mistral NeMo-Tron: Mistral NeMo 12B fine-tuned by NVIDIA for instruction
-  # following. Available on NVIDIA NIM free tier. Not yet live-probed for tool
-  # calls on this account — declared to unblock routing; `supports_tools: false`
-  # is the safe default until probed. Source: build.nvidia.com, 2026-09-19.
-  mistralai/mistral-nemotron:
-    provider: nvidia
-    display_name: Mistral NeMo-Tron (NVIDIA NIM)
-    context_window: 131072
-    supports_tools: false           # not probed — conservative default
-    supports_function_calling: false
-    supports_streaming: true
-    priority: 33
-    speed_tier: fast
+  # mistralai/mistral-nemotron and nvidia's openai/gpt-oss-120b were removed on
+  # 2026-10-01: NVIDIA answers HTTP 410 for both. In production on 2026-09-30/10-01
+  # every attempt (all of them, dozens, none succeeded) 410'd, and each one used up
+  # one of the router's per-request attempts. gpt-oss-120b is still served by Groq
+  # (declared below). Re-add only after a live completion probe.
 
   # Nemotron 3 Ultra 550B: NVIDIA's largest NIM model. 550B MoE parameters.
   # Listed as intermittent — 404'd at 17:02/17:05 on 2026-08-28 but answered
@@ -96,39 +88,10 @@ models:
   # planner requests, so each agent call lost 60s before reaching a model that
   # answers. Re-add only after a live completion probe.
 
-  # Kimi K2: Moonshot AI MoE model hosted on Groq (Aug 2026). ~1M context,
-  # function calling supported. Groq self-serve tier: $1.00/$3.00 per MTok
-  # (most expensive offering on Groq's self-serve catalogue as of Sep 2026).
-  # Source: Groq pricing aggregators, 2026-09-22.
-  moonshotai/kimi-k2-instruct:
-    provider: groq
-    display_name: Kimi K2 Instruct (Groq)
-    context_window: 1000000
-    max_output_tokens: 16384
-    supports_tools: true
-    supports_function_calling: true
-    supports_json: true
-    supports_streaming: true
-    input_cost_per_1m: 1.00
-    output_cost_per_1m: 3.00
-    priority: 36
-    speed_tier: fast
-
-  # QwQ-32B: Qwen reasoning model on Groq (Aug 2026). Strong coder with
-  # chain-of-thought reasoning. Free self-serve tier on Groq.
-  # Source: Groq model catalogue, 2026-09-13.
-  qwen-qwq-32b:
-    provider: groq
-    display_name: QwQ 32B (Groq)
-    context_window: 128000
-    max_output_tokens: 32768
-    supports_tools: true
-    supports_function_calling: true
-    supports_json: true
-    supports_streaming: true
-    supports_reasoning: true
-    priority: 36
-    speed_tier: medium
+  # moonshotai/kimi-k2-instruct and qwen-qwq-32b were removed on 2026-10-01: Groq
+  # answers HTTP 404 and 400 "model unavailable" for them on every attempt. The other
+  # catalogue (brain_config.PROVIDER_CANDIDATES['groq']) already dropped both.
+  # Their cost_tracker rows stay so historical cost lookups resolve.
 
   # ── Cerebras (free, fastest) ───────────────────────────────────────────
 

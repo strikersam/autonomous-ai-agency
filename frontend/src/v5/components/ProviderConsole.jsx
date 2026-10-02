@@ -161,9 +161,9 @@ function Meter({ value, color, width = 54, title }) {
   );
 }
 
-function StatTile({ label, value, sub, tone = '#fff' }) {
+function StatTile({ label, value, sub, tone = '#fff', className }) {
   return (
-    <div style={{
+    <div className={className} style={{
       flex: '1 1 96px', minWidth: 96, padding: '9px 12px', borderRadius: 12,
       background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.07)',
     }}>
@@ -323,12 +323,21 @@ export function mergeProviders({ routed = [], stored = [], catalogue = CATALOGUE
     return a.priority - b.priority || a.id.localeCompare(b.id);
   });
 
+  // The default provider sits right under the serving one: those are the two
+  // rows an operator looks for, and it used to sink to wherever its live
+  // health ranked it.
+  const defaultIdx = list.findIndex(r => r.isDefault && r.state !== 'serving');
+  if (defaultIdx > 0) {
+    const [defaultRow] = list.splice(defaultIdx, 1);
+    list.splice(list[0]?.state === 'serving' ? 1 : 0, 0, defaultRow);
+  }
+
   return list;
 }
 
 /* ── Row ────────────────────────────────────────────────────────────────── */
 
-function ProviderRow({ row, expanded, onToggle, onDisable, onProbe, onEdit, onDelete, onTest, onSetRenderKey, busy }) {
+function ProviderRow({ row, expanded, onToggle, onDisable, onProbe, onEdit, onDelete, onTest, onSetRenderKey, onSetDefault, editor, busy }) {
   const cfg = STATE[row.state] || STATE.unconfigured;
   const isLive = row.sources.includes('routed');
   const healthyKeys = row.keys.filter(k => k.healthy).length;
@@ -407,11 +416,12 @@ function ProviderRow({ row, expanded, onToggle, onDisable, onProbe, onEdit, onDe
                   color: '#06111f', background: '#46d9a4',
                 }}>SERVING</span>
             )}
-            {row.isDefault && row.state !== 'serving' && (
-              <span style={{
-                fontSize: 9, fontFamily: 'var(--font-mono)', padding: '2px 6px',
-                borderRadius: 999, color: '#8b93a7', border: '1px solid rgba(255,255,255,0.12)',
-              }}>default</span>
+            {row.isDefault && (
+              <span title="Chat and the CEO start on this provider."
+                style={{
+                  fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700, padding: '2px 7px',
+                  borderRadius: 999, color: '#7c9dff', border: '1px solid rgba(124,157,255,0.35)',
+                }}>DEFAULT</span>
             )}
           </span>
           <span style={{
@@ -426,7 +436,7 @@ function ProviderRow({ row, expanded, onToggle, onDisable, onProbe, onEdit, onDe
         {/* Live columns. Blank rather than zero when there is no data — a
             fabricated 0% success rate reads far worse than an honest dash. */}
         <span style={{ flex: '1 1 92px', minWidth: 84, display: 'none' }} className="pc-col" />
-        <span style={{ flex: '0 0 88px', display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <span className="pc-metric" style={{ flex: '0 0 88px', display: 'flex', flexDirection: 'column', gap: 3 }}>
           {row.successRate !== null ? (
             <>
               <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: cfg.color }}>
@@ -440,17 +450,17 @@ function ProviderRow({ row, expanded, onToggle, onDisable, onProbe, onEdit, onDe
           )}
         </span>
 
-        <span style={{ flex: '0 0 62px', fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+        <span className="pc-metric" style={{ flex: '0 0 62px', fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
           {row.p95 ? `${Math.round(row.p95)}ms` : '—'}
         </span>
 
-        <span style={{ flex: '0 0 56px', fontSize: 11, fontFamily: 'var(--font-mono)',
+        <span className="pc-metric" style={{ flex: '0 0 56px', fontSize: 11, fontFamily: 'var(--font-mono)',
                        color: row.rateLimits > 0 ? '#ffbd66' : 'var(--text-tertiary)' }}
               title="HTTP 429 responses seen from this provider">
           {isLive ? `${row.rateLimits} × 429` : '—'}
         </span>
 
-        <span style={{ flex: '0 0 58px', fontSize: 11, fontFamily: 'var(--font-mono)',
+        <span className="pc-metric" style={{ flex: '0 0 58px', fontSize: 11, fontFamily: 'var(--font-mono)',
                        color: row.keyCount ? (healthyKeys === row.keys.length || !row.keys.length ? '#46d9a4' : '#ffbd66') : 'var(--text-tertiary)' }}
               title="Healthy keys of total configured">
           {row.keyCount ? `${row.keys.length ? healthyKeys : row.keyCount}/${row.keyCount} 🔑` : '—'}
@@ -536,6 +546,9 @@ function ProviderRow({ row, expanded, onToggle, onDisable, onProbe, onEdit, onDe
             )}
             {row.stored && (
               <>
+                {!row.isDefault && onSetDefault && (
+                  <RowButton onClick={() => onSetDefault(row.stored.provider_id)} disabled={busy} tone="#7c9dff">Make default</RowButton>
+                )}
                 <RowButton onClick={runTest} disabled={busy}>Test</RowButton>
                 <RowButton onClick={() => onEdit(row.stored)} disabled={busy}>Edit</RowButton>
                 <RowButton onClick={() => onDelete(row.stored)} disabled={busy} tone="#ff6b7d">Delete</RowButton>
@@ -550,6 +563,11 @@ function ProviderRow({ row, expanded, onToggle, onDisable, onProbe, onEdit, onDe
               <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{testMsg}</span>
             )}
           </div>
+
+          {/* The edit form opens here, inside the row that was tapped. It used
+              to render at the bottom of the page, so on a phone Edit looked
+              like it did nothing. */}
+          {editor}
 
           {/* Inline key/base-URL editor → runtime (Render env). */}
           {keyOpen && row.keyEnv && (
@@ -647,10 +665,16 @@ export default function ProviderConsole({
   onDeleteProvider,
   onTestProvider,
   onSetRenderKey,
+  onSetDefault,
+  editingId,
+  renderEditor,
   policy,
   onTogglePaid,
   policyBusy,
   refreshStored,
+  // 'providers' = serving bar + list, 'routing' = paid/strategy controls,
+  // 'all' = both (the historical single-page layout).
+  section = 'all',
 }) {
   const [status, setStatus]   = React.useState(null);
   const [routed, setRouted]   = React.useState([]);
@@ -680,8 +704,17 @@ export default function ProviderConsole({
 
   React.useEffect(() => {
     load();
-    const timer = setInterval(load, 15000);   // live enough to watch a failover
-    return () => clearInterval(timer);
+    // Live enough to watch a failover, but only while someone is looking:
+    // a backgrounded tab no longer polls two endpoints every 15s.
+    const timer = setInterval(() => {
+      if (typeof document === 'undefined' || !document.hidden) load();
+    }, 15000);
+    const onVisible = () => { if (!document.hidden) load(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [load]);
 
   const rows = React.useMemo(
@@ -721,7 +754,7 @@ export default function ProviderConsole({
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
 
       {/* ── Serving bar: what the router would pick right now, and why. ──── */}
-      <div style={{
+      {section !== 'routing' && <div style={{
         borderRadius: 18, padding: '15px 17px',
         border: `1px solid ${serving ? 'rgba(70,217,164,0.26)' : 'rgba(255,255,255,0.09)'}`,
         background: serving
@@ -771,18 +804,18 @@ export default function ProviderConsole({
             <StatTile label="In rotation" value={liveCount} sub={`${rows.length} known`} />
             <StatTile label="429s seen" value={totalRateLimits}
                       tone={totalRateLimits > 0 ? '#ffbd66' : '#fff'} sub="rolling window" />
-            <StatTile label="Queue" value={queue.depth ?? 0}
+            <StatTile className="pc-metric" label="Queue" value={queue.depth ?? 0}
                       sub={queue.max_depth ? `max ${queue.max_depth}` : ''} />
-            <StatTile label="Cache" value={`${Math.round((cache.overall_hit_rate || 0) * 100)}%`} sub="hit rate" />
-            <StatTile label="Spend" value={`$${(budget.spend_today_usd ?? 0).toFixed(2)}`}
+            <StatTile className="pc-metric" label="Cache" value={`${Math.round((cache.overall_hit_rate || 0) * 100)}%`} sub="hit rate" />
+            <StatTile className="pc-metric" label="Spend" value={`$${(budget.spend_today_usd ?? 0).toFixed(2)}`}
                       sub={budget.daily_usd ? `of $${budget.daily_usd}/day` : 'today'} />
-            <StatTile label="Tokens" value={compact(totals.total_tokens || 0)} sub="this process" />
+            <StatTile className="pc-metric" label="Tokens" value={compact(totals.total_tokens || 0)} sub="this process" />
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* ── Control rail: every switch that used to be its own card. ─────── */}
-      <div style={{
+      {section !== 'providers' && <div style={{
         borderRadius: 16, padding: '14px 17px',
         border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.025)',
         display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-start',
@@ -836,7 +869,7 @@ export default function ProviderConsole({
             Reload config
           </RowButton>
         </div>
-      </div>
+      </div>}
 
       {(notice || error) && (
         <div style={{
@@ -847,7 +880,7 @@ export default function ProviderConsole({
       )}
 
       {/* ── One table. Filters instead of separate sections. ─────────────── */}
-      <div>
+      {section !== 'routing' && <div>
         <div style={{
           display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 10,
         }}>
@@ -881,10 +914,10 @@ export default function ProviderConsole({
           textTransform: 'uppercase', letterSpacing: '0.11em',
         }}>
           <span style={{ flex: '2 1 170px', minWidth: 140 }}>Provider</span>
-          <span style={{ flex: '0 0 88px' }}>Success</span>
-          <span style={{ flex: '0 0 62px' }}>p95</span>
-          <span style={{ flex: '0 0 56px' }}>Limits</span>
-          <span style={{ flex: '0 0 58px' }}>Keys</span>
+          <span className="pc-metric" style={{ flex: '0 0 88px' }}>Success</span>
+          <span className="pc-metric" style={{ flex: '0 0 62px' }}>p95</span>
+          <span className="pc-metric" style={{ flex: '0 0 56px' }}>Limits</span>
+          <span className="pc-metric" style={{ flex: '0 0 58px' }}>Keys</span>
           <span style={{ flex: '0 0 96px' }}>State</span>
         </div>
 
@@ -899,7 +932,7 @@ export default function ProviderConsole({
               key={row.id}
               row={row}
               busy={busy}
-              expanded={openId === row.id}
+              expanded={openId === row.id || (!!editingId && row.stored?.provider_id === editingId)}
               onToggle={() => setOpenId(openId === row.id ? null : row.id)}
               onProbe={(id) => act(() => api.probeLlmProviders(id), `Probed ${id}.`)}
               onDisable={(id, enabled) => act(
@@ -910,10 +943,13 @@ export default function ProviderConsole({
               onDelete={onDeleteProvider}
               onTest={onTestProvider}
               onSetRenderKey={onSetRenderKey}
+              onSetDefault={onSetDefault}
+              editor={row.stored && row.stored.provider_id === editingId && renderEditor
+                ? renderEditor(row.stored) : null}
             />
           ))}
         </div>
-      </div>
+      </div>}
     </div>
   );
 }
