@@ -87,7 +87,7 @@ const CATALOGUE = [
   { id: 'vllm',       name: 'vLLM',          tier: 'local',   keyEnv: 'VLLM_API_KEY',       note: 'Self-hosted, batches well.' },
   { id: 'localai',    name: 'LocalAI',       tier: 'local',   keyEnv: null,                 note: 'Set LOCALAI_BASE_URL.' },
   { id: 'litellm',    name: 'LiteLLM proxy', tier: 'local',   keyEnv: 'LITELLM_API_KEY',    note: 'Front an existing LiteLLM deployment.' },
-  { id: 'openrouter', name: 'OpenRouter',    tier: 'cheap',   keyEnv: 'OPENROUTER_API_KEY', note: 'Gateway to hundreds of models.' },
+  { id: 'openrouter', name: 'OpenRouter',    tier: 'free',    keyEnv: 'OPENROUTER_API_KEY', note: 'Free :free models — emergency layer.' },
   { id: 'together',   name: 'Together AI',   tier: 'cheap',   keyEnv: 'TOGETHER_API_KEY',   note: 'Wide open-model catalogue.' },
   { id: 'fireworks',  name: 'Fireworks',     tier: 'cheap',   keyEnv: 'FIREWORKS_API_KEY',  note: 'Fast open-model hosting.' },
   { id: 'deepinfra',  name: 'DeepInfra',     tier: 'cheap',   keyEnv: 'DEEPINFRA_API_KEY',  note: 'Low-cost open models.' },

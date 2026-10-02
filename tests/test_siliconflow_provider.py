@@ -46,3 +46,24 @@ def test_legacy_tiering_and_render_key_mapping():
         assert provider_access_tier(record) == "free_cloud"
     assert provider_access_tier({"provider_id": "siliconflow", "base_url": "x"}) == "free_cloud"
     assert provider_env_names("siliconflow") == ("SILICONFLOW_API_KEY", "SILICONFLOW_BASE_URL")
+
+
+def test_openrouter_free_models_route_without_paid(monkeypatch):
+    """OpenRouter was tier 'cheap', so the router skipped it whenever paid was off."""
+    from packages.llm import config as llm_config
+    from packages.llm import registry as llm_registry
+
+    monkeypatch.delenv("LLM_CONFIG_DIR", raising=False)
+    llm_config.reset()
+    llm_registry.reset()
+    try:
+        assert not llm_config.get_config().providers["openrouter"].is_paid
+        free = {m.id for m in llm_registry.get_registry().candidates(provider_id="openrouter", allow_paid=False)}
+        assert "nvidia/nemotron-3-super-120b-a12b:free" in free
+        assert "openrouter/free" in free
+        tools = {m.id for m in llm_registry.get_registry().candidates(
+            provider_id="openrouter", allow_paid=False, require_tools=True)}
+        assert tools == {"nvidia/nemotron-3-super-120b-a12b:free"}
+    finally:
+        llm_config.reset()
+        llm_registry.reset()

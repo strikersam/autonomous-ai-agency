@@ -432,6 +432,66 @@ models:
     input_cost_per_1m: 0.02
     priority: 60
 
+  # ── OpenRouter ":free" models ────────────────────────────────────────────
+  #
+  # Ids from OpenRouter's free list as of 2026-09-29 (the set rotates; a retired
+  # id answers 404 and the router parks it for an hour). Nemotron 3 Super here
+  # is the brain's own model on separate infrastructure, so an NVIDIA NIM
+  # outage or rate limit still has a same-model fallback. `openrouter/free`
+  # lets OpenRouter pick any free model that is up: the last resort.
+  nvidia/nemotron-3-super-120b-a12b:free:
+    provider: openrouter
+    display_name: Nemotron 3 Super 120B (OpenRouter, free)
+    context_window: 262144
+    max_output_tokens: 8192
+    supports_tools: true            # same model as the NIM entry, which is probed
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
+    priority: 65
+    speed_tier: medium
+
+  google/gemma-4-31b-it:free:
+    provider: openrouter
+    display_name: Gemma 4 31B (OpenRouter, free)
+    context_window: 262144
+    max_output_tokens: 8192
+    supports_tools: false           # not yet probed
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
+    priority: 66
+    speed_tier: medium
+
+  qwen/qwen3.8-27b:free:
+    provider: openrouter
+    display_name: Qwen 3.8 27B (OpenRouter, free)
+    context_window: 131072
+    max_output_tokens: 8192
+    supports_tools: false           # not yet probed
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
+    priority: 67
+    speed_tier: medium
+
+  openrouter/free:
+    provider: openrouter
+    display_name: Any free model (OpenRouter auto)
+    context_window: 32768
+    max_output_tokens: 4096
+    supports_tools: false
+    supports_json: false
+    supports_streaming: true
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
+    priority: 75
+    speed_tier: medium
+
   # ── SiliconFlow (api.siliconflow.com / .cn) ──────────────────────────────
   #
   # The two chat models SiliconFlow bills at zero on its free tier (rate-limited).

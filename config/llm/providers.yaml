@@ -156,16 +156,21 @@ providers:
     default_model: ${GEMINI_DEFAULT_MODEL:-gemini-2.5-flash}
     notes: 1M context — the escalation target when a conversation overflows.
 
-  # ── Cheap cloud (tier: cheap) ──────────────────────────────────────────
-  # Only reached when routing.allow_paid is true.
-
+  # OpenRouter: free tier for its ":free" models only. As "cheap" the router
+  # skipped it whenever allow_paid was off, so a configured key was never
+  # used. Every model declared for it in config/llm/models.yaml costs 0; a
+  # paid OpenRouter model added there must carry its price, and the
+  # allow_paid=False filter then keeps it out. Free limits: ~20 RPM, 50
+  # requests/day (1,000/day after a one-off $10 top-up), so it is an
+  # emergency layer behind the larger free providers.
   openrouter:
     kind: openai
     base_url: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
     key_env: [OPENROUTER_API_KEY]
-    tier: cheap
-    priority: 40
-    max_concurrency: 8
+    tier: free
+    priority: 56
+    max_concurrency: 4
+    timeout_sec: 60
     extra_headers:
       HTTP-Referer: https://autonomous-ai-agency.strikersam.workers.dev
       X-Title: Autonomous AI Agency
