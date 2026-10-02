@@ -8,7 +8,7 @@ step only logged, so a red master still went on to generate patches.
 """
 from __future__ import annotations
 
-import subprocess
+import subprocess  # nosec B404 - runs this repo's own workflow script, no external input
 from pathlib import Path
 
 import pytest
@@ -28,7 +28,7 @@ def _policy_skip(env: dict[str, str]) -> str:
     wf = yaml.safe_load(WORKFLOW.read_text())
     script = next(s for s in wf["jobs"]["autofix"]["steps"] if s.get("id") == "policy")["run"]
     out = Path("/dev/stdout")
-    result = subprocess.run(
+    result = subprocess.run(  # nosec B603 B607 - fixed argv; script is this repo's workflow step
         ["bash", "-c", script],
         env={"PATH": "/usr/bin:/bin", "GITHUB_OUTPUT": str(out), **env},
         capture_output=True,
