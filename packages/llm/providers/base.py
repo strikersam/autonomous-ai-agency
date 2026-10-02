@@ -266,7 +266,21 @@ class OpenAICompatible(LLMProvider):
         # Nemotron thinking switch has to be applied here too — applying it only
         # in packages/ai left production planning at 105-120s per call.
         from packages.ai.router import with_nemotron_thinking_off
-        return with_nemotron_thinking_off(payload)
+        return with_nemotron_thinking_off(self._qwen3_thinking_off(payload, model))
+
+    def _qwen3_thinking_off(self, payload: dict[str, Any], model: str) -> dict[str, Any]:
+        """Turn off Qwen3's default thinking on SiliconFlow.
+
+        Qwen3-8B there thinks by default; in production its first attempts ran
+        into the 60s cap. SiliconFlow takes a top-level ``enable_thinking``.
+        Scoped to that provider: Groq also serves Qwen models and rejects
+        parameters it does not know.
+        """
+        provider_id = getattr(getattr(self, "config", None), "id", "")
+        if (provider_id != "siliconflow" or "enable_thinking" in payload
+                or not model.lower().startswith("qwen/qwen3")):
+            return payload
+        return {**payload, "enable_thinking": False}
 
     async def chat(
         self, request: LLMRequest, *, model: str, api_key: str, client: httpx.AsyncClient
