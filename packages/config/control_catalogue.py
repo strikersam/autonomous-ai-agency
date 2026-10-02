@@ -107,6 +107,13 @@ GROUPS: tuple[ControlGroup, ...] = (
         "Observability & Proxy",
         "Tracing plus the response-shaping switches on the OpenAI-compatible proxy.",
     ),
+    ControlGroup(
+        "gateway",
+        "AI Gateway",
+        "Hardening for the OpenAI-compatible proxy: request limits, token "
+        "quotas, prompt policy and sanitising, usage metrics, upstream retries "
+        "and the response cache. Every control is off (or 0) unless noted.",
+    ),
 )
 
 
@@ -1248,6 +1255,98 @@ _OBSERVABILITY: tuple[ControlSpec, ...] = (
     ),
 )
 
+_GATEWAY: tuple[ControlSpec, ...] = (
+    _number(
+        "GATEWAY_MAX_REQUEST_BYTES",
+        "Max request body (bytes)",
+        "gateway",
+        "0",
+        "Reject request bodies larger than this with 413. 0 disables the limit.",
+        live=True,
+    ),
+    _toggle(
+        "GATEWAY_SECURITY_HEADERS_ENABLED",
+        "Security response headers",
+        "gateway",
+        "true",
+        "Add nosniff, X-Frame-Options: DENY and Cache-Control: no-store to /v1, "
+        "/api and /agent responses that do not already set them.",
+        live=True,
+    ),
+    _number(
+        "GATEWAY_TOKENS_PER_MINUTE",
+        "Token quota per minute",
+        "gateway",
+        "0",
+        "Per-consumer tokens per minute before requests are refused with 429. 0 disables.",
+        live=True,
+    ),
+    _number(
+        "GATEWAY_TOKENS_PER_DAY",
+        "Token quota per day",
+        "gateway",
+        "0",
+        "Per-consumer tokens per UTC day before requests are refused with 429. 0 disables.",
+        live=True,
+    ),
+    _toggle(
+        "GATEWAY_PROMPT_POLICY_ENABLED",
+        "Prompt policy",
+        "gateway",
+        "false",
+        "Enforce the deny/allow patterns and system decorators in the file named "
+        "by GATEWAY_PROMPT_POLICY_FILE (an env-only path).",
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    ControlSpec(
+        key="GATEWAY_SANITIZER_MODE",
+        label="Outbound prompt sanitiser",
+        group="gateway",
+        kind=KIND_CHOICE,
+        default="off",
+        help="Redact sensitive values from prompts before they reach an upstream provider.",
+        options=(
+            ControlOption("off", "Off", "Prompts are forwarded untouched."),
+            ControlOption("pii", "PII", "Redact social-security and payment-card numbers."),
+            ControlOption(
+                "secrets_and_pii",
+                "Secrets and PII",
+                "Also redact API tokens, bearer headers, connection-URI credentials and key=value secrets.",
+            ),
+        ),
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    _toggle(
+        "GATEWAY_USAGE_METRICS_ENABLED",
+        "Gateway usage metrics",
+        "gateway",
+        "false",
+        "Record per-request tokens, latency, cost and outcome and serve them at GET /gateway/metrics.",
+        live=True,
+    ),
+    _number(
+        "GATEWAY_UPSTREAM_RETRIES",
+        "Upstream retries",
+        "gateway",
+        "0",
+        "Extra attempts for a non-streaming upstream call after a 429/502/503/504 "
+        "or connect error, before falling back to another model. 0 disables.",
+        live=True,
+        maximum=10,
+    ),
+    _toggle(
+        "GATEWAY_PROXY_CACHE_ENABLED",
+        "Proxy response cache",
+        "gateway",
+        "false",
+        "Serve repeated identical non-streaming, temperature-0 chat requests from "
+        "memory, per consumer (X-Cache: HIT/MISS).",
+        live=True,
+    ),
+)
+
 
 CONTROLS: tuple[ControlSpec, ...] = (
     _AGENT_RUNTIME
@@ -1258,4 +1357,5 @@ CONTROLS: tuple[ControlSpec, ...] = (
     + _PLATFORM_OPS
     + _INTEGRATIONS
     + _OBSERVABILITY
+    + _GATEWAY
 )

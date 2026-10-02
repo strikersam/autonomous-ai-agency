@@ -808,21 +808,9 @@ if ADMIN_AUTH.enabled:
 register_admin_gui(app, KEY_STORE, ADMIN_AUTH, SERVICE_MANAGER)
 
 
-import uuid as _uuid
+from packages.gateway.hygiene import GatewayHygieneMiddleware
 
-
-@app.middleware("http")
-async def _request_id_middleware(request: Request, call_next):
-    """Attach X-Request-Id to every response for distributed tracing.
-
-    Accepts an incoming ``X-Request-Id`` header and echoes it back; otherwise
-    generates a fresh UUID.  Clients can correlate proxy logs with Langfuse
-    observations by pinning the same ID across retry attempts.
-    """
-    req_id = request.headers.get("x-request-id") or _uuid.uuid4().hex
-    response = await call_next(request)
-    response.headers["X-Request-Id"] = req_id
-    return response
+app.add_middleware(GatewayHygieneMiddleware)
 
 
 class ProviderRouter:
@@ -3897,6 +3885,10 @@ async def diagnostics_kpi(auth: AuthContext = Depends(verify_api_key)):
 # --- Features API router -----------------------------------------------------
 
 app.include_router(features_router)
+
+from packages.gateway.api import build_router as _build_gateway_router
+
+app.include_router(_build_gateway_router(verify_api_key))
 
 
 

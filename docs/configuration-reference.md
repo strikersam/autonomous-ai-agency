@@ -52,6 +52,25 @@ Complete reference for every environment variable in `.env`. Copy `.env.example`
 
 ---
 
+## AI Gateway Hardening
+
+Hardening for the OpenAI-compatible proxy (`packages/gateway/`). Every switch except the security headers defaults to off (or `0`), which leaves the proxy exactly as it was. All of them except `GATEWAY_PROMPT_POLICY_FILE` are also **Settings → Platform controls → AI Gateway** and take effect without a restart. They are read only in `packages/gateway/config.py`.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GATEWAY_MAX_REQUEST_BYTES` | `0` (off) | Reject request bodies larger than this many bytes with `413`. Checks `Content-Length` and counts streamed bytes. Applies to every HTTP route on the proxy. |
+| `GATEWAY_SECURITY_HEADERS_ENABLED` | `true` | Add `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Cache-Control: no-store` to responses under `/v1/`, `/api/` and `/agent/` that do not already set them (streaming responses keep their `no-cache`). |
+| `GATEWAY_TOKENS_PER_MINUTE` | `0` (off) | Per-consumer token quota per UTC minute. A consumer is the key id, or a sha256 digest for legacy keys; the raw key is never stored. Over quota returns `429` with `Retry-After`. Non-streaming JSON responses carry `X-RateLimit-Limit-Tokens` / `X-RateLimit-Remaining-Tokens`. Applies to `/v1/chat/completions` and `/v1/messages`. Tokens are counted after the response, so one request can overshoot its window. |
+| `GATEWAY_TOKENS_PER_DAY` | `0` (off) | As above, per UTC day. |
+| `GATEWAY_PROMPT_POLICY_ENABLED` | `false` | Enforce the policy file named by `GATEWAY_PROMPT_POLICY_FILE` on `/v1/chat/completions`. |
+| `GATEWAY_PROMPT_POLICY_FILE` | (none) | Path to the policy JSON (env-only, deploy wiring): `{"deny": [regex], "allow": [regex], "prepend_system": "", "append_system": ""}`. A match on `deny` (or no match on a non-empty `allow`) returns `400 Request blocked by policy`. Patterns over 512 characters or that do not compile are dropped. The file is reloaded when its mtime changes; if it becomes unreadable the last good policy stays in force. Prompt text is never logged. |
+| `GATEWAY_SANITIZER_MODE` | `off` | Redact prompts before they reach an upstream: `off`, `pii` (SSNs, Luhn-valid card numbers) or `secrets_and_pii` (also API tokens, bearer headers, connection-URI credentials, `key=value` secrets). Uses `packages/security/redact.py`. |
+| `GATEWAY_USAGE_METRICS_ENABLED` | `false` | Record provider, model, tokens, latency, cost and outcome per proxied chat request and serve them at `GET /gateway/metrics` (Prometheus text). The consumer label is capped at 50 distinct values, then `other`. |
+| `GATEWAY_UPSTREAM_RETRIES` | `0` (off) | Extra attempts (max 10) for a non-streaming upstream call after `429`/`502`/`503`/`504` or a connect error, with backoff, jitter and `Retry-After`, before the existing model-swap fallback. Streams are never retried. |
+| `GATEWAY_PROXY_CACHE_ENABLED` | `false` | Exact-match cache for non-streaming `/v1/chat/completions` requests with `temperature: 0` and no `tools`, keyed per consumer, with `X-Cache: HIT` / `MISS`. Reuses `packages/ai/response_cache.py`, so `RESPONSE_CACHE_ENABLED=false` and its TTL / size settings also apply. |
+
+---
+
 ## Anthropic API Compatibility / Claude Code
 
 | Variable | Default | Description |
