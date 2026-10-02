@@ -405,12 +405,15 @@ def _stop_leaked_aiosqlite_workers() -> list:
 
     stopped = []
     for obj in gc.get_objects():
-        if isinstance(obj, aiosqlite.Connection) and obj._thread.is_alive():
-            try:
-                obj.stop()
-                stopped.append(obj._thread)
-            except Exception:  # best effort: a dead loop must not fail the session
-                pass
+        try:
+            # gc can hand back dead weakref proxies; isinstance() on one raises
+            # ReferenceError, and a cleanup hook must never fail a green run.
+            if not isinstance(obj, aiosqlite.Connection) or not obj._thread.is_alive():
+                continue
+            obj.stop()
+            stopped.append(obj._thread)
+        except Exception:
+            continue
     return stopped
 
 
