@@ -90,10 +90,10 @@ def test_get_returns_config_providers_and_safe_default(app_client, monkeypatch):
     # The ids must match the catalog (config/models.yaml).
     assert provider_ids == {
         "nvidia", "tokenin", "omniroute", "cerebras", "groq", "ollama", "mistral",
-        "deepseek", "zhipu", "zai", "together", "dashscope",
+        "siliconflow", "deepseek", "zhipu", "zai", "together", "dashscope",
         "moonshot", "openrouter", "anthropic", "aerolink", "google",
     }
-    assert len(provider_ids) == 17
+    assert len(provider_ids) == 18
 
     # Each provider entry has key_present + key_env_var + display_name +
     # tier + candidates, but never the key.

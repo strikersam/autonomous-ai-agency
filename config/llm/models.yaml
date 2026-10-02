@@ -432,6 +432,37 @@ models:
     input_cost_per_1m: 0.02
     priority: 60
 
+  # ── SiliconFlow (api.siliconflow.com / .cn) ──────────────────────────────
+  #
+  # The two chat models SiliconFlow bills at zero on its free tier (rate-limited).
+  # Small models: a last free fallback, not a planner. Tool support is not
+  # declared until a live tool-call probe passes.
+  Qwen/Qwen3-8B:
+    provider: siliconflow
+    display_name: Qwen3 8B (SiliconFlow, free)
+    context_window: 32768
+    max_output_tokens: 4096
+    supports_tools: false           # not yet probed
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
+    priority: 70
+    speed_tier: fast
+
+  deepseek-ai/DeepSeek-R1-Distill-Qwen-7B:
+    provider: siliconflow
+    display_name: DeepSeek R1 Distill Qwen 7B (SiliconFlow, free)
+    context_window: 32768
+    max_output_tokens: 4096
+    supports_tools: false
+    supports_json: false
+    supports_streaming: true
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
+    priority: 71
+    speed_tier: medium
+
   # ── Mistral API (api.mistral.ai) ─────────────────────────────────────────
   #
   # All four entries below are in `config/models.yaml`'s `mistral` candidates

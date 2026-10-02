@@ -81,6 +81,7 @@ const CATALOGUE = [
   { id: 'groq',       name: 'Groq',          tier: 'free',    keyEnv: 'GROQ_API_KEY',       note: 'Very fast, generous free tier.' },
   { id: 'nvidia',     name: 'NVIDIA NIM',    tier: 'free',    keyEnv: 'NVIDIA_API_KEY',     note: 'The always-on free floor.' },
   { id: 'google',     name: 'Google Gemini', tier: 'free',    keyEnv: 'GEMINI_API_KEY',     note: '1M context — the overflow escape hatch.' },
+  { id: 'siliconflow', name: 'SiliconFlow',  tier: 'free',    keyEnv: 'SILICONFLOW_API_KEY', note: 'Free Qwen3 8B / R1 distill. Last free fallback.' },
   { id: 'ollama',     name: 'Ollama',        tier: 'local',   keyEnv: null,                 note: 'Local daemon. Set OLLAMA_BASE.' },
   { id: 'lmstudio',   name: 'LM Studio',     tier: 'local',   keyEnv: null,                 note: 'Set LMSTUDIO_BASE_URL and LMSTUDIO_ENABLED.' },
   { id: 'vllm',       name: 'vLLM',          tier: 'local',   keyEnv: 'VLLM_API_KEY',       note: 'Self-hosted, batches well.' },

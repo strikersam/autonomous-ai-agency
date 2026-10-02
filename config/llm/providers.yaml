@@ -208,6 +208,19 @@ providers:
     max_concurrency: 8
     timeout_sec: 60             # wall clock per attempt; see nvidia above
 
+  siliconflow:
+    kind: openai
+    # International endpoint. A key issued at cloud.siliconflow.cn needs
+    # SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1 instead.
+    base_url: ${SILICONFLOW_BASE_URL:-https://api.siliconflow.com/v1}
+    key_env: [SILICONFLOW_API_KEY]
+    # Only the zero-cost models in config/llm/models.yaml are routed here.
+    # They are small (8B/7B), so this sits behind every larger free provider.
+    tier: free
+    priority: 52
+    max_concurrency: 4
+    timeout_sec: 60
+
   # ── Premium cloud (tier: premium) ──────────────────────────────────────
   # Last resort. ALLOW_PAID_BRAIN must be explicitly true (packages/ai/brain.py).
 
