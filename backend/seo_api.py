@@ -4,7 +4,7 @@ SEO / GEO / AIO Audit API Router
 Endpoints for the world-class SEO audit engine (issue #533):
 
 - GET  /api/seo/checks                                     full check catalog
-- POST /api/company/{company_id}/seo/audit                 run an audit
+- POST /api/company/{company_id}/seo/audit                 start an audit (returns 'pending')
 - GET  /api/company/{company_id}/seo/audits                list past audits
 - GET  /api/company/{company_id}/seo/audits/{audit_id}     full report
 - GET  /api/company/{company_id}/seo/audits/{audit_id}/export   csv|json|markdown|urls|issues|pdf
@@ -20,8 +20,10 @@ so specialists and the orchestrator can build on the evidence.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path as FsPath
 from typing import List, Literal, Optional
@@ -127,40 +129,78 @@ async def seo_check_catalog(
     return list_checks()
 
 
+# Hard ceiling on one background crawl; kept below the pending-expiry window so
+# a hung crawl reports its own failure instead of being expired as "lost".
+_SEO_AUDIT_MAX_SECONDS = 15 * 60
+# Strong references to in-flight crawls - the event loop only keeps weak ones.
+_audit_tasks: "set[asyncio.Task]" = set()
+
+
+async def _run_audit_in_background(
+    request: SeoAuditRequest, company_id: str, stub: SeoAuditReport,
+) -> None:
+    """Run the crawl, then replace the pending stub with the final report."""
+    try:
+        report = await asyncio.wait_for(
+            SeoAuditEngine().run(request, company_id=company_id, audit_id=stub.audit_id),
+            timeout=_SEO_AUDIT_MAX_SECONDS,
+        )
+    except Exception as exc:  # noqa: BLE001 - background task must record, not raise
+        log.exception("SEO audit %s did not complete", stub.audit_id)
+        error = (
+            f"Audit did not finish within {_SEO_AUDIT_MAX_SECONDS // 60} minutes "
+            "- try fewer pages or fetch_mode='browser'."
+            if isinstance(exc, asyncio.TimeoutError) else "Audit execution failed - see server logs"
+        )
+        report = stub.model_copy(update={
+            "status": "failed", "error": error, "completed_at": datetime.now(timezone.utc),
+        })
+    save_report(report)
+    if report.status != "success":
+        return
+    # Best-effort: capture the executive summary into the Company Graph so the
+    # orchestrator and specialists can act on it. Never fail the audit on this.
+    try:
+        from models.company_graph import KnowledgeItem
+        from services.company_graph_store import get_company_graph_store
+
+        await get_company_graph_store().create_knowledge_item(KnowledgeItem(
+            title=f"SEO audit {report.audit_id} - {report.website_url} "
+                  f"(health {report.health_score}/100)",
+            knowledge_type="learning",
+            content=report_to_markdown(report),
+            tags=["seo-audit", f"company:{company_id}", f"audit:{report.audit_id}"],
+            source="automated_scan",
+        ))
+    except Exception as exc:  # noqa: BLE001 - persistence is best-effort
+        log.warning("Could not persist SEO audit %s to company graph: %s",
+                    report.audit_id, exc)
+
+
 @router.post("/company/{company_id}/seo/audit", response_model=SeoAuditReport)
 async def run_seo_audit(
     company_id: str = Path(..., description="Company ID"),
     request: SeoAuditRequest = Body(...),
     user: dict = Depends(_get_current_user_thunk),
 ) -> SeoAuditReport:
-    """Run a full SEO/GEO/AIO audit against a website and persist the evidence."""
+    """Start an SEO/GEO/AIO audit and return its 'pending' stub immediately.
+
+    The crawl runs in the background; poll ``GET .../seo/audits/{audit_id}``.
+    Bot-protected sites (Akamai, Cloudflare) can take minutes, far longer than
+    the proxy in front of this API will hold a request open.
+    """
     company = await get_company_access(company_id, user)
-
-    engine = SeoAuditEngine()
-    report = await engine.run(request, company_id=company.id)
-    save_report(report)
-
-    # Best-effort: capture the executive summary into the Company Graph so the
-    # orchestrator and specialists can act on it. Never fail the audit on this.
-    if report.status == "success":
-        try:
-            from models.company_graph import KnowledgeItem
-            from services.company_graph_store import get_company_graph_store
-
-            store = get_company_graph_store()
-            await store.create_knowledge_item(KnowledgeItem(
-                title=f"SEO audit {report.audit_id} - {report.website_url} "
-                      f"(health {report.health_score}/100)",
-                knowledge_type="learning",
-                content=report_to_markdown(report),
-                tags=["seo-audit", f"company:{company.id}", f"audit:{report.audit_id}"],
-                source="automated_scan",
-            ))
-        except Exception as exc:  # noqa: BLE001 - persistence is best-effort
-            log.warning("Could not persist SEO audit %s to company graph: %s",
-                        report.audit_id, exc)
-
-    return report
+    stub = SeoAuditReport(
+        audit_id=f"seoaudit_{secrets.token_hex(8)}",
+        company_id=company.id,
+        website_url=request.website_url,
+        status="pending",
+    )
+    save_report(stub)
+    task = asyncio.create_task(_run_audit_in_background(request, company.id, stub))
+    _audit_tasks.add(task)
+    task.add_done_callback(_audit_tasks.discard)
+    return stub
 
 
 @router.get("/company/{company_id}/seo/audits", response_model=List[SeoAuditSummary])

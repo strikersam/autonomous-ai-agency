@@ -1,6 +1,16 @@
 # Next Action
 
-**Updated:** 2026-10-01
+**Updated:** 2026-10-02 (SEO audit fix)
+
+## SEO audit on bot-protected sites 2026-10-02 — branch `fix/seo-audit-bot-protected-timeouts`
+
+`POST /seo/audit` now returns a `pending` stub and crawls in the background
+(15-min cap); `ResilientFetcher` escalates httpx timeouts/network errors to the
+headless browser and stays on it for the rest of the crawl. Not verified live
+against nike.com (sandbox egress blocks it): after deploy, run an audit on
+https://www.nike.com from the dashboard and confirm pages_crawled > 0.
+
+## Earlier (2026-10-01)
 
 ## AI gateway hardening — PUSHED, no PR yet (branch `claude/ai-gateway-hardening`)
 

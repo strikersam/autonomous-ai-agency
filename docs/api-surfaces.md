@@ -134,7 +134,7 @@ company-scoped route additionally checks access to that company via
 `get_company_access` — an audit belonging to another company answers `404`.
 
 - `GET  /api/seo/checks` — the full SEO/GEO/AIO check catalog
-- `POST /api/company/{company_id}/seo/audit` — run an audit and persist the evidence
+- `POST /api/company/{company_id}/seo/audit` — start an audit; returns a `pending` stub immediately, poll `GET .../seo/audits/{audit_id}` for the result
 - `GET  /api/company/{company_id}/seo/audits` — stored audits, most recent first
 - `GET  /api/company/{company_id}/seo/audits/{audit_id}` — one complete report
 - `GET  /api/company/{company_id}/seo/audits/{audit_id}/export` — export a stored audit

@@ -185,6 +185,63 @@ class TestResilientFetcher:
         assert r.status_code == 403  # no browser available -> surfaces the block honestly
 
 
+class _CountingTransport(httpx.AsyncBaseTransport):
+    """Raises ``exc`` on every request and counts how often it was hit."""
+
+    def __init__(self, exc: Exception) -> None:
+        self.exc = exc
+        self.calls = 0
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        self.calls += 1
+        raise self.exc
+
+
+class TestResilientFetcherTimeouts:
+    """Akamai (nike.com) tarpits non-browser clients: no 403, just a timeout."""
+
+    def _run(self, transport: httpx.AsyncBaseTransport, browser, urls: List[str]):
+        primary = HttpxFetcher(timeout=5, user_agent=UA, transport=transport)
+        fetcher = ResilientFetcher(primary, browser)
+
+        async def run() -> List[FetchResult]:
+            try:
+                return [await fetcher.get(u) for u in urls]
+            finally:
+                await fetcher.aclose()
+
+        return asyncio.run(run())
+
+    def test_timeout_escalates_to_browser(self) -> None:
+        transport = _CountingTransport(httpx.ReadTimeout("stalled"))
+        browser = _FakeBrowser()
+        [r] = self._run(transport, browser, ["https://shop.test/"])
+        assert browser.calls == ["https://shop.test/"]
+        assert r.via == "browser-fallback"
+
+    def test_after_timeout_later_pages_skip_primary(self) -> None:
+        transport = _CountingTransport(httpx.ConnectTimeout("stalled"))
+        browser = _FakeBrowser()
+        urls = ["https://shop.test/", "https://shop.test/a", "https://shop.test/b"]
+        results = self._run(transport, browser, urls)
+        assert transport.calls == 1, "primary must not be retried once it has stalled"
+        assert browser.calls == urls
+        assert all(r.via == "browser-fallback" for r in results)
+
+    def test_timeout_without_browser_reraises(self) -> None:
+        transport = _CountingTransport(httpx.ReadTimeout("stalled"))
+        with pytest.raises(httpx.ReadTimeout):
+            self._run(transport, None, ["https://shop.test/"])
+
+    def test_ssrf_rejection_never_escalates_to_browser(self) -> None:
+        # The SSRF hook raises a bare RequestError; a browser has no such guard.
+        transport = _CountingTransport(httpx.RequestError("Blocked: SSRF protection"))
+        browser = _FakeBrowser()
+        with pytest.raises(httpx.RequestError):
+            self._run(transport, browser, ["https://shop.test/"])
+        assert browser.calls == []
+
+
 class TestMakeFetcher:
     def test_transport_forces_httpx(self) -> None:
         f = make_fetcher(fetch_mode="auto", timeout=5, user_agent=UA,
