@@ -67,3 +67,18 @@ def test_openrouter_free_models_route_without_paid(monkeypatch):
     finally:
         llm_config.reset()
         llm_registry.reset()
+
+
+def test_qwen3_thinking_is_off_on_siliconflow_only():
+    """Qwen3-8B on SiliconFlow hit the 60s cap in production: it thinks by default."""
+    from packages.llm.config import ProviderConfig
+    from packages.llm.providers.base import OpenAICompatible
+    from packages.llm.types import LLMRequest
+
+    request = LLMRequest(messages=[{"role": "user", "content": "hi"}])
+    silicon = OpenAICompatible(ProviderConfig(id="siliconflow", base_url="https://api.siliconflow.com/v1"))
+    assert silicon.build_payload(request, "Qwen/Qwen3-8B")["enable_thinking"] is False
+    assert "enable_thinking" not in silicon.build_payload(request, "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B")
+
+    groq = OpenAICompatible(ProviderConfig(id="groq", base_url="https://api.groq.com/openai/v1"))
+    assert "enable_thinking" not in groq.build_payload(request, "qwen/qwen3.8-27b")
