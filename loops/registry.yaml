@@ -77,7 +77,7 @@ loops:
     source: .github/workflows/ci-failure-autofix.yml
     self_heal: true
     gate: telegram
-    purpose: React to a red CI run by diagnosing and pushing a fix.
+    purpose: React to a red CI run by diagnosing and pushing a fix; stands down quietly (green) when paid providers are off or master is already red.
 
   - id: openclaw-auto-fix
     name: OpenClaw Auto-Fix
