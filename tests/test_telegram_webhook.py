@@ -14,10 +14,31 @@ would be dangerous to get wrong:
 """
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
 
 import pytest
+
+
+class _AsyncioWithSleep:
+    """``asyncio`` stand-in for ``telegram_bot`` with only ``sleep`` replaced.
+
+    Patching ``tb.asyncio.sleep`` directly rewrites the global ``asyncio.sleep``;
+    any background loop leaked by an earlier test then spins without yielding
+    and starves the event loop, hanging this test in a full-suite run.
+    """
+
+    def __init__(self, sleep):
+        self.sleep = sleep
+
+    def __getattr__(self, name):
+        return getattr(asyncio, name)
+
+
+def _patch_bot_sleep(monkeypatch, tb, sleep) -> None:
+    monkeypatch.setattr(tb, "asyncio", _AsyncioWithSleep(sleep))
+
 
 ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
@@ -106,7 +127,7 @@ async def test_register_webhook_retries_transient_dns_failure(monkeypatch):
     async def _no_sleep(_):
         return None
 
-    monkeypatch.setattr(tb.asyncio, "sleep", _no_sleep)
+    _patch_bot_sleep(monkeypatch, tb, _no_sleep)
 
     calls = {"n": 0}
 
@@ -152,7 +173,7 @@ async def test_register_webhook_returns_last_error_after_exhausting_retries(monk
     async def _no_sleep(_):
         return None
 
-    monkeypatch.setattr(tb.asyncio, "sleep", _no_sleep)
+    _patch_bot_sleep(monkeypatch, tb, _no_sleep)
     calls = {"n": 0}
 
     class _Resp:

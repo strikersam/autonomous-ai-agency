@@ -554,3 +554,46 @@ def test_fetch_page_refuses_unlisted_when_allowlist_set(monkeypatch: pytest.Monk
     result = reach.fetch_page("https://other.com/page")
     assert result["ok"] is False
     assert "WEB_REACH_ALLOWED_DOMAINS" in result["error"]
+
+
+# ---------------------------------------------------------------------------
+# search_web fallback — DuckDuckGo hung for 20s on every call from Render
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _fresh_search_skips(monkeypatch: pytest.MonkeyPatch):
+    import agent.web_reach as web_reach_mod
+
+    monkeypatch.setattr(web_reach_mod, "_search_skip_until", {})
+    return web_reach_mod
+
+
+def _hanging_search_engines(calls: list[tuple[str, float]]):
+    def fake_get(url, params=None, headers=None, timeout=None, follow_redirects=None):
+        calls.append((url, timeout))
+        if "duckduckgo" in url or "mojeek" in url:
+            raise httpx.ConnectTimeout("timed out")
+        body = {"query": {"search": [{"title": "Autonomous agent"}]}}
+        return httpx.Response(200, json=body, request=httpx.Request("GET", url))
+    return fake_get
+
+
+def test_search_web_falls_back_when_duckduckgo_hangs(monkeypatch, _fresh_search_skips) -> None:
+    calls: list[tuple[str, float]] = []
+    monkeypatch.setattr(httpx, "get", _hanging_search_engines(calls))
+    result = WebReach().search_web("autonomous agent")
+    assert result["ok"] is True
+    assert result["backend"] == "wikipedia"
+    assert result["results"][0]["url"] == "https://en.wikipedia.org/wiki/Autonomous_agent"
+    assert all(timeout <= 6.0 for _, timeout in calls), "each backend is capped well under 20s"
+
+
+def test_a_hung_backend_is_skipped_on_the_next_search(monkeypatch, _fresh_search_skips) -> None:
+    calls: list[tuple[str, float]] = []
+    monkeypatch.setattr(httpx, "get", _hanging_search_engines(calls))
+    reach = WebReach()
+    reach.search_web("first")
+    calls.clear()
+    reach.search_web("second")
+    assert not any("duckduckgo" in url or "mojeek" in url for url, _ in calls)

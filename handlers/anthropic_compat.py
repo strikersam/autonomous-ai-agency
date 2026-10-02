@@ -46,6 +46,8 @@ from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 from langfuse_obs import emit_chat_observation
+from packages.gateway import token_quota as _gw_quota
+from packages.gateway.context import begin_call, finish_current
 from router import get_router, RoutingDecision
 from router.circuit_breaker import get_circuit_breaker
 from router.health import invalidate_cache as _invalidate_health_cache
@@ -477,6 +479,7 @@ async def _emit_safely(
     session_id: str | None = None,
     prompt_id: str | None = None,
 ) -> None:
+    finish_current(model, prompt_tokens, completion_tokens)
     try:
         await asyncio.to_thread(
             emit_chat_observation,
@@ -509,6 +512,8 @@ async def handle_anthropic_messages(
     key_id: str | None,
 ) -> JSONResponse | StreamingResponse:
     """Handle POST /v1/messages — Anthropic Messages API format."""
+    gw = begin_call(request, key_id)
+    gw.enforce_quota()
     start_time = time.perf_counter()
     body_bytes = await request.body()
 
@@ -637,6 +642,7 @@ async def handle_anthropic_messages(
     )
 
     latency_ms = int((time.perf_counter() - start_time) * 1000)
+    gw.status = resp.status_code
 
     if not resp.headers.get("content-type", "").startswith("application/json"):
         raise HTTPException(status_code=resp.status_code, detail=resp.text[:500])
@@ -666,6 +672,7 @@ async def handle_anthropic_messages(
             "anthropic-version": "2023-06-01",
             "X-Routing-Mode": routing.mode,
             "X-Routing-Model": local_model,
+            **_gw_quota.rate_limit_headers(gw.consumer),
         },
     )
 

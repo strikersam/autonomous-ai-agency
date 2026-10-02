@@ -522,6 +522,7 @@ _FREE_CLOUD_PROVIDER_IDS = {
     "cerebras",
     "sambanova",
     "mistral",
+    "siliconflow",
     "google-gemini-free",
     # The seeded Gemini record: the operator's Google key is on the free tier.
     "google-gemini",
@@ -565,6 +566,8 @@ _KNOWN_FREE_HOSTS = (
     "api.cerebras.ai",
     "api.sambanova.ai",
     "api.mistral.ai",
+    "api.siliconflow.com",
+    "api.siliconflow.cn",
     "generativelanguage.googleapis.com",
     "api.cloudflare.com",
 )

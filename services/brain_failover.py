@@ -709,6 +709,19 @@ _PROVIDER_REGISTRY: list[dict[str, Any]] = [
         "models": ["mistral-small-latest", "mistral-large-latest", "codestral-latest", "mistral-nemo"],
         "cooldown": 30.0,
     },
+    {
+        "id": "siliconflow",
+        "name": "SiliconFlow",
+        "tier": "free",
+        "key_env": "SILICONFLOW_API_KEY",
+        "base_url_env": "SILICONFLOW_BASE_URL",
+        # International endpoint; keys issued at cloud.siliconflow.cn need
+        # SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1.
+        "default_base_url": "https://api.siliconflow.com/v1",
+        "default_model": "Qwen/Qwen3-8B",
+        "models": ["Qwen/Qwen3-8B", "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"],
+        "cooldown": 30.0,
+    },
     # ── Paid tier (tried last, only if ALLOW_PAID_BRAIN=true) ──
     {
         "id": "aerolink",
