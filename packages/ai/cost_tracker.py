@@ -83,6 +83,16 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # GPT-OSS 120B / 20B — served on both NVIDIA NIM and Groq free tier.
     "openai/gpt-oss-120b": (0.0, 0.0),
     "openai/gpt-oss-20b": (0.0, 0.0),
+    # GPT-OSS-Safeguard: OpenAI safety-reasoning models (Oct 2025). Fine-tuned
+    # from gpt-oss-20b / gpt-oss-120b respectively; purpose-built for safety
+    # classification — follows explicit user-provided policies and explains
+    # decisions. Not in routing candidates (specialised, not general-purpose).
+    # safeguard-20b: GroqCloud at 1000+ t/s, context 131K, 65K output.
+    # Pricing source: console.groq.com/docs/model/openai/gpt-oss-safeguard-20b, 2026-10-02.
+    "openai/gpt-oss-safeguard-20b": (0.075, 0.30),
+    # safeguard-120b: Amazon Bedrock / Opper; not on Groq self-serve as of 2026-10-02.
+    # Pricing source: futureagi.com/llm-cost-calculator/bedrock, 2026-10-02.
+    "openai/gpt-oss-safeguard-120b": (0.15, 0.60),
     # --- Google Gemini ---
     # Gemini 2.5 Flash: AI Studio free tier for low-RPM usage; usage through
     # the paid API is charged at $0.075/$0.30 per MTok (non-thinking, ≤200K).
