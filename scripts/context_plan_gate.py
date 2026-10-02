@@ -62,6 +62,7 @@ IMPLEMENTABLE_VERDICTS = frozenset({"adopt", "adapt"})
 _VERDICT_MARKERS: tuple[tuple[str, str], ...] = (
     ("reject", "**REJECT**"),
     ("unverified", "**UNVERIFIED**"),
+    ("needs-review", "**NEEDS REVIEW**"),
     ("adapt", "**ADAPT**"),
     ("adopt", "**ADOPT**"),
 )

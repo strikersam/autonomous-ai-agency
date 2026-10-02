@@ -203,6 +203,40 @@ document a reader can act on and one they have to re-derive.
 
 ---
 
+### R13 — Account for what the repository already has **[gate]**
+
+Before the model runs, the generator searches the repository for the linked source
+(`owner/repo` for a GitHub link, host and path otherwise). Matches are listed in the
+message as *Prior art in this repository* and in the Source Grounding table. When there
+are any, the verdict reason, notes or prompt must name at least one of those paths and
+say what the note adds beyond them — a refresh, a missing piece, or why nothing.
+
+Generated plans (`docs/context/`), tests, graph snapshots and hidden directories other
+than `.github` are not counted: they quote URLs without implementing anything.
+
+*Prevents:* #1634, which linked the agency-agents repository the repo already vendors
+(#1570, #1573) and was rejected as "not compatible", because nothing told the reviewer
+the source was already in use.
+
+**Check:** at least one prior-art path appears in `verdict_reason`, `notes` or `prompt`.
+
+---
+
+### R14 — Paths cited in prose must exist **[gate]**
+
+R8 checks `relevant_files`, but a reject has no file list, and the reasoning prose is where
+a reviewer looks. Every repository path cited in `verdict_reason`, `notes` or `prompt`
+must exist. A path is checked only when its first segment is a top-level entry of this
+repository, so a path inside the linked project is not mistaken for one of ours; URLs and
+paths marked ` (new)` are skipped.
+
+*Prevents:* #1632's plan citing `handlers/telegram_bot.py`, which does not exist, as
+evidence for its reject.
+
+**Check:** filesystem existence relative to `REPO_ROOT`, for every verdict.
+
+---
+
 ## How the gate behaves
 
 `generate_context.py` runs the gate after the model returns:
@@ -218,6 +252,11 @@ the end before discovering it is empty.
 
 A `reject` verdict is not a failure. It short-circuits R4, R5, R7, R8, and R11, since there is
 no plan to check.
+
+A `reject` that fails R13 or R14 is not filed. It contradicts the repository, so
+`generate_context.py` changes the verdict to `needs-review`: the issue is labelled
+`quick-note:needs-review`, no implementation is dispatched, and the scheduled sweep leaves
+it alone until a human decides.
 
 ---
 

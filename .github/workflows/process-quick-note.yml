@@ -91,6 +91,8 @@ jobs:
             # failed attempts, `rejected` is a deliberate decision not to build.
             # `quick-note:needs-source` means the linked source could not be
             # read, so no decision exists yet; building here would be a guess.
+            # `quick-note:needs-review` is a reject that contradicted the repo
+            # (R13/R14); a human decides, so the sweep leaves it alone too.
             # Reports are not work. `agency-escalation`, `trend-digest`,
             # `routine-backlog`, `crispy-burn-in` and `catalogue-drift` issues
             # are status output for a human: a digest is a list of links, an
@@ -113,7 +115,7 @@ jobs:
               --state open \
               --json number,labels \
               --limit 100 \
-              --jq '[.[] | select(([(.labels // [])[].name] - ["quick-note:exhausted","quick-note:rejected","quick-note:needs-source","agency-escalation","trend-digest","routine-backlog","crispy-burn-in","catalogue-drift"]) == [(.labels // [])[].name])] | sort_by(.number) | .[0].number // empty')
+              --jq '[.[] | select(([(.labels // [])[].name] - ["quick-note:exhausted","quick-note:rejected","quick-note:needs-source","quick-note:needs-review","agency-escalation","trend-digest","routine-backlog","crispy-burn-in","catalogue-drift"]) == [(.labels // [])[].name])] | sort_by(.number) | .[0].number // empty')
           fi
           if [ -z "$NUM" ]; then
             echo "No pending quick-note issues found — nothing to do."
@@ -469,7 +471,11 @@ jobs:
           # read is not a rejection: `quick-note:rejected` there buried notes
           # nobody had looked at (#1569, #1570), so it gets needs-source.
           LABEL="quick-note:rejected"
-          case "$VERDICT" in missing|none) ;; *)
+          case "$VERDICT" in missing|none) ;; needs-review)
+            LABEL="quick-note:needs-review"
+            gh label create "$LABEL" --repo "$REPO" --color D93F0B \
+              --description "Quick note whose reject contradicts the repository" 2>/dev/null || true ;;
+          *)
             if [ "$VERDICT" = "unverified" ] || { [ "$SOURCE_FETCHED" = "false" ] && [ "$HAS_SOURCE" != "false" ]; }; then
               LABEL="quick-note:needs-source"
               gh label create "$LABEL" --repo "$REPO" --color FBCA04 \
