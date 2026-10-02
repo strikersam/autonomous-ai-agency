@@ -1,6 +1,14 @@
 # Next Action
 
-**Updated:** 2026-10-02 (SEO audit fix)
+**Updated:** 2026-10-02 (quick-note reviewer fix)
+
+## Quick-note reviewer 2026-10-02 — branch `claude/cleanup-open-prs-issues-kdzv7g`
+
+A reject that ignores prior art in the repo (R13) or cites a missing path (R14)
+now becomes `needs-review` / `quick-note:needs-review` instead of being filed.
+After merge: the next quick note whose source the repo already references should
+show a non-empty *Prior art in repo* row in its draft PR. Any issue labelled
+`quick-note:needs-review` is waiting on a human decision.
 
 ## SEO audit on bot-protected sites 2026-10-02 — branch `fix/seo-audit-bot-protected-timeouts`
 
