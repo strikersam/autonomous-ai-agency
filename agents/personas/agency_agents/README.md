@@ -1,7 +1,7 @@
 # Vendored specialist personas — agency-agents
 
 Source: <https://github.com/msitarzewski/agency-agents> at commit
-`053ddbbf392a1688fc7043d81529f47ef2cf86c8` (MIT — see `LICENSE` in this directory).
+`d3f71c4bb8922d3eea7576237a870dd59b3cdd52` (MIT — see `LICENSE` in this directory).
 
 These files are copied **unchanged** so they can be diffed against upstream on
 refresh. `agents/persona_library.py` maps this repo's `SpecialistFamily` values to
