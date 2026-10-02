@@ -181,7 +181,7 @@ SAFE_DEFAULT_MODEL: str = "nvidia/nemotron-3-super-120b-a12b"
 # Provider ids the Brain card recognises. The Literal keeps the Pydantic model
 # strict so a typo in the UI ("cerebrass") fails validation instead of
 # silently storing an unusable provider.
-BrainProvider = Literal["nvidia", "tokenin", "omniroute", "cerebras", "groq", "ollama", "mistral", "deepseek", "zhipu", "zai", "together", "dashscope", "moonshot", "openrouter", "anthropic", "aerolink", "google"]
+BrainProvider = Literal["nvidia", "tokenin", "omniroute", "cerebras", "groq", "ollama", "mistral", "siliconflow", "deepseek", "zhipu", "zai", "together", "dashscope", "moonshot", "openrouter", "anthropic", "aerolink", "google"]
 
 # Per-provider sensible presets surfaced by the UI's "presets" dropdown.
 # Operators can still type any model id — these are just convenience defaults.
@@ -231,6 +231,12 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
         "executor":  "mistral-small-latest",
         "verifier":  "mistral-small-latest",
         "judge":     "mistral-large-latest",
+    },
+    "siliconflow": {
+        "planner":   "Qwen/Qwen3-8B",
+        "executor":  "Qwen/Qwen3-8B",
+        "verifier":  "Qwen/Qwen3-8B",
+        "judge":     "Qwen/Qwen3-8B",
     },
     "deepseek": {
         "planner":   "deepseek-flash",
@@ -282,6 +288,7 @@ PROVIDER_KEY_ENV: dict[str, str | None] = {
     "groq":    "GROQ_API_KEY",
     "ollama":  None,  # local — no key
     "mistral": "MISTRAL_API_KEY",
+    "siliconflow": "SILICONFLOW_API_KEY",
     "deepseek": "DEEPSEEK_API_KEY",
     "zhipu":   "ZHIPU_API_KEY",
     "zai":     "ZAI_API_KEY",
@@ -307,6 +314,7 @@ PROVIDER_BASE_URL_ENV: dict[str, str | None] = {
     "groq":     "GROQ_BASE_URL",
     "ollama":   "OLLAMA_BASE",
     "mistral":  "MISTRAL_BASE_URL",
+    "siliconflow": "SILICONFLOW_BASE_URL",
     "deepseek": "DEEPSEEK_BASE_URL",
     "zhipu":    "ZHIPU_BASE_URL",
     "zai":      "ZAI_BASE_URL",
@@ -329,6 +337,7 @@ PROVIDER_DEFAULT_BASE_URL: dict[str, str] = {
     "groq":     "https://api.groq.com/openai/v1",
     "ollama":   "http://localhost:11434",
     "mistral":  "https://api.mistral.ai/v1",
+    "siliconflow": "https://api.siliconflow.com/v1",
     "deepseek": "https://api.deepseek.com/v1",
     "zhipu":    "https://open.bigmodel.cn/api/paas/v4",
     "zai":      "https://api.z.ai/api/paas/v4",
@@ -408,6 +417,10 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         "codestral-latest",
         "mistral-nemo",
     ],
+    "siliconflow": [
+        "Qwen/Qwen3-8B",
+        "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B",
+    ],
     "deepseek": ["deepseek-flash", "deepseek-chat", "deepseek-reasoner", "deepseek-coder"],
     "zhipu": ["glm-5.2", "glm-5.1", "glm-4", "glm-4-flash", "glm-4-air"],
     "zai": ["glm-5.2", "glm-5.1", "glm-4-flash", "glm-4", "glm-4-air"],
@@ -470,6 +483,7 @@ PROVIDER_DISPLAY_NAMES: dict[str, str] = {
     "groq":      "Groq (fast, free tier)",
     "ollama":    "Local Ollama (no key, private)",
     "mistral":   "Mistral (free tier)",
+    "siliconflow": "SiliconFlow (free models)",
     "deepseek":  "DeepSeek (free tier)",
     "zhipu":     "ZhipuAI / GLM (China)",
     "zai":       "Z.ai (GLM international)",
@@ -492,6 +506,7 @@ PROVIDER_TIERS: dict[str, str] = {
     "cerebras":  "free",
     "groq":      "free",
     "mistral":   "free",
+    "siliconflow": "free",
     "deepseek":  "free",
     "zhipu":     "free",
     "zai":       "free",

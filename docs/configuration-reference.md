@@ -128,6 +128,8 @@ and on a per-model `429` the failover chain rotates to the next model in
 | `TOKENIN_BASE_URL` | `https://tokenin.my.id/v1` | Base URL override. The router appends `/chat/completions`. |
 | `TOKENIN_MODEL` | `myt/glm-5.3-free` | Default model for the `router.from_env` path when no model is requested. Role presets and the full failover list live in `config/models.yaml`. |
 | `TOKENIN_KEY_ROTATION` | `false` | Opt-in per-key rotation across `TOKENIN_API_KEY`, `_2`, `_3`… (see `<PROVIDER>_KEY_ROTATION` below). |
+| `SILICONFLOW_API_KEY` | (unset) | **Secret, env-only.** SiliconFlow key. Adds SiliconFlow (free tier, gateway priority 52) with its two zero-cost chat models, `Qwen/Qwen3-8B` and `deepseek-ai/DeepSeek-R1-Distill-Qwen-7B`. |
+| `SILICONFLOW_BASE_URL` | `https://api.siliconflow.com/v1` | International endpoint. A key issued at `cloud.siliconflow.cn` needs `https://api.siliconflow.cn/v1`; the wrong one answers HTTP 401. |
 
 ### OmniRoute — self-hosted free-tier aggregator
 
