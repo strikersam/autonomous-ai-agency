@@ -113,7 +113,12 @@ def test_agency_tick_minutes_throttle_exists():
 def test_no_secret_is_exposed_as_a_control():
     """Secrets stay environment-only per the repository constitution."""
     banned = ("_API_KEY", "_TOKEN", "_SECRET", "PASSWORD", "_KEY_ID")
-    leaked = [c.key for c in all_controls() if any(c.key.endswith(b) or b in c.key for b in banned)]
+    # Token *counts* (LLM tokens), not credentials — named allow-list, not a pattern.
+    token_counts = {"GATEWAY_TOKENS_PER_MINUTE", "GATEWAY_TOKENS_PER_DAY"}
+    leaked = [
+        c.key for c in all_controls()
+        if c.key not in token_counts and any(c.key.endswith(b) or b in c.key for b in banned)
+    ]
     assert leaked == [], f"secret-shaped keys in the control catalogue: {leaked}"
 
 
@@ -480,3 +485,72 @@ def test_trend_approval_toggle_is_live(clean_overrides):
     assert get_control("AGENCY_TRIAGE_APPROVE_TRENDS").live
     control_overrides.apply_overrides({"AGENCY_TRIAGE_APPROVE_TRENDS": "false"})
     assert settings.is_triage_approve_trends_enabled is False
+
+
+# ── AI gateway hardening controls are live and take effect ────────────────────
+
+_GATEWAY_KEYS = (
+    "GATEWAY_MAX_REQUEST_BYTES",
+    "GATEWAY_SECURITY_HEADERS_ENABLED",
+    "GATEWAY_TOKENS_PER_MINUTE",
+    "GATEWAY_TOKENS_PER_DAY",
+    "GATEWAY_PROMPT_POLICY_ENABLED",
+    "GATEWAY_SANITIZER_MODE",
+    "GATEWAY_USAGE_METRICS_ENABLED",
+    "GATEWAY_UPSTREAM_RETRIES",
+    "GATEWAY_PROXY_CACHE_ENABLED",
+)
+
+
+def test_gateway_controls_are_registered_live_and_default_to_todays_behaviour():
+    for key in _GATEWAY_KEYS:
+        spec = get_control(key)
+        assert spec is not None and spec.live and spec.group == "gateway", key
+    assert get_control("GATEWAY_PROMPT_POLICY_FILE") is None, "a file path is deploy wiring, env-only"
+    defaults = {k: get_control(k).default for k in _GATEWAY_KEYS}
+    assert defaults["GATEWAY_SECURITY_HEADERS_ENABLED"] == "true"
+    assert defaults["GATEWAY_SANITIZER_MODE"] == "off"
+    assert defaults["GATEWAY_PROXY_CACHE_ENABLED"] == "false"
+    assert {k for k, v in defaults.items() if v == "0"} == {
+        "GATEWAY_MAX_REQUEST_BYTES", "GATEWAY_TOKENS_PER_MINUTE",
+        "GATEWAY_TOKENS_PER_DAY", "GATEWAY_UPSTREAM_RETRIES",
+    }
+
+
+def test_gateway_override_takes_effect_at_call_time(clean_overrides, monkeypatch):
+    from packages.gateway import config as gw
+
+    for key in _GATEWAY_KEYS:
+        monkeypatch.delenv(key, raising=False)
+    assert (gw.max_request_bytes(), gw.tokens_per_minute(), gw.upstream_retries()) == (0, 0, 0)
+    assert gw.security_headers_enabled() is True
+    assert gw.sanitizer_mode() == "off"
+
+    control_overrides.apply_overrides({
+        "GATEWAY_MAX_REQUEST_BYTES": "2048",
+        "GATEWAY_TOKENS_PER_MINUTE": "500",
+        "GATEWAY_TOKENS_PER_DAY": "9000",
+        "GATEWAY_UPSTREAM_RETRIES": "2",
+        "GATEWAY_SECURITY_HEADERS_ENABLED": "false",
+        "GATEWAY_PROMPT_POLICY_ENABLED": "true",
+        "GATEWAY_USAGE_METRICS_ENABLED": "true",
+        "GATEWAY_PROXY_CACHE_ENABLED": "true",
+        "GATEWAY_SANITIZER_MODE": "secrets_and_pii",
+    })
+
+    assert gw.max_request_bytes() == 2048
+    assert gw.tokens_per_minute() == 500 and gw.tokens_per_day() == 9000
+    assert gw.upstream_retries() == 2
+    assert gw.security_headers_enabled() is False
+    assert gw.prompt_policy_enabled() is True
+    assert gw.usage_metrics_enabled() is True
+    assert gw.proxy_cache_enabled() is True
+    assert gw.sanitizer_mode() == "secrets_and_pii"
+
+
+def test_gateway_sanitizer_mode_rejects_values_outside_the_options():
+    assert coerce("GATEWAY_SANITIZER_MODE", "pii") == "pii"
+    with pytest.raises(ValueError):
+        coerce("GATEWAY_SANITIZER_MODE", "everything")
+    with pytest.raises(ValueError):
+        coerce("GATEWAY_UPSTREAM_RETRIES", "11")
