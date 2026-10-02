@@ -162,6 +162,28 @@ models:
     priority: 32
     speed_tier: fast
 
+  # GPT-OSS-Safeguard-20B: OpenAI safety-reasoning model on GroqCloud (Oct 2025).
+  # Fine-tuned from gpt-oss-20b; purpose-built for safety classification — follows
+  # explicit user-provided policies and explains decisions. Runs at 1000+ t/s on
+  # Groq LPU hardware. Context: 131,072 tokens. Max output: 65,536 tokens.
+  # Pricing: $0.075/$0.30 per MTok. Source: console.groq.com/docs/model/openai/
+  # gpt-oss-safeguard-20b, 2026-10-02.
+  # NOT in routing candidates — specialised for safety classification, not
+  # general-purpose chat. Use via X-Model-Override header or explicit model id.
+  openai/gpt-oss-safeguard-20b:
+    provider: groq
+    display_name: GPT-OSS-Safeguard 20B (Groq)
+    context_window: 131072
+    max_output_tokens: 65536
+    supports_tools: false           # not probed; specialised safety classifier
+    supports_function_calling: false
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.075
+    output_cost_per_1m: 0.30
+    priority: 99                    # high number = low priority; explicit-only
+    speed_tier: fast
+
   # ── Together AI (free tier) ────────────────────────────────────────────
   #
   # Together AI hosts open-source models on a free self-serve tier. The two
