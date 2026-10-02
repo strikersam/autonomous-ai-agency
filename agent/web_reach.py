@@ -409,43 +409,41 @@ class WebReach:
         return {"ok": True, "url": url, "trust": UNTRUSTED_EXTERNAL, "text": transcript[:MAX_CHARS]}
 
     # ------------------------------------------------------------------
-    # Web search — DuckDuckGo HTML (no API key)
+    # Web search — keyless backends, tried in order
     # ------------------------------------------------------------------
 
     def search_web(self, query: str, limit: int = 8) -> dict[str, Any]:
-        """Free-text web search with no API key, via DuckDuckGo's HTML-only
-        endpoint. Best-effort: DuckDuckGo can change markup at any time —
-        ``doctor()`` reports when this backend stops parsing."""
+        """Free-text web search with no API key.
+
+        DuckDuckGo Lite answers nothing at all from some datacenter IPs: on
+        Render every call hung for the full 20s timeout and returned nothing.
+        So each backend gets a short cap, a backend that times out or refuses
+        the connection is skipped for ``_SEARCH_SKIP_SEC``, and the next one is
+        tried. ``backend`` in the result says which one answered.
+        """
         if not query.strip():
             return {"ok": False, "query": query, "error": "empty query"}
-        try:
-            resp = httpx.get(
-                "https://lite.duckduckgo.com/lite/",
-                params={"q": query},
-                headers={"User-Agent": _UA},
-                timeout=self.timeout,
-                follow_redirects=True,
-            )
-            resp.raise_for_status()
-        except Exception as exc:
-            return {"ok": False, "query": query, "error": str(exc)}
-
-        from bs4 import BeautifulSoup
-
-        soup = BeautifulSoup(resp.text, "html.parser")
-        results: list[dict[str, str]] = []
-        for link in soup.select("a.result-link"):
-            href = link.get("href", "")
-            title = link.get_text(strip=True)
-            if not href or not title:
+        errors: list[str] = []
+        for name, backend in _SEARCH_BACKENDS:
+            if _search_skip_until.get(name, 0.0) > time.monotonic():
+                errors.append(f"{name}: skipped (recently unreachable)")
                 continue
-            results.append({"title": title, "url": href})
-            if len(results) >= limit:
-                break
-
-        if not results:
-            return {"ok": False, "query": query, "error": "no results parsed (backend markup may have changed)"}
-        return {"ok": True, "query": query, "trust": UNTRUSTED_EXTERNAL, "results": results}
+            try:
+                results = backend(query, limit, min(self.timeout, _SEARCH_BACKEND_TIMEOUT))
+            except (httpx.TimeoutException, httpx.ConnectError) as exc:
+                _search_skip_until[name] = time.monotonic() + _SEARCH_SKIP_SEC
+                errors.append(f"{name}: {exc or type(exc).__name__}")
+                continue
+            except Exception as exc:  # noqa: BLE001 — one backend never sinks the search
+                errors.append(f"{name}: {exc}")
+                continue
+            if results:
+                return {
+                    "ok": True, "query": query, "trust": UNTRUSTED_EXTERNAL,
+                    "backend": name, "results": results[:limit],
+                }
+            errors.append(f"{name}: no results parsed")
+        return {"ok": False, "query": query, "error": "; ".join(errors)}
 
     # ------------------------------------------------------------------
     # RSS / Atom feeds — stdlib XML, no new dependency
@@ -512,6 +510,9 @@ class WebReach:
         _ping("direct_fetch", "https://example.com")
         _ping("jina_reader", "https://r.jina.ai/https://example.com")
         _ping("duckduckgo_search", "https://lite.duckduckgo.com/lite/?q=test")
+        _ping("mojeek_search", "https://www.mojeek.com/search?q=test")
+        _ping("wikipedia_search", "https://en.wikipedia.org/w/api.php?action=query&list=search&srsearch=test&format=json")
+        _ping("hackernews_search", "https://hn.algolia.com/api/v1/search?query=test")
         _ping("youtube", "https://www.youtube.com")
 
         checks["fetch_url_script"] = {"ok": self._fetch_mod() is not None}
@@ -532,3 +533,74 @@ def get_web_reach() -> WebReach:
     if _web_reach is None:
         _web_reach = WebReach()
     return _web_reach
+
+
+# ── Keyless search backends ──────────────────────────────────────────────────
+# Fixed hosts; only the query string is caller-supplied, so rule 14's URL
+# validation does not apply. Each returns [{"title", "url"}] or raises.
+
+_SEARCH_BACKEND_TIMEOUT = 6.0
+_SEARCH_SKIP_SEC = 600.0
+_search_skip_until: dict[str, float] = {}
+
+
+def _get(url: str, params: dict[str, Any], timeout: float) -> httpx.Response:
+    resp = httpx.get(url, params=params, headers={"User-Agent": _UA},
+                     timeout=timeout, follow_redirects=True)
+    resp.raise_for_status()
+    return resp
+
+
+def _html_links(html: str, selector: str, limit: int) -> list[dict[str, str]]:
+    from bs4 import BeautifulSoup
+
+    results: list[dict[str, str]] = []
+    for link in BeautifulSoup(html, "html.parser").select(selector):
+        href, title = link.get("href", ""), link.get_text(strip=True)
+        if href.startswith("http") and title:
+            results.append({"title": title, "url": href})
+        if len(results) >= limit:
+            break
+    return results
+
+
+def _search_duckduckgo(query: str, limit: int, timeout: float) -> list[dict[str, str]]:
+    resp = _get("https://lite.duckduckgo.com/lite/", {"q": query}, timeout)
+    return _html_links(resp.text, "a.result-link", limit)
+
+
+def _search_mojeek(query: str, limit: int, timeout: float) -> list[dict[str, str]]:
+    resp = _get("https://www.mojeek.com/search", {"q": query}, timeout)
+    return _html_links(resp.text, "ul.results-standard a.title", limit)
+
+
+def _search_wikipedia(query: str, limit: int, timeout: float) -> list[dict[str, str]]:
+    resp = _get("https://en.wikipedia.org/w/api.php", {
+        "action": "query", "list": "search", "srsearch": query,
+        "srlimit": limit, "format": "json",
+    }, timeout)
+    hits = (resp.json().get("query") or {}).get("search") or []
+    return [
+        {"title": h["title"],
+         "url": "https://en.wikipedia.org/wiki/" + urllib.parse.quote(h["title"].replace(" ", "_"))}
+        for h in hits if h.get("title")
+    ]
+
+
+def _search_hackernews(query: str, limit: int, timeout: float) -> list[dict[str, str]]:
+    resp = _get("https://hn.algolia.com/api/v1/search", {"query": query, "hitsPerPage": limit}, timeout)
+    results = []
+    for hit in resp.json().get("hits") or []:
+        title = hit.get("title") or hit.get("story_title")
+        url = hit.get("url") or f"https://news.ycombinator.com/item?id={hit.get('objectID')}"
+        if title:
+            results.append({"title": title, "url": url})
+    return results
+
+
+_SEARCH_BACKENDS = (
+    ("duckduckgo", _search_duckduckgo),
+    ("mojeek", _search_mojeek),
+    ("wikipedia", _search_wikipedia),
+    ("hackernews", _search_hackernews),
+)
