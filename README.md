@@ -35,7 +35,7 @@ _▶ **[Watch the tour](brag-output/brag.mp4)**: paste a URL → stack scan → 
 | 🔎 **It reads your business** | Paste a URL. It scans the stack and runs a deterministic SEO / GEO / AIO / security audit with a 0–100 score and every finding priced. |
 | 🏢 **It staffs itself** | It provisions the specialist agents that business needs, coordinated by a CEO agent with a C-suite advisory board (CFO, CSO, COO, CMO, CPO, Counsel). |
 | 🛠 **It ships, and checks its own work** | Every change goes through plan → execute → verify. It byte-compiles and runs the tests before accepting a step. An LLM grading its own diff doesn't count. |
-| 🧯 **It fixes itself** | Errors on the dashboard become fix tasks automatically. Failures turn into lessons the planner reads next time. The CEO stops repeating directives that keep failing. |
+| 🧯 **It fixes itself, and learns** | Errors on the dashboard become fix tasks automatically. Failures turn into lessons the planner reads next time. Every hour it mines its own sessions for failures that keep repeating and files them as improvements. The CEO stops repeating directives that keep failing. |
 | 🛡 **It stays on a leash** | Approval gates, a kill switch, per-agent daily spend caps, a canary credential, a policy engine and an audit trail. Nothing merges or deploys without you. |
 | 🤪 **It has a face** | **SAM**, a googly-eyed little creature, floats in the corner of every screen. Tell it what to do and it runs the agency. |
 
@@ -58,8 +58,9 @@ creates or approves work depends on a free-tier model deciding to call a tool:
 | "**Brief me**" / "sitrep" | Live report on the CEO loop, queue depth and approval gate. No LLM involved. | Admins |
 | "**Create a task to** add dark mode to billing" | Queues the job for the agents. It runs unattended only when it's plainly internal engineering work; deploys, deletes, messages, payments and anything unclear park for your approval. | Admins |
 | "**Triage the queue**" | Runs the CEO's own triage now: approves what doesn't need you, rejects duplicates, leaves deploys/auth for you. | Admins |
+| "**Pick up portfolio work**" | Queues the top-WSJF roadmap initiatives right now and tells you what's queued, in flight and done. On the Portfolio roadmap, "pick up the top one" works too. | Admins |
 | "**Fix the alerts**" | Reads the alerts bell and queues one fix task per real error, de-duplicated. | Everyone |
-| Anything else | Answers from live agency state, guided by the operator's standing rules and what you've told it before. | Everyone |
+| Anything else | Answers from live agency state and the screen you're on, guided by the operator's standing rules and what you've told it before. | Everyone |
 
 **It's on for admins out of the box.** Turn it off, or switch **SAM avatar audience** to *All
 users*, in Settings → Platform controls → Integrations. Delegation and triage stay admin-only
@@ -142,7 +143,9 @@ flowchart LR
 
 The full log is in [**docs/changelog.md**](docs/changelog.md). The highlights from the last few weeks:
 
-- 🤪 **SAM is the face of the agency** (2026-10-03). A floating avatar on every admin's screen that can brief you, delegate work and run CEO triage. Delegated work fails closed: anything not plainly internal waits for your approval. It's also the new logo.
+- 🤪 **SAM is the face of the agency** (2026-10-03). A floating avatar on every admin's screen that can brief you, delegate work, pick up portfolio work and run CEO triage. It knows which screen you're on, so "pick up the top one" means something. Delegated work fails closed, in chat and in realtime voice: anything not plainly internal waits for your approval. It's also the new logo.
+- 🏃 **No idle agents, and the portfolio drains** (2026-10-03). The dispatcher refills each free slot right away instead of waiting on its slowest task, and pulls in portfolio work whenever the queue is empty. Finished initiatives leave the board, duplicates are cleaned up, and failed work is retried before it waits for you.
+- 🔁 **It learns from its own sessions, hourly** (2026-10-03). Session retrospectives cluster failures that keep repeating and file them as improvement issues for the fix pipeline. No LLM cost.
 - 🧠 **The CEO learns from its own results** (2026-09-26). Directives it invented that keep failing aren't reissued until newer evidence outweighs the old (`CEO_PLAYBOOK_ENFORCE`).
 - 🧯 **The agency triages its own work** (2026-09-26). Parked tasks that don't need a human get approved, duplicates get rejected, and error alerts become fix tasks. You're asked at merge time.
 - 🛑 **Kill switch + per-agent daily caps** (2026-09-26). `AGENCY_KILL_SWITCH` halts all autonomous work mid-run. `AGENT_DAILY_USD_CAP` and `AGENT_DAILY_KTOKENS_CAP` bound each agent per day.
@@ -163,7 +166,7 @@ Most "autonomous agent" projects show you a demo video. Here are artifacts inste
 
 | Proof | What it shows |
 |---|---|
-| [**This repo is maintained by its own agents**](proof/agent-built.md) | A large share of the merged pull requests here were opened by the agent fleet: self-healing systems, provider failover, CI hardening, releases. It's the public commit history, and one GitHub search verifies it. |
+| [**This repo is maintained by its own agents**](proof/agent-built.md) | **446 of the 1109 merged pull requests** here were opened by AI agent sessions: self-healing systems, provider failover, CI hardening, releases. It's the public commit history, and one GitHub search verifies it. |
 | [**Real audit output**](proof/audits/) | The audit engine run against this project's own site. Findings, scores and the agent delegation plan are committed unedited, including our own imperfect score. |
 | [**24-hour live sandbox**](https://autonomous-ai-agency.strikersam.workers.dev/) | Onboard any site, watch specialists get provisioned, talk to the CEO agent. It resets every 24 hours. No signup wall. |
 
@@ -194,7 +197,7 @@ Every row links to the module, doc or test that implements it.
 | **Plan → Execute → Verify** | A three-role loop that byte-compiles and tests its own changes before accepting them. | [`agent/loop.py`](agent/loop.py) |
 | **C-suite advisory** | Grounded CFO/CSO/COO/CMO/CPO/Counsel advice that researches, cites and remembers. | [`agent/executive_advisory.py`](agent/executive_advisory.py) |
 | **40 autonomous loops** | Health, security, stack drift, code quality, trend watch, docs sync and more, on a durable scheduler, each catalogued with readiness and cost. | [loops/registry.yaml](loops/registry.yaml) |
-| **Self-healing** | The fleet researches its own errors, files fix tasks against itself, and mines past sessions for recurring friction. | [`agent/self_healing.py`](agent/self_healing.py) |
+| **Self-healing** | The fleet researches its own errors, files fix tasks against itself, and mines past sessions hourly for recurring friction. | [`agent/self_healing.py`](agent/self_healing.py) · [`services/session_retro.py`](services/session_retro.py) |
 | **Zero-key web reach** | Read-only, SSRF-guarded internet for every agent: fetch, search, RSS, YouTube transcripts. No API keys. | [`agent/web_reach.py`](agent/web_reach.py) |
 | **Portfolio + WSJF** | Initiatives ranked by WSJF and turned into executable tasks automatically. | [Screens](#screens) |
 
