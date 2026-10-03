@@ -57,6 +57,27 @@ _BRIEF_TERMS = (
     "what's going on", "what is going on", "how is the agency", "how's the agency",
 )
 _DELEGATED_TAG = "sam-delegated"
+# Free text has no task_type, so ``tasks.service._is_outward_facing`` cannot see
+# that "deploy the service" leaves the repo. Classify it here and gate it
+# explicitly; a false positive only costs one approval tap.
+_OUTWARD_PATTERNS: tuple[tuple[str, str], ...] = (
+    (r"\b(?:deploy\w*|roll\s*back|rollback|go\s+live|to\s+prod\w*|in\s+prod\w*)\b", "deploy"),
+    (r"\b(?:release\w*|publish\w*|ship\s+it|tag\s+v?\d)", "release"),
+    (r"\b(?:secrets?|credentials?|tokens?|api[\s_-]?keys?|passwords?|auth\w*|oauth\w*|permissions?)\b", "external-write"),
+    (r"\b(?:migrat\w*|drop\s+(?:table|database|collection)|delete\s+(?:all|every|the\s+database)|wipe|purge)\b",
+     "irreversible"),
+    (r"\b(?:email|tweet|post\s+to|send\s+(?:a\s+)?message|notify\s+(?:customers|users))\b", "external-write"),
+)
+
+
+def outward_facing_tags(instruction: str) -> list[str]:
+    """Outward-facing tags *instruction* earns, e.g. ``["deploy"]``; empty if internal."""
+    lower = instruction.lower()
+    tags: list[str] = []
+    for pattern, tag in _OUTWARD_PATTERNS:
+        if re.search(pattern, lower) and tag not in tags:
+            tags.append(tag)
+    return tags
 _STATE_TIMEOUT_SEC = 8.0
 _ADMIN_ONLY_REPLY = (
     "That one runs the agency, Commander, so it needs an admin account. "
@@ -100,15 +121,17 @@ async def delegate_task(instruction: str, owner_id: str) -> str:
     existing = await store.find_by_source_id(source_id)
     if existing is not None:
         return f"That's already queued, Commander: {existing.title}. Track it under Work."
+    outward = outward_facing_tags(instruction)
     task = Task(
         owner_id=owner_id or "sam-voice",
         title=instruction[:120],
         description=f"Delegated by the Commander through SAM.\n\nInstruction:\n{instruction}",
         prompt=instruction[:32000],
         priority=TaskPriority.MEDIUM,
-        tags=["sam-voice", _DELEGATED_TAG],
+        tags=["sam-voice", _DELEGATED_TAG, *outward],
         source="sam-voice",
         source_id=source_id,
+        requires_approval=bool(outward),
     )
     await TaskWorkflowService(store=store).create_task(task, actor=f"sam:{owner_id}")
     stored = await store.get(task.task_id)
