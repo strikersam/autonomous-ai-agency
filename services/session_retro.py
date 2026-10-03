@@ -15,10 +15,12 @@ grouping is enough signal on its own and keeps this module deterministically
 testable); ``judge_cluster`` accepts an optional callable for teams that want
 to layer an LLM-as-judge pass on top of a cluster's raw evidence.
 
-Disabled by default (Golden Rule): set SESSION_RETRO_ENABLED=true to opt in.
+On by default: it makes no LLM call, and the task dispatcher runs it hourly so
+the agency keeps learning from its own sessions. SESSION_RETRO_ENABLED=false
+turns it off.
 
 Env vars (read here only):
-    SESSION_RETRO_ENABLED         default "false"
+    SESSION_RETRO_ENABLED         default "true"
     SESSION_RETRO_LOOKBACK        default "50"  — most recent sessions scanned
     SESSION_RETRO_MIN_CLUSTER     default "3"   — occurrences before filing
 """
@@ -38,7 +40,7 @@ _FRICTION_EVENT_TYPES = frozenset(
 
 
 def retro_enabled() -> bool:
-    return os.environ.get("SESSION_RETRO_ENABLED", "false").strip().lower() in ("true", "1", "yes", "on")
+    return os.environ.get("SESSION_RETRO_ENABLED", "true").strip().lower() in ("true", "1", "yes", "on")
 
 
 @dataclass

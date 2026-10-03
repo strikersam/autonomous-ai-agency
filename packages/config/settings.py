@@ -145,12 +145,14 @@ class Settings:
         # Portfolio materializer (default ON — flag is the rollback lever)
         self.portfolio_materialize_enabled: str = os.environ.get("PORTFOLIO_MATERIALIZE_ENABLED", "true").lower()
         # Initiatives turned into tasks per pass, and dispatcher polls between
-        # automatic passes (~1h at the 5 s poll). Before the automatic pass,
-        # materialisation only ran when someone pressed refresh on the board.
+        # automatic passes (~5 min at the 5 s poll; the dispatcher also runs a
+        # pass whenever its queue is empty). Failed portfolio tasks are retried
+        # this many times before they wait for a human.
         self.portfolio_materialize_max: int = _env_int("PORTFOLIO_MATERIALIZE_MAX", 3)
         self.portfolio_auto_materialize_every_polls: int = _env_int(
-            "PORTFOLIO_AUTO_MATERIALIZE_EVERY_POLLS", 720
+            "PORTFOLIO_AUTO_MATERIALIZE_EVERY_POLLS", 60
         )
+        self.portfolio_retry_max: int = _env_int("PORTFOLIO_RETRY_MAX", 2)
 
         # Free-LLM-API model catalog sync (UNIT 8 — default ON).
         # When ON, the catalog (config/models.yaml) + active BrainConfig are

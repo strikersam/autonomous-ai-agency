@@ -730,10 +730,12 @@ _AUTONOMY: tuple[ControlSpec, ...] = (
         "PORTFOLIO_AUTO_MATERIALIZE_EVERY_POLLS",
         "Portfolio intake interval (dispatcher polls)",
         "autonomy",
-        "720",
+        "60",
         "How often the agency turns top portfolio initiatives into tasks on its "
-        "own — 720 is about an hour at the default 5-second poll. 0 means only "
-        "when someone presses refresh on the Portfolio board.",
+        "own — 60 is about five minutes at the default 5-second poll. The "
+        "dispatcher also runs a pass whenever its queue is empty, so agents are "
+        "not left idle while portfolio work remains. 0 turns both off (only the "
+        "Portfolio board's refresh button and SAM then queue portfolio work).",
         live=True,
         minimum=0,
         maximum=100000,
@@ -749,6 +751,17 @@ _AUTONOMY: tuple[ControlSpec, ...] = (
         live=True,
         minimum=1,
         maximum=50,
+    ),
+    _number(
+        "PORTFOLIO_RETRY_MAX",
+        "Portfolio retries before a human",
+        "autonomy",
+        "2",
+        "How many times a portfolio task that FAILED is re-queued on its own "
+        "before it waits for you. 0 never retries.",
+        live=True,
+        minimum=0,
+        maximum=10,
     ),
     _toggle(
         "CEO_SUPERVISOR_ENABLED",
@@ -780,7 +793,16 @@ _AUTONOMY: tuple[ControlSpec, ...] = (
         "A code subtask is not accepted as done without tests.",
     ),
     _toggle("ISSUE_TRIAGE_ENABLED", "GitHub issue triage", "autonomy", "false", "Auto-triage inbound repo issues."),
-    _toggle("SESSION_RETRO_ENABLED", "Session retrospectives", "autonomy", "false", "Write a retro after each session."),
+    _toggle(
+        "SESSION_RETRO_ENABLED",
+        "Session retrospectives",
+        "autonomy",
+        "true",
+        "Every hour, mine recent agent sessions for failures that keep repeating "
+        "and file each one as an improvement issue for the fix pipeline. No LLM "
+        "calls.",
+        live=True,
+    ),
     _toggle(
         "TREND_HERMES_DISPATCH_ENABLED",
         "Dispatch trend findings to Hermes",

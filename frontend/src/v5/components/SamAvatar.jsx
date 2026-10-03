@@ -10,7 +10,7 @@ import * as api from '../../api';
 
 const SESSION_ID = 'sam-avatar';
 const CONFIG_RECHECK_MS = 60000;
-const ADMIN_CHIPS = ['Brief me', 'Triage the queue', 'Fix the alerts'];
+const ADMIN_CHIPS = ['Brief me', 'Pick up portfolio work', 'Triage the queue', 'Fix the alerts'];
 const USER_CHIPS = ['What alerts do I have?'];
 
 function useEyeTracking(ref) {
