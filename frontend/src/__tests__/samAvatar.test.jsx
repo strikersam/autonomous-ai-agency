@@ -50,3 +50,15 @@ test('non-admin gets no orchestration chips', async () => {
   expect(screen.queryByRole('button', { name: 'Triage the queue' })).toBeNull();
   expect(screen.getByRole('button', { name: 'What alerts do I have?' })).toBeInTheDocument();
 });
+
+test('appears without a reload when the toggle is flipped on (re-checks on focus)', async () => {
+  api.samAvatarConfig
+    .mockResolvedValueOnce({ data: { enabled: false, can_orchestrate: true } })
+    .mockResolvedValue({ data: { enabled: true, can_orchestrate: true } });
+  render(<SamAvatar />);
+  await waitFor(() => expect(api.samAvatarConfig).toHaveBeenCalledTimes(1));
+  expect(screen.queryByRole('button', { name: /open sam/i })).toBeNull();
+
+  window.dispatchEvent(new Event('focus'));
+  expect(await screen.findByRole('button', { name: /open sam/i })).toBeInTheDocument();
+});

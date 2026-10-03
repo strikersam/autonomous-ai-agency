@@ -1,18 +1,18 @@
 # Next Action
 
-**Updated:** 2026-10-03 (SAM avatar + orchestration, row 93)
+**Updated:** 2026-10-03 (SAM avatar default-on + voice gates, row 93)
 
-## SAM avatar 2026-10-03 — branch `feat/sam-avatar-orchestrator`
+## SAM avatar 2026-10-03 — shipped (#1646, #1647, #1648) + default-on follow-up
 
-To see it: Settings → Platform controls → Integrations → "SAM floating avatar" on.
-Admin-only by default (`SAM_AVATAR_SCOPE=admins`).
+The avatar is on by default for admins (`SAM_AVATAR_ENABLED=true`, `SAM_AVATAR_SCOPE=admins`).
+Delegated tasks fail closed: they run unattended only when plainly internal engineering work.
+Realtime voice (LiveKit) `create_task` now uses the same admin + approval gates, keyed on a
+signed role claim in the room token.
 
 Open follow-ups:
-- The LiveKit voice worker (`voice/sam_livekit_worker.py`) does not pass `is_admin`,
-  so delegate/triage are refused in realtime voice rooms. Resolve the room identity to a
-  user role before enabling them there.
-- SAM's "decide like the operator" is `OPERATOR_PRINCIPLES` plus memory-kernel facts.
-  Store more operator preferences in the memory kernel to sharpen it.
+- The delegate classifier is a word list. If a phrasing slips through, the stronger option is
+  gating every SAM-delegated task (one approval tap each).
+- Store more operator preferences in the memory kernel to sharpen SAM's judgement.
 
 ---
 **Previous:** 2026-10-03 (daily automation — Pixtral Large + Ministral 8B/3B catalog)

@@ -56,14 +56,14 @@ creates or approves work depends on a free-tier model deciding to call a tool:
 | Say | SAM does | Who |
 |---|---|---|
 | "**Brief me**" / "sitrep" | Live report on the CEO loop, queue depth and approval gate. No LLM involved. | Admins |
-| "**Create a task to** add dark mode to billing" | Queues the job for the agents. Deploys and other outward-facing work still park for your approval. | Admins |
+| "**Create a task to** add dark mode to billing" | Queues the job for the agents. It runs unattended only when it's plainly internal engineering work; deploys, deletes, messages, payments and anything unclear park for your approval. | Admins |
 | "**Triage the queue**" | Runs the CEO's own triage now: approves what doesn't need you, rejects duplicates, leaves deploys/auth for you. | Admins |
 | "**Fix the alerts**" | Reads the alerts bell and queues one fix task per real error, de-duplicated. | Everyone |
 | Anything else | Answers from live agency state, guided by the operator's standing rules and what you've told it before. | Everyone |
 
-**Turn it on:** Settings → Platform controls → Integrations → **SAM floating avatar**. It's off by
-default and admin-only. Switch **SAM avatar audience** to *All users* to widen it. Delegation
-and triage stay admin-only either way.
+**It's on for admins out of the box.** Turn it off, or switch **SAM avatar audience** to *All
+users*, in Settings → Platform controls → Integrations. Delegation and triage stay admin-only
+either way, in chat and in realtime voice.
 
 ---
 
@@ -142,7 +142,7 @@ flowchart LR
 
 The full log is in [**docs/changelog.md**](docs/changelog.md). The highlights from the last few weeks:
 
-- 🤪 **SAM is the face of the agency** (2026-10-03). A floating avatar on every screen that can brief you, delegate work and run CEO triage. It's also the new logo.
+- 🤪 **SAM is the face of the agency** (2026-10-03). A floating avatar on every admin's screen that can brief you, delegate work and run CEO triage. Delegated work fails closed: anything not plainly internal waits for your approval. It's also the new logo.
 - 🧠 **The CEO learns from its own results** (2026-09-26). Directives it invented that keep failing aren't reissued until newer evidence outweighs the old (`CEO_PLAYBOOK_ENFORCE`).
 - 🧯 **The agency triages its own work** (2026-09-26). Parked tasks that don't need a human get approved, duplicates get rejected, and error alerts become fix tasks. You're asked at merge time.
 - 🛑 **Kill switch + per-agent daily caps** (2026-09-26). `AGENCY_KILL_SWITCH` halts all autonomous work mid-run. `AGENT_DAILY_USD_CAP` and `AGENT_DAILY_KTOKENS_CAP` bound each agent per day.

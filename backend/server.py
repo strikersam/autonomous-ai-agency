@@ -10354,6 +10354,8 @@ async def sam_livekit_token_backend(
             detail="LiveKit is not configured — missing: " + ", ".join(cfg.missing),
         )
 
+    from backend.company_api import _is_admin
+
     identity = str(user.get("email") or user.get("_id") or "commander")
     room = (body.room or "").strip() or f"{cfg.room_prefix}-{identity.split('@')[0]}"
     try:
@@ -10363,6 +10365,8 @@ async def sam_livekit_token_backend(
             identity=identity,
             room=room,
             name=str(user.get("name") or "Commander"),
+            # Signed role claim: the voice worker gates create_task on it.
+            metadata=json.dumps({"role": "admin" if _is_admin(user) else "user"}),
         )
     except ValueError:
         log.exception("LiveKit token minting failed")
