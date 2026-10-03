@@ -1,6 +1,27 @@
 # Next Action
 
-**Updated:** 2026-10-02 (quick-note reviewer fix)
+**Updated:** 2026-10-03 (daily automation — Pixtral Large + Ministral 8B/3B catalog)
+
+## Daily automation 2026-10-03 — DONE (row 86, PR open)
+
+Three Mistral models (released Oct–Nov 2024, missing from catalog) added:
+- `pixtral-large-latest` ($2/$6 MTok, 124B vision, priority 90, not routed)
+- `ministral-8b-latest` ($0.10 flat MTok, 8B, tools on, priority 66)
+- `ministral-3b-latest` ($0.04 flat MTok, 3B, tools off, priority 67)
+
+27/27 tests pass. Catalog: 79→82 ids, no drift. PARITY OK.
+PR open on `claude/intelligent-gates-8u3mh3`.
+
+**Next daily run (2026-10-04):**
+- Confirm PR #(TBD) for row 86 merged. Then CI results inform next steps.
+- Consider adding `pixtral-large-latest` / `ministral-8b-latest` to Mistral
+  routing candidates after a live probe confirms they answer correctly.
+- Check NVIDIA NIM for new model availability (watch for Nemotron 4 family).
+- Groq: `llama-4-scout-instruct` (Meta Llama 4 released in 2026 with multimodal) —
+  check if it's on this account before adding.
+
+---
+**Previous:** 2026-10-02 (quick-note reviewer fix)
 
 ## Quick-note reviewer 2026-10-02 — branch `claude/cleanup-open-prs-issues-kdzv7g`
 
