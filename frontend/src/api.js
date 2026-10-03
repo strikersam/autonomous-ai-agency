@@ -572,6 +572,7 @@ export const setLlmProviderEnabled = (providerId, enabled, durationSec = 300) =>
 export const samStatus = () => API.get('/agent/sam/status');
 export const samChat   = (text, sessionId) => API.post('/agent/sam/chat', { text, session_id: sessionId || 'default' });
 export const samSpeak  = (text) => API.post('/agent/sam/speak', { text });
+export const samAvatarConfig = () => API.get('/agent/sam/avatar');
 
 // ── Agent governance (packages/governance) ────────────────────────────────
 // Admin-only. Reads are gated too: an audit trail is an inventory of the

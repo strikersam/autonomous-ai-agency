@@ -10266,8 +10266,11 @@ async def sam_chat_backend(body: SamChatRequest, user: dict = Depends(get_curren
             user.get("_id") or user.get("id") or user.get("sub")
             or user.get("email") or "sam-voice"
         )
+        from backend.company_api import _is_admin
+        # Namespace the session by caller so two users never share SAM's history.
         response_text = await sam.process_command(
-            body.text, session_id=body.session_id, owner_id=owner_id,
+            body.text, session_id=f"{owner_id}:{body.session_id}", owner_id=owner_id,
+            is_admin=_is_admin(user),
         )
         return {
             "text": response_text,
@@ -10276,6 +10279,21 @@ async def sam_chat_backend(body: SamChatRequest, user: dict = Depends(get_curren
     except Exception as exc:
         log.exception("sam_chat failed")
         raise HTTPException(status_code=500, detail="SAM chat failed")
+
+
+class SamAvatarConfig(BaseModel):
+    enabled: bool
+    can_orchestrate: bool
+
+
+@app.get("/agent/sam/avatar", response_model=SamAvatarConfig)
+async def sam_avatar_config_backend(user: dict = Depends(get_current_user)) -> SamAvatarConfig:
+    """Tell the dashboard whether to show the SAM floating avatar to this user."""
+    from backend.company_api import _is_admin
+    from packages.config import settings as _settings
+
+    is_admin = _is_admin(user)
+    return SamAvatarConfig(enabled=_settings.sam_avatar_visible_to(is_admin), can_orchestrate=is_admin)
 
 
 @app.post("/agent/sam/speak")

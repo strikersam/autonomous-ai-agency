@@ -108,6 +108,9 @@ class Settings:
         self.agency_triage_approve_trends: str = os.environ.get(
             "AGENCY_TRIAGE_APPROVE_TRENDS", "true"
         ).lower()
+        # SAM floating avatar: off by default; when on, admins-only unless widened.
+        self.sam_avatar_enabled: str = os.environ.get("SAM_AVATAR_ENABLED", "false").lower()
+        self.sam_avatar_scope: str = os.environ.get("SAM_AVATAR_SCOPE", "admins").lower()
         self.run_background_in_web: str = os.environ.get("RUN_BACKGROUND_IN_WEB", "true").lower()
         self.run_hermes_in_process: str = os.environ.get("RUN_HERMES_IN_PROCESS", "true").lower()
         self.cron_secret: str = os.environ.get("CRON_SECRET", "")
@@ -534,6 +537,12 @@ class Settings:
     @property
     def is_triage_approve_trends_enabled(self) -> bool:
         return self.agency_triage_approve_trends in {"1", "true", "yes", "on"}
+
+    def sam_avatar_visible_to(self, is_admin: bool) -> bool:
+        """Whether the SAM floating avatar is shown to a user of this role."""
+        if self.sam_avatar_enabled not in {"1", "true", "yes", "on"}:
+            return False
+        return is_admin or self.sam_avatar_scope == "all"
 
     @property
     def is_background_in_web(self) -> bool:
