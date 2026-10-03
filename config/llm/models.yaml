@@ -627,6 +627,64 @@ models:
     priority: 65
     speed_tier: fast
 
+  # Pixtral Large (latest checkpoint). Mistral's multimodal vision flagship.
+  # 124B-parameter instruction-tuned model; 131K context; handles images and
+  # text in the same conversation; tool calling supported.
+  # Not added to any routing candidates — vision-specialised; too expensive
+  # for general agent loops. Reach via X-Model-Override header.
+  # Pricing source: mistral.ai/technology/#pricing, 2026-10-03.
+  pixtral-large-latest:
+    provider: mistral
+    display_name: Pixtral Large (latest)
+    context_window: 131072
+    max_output_tokens: 4096
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 2.0
+    output_cost_per_1m: 6.0
+    priority: 90
+    speed_tier: slow
+
+  # Ministral 8B (latest checkpoint). Mistral's efficient 8B-class model.
+  # 131K context; tool calling supported; flat $0.10/$0.10 per MTok — output
+  # is 3× cheaper than mistral-small-latest ($0.30 out), suited for
+  # high-throughput agent executor / verifier loops.
+  # Pricing source: mistral.ai/technology/#pricing, 2026-10-03.
+  ministral-8b-latest:
+    provider: mistral
+    display_name: Ministral 8B (latest)
+    context_window: 131072
+    max_output_tokens: 4096
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.1
+    output_cost_per_1m: 0.1
+    priority: 66
+    speed_tier: fast
+
+  # Ministral 3B (latest checkpoint). Smallest/fastest Mistral model.
+  # 131K context; flat $0.04/$0.04 per MTok.  supports_tools is false —
+  # 3B parameter models do not reliably follow tool-call schemas; use for
+  # text summarisation, classification, or triage only.
+  # Pricing source: mistral.ai/technology/#pricing, 2026-10-03.
+  ministral-3b-latest:
+    provider: mistral
+    display_name: Ministral 3B (latest)
+    context_window: 131072
+    max_output_tokens: 4096
+    supports_tools: false
+    supports_function_calling: false
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.04
+    output_cost_per_1m: 0.04
+    priority: 67
+    speed_tier: fast
+
   # ── Anthropic — Claude 4 Opus family ────────────────────────────────────
   # Opus 4.8: latest Claude 4 Opus checkpoint. Adds output_config.effort
   # parameter for per-request thinking depth and faster output vs. 4.7.
