@@ -58,26 +58,48 @@ _BRIEF_TERMS = (
 )
 _DELEGATED_TAG = "sam-delegated"
 # Free text has no task_type, so ``tasks.service._is_outward_facing`` cannot see
-# that "deploy the service" leaves the repo. Classify it here and gate it
-# explicitly; a false positive only costs one approval tap.
+# that "deploy the service" leaves the repo. Classification fails closed: a
+# delegated task runs unattended only when it opens with an internal
+# engineering verb AND matches no outward pattern. Everything else is gated —
+# a false positive costs one approval tap, a miss runs unattended.
 _OUTWARD_PATTERNS: tuple[tuple[str, str], ...] = (
-    (r"\b(?:deploy\w*|roll\s*back|rollback|go\s+live|to\s+prod\w*|in\s+prod\w*)\b", "deploy"),
+    (r"\b(?:deploy\w*|roll\s*back|rollback|go\s+live|prod|production|restart\w*|reboot\w*|"
+     r"shut\s*down|scale\s+(?:up|down)|stop\s+the|kill\s+the|live\s+(?:site|server|service))\b", "deploy"),
     (r"\b(?:release\w*|publish\w*|ship\s+it|tag\s+v?\d)", "release"),
-    (r"\b(?:secrets?|credentials?|tokens?|api[\s_-]?keys?|passwords?|auth\w*|oauth\w*|permissions?)\b", "external-write"),
-    (r"\b(?:migrat\w*|drop\s+(?:table|database|collection)|delete\s+(?:all|every|the\s+database)|wipe|purge)\b",
+    (r"\b(?:secrets?|credentials?|tokens?|api[\s_-]?keys?|passwords?|auth\w*|oauth\w*|permissions?|"
+     r"access|invite\w*|revok\w*|grant\w*|ban|suspend\w*)\b", "external-write"),
+    (r"\b(?:migrat\w*|delet\w*|destroy\w*|drop|truncat\w*|wipe\w*|purg\w*|eras\w*|"
+     r"remove\s+(?:\w+\s+)?(?:accounts?|users?|customers?|data|records?|backups?|repos?\w*|branch\w*))\b",
      "irreversible"),
-    (r"\b(?:email|tweet|post\s+to|send\s+(?:a\s+)?message|notify\s+(?:customers|users))\b", "external-write"),
+    (r"\b(?:e-?mail\w*|tweet\w*|slack|discord|telegram|sms|whatsapp|post\s+to|send\w*|message\w*|"
+     r"notify\w*|announce\w*|customers?|clients?|pay\w*|charg\w*|refund\w*|invoic\w*|"
+     r"purchas\w*|buy\w*|billing\s+account|dns|domain)\b", "external-write"),
 )
+_INTERNAL_VERBS = re.compile(
+    r"^(?:please\s+)?(?:fix|add|implement|refactor|write|document|improve|investigate|research|"
+    r"analy[sz]e|review|test|clean\s+up|tidy|rename|optimi[sz]e|debug|audit|draft|plan|"
+    r"summari[sz]e|build|design|update|upgrade|speed\s+up|cover|explain|profile|reduce|simplify)\b",
+)
+_UNCLASSIFIED_TAG = "risk:unclassified"
 
 
 def outward_facing_tags(instruction: str) -> list[str]:
-    """Outward-facing tags *instruction* earns, e.g. ``["deploy"]``; empty if internal."""
-    lower = instruction.lower()
+    """Gating tags *instruction* earns (fail closed); empty only for clearly internal work.
+
+    ``risk:unclassified`` marks text that is neither recognisably outward nor
+    recognisably internal engineering work — ``_is_outward_facing`` gates any
+    ``risk:*`` tag, so unknown intent parks for approval instead of running.
+    """
+    lower = instruction.lower().strip()
     tags: list[str] = []
     for pattern, tag in _OUTWARD_PATTERNS:
         if re.search(pattern, lower) and tag not in tags:
             tags.append(tag)
+    if not tags and not _INTERNAL_VERBS.match(lower):
+        tags.append(_UNCLASSIFIED_TAG)
     return tags
+
+
 _STATE_TIMEOUT_SEC = 8.0
 _ADMIN_ONLY_REPLY = (
     "That one runs the agency, Commander, so it needs an admin account. "
