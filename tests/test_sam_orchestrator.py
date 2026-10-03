@@ -217,6 +217,12 @@ def test_chat_namespaces_session_and_passes_role(client, monkeypatch):
     "publish the package to PyPI",
     "rotate the API secrets",
     "run the database migration",
+    # Codex P1 on #1647: ordinary destructive/external wording must fail closed.
+    "delete inactive customer accounts",
+    "restart the production service",
+    "send a Slack message to the on-call channel",
+    "refund the last three invoices",
+    "do the thing we talked about yesterday",  # unclassifiable -> gated
 ])
 def test_outward_facing_delegation_is_gated(store, instruction):
     """Regression (Codex P1): a delegated deploy must park for approval, not run."""
@@ -229,9 +235,16 @@ def test_outward_facing_delegation_is_gated(store, instruction):
     assert "parked for your approval" in reply
 
 
-def test_internal_delegation_is_not_gated(store):
+@pytest.mark.parametrize("instruction", [
+    "refactor the scheduler tests",
+    "add dark mode to the billing page",
+    "fix the flaky login test",
+    "write docs for the router",
+    "investigate why the dashboard is slow",
+])
+def test_internal_delegation_is_not_gated(store, instruction):
     asyncio.run(SamAgent().process_command(
-        "create a task to refactor the scheduler tests", owner_id="admin-1", is_admin=True,
+        f"create a task to {instruction}", owner_id="admin-1", is_admin=True,
     ))
     (task,) = store._mem.values()
     assert not task.get("requires_approval")
