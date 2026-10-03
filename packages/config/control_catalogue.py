@@ -1174,7 +1174,7 @@ _INTEGRATIONS: tuple[ControlSpec, ...] = (
         "SAM_AVATAR_ENABLED",
         "SAM floating avatar",
         "integrations",
-        "false",
+        "true",
         "Show SAM as a floating avatar in the bottom-left corner of every screen, "
         "on desktop and mobile. Tap it to talk to SAM; admins can delegate tasks "
         "and run CEO triage from it.",

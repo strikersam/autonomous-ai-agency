@@ -164,9 +164,9 @@ def clean_overrides():
     control_overrides._applied.update(applied_before)
 
 
-def test_avatar_controls_are_live_and_off_by_default():
+def test_avatar_controls_are_live_and_on_for_admins_by_default():
     enabled, scope = get_control("SAM_AVATAR_ENABLED"), get_control("SAM_AVATAR_SCOPE")
-    assert enabled.default == "false" and enabled.live
+    assert enabled.default == "true" and enabled.live
     assert scope.default == "admins" and scope.live
 
 
@@ -174,8 +174,17 @@ def test_avatar_endpoint_follows_the_toggle(client, clean_overrides):
     from backend.server import app
 
     try:
+        os.environ.pop("SAM_AVATAR_ENABLED", None)
+        os.environ.pop("SAM_AVATAR_SCOPE", None)
+        control_overrides.apply_overrides({})
+        _as(ADMIN)  # code default: on, admins only
+        assert client.get("/agent/sam/avatar").json() == {"enabled": True, "can_orchestrate": True}
+        _as(USER)
+        assert client.get("/agent/sam/avatar").json()["enabled"] is False
+
+        control_overrides.apply_overrides({"SAM_AVATAR_ENABLED": "false"})
         _as(ADMIN)
-        assert client.get("/agent/sam/avatar").json() == {"enabled": False, "can_orchestrate": True}
+        assert client.get("/agent/sam/avatar").json()["enabled"] is False
 
         control_overrides.apply_overrides({"SAM_AVATAR_ENABLED": "true"})
         assert client.get("/agent/sam/avatar").json()["enabled"] is True
@@ -252,3 +261,68 @@ def test_internal_delegation_is_not_gated(store, instruction):
     ))
     (task,) = store._mem.values()
     assert not task.get("requires_approval")
+
+
+# ── Realtime voice (LiveKit) uses the same gates ──────────────────────────────
+
+@pytest.mark.parametrize("metadata,expected", [
+    ('{"role": "admin"}', True),
+    ('{"role": "user"}', False),
+    ("", False),
+    (None, False),
+    ("not json", False),
+    ('["admin"]', False),
+])
+def test_voice_role_from_token_metadata(metadata, expected):
+    from voice.sam_livekit_worker import role_is_admin
+
+    assert role_is_admin(metadata) is expected
+
+
+def test_voice_create_task_refuses_non_admin(store):
+    """Regression: the voice create_task tool let any signed-in user queue work."""
+    from voice.sam_livekit_worker import voice_create_task
+
+    reply = asyncio.run(voice_create_task("refactor the router", "", "u1", is_admin=False))
+    assert store._mem == {}
+    assert "needs an admin" in reply
+
+
+def test_voice_create_task_gates_outward_work_in_the_description(store):
+    """Regression: voice tasks bypassed the approval gate entirely."""
+    from voice.sam_livekit_worker import voice_create_task
+
+    reply = asyncio.run(voice_create_task(
+        "update the release job", "then deploy it to production", "admin-1", is_admin=True,
+    ))
+    (task,) = store._mem.values()
+    assert task["requires_approval"] is True
+    assert "parked for your approval" in reply
+
+
+def test_voice_create_task_internal_work_runs(store):
+    from voice.sam_livekit_worker import voice_create_task
+
+    asyncio.run(voice_create_task("fix the flaky router test", "", "admin-1", is_admin=True))
+    (task,) = store._mem.values()
+    assert not task.get("requires_approval")
+
+
+@pytest.mark.parametrize("user,role", [(ADMIN, "admin"), (USER, "user")])
+def test_livekit_token_carries_signed_role(client, monkeypatch, user, role):
+    import json as _json
+
+    import jwt
+    from backend.server import app
+
+    monkeypatch.setenv("LIVEKIT_URL", "wss://test.livekit.cloud")
+    monkeypatch.setenv("LIVEKIT_API_KEY", "APIkey")
+    monkeypatch.setenv("LIVEKIT_API_SECRET", "s" * 40)
+    try:
+        _as(user)
+        resp = client.post("/agent/sam/livekit/token", json={})
+    finally:
+        app.dependency_overrides.clear()
+    assert resp.status_code == 200, resp.text
+    claims = jwt.decode(resp.json()["token"], "s" * 40, algorithms=["HS256"], issuer="APIkey")
+    assert _json.loads(claims["metadata"]) == {"role": role}

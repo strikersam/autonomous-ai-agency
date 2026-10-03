@@ -103,7 +103,7 @@ def outward_facing_tags(instruction: str) -> list[str]:
 
 
 _STATE_TIMEOUT_SEC = 8.0
-_ADMIN_ONLY_REPLY = (
+ADMIN_ONLY_REPLY = (
     "That one runs the agency, Commander, so it needs an admin account. "
     "I can still read you the alerts or answer questions."
 )
@@ -130,8 +130,12 @@ def extract_instruction(text: str) -> str:
     return what.strip().rstrip(".!?").strip()
 
 
-async def delegate_task(instruction: str, owner_id: str) -> str:
-    """Queue *instruction* as an agent task and return SAM's spoken report."""
+async def delegate_task(instruction: str, owner_id: str, description: str = "") -> str:
+    """Queue *instruction* as an agent task and return SAM's spoken report.
+
+    *description* (voice tool path) is classified together with the title, so
+    outward intent hidden in the details still gates the task.
+    """
     from tasks.models import Task, TaskPriority
     from tasks.service import TaskWorkflowService
     from tasks.store import get_task_store
@@ -145,12 +149,13 @@ async def delegate_task(instruction: str, owner_id: str) -> str:
     existing = await store.find_by_source_id(source_id)
     if existing is not None:
         return f"That's already queued, Commander: {existing.title}. Track it under Work."
-    outward = outward_facing_tags(instruction)
+    outward = outward_facing_tags(f"{instruction} {description}".strip())
     task = Task(
         owner_id=owner_id or "sam-voice",
         title=instruction[:120],
-        description=f"Delegated by the Commander through SAM.\n\nInstruction:\n{instruction}",
-        prompt=instruction[:32000],
+        description=(f"Delegated by the Commander through SAM.\n\nInstruction:\n{instruction}"
+                     + (f"\n\nDetails:\n{description[:4000]}" if description else "")),
+        prompt=f"{instruction}\n\n{description}".strip()[:32000],
         priority=TaskPriority.MEDIUM,
         tags=["sam-voice", _DELEGATED_TAG, *outward],
         source="sam-voice",
@@ -216,7 +221,7 @@ async def handle_orchestration_command(text: str, owner_id: str, *, is_admin: bo
     if intent is None:
         return None
     if not is_admin:
-        return _ADMIN_ONLY_REPLY
+        return ADMIN_ONLY_REPLY
     try:
         if intent == "delegate":
             return await delegate_task(extract_instruction(text), owner_id)

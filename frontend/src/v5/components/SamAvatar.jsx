@@ -9,6 +9,7 @@ import * as api from '../../api';
 // (GET /agent/sam/avatar ← SAM_AVATAR_ENABLED / SAM_AVATAR_SCOPE controls).
 
 const SESSION_ID = 'sam-avatar';
+const CONFIG_RECHECK_MS = 60000;
 const ADMIN_CHIPS = ['Brief me', 'Triage the queue', 'Fix the alerts'];
 const USER_CHIPS = ['What alerts do I have?'];
 
@@ -198,13 +199,26 @@ export default function SamAvatar({ onNavigate }) {
   const btnRef = React.useRef(null);
   const look = useEyeTracking(btnRef);
 
+  // Re-checked on focus and every minute, so flipping the Platform Control
+  // shows or hides SAM without a page reload. A failed check keeps the last
+  // known state rather than making SAM flicker away on a network blip.
   React.useEffect(() => {
     let alive = true;
-    Promise.resolve()
+    const load = () => Promise.resolve()
       .then(() => api.samAvatarConfig())
       .then(r => { if (alive) setConfig(r?.data || null); })
-      .catch(() => { if (alive) setConfig(null); });
-    return () => { alive = false; };
+      .catch(() => {});
+    const onVisible = () => { if (document.visibilityState === 'visible') load(); };
+    load();
+    window.addEventListener('focus', load);
+    document.addEventListener('visibilitychange', onVisible);
+    const timer = setInterval(load, CONFIG_RECHECK_MS);
+    return () => {
+      alive = false;
+      window.removeEventListener('focus', load);
+      document.removeEventListener('visibilitychange', onVisible);
+      clearInterval(timer);
+    };
   }, []);
 
   if (!config?.enabled) return null;

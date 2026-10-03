@@ -108,8 +108,8 @@ class Settings:
         self.agency_triage_approve_trends: str = os.environ.get(
             "AGENCY_TRIAGE_APPROVE_TRENDS", "true"
         ).lower()
-        # SAM floating avatar: off by default; when on, admins-only unless widened.
-        self.sam_avatar_enabled: str = os.environ.get("SAM_AVATAR_ENABLED", "false").lower()
+        # SAM floating avatar: on by default, admins-only unless widened.
+        self.sam_avatar_enabled: str = os.environ.get("SAM_AVATAR_ENABLED", "true").lower()
         self.sam_avatar_scope: str = os.environ.get("SAM_AVATAR_SCOPE", "admins").lower()
         self.run_background_in_web: str = os.environ.get("RUN_BACKGROUND_IN_WEB", "true").lower()
         self.run_hermes_in_process: str = os.environ.get("RUN_HERMES_IN_PROCESS", "true").lower()
