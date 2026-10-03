@@ -254,9 +254,14 @@ async def build_brief() -> str:
     return " ".join(parts)
 
 
-async def handle_orchestration_command(text: str, owner_id: str, *, is_admin: bool) -> str | None:
-    """Run the orchestration action *text* asks for, or return None if none."""
-    intent = detect_orchestration_intent(text)
+async def handle_orchestration_command(
+    text: str, owner_id: str, *, is_admin: bool, intent: str | None = None,
+) -> str | None:
+    """Run the orchestration action *text* asks for, or return None if none.
+
+    *intent* overrides keyword detection (the screen already resolved it).
+    """
+    intent = intent or detect_orchestration_intent(text)
     if intent is None:
         return None
     if not is_admin:

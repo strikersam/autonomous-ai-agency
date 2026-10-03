@@ -10184,6 +10184,10 @@ class VoiceTranscribeRequest(BaseModel):
 class SamChatRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000, description="Transcribed voice command")
     session_id: str = Field(default="default", max_length=64)
+    screen: str = Field(
+        default="", max_length=41, pattern=r"^([a-z_]{1,20}(/[a-z_-]{1,20})?)?$",
+        description="Dashboard screen the Commander is on, e.g. work/roadmap",
+    )
 
 
 class SamSpeakRequest(BaseModel):
@@ -10270,7 +10274,7 @@ async def sam_chat_backend(body: SamChatRequest, user: dict = Depends(get_curren
         # Namespace the session by caller so two users never share SAM's history.
         response_text = await sam.process_command(
             body.text, session_id=f"{owner_id}:{body.session_id}", owner_id=owner_id,
-            is_admin=_is_admin(user),
+            is_admin=_is_admin(user), screen=body.screen,
         )
         return {
             "text": response_text,

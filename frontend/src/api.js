@@ -570,7 +570,7 @@ export const setLlmProviderEnabled = (providerId, enabled, durationSec = 300) =>
 
 // ── SAM Voice Agent (issue #666) ──────────────────────────────────────────
 export const samStatus = () => API.get('/agent/sam/status');
-export const samChat   = (text, sessionId) => API.post('/agent/sam/chat', { text, session_id: sessionId || 'default' });
+export const samChat   = (text, sessionId, screen) => API.post('/agent/sam/chat', { text, session_id: sessionId || 'default', ...(screen ? { screen } : {}) });
 export const samSpeak  = (text) => API.post('/agent/sam/speak', { text });
 export const samAvatarConfig = () => API.get('/agent/sam/avatar');
 

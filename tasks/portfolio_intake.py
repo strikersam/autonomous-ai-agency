@@ -27,6 +27,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 
 from tasks.models import Task, TaskPriority, TaskStatus
@@ -108,6 +109,23 @@ def _wsjf(initiative: Any) -> float:
         return float(w() if callable(w) else w)
     except Exception:
         return 0.0
+
+
+def _set_status(initiative: Any, value: str) -> bool:
+    """Set *initiative*'s status to *value* using its own enum class. Returns True if changed.
+
+    Uses the class of the status already on the initiative, so a module loaded
+    twice (two ``InitiativeStatus`` classes) can't make the board's own
+    ``status != DONE`` check miss.
+    """
+    from agents.portfolio import InitiativeStatus
+
+    current = initiative.status
+    if _status_value(current) == value:
+        return False
+    cls = type(current) if isinstance(current, Enum) else InitiativeStatus
+    initiative.status = cls(value)
+    return True
 
 
 def _status_value(s: Any) -> str:
@@ -197,8 +215,6 @@ def sync_initiative_status(portfolio: Any, index: dict[str, list[Task]]) -> int:
     IN_PROGRESS; only declined (WONT_DO) tasks → CANCELLED. FAILED-only
     initiatives stay as they are and are retried by :func:`retry_failed`.
     """
-    from agents.portfolio import InitiativeStatus
-
     changed = 0
     for initiative in getattr(portfolio, "_initiatives", {}).values():
         group = index.get(portfolio_key(getattr(initiative, "title", "")))
@@ -206,16 +222,14 @@ def sync_initiative_status(portfolio: Any, index: dict[str, list[Task]]) -> int:
             continue
         statuses = {t.status for t in group}
         if TaskStatus.DONE in statuses:
-            new = InitiativeStatus.DONE
+            new = "done"
         elif statuses & _ACTIVE:
-            new = InitiativeStatus.IN_PROGRESS
+            new = "in_progress"
         elif statuses == {TaskStatus.WONT_DO}:
-            new = InitiativeStatus.CANCELLED
+            new = "cancelled"
         else:
             continue
-        if _status_value(initiative.status) != new.value:
-            initiative.status = new
-            changed += 1
+        changed += _set_status(initiative, new)
     return changed
 
 
@@ -299,7 +313,7 @@ async def materialize_committed(
         await wf.create_task(task, actor="system:portfolio_intake")
         created.append(task)
         index[portfolio_key(initiative.title)] = [task]
-        initiative.status = InitiativeStatus.IN_PROGRESS
+        _set_status(initiative, "in_progress")
         log.info("portfolio_intake: created task %s for initiative '%s' (wsjf=%.2f)",
                  task.task_id, initiative.title[:40], _wsjf(initiative))
 

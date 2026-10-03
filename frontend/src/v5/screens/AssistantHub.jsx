@@ -1,4 +1,5 @@
 import React from 'react';
+import { useReportSub } from '../screenContext';
 import ChatScreen from './ChatScreen';
 import Spinner from '../components/ui/Spinner';
 
@@ -15,6 +16,7 @@ const SamVoiceScreen = React.lazy(() => import('./SamVoiceScreen'));
  */
 export default function AssistantHub({ initialMode = 'chat' }) {
   const [mode, setMode] = React.useState(initialMode === 'voice' ? 'voice' : 'chat');
+  useReportSub('assistant', mode);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 16px 0' }}>

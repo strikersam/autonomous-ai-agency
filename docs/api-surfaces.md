@@ -73,7 +73,7 @@ The `backend/` app powers the separate React control plane and includes routes f
 ### SAM (`/agent/sam/*`, authenticated)
 
 - `GET /agent/sam/status` — SAM session count and uptime
-- `POST /agent/sam/chat` — talk to SAM. The session is namespaced per caller. Admins can delegate ("create a task to …"), run CEO triage ("triage the queue") and get a live brief ("brief me"); non-admins can chat and read/fix alerts
+- `POST /agent/sam/chat` — talk to SAM. Optional `screen` (`hub` or `hub/tab`, e.g. `work/roadmap`) tells SAM what the Commander is looking at. The session is namespaced per caller. Admins can delegate ("create a task to …"), run CEO triage ("triage the queue") and get a live brief ("brief me"); non-admins can chat and read/fix alerts
 - `POST /agent/sam/speak` — synthesise a reply as audio
 - `GET /agent/sam/avatar` — `{enabled, can_orchestrate}`: whether to show the floating SAM avatar to this caller (`SAM_AVATAR_ENABLED` / `SAM_AVATAR_SCOPE`)
 - `GET /agent/sam/livekit/status`, `POST /agent/sam/livekit/token` — realtime voice transport. The token carries a signed `{"role": "admin"|"user"}` metadata claim; the voice worker's `create_task` tool is admin-only and uses the same fail-closed approval gate as chat
