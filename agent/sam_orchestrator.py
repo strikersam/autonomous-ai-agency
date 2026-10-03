@@ -110,10 +110,12 @@ ADMIN_ONLY_REPLY = (
 
 
 def detect_orchestration_intent(text: str) -> str | None:
-    """Return ``"delegate"``, ``"triage"``, ``"brief"`` or ``None``."""
+    """Return ``"delegate"``, ``"portfolio"``, ``"triage"``, ``"brief"`` or ``None``."""
     lower = f" {text.lower().strip()} "
     if _DELEGATE_RE.search(text):
         return "delegate"
+    if " portfolio" in lower or "roadmap work" in lower or "initiative" in lower:
+        return "portfolio"
     if any(term in lower for term in _TRIAGE_TERMS):
         return "triage"
     if any(term in lower for term in _BRIEF_TERMS):
@@ -192,6 +194,39 @@ async def _queue_counts() -> tuple[int, int]:
     return len(pending), len(parked)
 
 
+def portfolio_counts() -> dict[str, int]:
+    """Initiative counts on the cached portfolio board, by status."""
+    from agents.portfolio_api import get_service
+
+    counts: dict[str, int] = {}
+    for initiative in get_service().portfolio._initiatives.values():  # noqa: SLF001
+        key = getattr(initiative.status, "value", str(initiative.status))
+        counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _portfolio_line(counts: dict[str, int]) -> str:
+    queued = counts.get("proposed", 0) + counts.get("approved", 0)
+    return (f"Portfolio: {queued} initiatives queued, {counts.get('in_progress', 0)} in flight, "
+            f"{counts.get('done', 0)} done.")
+
+
+async def pick_up_portfolio() -> str:
+    """Run portfolio intake now and report what the agents picked up."""
+    from tasks.autonomy_triage import materialize_portfolio
+
+    created = await materialize_portfolio()
+    counts = portfolio_counts()
+    if created:
+        lead = f"Picked up {created} portfolio initiative{'s' if created != 1 else ''} for the agents."
+    elif counts.get("in_progress", 0):
+        lead = ("Nothing new to queue yet: the in-flight initiatives fill this increment's "
+                "capacity, so the next ones start as those finish.")
+    else:
+        lead = "There's no portfolio work left to queue."
+    return f"{lead} {_portfolio_line(counts)}"
+
+
 async def build_brief() -> str:
     """Live agency report: CEO loop, queue depth, approval gate. No LLM."""
     from agent.agency import get_agency
@@ -212,12 +247,21 @@ async def build_brief() -> str:
     except Exception:
         log.warning("SAM brief: task store unavailable", exc_info=True)
         parts.append("I couldn't read the task queue just now.")
+    try:
+        parts.append(_portfolio_line(portfolio_counts()))
+    except Exception:
+        log.warning("SAM brief: portfolio board unavailable", exc_info=True)
     return " ".join(parts)
 
 
-async def handle_orchestration_command(text: str, owner_id: str, *, is_admin: bool) -> str | None:
-    """Run the orchestration action *text* asks for, or return None if none."""
-    intent = detect_orchestration_intent(text)
+async def handle_orchestration_command(
+    text: str, owner_id: str, *, is_admin: bool, intent: str | None = None,
+) -> str | None:
+    """Run the orchestration action *text* asks for, or return None if none.
+
+    *intent* overrides keyword detection (the screen already resolved it).
+    """
+    intent = intent or detect_orchestration_intent(text)
     if intent is None:
         return None
     if not is_admin:
@@ -225,6 +269,8 @@ async def handle_orchestration_command(text: str, owner_id: str, *, is_admin: bo
     try:
         if intent == "delegate":
             return await delegate_task(extract_instruction(text), owner_id)
+        if intent == "portfolio":
+            return await pick_up_portfolio()
         if intent == "triage":
             return await run_triage()
         return await build_brief()

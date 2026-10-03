@@ -228,8 +228,24 @@ def get_service() -> PortfolioService:
 # ── Routes ───────────────────────────────────────────────────────────────────
 @portfolio_router.get("/board", response_model=BoardOut)
 async def get_board(horizon_capacity: int = DEFAULT_HORIZON_CAPACITY) -> BoardOut:
-    """Return the full portfolio board (auto-built from live signals, cached)."""
-    return get_service().board(horizon_capacity=horizon_capacity)
+    """Return the full portfolio board (auto-built from live signals, cached).
+
+    Task state is synced onto the initiatives first, so work that is done or
+    running leaves the queue instead of reappearing as PROPOSED on every rebuild.
+    """
+    svc = get_service()
+    svc.ensure_fresh()
+    await _sync_and_log(svc)
+    return svc.board(horizon_capacity=horizon_capacity)
+
+
+async def _sync_and_log(svc: PortfolioService) -> None:
+    try:
+        from tasks.portfolio_intake import sync_board_status
+
+        await sync_board_status(svc.portfolio)
+    except Exception:
+        log.exception("portfolio status sync failed (non-fatal — board still returns)")
 
 
 async def _materialize_and_log(svc: PortfolioService) -> list[str]:
@@ -264,6 +280,7 @@ async def refresh_board() -> BoardOut:
     svc = get_service()
     svc.refresh()
     materialized_ids = await _materialize_and_log(svc)
+    await _sync_and_log(svc)
     board = svc.board()
     board.materialized_task_ids = materialized_ids
     return board
@@ -278,6 +295,7 @@ async def materialize_portfolio() -> BoardOut:
     svc = get_service()
     svc.ensure_fresh()
     materialized_ids = await _materialize_and_log(svc)
+    await _sync_and_log(svc)
     board = svc.board()
     board.materialized_task_ids = materialized_ids
     return board

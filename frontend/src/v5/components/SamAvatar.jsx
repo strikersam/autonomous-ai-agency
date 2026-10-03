@@ -1,5 +1,6 @@
 import React from 'react';
 import * as api from '../../api';
+import { getScreenPath } from '../screenContext';
 
 // SamAvatar.jsx — SAM as a floating, slightly unhinged little creature.
 //
@@ -10,7 +11,7 @@ import * as api from '../../api';
 
 const SESSION_ID = 'sam-avatar';
 const CONFIG_RECHECK_MS = 60000;
-const ADMIN_CHIPS = ['Brief me', 'Triage the queue', 'Fix the alerts'];
+const ADMIN_CHIPS = ['Brief me', 'Pick up portfolio work', 'Triage the queue', 'Fix the alerts'];
 const USER_CHIPS = ['What alerts do I have?'];
 
 function useEyeTracking(ref) {
@@ -139,7 +140,7 @@ function SamPanel({ canOrchestrate, onClose, onNavigate, setMood }) {
     setMood('thinking');
     let reply;
     try {
-      const { data } = await api.samChat(text, SESSION_ID);
+      const { data } = await api.samChat(text, SESSION_ID, getScreenPath());
       reply = data?.text || '…';
     } catch {
       reply = "Ack, I lost the connection. Try me again in a sec.";

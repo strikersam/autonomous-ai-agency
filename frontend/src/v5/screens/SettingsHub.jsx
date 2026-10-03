@@ -1,4 +1,5 @@
 import React from 'react';
+import { useReportSub } from '../screenContext';
 import HubTabs from '../components/ui/HubTabs';
 import Spinner from '../components/ui/Spinner';
 
@@ -37,6 +38,7 @@ export default function SettingsHub({ initialSection, isAdmin, onNavigate }) {
   const [section, setSection] = React.useState(
     visible.some(s => s.id === initialSection) ? initialSection : fallback
   );
+  useReportSub('settings', section);
   return (
     <div>
       <div style={{ padding: '20px 16px 0', maxWidth: 1000, margin: '0 auto' }}>

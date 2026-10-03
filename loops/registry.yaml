@@ -524,13 +524,13 @@ loops:
     pattern: learn-scan
     level: L2
     trigger: daemon
-    cadence: daily (default off)
-    runs_per_day: 0
-    cost: medium
+    cadence: hourly, from the task dispatcher (default on)
+    runs_per_day: 24
+    cost: low
     source: services/session_retro.py
     self_heal: false
     gate: none
-    purpose: LLM-judge recent agent session traces for recurring friction, registering clusters as improvement issues; opt-in via SESSION_RETRO_ENABLED.
+    purpose: Cluster recent agent session traces for recurring friction (no LLM call) and register clusters as improvement issues; SESSION_RETRO_ENABLED=false turns it off.
 
   - id: agent-built-proof-refresh
     name: Refresh Agent-Built Proof

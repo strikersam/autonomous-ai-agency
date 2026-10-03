@@ -206,7 +206,7 @@ def test_chat_namespaces_session_and_passes_role(client, monkeypatch):
 
     seen: dict = {}
 
-    async def _fake(self, text, session_id="default", owner_id="", *, is_admin=False):
+    async def _fake(self, text, session_id="default", owner_id="", *, is_admin=False, screen=""):
         seen.update(session_id=session_id, owner_id=owner_id, is_admin=is_admin)
         return "ok"
 

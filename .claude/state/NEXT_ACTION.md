@@ -1,5 +1,14 @@
 # Next Action
 
+**Updated:** 2026-10-03 (portfolio drain + idle agents, row 94)
+
+## Portfolio drain 2026-10-03 — branch `fix/portfolio-drain-idle-agents`
+
+After merge, verify on prod: Portfolio board queue shrinks as tasks finish; no new duplicate
+`[portfolio]` tasks; SAM "pick up portfolio work" reports counts. Throughput ceiling is
+`TASK_DISPATCH_CONCURRENCY=1` on the 512MB Render instance — raising it needs a bigger instance.
+
+---
 **Updated:** 2026-10-03 (SAM avatar default-on + voice gates, row 93)
 
 ## SAM avatar 2026-10-03 — shipped (#1646, #1647, #1648) + default-on follow-up

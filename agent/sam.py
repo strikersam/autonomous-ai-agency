@@ -124,7 +124,7 @@ class SamAgent:
 
     async def process_command(
         self, text: str, session_id: str = "default", owner_id: str = "sam-voice",
-        *, is_admin: bool = False,
+        *, is_admin: bool = False, screen: str = "",
     ) -> str:
         """Process a voice command and return SAM's spoken response.
 
@@ -133,6 +133,7 @@ class SamAgent:
             session_id: Conversation session identifier
             owner_id: User the command acts on behalf of (owns any created task)
             is_admin: Whether the caller may run agency-wide actions (delegate, triage)
+            screen: Dashboard screen the Commander is on (``hub`` or ``hub/tab``)
 
         Returns:
             SAM's voice response (plain English, under 150 words)
@@ -143,7 +144,7 @@ class SamAgent:
 
         session = self._get_session(session_id)
 
-        action_reply = await self._run_action(text, owner_id, is_admin)
+        action_reply = await self._run_action(text, owner_id, is_admin, screen)
         if action_reply is not None:
             session.add_turn(text, action_reply)
             return action_reply
@@ -155,6 +156,9 @@ class SamAgent:
         except Exception as exc:
             log.warning("SAM context build failed/timed out: %s", exc)
             context = {}
+        if screen:
+            from agent.sam_screen import screen_context
+            context["screen"] = await screen_context(screen)
 
         # Compose the prompt
         prompt = self._build_prompt(text, context, session)
@@ -183,17 +187,22 @@ class SamAgent:
         return response
 
     @staticmethod
-    async def _run_action(text: str, owner_id: str, is_admin: bool) -> str | None:
+    async def _run_action(text: str, owner_id: str, is_admin: bool, screen: str = "") -> str | None:
         """Execute a grounded action if *text* asks for one, else return None.
 
         Actions are executed, not chatted about — the LLM path has no tools and
         could only deflect. An explicit "create a task to …" wins over the alert
         keywords so "create a task to fix the login error" is not read as
-        "fix the alerts".
+        "fix the alerts". The screen resolves words like "the top one": on the
+        Portfolio roadmap that means picking up portfolio work.
         """
         from agent.sam_actions import handle_alert_command
         from agent.sam_orchestrator import detect_orchestration_intent, handle_orchestration_command
+        from agent.sam_screen import screen_intent
 
+        on_screen = screen_intent(text, screen)
+        if on_screen:
+            return await handle_orchestration_command(text, owner_id, is_admin=is_admin, intent=on_screen)
         if detect_orchestration_intent(text) != "delegate":
             reply = await handle_alert_command(text, owner_id)
             if reply is not None:
@@ -311,6 +320,9 @@ class SamAgent:
 
         if mem.get("recent"):
             parts.append("What the Commander has told you before: " + "; ".join(mem["recent"]))
+
+        if context.get("screen"):
+            parts.append(context["screen"])
 
         parts.append(f"\nCommander says: {text}")
         parts.append("\nRespond as SAM in 1-3 sentences. Be direct and professional.")
