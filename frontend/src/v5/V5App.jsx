@@ -6,6 +6,7 @@ import { AppShell } from './AppShell';
 // the common case paints in one round trip. Everything else is code-split.
 import AlertsBell from './screens/AlertsBell';
 import QuickNotesFAB from './screens/QuickNotesFAB';
+import SamAvatar from './components/SamAvatar';
 import ActivationGate from './screens/ActivationGate';
 import AssistantHub from './screens/AssistantHub';
 import Spinner from './components/ui/Spinner';
@@ -140,6 +141,7 @@ export default function V5App() {
         </AppShell>
         <AlertsBell onNavigate={go} />
         <QuickNotesFAB visible={true} />
+        <SamAvatar onNavigate={go} />
       </div>
     </ActivationGate>
   );

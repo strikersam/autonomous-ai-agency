@@ -1171,6 +1171,32 @@ _INTEGRATIONS: tuple[ControlSpec, ...] = (
         "Lift per-user quota on the FreeBuff surface.",
     ),
     _toggle(
+        "SAM_AVATAR_ENABLED",
+        "SAM floating avatar",
+        "integrations",
+        "false",
+        "Show SAM as a floating avatar in the bottom-left corner of every screen, "
+        "on desktop and mobile. Tap it to talk to SAM; admins can delegate tasks "
+        "and run CEO triage from it.",
+        live=True,
+    ),
+    ControlSpec(
+        key="SAM_AVATAR_SCOPE",
+        label="SAM avatar audience",
+        group="integrations",
+        kind=KIND_CHOICE,
+        default="admins",
+        help=(
+            "Who sees the SAM avatar when it is on. Non-admins can chat and read "
+            "alerts; delegating tasks and triage stay admin-only either way."
+        ),
+        options=(
+            ControlOption("admins", "Admins only", "Only admin accounts see the avatar."),
+            ControlOption("all", "All users", "Every signed-in user sees the avatar."),
+        ),
+        live=True,
+    ),
+    _toggle(
         "SAM_VOICE_IN_PROCESS",
         "SAM voice worker",
         "integrations",

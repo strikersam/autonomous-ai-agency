@@ -70,6 +70,14 @@ The `backend/` app powers the separate React control plane and includes routes f
 - governance: posture, policy, approvals, audit, sandboxes, and session budgets (`/api/governance/*`, admin-only)
 - Telegram bot control-plane (`/api/telegram/*`)
 
+### SAM (`/agent/sam/*`, authenticated)
+
+- `GET /agent/sam/status` — SAM session count and uptime
+- `POST /agent/sam/chat` — talk to SAM. The session is namespaced per caller. Admins can delegate ("create a task to …"), run CEO triage ("triage the queue") and get a live brief ("brief me"); non-admins can chat and read/fix alerts
+- `POST /agent/sam/speak` — synthesise a reply as audio
+- `GET /agent/sam/avatar` — `{enabled, can_orchestrate}`: whether to show the floating SAM avatar to this caller (`SAM_AVATAR_ENABLED` / `SAM_AVATAR_SCOPE`)
+- `GET /agent/sam/livekit/status`, `POST /agent/sam/livekit/token` — realtime voice transport
+
 ### Telegram (`/api/telegram/*`)
 
 - `GET  /api/telegram/diag` — unauthenticated diagnostic snapshot (bot token masked). Reports config (`run_telegram_bot`, `poller_disabled`, allow/admin IDs) **and live state**: `poller_last_poll_age_sec` / `poller_running_here` (is the getUpdates consumer draining updates in this process?) and `webhook` (`has_webhook`, `pending_update_count`, `last_error_message`). Use it when cards arrive but inline buttons do nothing.

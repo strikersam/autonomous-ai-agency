@@ -1,6 +1,21 @@
 # Next Action
 
-**Updated:** 2026-10-03 (daily automation — Pixtral Large + Ministral 8B/3B catalog)
+**Updated:** 2026-10-03 (SAM avatar + orchestration, row 93)
+
+## SAM avatar 2026-10-03 — branch `feat/sam-avatar-orchestrator`
+
+To see it: Settings → Platform controls → Integrations → "SAM floating avatar" on.
+Admin-only by default (`SAM_AVATAR_SCOPE=admins`).
+
+Open follow-ups:
+- The LiveKit voice worker (`voice/sam_livekit_worker.py`) does not pass `is_admin`,
+  so delegate/triage are refused in realtime voice rooms. Resolve the room identity to a
+  user role before enabling them there.
+- SAM's "decide like the operator" is `OPERATOR_PRINCIPLES` plus memory-kernel facts.
+  Store more operator preferences in the memory kernel to sharpen it.
+
+---
+**Previous:** 2026-10-03 (daily automation — Pixtral Large + Ministral 8B/3B catalog)
 
 ## Daily automation 2026-10-03 — DONE (row 86, PR open)
 
