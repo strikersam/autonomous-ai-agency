@@ -1,5 +1,6 @@
 import React from 'react';
 import { APP_NAME, APP_LABEL } from '../version';
+import { SamFace } from './components/SamAvatar';
 import { useAuth } from '../AuthContext';
 import EphemeralBanner from './screens/EphemeralBanner';
 
@@ -83,8 +84,8 @@ function SidebarNav({ activeScreen, onNavigate, onClose, agentRunning, isAdmin, 
       {/* Logo */}
       <div style={{ padding:'18px 16px 14px', borderBottom:'1px solid rgba(255,255,255,0.08)' }}>
         <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
-          <div style={{ width:34, height:34, borderRadius:10, background:'linear-gradient(135deg,#6CB0FF 0%,#3A7FE8 100%)', boxShadow:'0 4px 16px rgba(93,162,255,0.30)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-            <Icon name="Cpu" size={16} style={{ color:'#fff' }}/>
+          <div aria-label="SAM" style={{ width:38, height:38, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, filter:'drop-shadow(0 4px 10px rgba(123,92,255,0.45))' }}>
+            <SamFace size={38}/>
           </div>
           <div>
             <div style={{ fontSize:14, fontWeight:900, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1 }}>{APP_NAME}</div>
@@ -179,8 +180,8 @@ function MobileTopBar({ title, subtitle, onMenuOpen }) {
       <button onClick={onMenuOpen} style={{ width:44, height:44, borderRadius:12, border:'1px solid var(--border-soft)', background:'rgba(255,255,255,0.05)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'var(--text-secondary)', flexShrink:0 }}>
         <Icon name="Menu" size={18}/>
       </button>
-      <div style={{ width:32, height:32, borderRadius:9, flexShrink:0, background:'linear-gradient(135deg,#6CB0FF 0%,#3A7FE8 100%)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-        <Icon name="Cpu" size={15} style={{ color:'#fff' }}/>
+      <div aria-label="SAM" style={{ width:34, height:34, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
+        <SamFace size={34}/>
       </div>
       <div style={{ flex:1, minWidth:0 }}>
         <div style={{ fontSize:17, fontWeight:900, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1 }}>{APP_LABEL}</div>
