@@ -12,7 +12,7 @@ Show the product, not vanity metrics. A ~44s feature tour that walks the real fl
 - Interpretation: energetic but controlled; readable holds; the product's own language, no generic SaaS speak
 
 ## Format: landscape — 1920x1080
-## Duration: ~44s (9 scenes) — intentionally longer than the /brag 15-25s default, per an explicit user request for a longer video
+## Duration: ~61s (12 scenes; v3 added SAM, learning and guardrails before the outro) — intentionally longer than the /brag 15-25s default, per an explicit user request for a longer video
 
 ## Visual identity (from the project)
 - Background #020304; accent #5da2ff; success #46d9a4; warning #ffbd66
@@ -27,7 +27,10 @@ Show the product, not vanity metrics. A ~44s feature tour that walks the real fl
 6. HITL gate (25.0-30.5s) — an awaiting-approval task card (Draft PR #142) with Approve · Deny · Redirect. "Auto-approve the trivial. Gate the production."
 7. 24×7 (30.5-36.0s) — schedule rows: Health scan · Security & CVE audit · Trend watch · Doc-sync · Company graph sync, with cadences. "Agents find it, fix it, then brief you."
 8. Self-hosted routing (36.0-41.0s) — provider chain NVIDIA NIM → Cerebras → Groq → Ollama with automatic failover. "OpenAI-compatible proxy · switch models with no redeploy."
-9. Outro (41.0-44.0s) — wordmark, "Self-hosted · MIT · One URL → a working AI team," URL.
+9. Meet SAM (41.0-47.0s) — the SAM avatar beside a live exchange: "Brief me" → status; "Pick up the top one" → queued. "On every screen, desktop and phone."
+10. It keeps learning (47.0-52.5s) — lessons per task, hourly session retros, CEO playbook, trend watch. "No idle agents: free slots refill instantly."
+11. Autonomy on a leash (52.5-58.0s) — kill switch, daily caps, canary credential, fail-closed approvals; "446 of 1109 merged PRs opened by its own agents."
+12. Outro (58.0-61.0s) — wordmark, "Self-hosted · MIT · One URL → a working AI team," URL.
 
 ## Audio
 - Music: happy-beats-business-moves-vol-1 (upbeat) at 0.26, from 0 to 44s

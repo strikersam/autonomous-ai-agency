@@ -22,7 +22,7 @@ Self-hosted · MIT · Your servers, your models, your data
 
 <a href="brag-output/brag.mp4"><img src="brag-output/brag.jpg" alt="Autonomous AI Agency: paste a URL, get a CTO-grade audit, and stand up a CEO-coordinated fleet of specialist agents that run 24×7 on your own hardware." width="760" /></a>
 
-_▶ **[Watch the tour](brag-output/brag.mp4)**: paste a URL → stack scan → audit → specialist fleet → plan, execute, verify → your approval → 24×7, self-hosted._
+_▶ **[Watch the tour](brag-output/brag.mp4)** (61 s): paste a URL → stack scan → audit → specialist fleet → plan, execute, verify → your approval → 24×7 → meet SAM → it keeps learning → autonomy on a leash._
 
 </div>
 
