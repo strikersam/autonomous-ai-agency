@@ -209,3 +209,29 @@ def test_chat_namespaces_session_and_passes_role(client, monkeypatch):
         app.dependency_overrides.clear()
     assert resp.status_code == 200
     assert seen == {"session_id": "u1:sam-avatar", "owner_id": "u1", "is_admin": False}
+
+
+@pytest.mark.parametrize("instruction", [
+    "deploy the service to production",
+    "release the new version",
+    "publish the package to PyPI",
+    "rotate the API secrets",
+    "run the database migration",
+])
+def test_outward_facing_delegation_is_gated(store, instruction):
+    """Regression (Codex P1): a delegated deploy must park for approval, not run."""
+    reply = asyncio.run(SamAgent().process_command(
+        f"create a task to {instruction}", owner_id="admin-1", is_admin=True,
+    ))
+    (task,) = store._mem.values()
+    assert task["requires_approval"] is True
+    assert not task.get("execution_approved")
+    assert "parked for your approval" in reply
+
+
+def test_internal_delegation_is_not_gated(store):
+    asyncio.run(SamAgent().process_command(
+        "create a task to refactor the scheduler tests", owner_id="admin-1", is_admin=True,
+    ))
+    (task,) = store._mem.values()
+    assert not task.get("requires_approval")
