@@ -74,6 +74,8 @@ _OUTWARD_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"\b(?:e-?mail\w*|tweet\w*|slack|discord|telegram|sms|whatsapp|post\s+to|send\w*|message\w*|"
      r"notify\w*|announce\w*|customers?|clients?|pay\w*|charg\w*|refund\w*|invoic\w*|"
      r"purchas\w*|buy\w*|billing\s+account|dns|domain)\b", "external-write"),
+    (r"\b(?:transfer\w*|wire\w*|withdraw\w*|deposit\w*|payout\w*|remit\w*|money|funds?|"
+     r"balances?|bank\w*|wallets?|crypto\w*|bitcoin|eth|usdc|stripe|paypal|iban|swift)\b", "external-write"),
 )
 _INTERNAL_VERBS = re.compile(
     r"^(?:please\s+)?(?:fix|add|implement|refactor|write|document|improve|investigate|research|"

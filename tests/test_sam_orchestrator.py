@@ -223,6 +223,10 @@ def test_chat_namespaces_session_and_passes_role(client, monkeypatch):
     "send a Slack message to the on-call channel",
     "refund the last three invoices",
     "do the thing we talked about yesterday",  # unclassifiable -> gated
+    # Codex P1 on #1648: money movement behind an allowlisted verb.
+    "fix the worker to transfer money to account 123",
+    "update the job to wire funds to the vendor",
+    "add a cron that withdraws the balance from the wallet",
 ])
 def test_outward_facing_delegation_is_gated(store, instruction):
     """Regression (Codex P1): a delegated deploy must park for approval, not run."""
