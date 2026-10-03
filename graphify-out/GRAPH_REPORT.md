@@ -1,7 +1,7 @@
 # Graph Report - autonomous-ai-agency  (2026-10-03)
 
 ## Corpus Check
-- 1659 files · ~2,381,683 words
+- 1659 files · ~2,383,232 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 55 file(s) not represented in the graph (top: (none) 17, .bat 5, .css 5)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `dd1be1e1`
+- Built from commit: `464e61a5`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -4474,7 +4474,7 @@ Nodes (9): Acceptance Checks, Skill: wrap-up, Step 1 — Changes Audit, Step 2 �
 
 ### Community 894 - "Brag Plan: Autonomous AI Agency (feature tour, v2)"
 Cohesion: 0.20
-Nodes (9): Audio, Brag Plan: Autonomous AI Agency (feature tour, v2), Duration: ~44s (9 scenes) — intentionally longer than the /brag 15-25s default, per an explicit user request for a longer video, Format: landscape — 1920x1080, Storyboard (9 scenes), The angle, Tone, Visual identity (from the project) (+1 more)
+Nodes (9): Audio, Brag Plan: Autonomous AI Agency (feature tour, v2), Duration: ~61s (12 scenes; v3 added SAM, learning and guardrails before the outro) — intentionally longer than the /brag 15-25s default, per an explicit user request for a longer video, Format: landscape — 1920x1080, Storyboard (9 scenes), The angle, Tone, Visual identity (from the project) (+1 more)
 
 ### Community 895 - "de"
 Cohesion: 0.27
