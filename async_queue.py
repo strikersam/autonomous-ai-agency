@@ -1,99 +1,64 @@
 """
-Minimal asyncio‑based task queue implementation.
+A minimal asyncio-based task queue implementation.
 
-This module provides a simple asynchronous queue that can be used to
-schedule coroutine tasks and run them sequentially.  It exposes two
-module‑level coroutine functions:
-
-* ``enqueue(coro)`` – put a coroutine into the queue.
-* ``run()`` – run all queued coroutines in the order they were added.
-
-The implementation is intentionally lightweight and does not provide
-advanced features such as worker pools or cancellation handling.  It
-is suitable for small projects or as a teaching example.
+This module provides a simple `AsyncQueue` class that can enqueue coroutine
+objects and execute them sequentially. It is intentionally lightweight and
+does not depend on any external libraries beyond the standard library.
 """
 
 import asyncio
-from typing import Awaitable, Any
+from typing import Awaitable, List, Any
 
 
 class AsyncQueue:
     """
-    A minimal asynchronous queue that stores coroutine objects and
-    executes them sequentially when ``run`` is called.
+    A minimal asynchronous task queue.
 
-    Attributes
-    ----------
-    _queue : asyncio.Queue[Awaitable[Any]]
-        Internal queue holding coroutine objects.
-    _running : bool
-        Flag indicating whether the queue is currently being processed.
+    The queue stores coroutine objects and executes them in the order they
+    were enqueued when :meth:`run` is called. Each coroutine is awaited
+    sequentially. This implementation is suitable for simple use cases
+    such as unit tests or small scripts where a full-featured task queue
+    is unnecessary.
     """
 
     def __init__(self) -> None:
-        self._queue: asyncio.Queue[Awaitable[Any]] = asyncio.Queue()
-        self._running: bool = False
+        """
+        Create a new, empty queue.
+        """
+        self._tasks: List[Awaitable[Any]] = []
 
-    async def enqueue(self, coro: Awaitable[Any]) -> None:
+    def enqueue(self, coro: Awaitable[Any]) -> None:
         """
         Add a coroutine to the queue.
 
         Parameters
         ----------
-        coro : Awaitable[Any]
-            The coroutine to enqueue.
+        coro:
+            An awaitable coroutine object to be executed later.
         """
-        await self._queue.put(coro)
+        if not asyncio.iscoroutine(coro):
+            raise TypeError("enqueue expects a coroutine object")
+        self._tasks.append(coro)
 
     async def run(self) -> None:
         """
-        Run all queued coroutines sequentially.
+        Execute all enqueued coroutines sequentially.
 
-        This method processes tasks until the queue is empty.  It
-        ignores exceptions raised by individual tasks to ensure that
-        the queue continues to run.  If ``run`` is called while the
-        queue is already running, the call returns immediately.
+        This method awaits each coroutine in the order they were added.
+        After all tasks have completed, the internal task list is cleared.
         """
-        if self._running:
-            return
+        while self._tasks:
+            coro = self._tasks.pop(0)
+            await coro
 
-        self._running = True
-        try:
-            while not self._queue.empty():
-                coro = await self._queue.get()
-                try:
-                    await coro
-                except Exception:
-                    # Swallow exceptions to keep the queue running.
-                    # In a real application you might want to log the error.
-                    pass
-        finally:
-            self._running = False
+    async def __aenter__(self) -> "AsyncQueue":
+        """
+        Context manager entry; returns the queue instance.
+        """
+        return self
 
-
-# Singleton instance used by the module-level helper functions.
-_queue = AsyncQueue()
-
-
-async def enqueue(coro: Awaitable[Any]) -> None:
-    """
-    Enqueue a coroutine for later execution.
-
-    Parameters
-    ----------
-    coro : Awaitable[Any]
-        The coroutine to enqueue.
-    """
-    await _queue.enqueue(coro)
-
-
-async def run() -> None:
-    """
-    Run all queued coroutines.
-
-    This is a convenience wrapper around the singleton ``AsyncQueue``.
-    """
-    await _queue.run()
-
-
-__all__ = ["AsyncQueue", "enqueue", "run"]
+    async def __aexit__(self, exc_type, exc, tb) -> None:
+        """
+        Context manager exit; runs any remaining tasks.
+        """
+        await self.run()
