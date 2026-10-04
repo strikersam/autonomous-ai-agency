@@ -16,7 +16,7 @@ from packages.llm.router import LLMRouter
 from packages.llm.types import LLMRequest
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "config" / "llm"
-_BEDROCK_MODELS = {"openai.gpt-oss-120b-1:0", "openai.gpt-oss-20b-1:0"}
+_BEDROCK_MODELS = {"openai.gpt-oss-120b-1:0"}
 
 
 @pytest.fixture(autouse=True)
@@ -70,3 +70,9 @@ def test_registry_keeps_opted_in_paid_models_only():
     kept = {m.id for m in registry.candidates(allow_paid=False)}
     assert _BEDROCK_MODELS <= kept
     assert all(cfg.models[m].is_free or cfg.models[m].paid_opt_in for m in kept)
+
+
+def test_weak_bedrock_20b_is_not_routed():
+    """gpt-oss-20b invented tool results in production (2026-10-04); 120b only."""
+    cfg = llm_config.load_config(_CONFIG_DIR)
+    assert "openai.gpt-oss-20b-1:0" not in cfg.models

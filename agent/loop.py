@@ -2443,13 +2443,18 @@ class AgentRunner:
                     raise ValueError("Model did not return a JSON object")
                 return parsed
             except Exception:  # nosec B110 -- reprompt on any parse/shape failure
-                raw = await self._chat_text(
-                    model,
-                    [
-                        {"role": "system", "content": "Return only a valid JSON object. No prose. No code fences."},
-                        {"role": "user", "content": raw},
-                    ],
-                )
+                if "{" not in self._REASONING_RE.sub("", raw or ""):
+                    # Only reasoning, no answer: there is nothing to reformat, and
+                    # asking for "a JSON object" from it made the model invent one.
+                    raw = await self._chat_text(model, messages)
+                else:
+                    raw = await self._chat_text(
+                        model,
+                        [
+                            {"role": "system", "content": "Return only a valid JSON object. No prose. No code fences."},
+                            {"role": "user", "content": raw},
+                        ],
+                    )
                 attempts += 1
         try:
             parsed = self._extract_json(raw)
@@ -2466,8 +2471,12 @@ class AgentRunner:
                 f"last raw output (truncated to 200 chars): {snippet!r}"
             ) from exc
 
+    # gpt-oss on Bedrock writes its reasoning inline as <reasoning>…</reasoning>
+    # ahead of the answer, sometimes unclosed when it runs out of tokens.
+    _REASONING_RE = re.compile(r"<reasoning>.*?(?:</reasoning>|\Z)", re.S)
+
     def _extract_json(self, raw: str) -> Any:
-        raw = raw.strip()
+        raw = self._REASONING_RE.sub("", raw or "").strip()
         try:
             return json.loads(raw)
         except json.JSONDecodeError:
