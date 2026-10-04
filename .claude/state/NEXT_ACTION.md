@@ -1,5 +1,11 @@
 # NEXT_ACTION — updated 2026-10-04
 
+**Updated:** 2026-10-04 (gpt-oss reasoning + reconciler loop, branch `fix/agent-loop-gpt-oss`)
+
+Prod 12:05–12:38: Bedrock answers every call but steps fail (inline <reasoning>, 20b invents
+tool results) and the reconciler loops 2 FAILED tasks at "retry 0/5". Fixed on this branch.
+After deploy: watch for the first agent PR that passes agent/pr_gate.py.
+
 **Updated:** 2026-10-04 (agent PR quality gate, branch `fix/agent-pr-quality-gate`)
 
 First agent PRs exist (#1656, #1658–#1660) but none was mergeable: test for a missing module,

@@ -69,17 +69,11 @@ models:
     paid_opt_in: true
     priority: 26
 
-  openai.gpt-oss-20b-1:0:
-    provider: bedrock
-    display_name: GPT-OSS 20B (Bedrock)
-    context_window: 128000
-    supports_tools: true
-    supports_function_calling: true
-    supports_streaming: true
-    input_cost_per_1m: 0.07
-    output_cost_per_1m: 0.30
-    paid_opt_in: true
-    priority: 31
+  # openai.gpt-oss-20b-1:0 was removed on 2026-10-04: in production it carried
+  # nearly every agent call and most steps failed — it invented tool results
+  # (a Cargo.toml directory listing for this Python repo) or returned only
+  # <reasoning> text. The router preferred it as the cheaper twin; Bedrock agent
+  # work now runs on gpt-oss-120b. Its cost_tracker row stays for old spend.
 
   openai/gpt-oss-20b:
     providers: [nvidia, groq]
