@@ -56,6 +56,12 @@ _BRIEF_TERMS = (
     "brief me", "briefing", "sitrep", "status report", "agency status",
     "what's going on", "what is going on", "how is the agency", "how's the agency",
 )
+# Only a clear command to start portfolio work; a question or a setting that merely
+# mentions the portfolio goes to the router or to chat.
+_PORTFOLIO_RE = re.compile(
+    r"\b(?:pick\s+up|work\s+on|start|queue\s+up|queue|run|process|drain|burn\s+down|tackle|get\s+going\s+on)\b"
+    r"[^.?!]{0,30}\b(?:portfolio|initiatives?|roadmap\s+work)\b"
+)
 _DELEGATED_TAG = "sam-delegated"
 # Free text has no task_type, so ``tasks.service._is_outward_facing`` cannot see
 # that "deploy the service" leaves the repo. Classification fails closed: a
@@ -114,7 +120,7 @@ def detect_orchestration_intent(text: str) -> str | None:
     lower = f" {text.lower().strip()} "
     if _DELEGATE_RE.search(text):
         return "delegate"
-    if " portfolio" in lower or "roadmap work" in lower or "initiative" in lower:
+    if _PORTFOLIO_RE.search(lower):
         return "portfolio"
     if any(term in lower for term in _TRIAGE_TERMS):
         return "triage"

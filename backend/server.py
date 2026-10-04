@@ -10279,6 +10279,8 @@ async def sam_chat_backend(body: SamChatRequest, user: dict = Depends(get_curren
         return {
             "text": response_text,
             "session_id": body.session_id,
+            # A safety action is held until the Commander replies "confirm".
+            "needs_confirmation": sam.has_pending(f"{owner_id}:{body.session_id}"),
         }
     except Exception as exc:
         log.exception("sam_chat failed")

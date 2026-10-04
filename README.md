@@ -60,7 +60,8 @@ creates or approves work depends on a free-tier model deciding to call a tool:
 | "**Triage the queue**" | Runs the CEO's own triage now: approves what doesn't need you, rejects duplicates, leaves deploys/auth for you. | Admins |
 | "**Pick up portfolio work**" | Queues the top-WSJF roadmap initiatives right now and tells you what's queued, in flight and done. On the Portfolio roadmap, "pick up the top one" works too. | Admins |
 | "**Fix the alerts**" | Reads the alerts bell and queues one fix task per real error, de-duplicated. | Everyone |
-| Anything else | Answers from live agency state and the screen you're on, guided by the operator's standing rules and what you've told it before. | Everyone |
+| **Anything else, in plain English** | "Turn the portfolio intake up to 5", "what's waiting on me?", "retry the failed docs task", "run the security scan now", "search the web for the new Groq models". SAM maps it to one of 17 agency actions (tasks, approvals, schedules, platform controls, alerts, trends, web search), or hands it to an agent with every skill and the internet. Questions get answered from live agency state and the screen you're on. | Admins act, everyone chats |
+| **Safety changes** | Loosening a safety control (kill switch off, approval gates, canary, spend caps, paid brain) or approving gated work waits for your **Confirm** tap, for 2 minutes, in the same chat. Engaging the kill switch is instant. | Admins |
 
 **It's on for admins out of the box.** Turn it off, or switch **SAM avatar audience** to *All
 users*, in Settings → Platform controls → Integrations. Delegation and triage stay admin-only

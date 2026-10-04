@@ -76,3 +76,18 @@ test('sends the screen and tab the user is on, so SAM can resolve "the top one"'
   expect(api.samChat).toHaveBeenCalledWith('pick up the top one', 'sam-avatar', 'work/roadmap');
   setScreen('home');
 });
+
+test('a held safety change shows Confirm, which sends "confirm"', async () => {
+  api.samAvatarConfig.mockResolvedValue({ data: { enabled: true, can_orchestrate: true } });
+  api.samChat
+    .mockResolvedValueOnce({ data: { text: "That changes a safety setting: set AGENCY_KILL_SWITCH to false. Reply 'confirm' within 2 minutes to go ahead, or 'cancel'.", needs_confirmation: true } })
+    .mockResolvedValueOnce({ data: { text: 'Done: Kill switch is now false.', needs_confirmation: false } });
+  render(<SamAvatar />);
+  await userEvent.click(await screen.findByRole('button', { name: /open sam/i }));
+  await userEvent.type(screen.getByRole('textbox', { name: /message sam/i }), 'resume the agency');
+  await userEvent.click(screen.getByRole('button', { name: 'Go' }));
+  await userEvent.click(await screen.findByRole('button', { name: 'Confirm' }));
+  expect(api.samChat).toHaveBeenLastCalledWith('confirm', 'sam-avatar', 'home');
+  expect(await screen.findByText('Done: Kill switch is now false.')).toBeInTheDocument();
+  expect(screen.queryByRole('button', { name: 'Confirm' })).toBeNull();
+});

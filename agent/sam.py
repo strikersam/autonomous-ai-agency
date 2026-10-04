@@ -30,6 +30,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -48,6 +49,9 @@ log = logging.getLogger("qwen-sam")
 # within any reasonable HTTP/proxy timeout instead of hanging indefinitely.
 _CONTEXT_TIMEOUT_SEC = 8.0
 _LLM_TIMEOUT_SEC = 20.0
+_CONFIRM_TTL_SEC = 120.0
+_CONFIRM_WORDS = frozenset({"confirm", "yes", "yes confirm", "confirm it", "go ahead", "do it", "approved"})
+_CANCEL_WORDS = frozenset({"cancel", "no", "stop", "abort", "never mind", "nevermind"})
 
 SAM_PERSONA = """You are SAM (System Autonomy Manager), the voice-controlled AI assistant
 for an autonomous AI engineering agency operating 24/7. You are inspired by Iron Man's
@@ -104,6 +108,8 @@ class SamConversation:
     started_at: float = field(default_factory=time.time)
     history: list[dict[str, str]] = field(default_factory=list)
     command_count: int = 0
+    # A safety action waiting for the Commander's "confirm": (tool, args, expires_at).
+    pending: tuple[str, Any, float] | None = None
 
     def add_turn(self, user_text: str, sam_response: str) -> None:
         self.history.append({"role": "user", "content": user_text})
@@ -144,7 +150,11 @@ class SamAgent:
 
         session = self._get_session(session_id)
 
-        action_reply = await self._run_action(text, owner_id, is_admin, screen)
+        action_reply = await self._resolve_pending(session, text, owner_id, is_admin)
+        if action_reply is None:
+            action_reply = await self._run_action(text, owner_id, is_admin, screen)
+        if action_reply is None and is_admin:
+            action_reply = await self._run_routed(session, text, owner_id, screen)
         if action_reply is not None:
             session.add_turn(text, action_reply)
             return action_reply
@@ -208,6 +218,63 @@ class SamAgent:
             if reply is not None:
                 return reply
         return await handle_orchestration_command(text, owner_id, is_admin=is_admin)
+
+    async def _run_routed(
+        self, session: SamConversation, text: str, owner_id: str, screen: str,
+    ) -> str | None:
+        """Let the router map free text to a catalogue action; None means chat."""
+        from agent.sam_router import route
+
+        routed = await route(text, screen)
+        if routed is None:
+            return None
+        return await self._execute(session, routed.tool, routed.args, owner_id)
+
+    async def _execute(self, session: SamConversation, name: str, args: Any, owner_id: str) -> str:
+        """Run a catalogue tool, or hold it for confirmation if it touches safety."""
+        from agent.sam_tools import TOOLS
+
+        tool = TOOLS[name]
+        if tool.confirm(args):
+            session.pending = (name, args, time.time() + _CONFIRM_TTL_SEC)
+            return (f"That changes a safety setting: {tool.summary(args)}. "
+                    "Reply 'confirm' within 2 minutes to go ahead, or 'cancel'.")
+        log.info("SAM action %s by %s", name, owner_id)
+        try:
+            return await tool.handler(args, owner_id)
+        except Exception:
+            log.exception("SAM action %s failed", name)
+            return "That didn't go through, Commander. Try again in a moment."
+
+    async def _resolve_pending(
+        self, session: SamConversation, text: str, owner_id: str, is_admin: bool,
+    ) -> str | None:
+        """Handle the reply to a held safety action. Any other message cancels it."""
+        if session.pending is None:
+            return None
+        name, args, expires = session.pending
+        session.pending = None
+        word = re.sub(r"[^a-z ]", "", text.lower()).strip()
+        if time.time() > expires:
+            return "That confirmation expired, so nothing changed. Ask again if you still want it." \
+                if word in _CONFIRM_WORDS else None
+        if word in _CONFIRM_WORDS and is_admin:
+            from agent.sam_tools import TOOLS
+
+            log.info("SAM action %s confirmed by %s", name, owner_id)
+            try:
+                return await TOOLS[name].handler(args, owner_id)
+            except Exception:
+                log.exception("SAM confirmed action %s failed", name)
+                return "That didn't go through, Commander. Nothing was changed."
+        if word in _CANCEL_WORDS:
+            return "Cancelled. Nothing changed."
+        return None
+
+    def has_pending(self, session_id: str) -> bool:
+        """Whether a safety action in *session_id* is waiting for 'confirm'."""
+        session = self._conversations.get(session_id)
+        return bool(session and session.pending and session.pending[2] > time.time())
 
     def get_status(self) -> dict[str, Any]:
         return {

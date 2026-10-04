@@ -39,7 +39,7 @@ export function SamFace({ mood = 'idle', look = { x: 0, y: 0 }, size = 64 }) {
   const lx = thinking ? 0 : look.x;
   const ly = thinking ? -2 : look.y;
   return (
-    <svg width={size} height={size} viewBox="0 0 100 100" aria-hidden="true" className={`sam-face sam-${mood}`}>
+    <svg width={size} height={size} viewBox="-4 -8 108 108" aria-hidden="true" className={`sam-face sam-${mood}`}>
       <defs>
         <radialGradient id="samBody" cx="35%" cy="30%" r="75%">
           <stop offset="0%" stopColor="#ffe36e" />
@@ -139,14 +139,16 @@ function SamPanel({ canOrchestrate, onClose, onNavigate, setMood }) {
     setBusy(true);
     setMood('thinking');
     let reply;
+    let confirm = false;
     try {
       const { data } = await api.samChat(text, SESSION_ID, getScreenPath());
       reply = data?.text || '…';
+      confirm = !!data?.needs_confirmation;
     } catch {
       reply = "Ack, I lost the connection. Try me again in a sec.";
     }
     if (!mountedRef.current) return;
-    setHistory(h => [...h.slice(-30), { who: 'sam', text: reply }]);
+    setHistory(h => [...h.slice(-30).map(m => ({ ...m, confirm: false })), { who: 'sam', text: reply, confirm }]);
     setBusy(false);
     setMood('talking');
     if (voiceOn) speak(reply);
@@ -171,7 +173,15 @@ function SamPanel({ canOrchestrate, onClose, onNavigate, setMood }) {
       </div>
       <div className="sam-log" ref={scrollRef}>
         {history.map((m, i) => (
-          <div key={i} className={`sam-msg sam-msg-${m.who}`}>{m.text}</div>
+          <div key={i} className={`sam-msg sam-msg-${m.who}`}>
+            {m.text}
+            {m.confirm && (
+              <div className="sam-confirm">
+                <button type="button" className="sam-confirm-yes" disabled={busy} onClick={() => send('confirm')}>Confirm</button>
+                <button type="button" className="sam-confirm-no" disabled={busy} onClick={() => send('cancel')}>Cancel</button>
+              </div>
+            )}
+          </div>
         ))}
         {busy && <div className="sam-msg sam-msg-sam sam-dots"><span/><span/><span/></div>}
       </div>
@@ -267,6 +277,10 @@ const SAM_CSS = `
 .sam-msg { max-width:85%; padding:8px 11px; border-radius:14px; line-height:1.4; white-space:pre-wrap; word-break:break-word; }
 .sam-msg-sam { align-self:flex-start; background:rgba(123,92,255,0.22); border-bottom-left-radius:4px; }
 .sam-msg-me { align-self:flex-end; background:rgba(61,242,198,0.18); border-bottom-right-radius:4px; }
+.sam-confirm { display:flex; gap:8px; margin-top:8px; }
+.sam-confirm button { border-radius:8px; padding:5px 12px; font-size:12px; font-weight:700; cursor:pointer; }
+.sam-confirm-yes { background:#ffbd66; color:#1a1004; border:none; }
+.sam-confirm-no { background:transparent; color:#f4ecff; border:1px solid rgba(255,255,255,0.3); }
 .sam-dots { display:flex; gap:4px; }
 .sam-dots span { width:6px; height:6px; border-radius:50%; background:#ff6fd8; animation:samPulse 1s infinite; }
 .sam-dots span:nth-child(2) { animation-delay:.15s } .sam-dots span:nth-child(3) { animation-delay:.3s }
@@ -279,13 +293,13 @@ const SAM_CSS = `
 .sam-send { background:linear-gradient(135deg,#ff6fd8,#7b5cff); color:#fff; border:none; border-radius:10px;
   padding:0 14px; font-weight:700; cursor:pointer; }
 .sam-send:disabled, .sam-chips button:disabled { opacity:.45; cursor:default; }
-.sam-face .sam-spark { animation:samSpark 1.4s ease-in-out infinite; transform-origin:54px 3px; }
-.sam-face .sam-body { animation:samSquish 2.4s ease-in-out infinite; transform-origin:50px 90px; }
+.sam-face .sam-spark { animation:samSpark 1.4s ease-in-out infinite; transform-box:fill-box; transform-origin:center; }
+.sam-face .sam-body { animation:samSquish 2.4s ease-in-out infinite; transform-box:fill-box; transform-origin:50% 100%; }
 .sam-face .sam-lid { animation:samBlink 5s infinite; }
 .sam-thinking .sam-spark { animation:samSpark .35s linear infinite; fill:#ffe36e; }
-.sam-thinking .sam-swirl-l { animation:samSpin .9s linear infinite; transform-origin:35px 46px; }
-.sam-thinking .sam-swirl-r { animation:samSpin .7s linear infinite reverse; transform-origin:67px 44px; }
-.sam-talking .sam-mouth-talk { animation:samTalk .18s ease-in-out infinite alternate; transform-origin:52px 74px; }
+.sam-thinking .sam-swirl-l { animation:samSpin .9s linear infinite; transform-box:fill-box; transform-origin:center; }
+.sam-thinking .sam-swirl-r { animation:samSpin .7s linear infinite reverse; transform-box:fill-box; transform-origin:center; }
+.sam-talking .sam-mouth-talk { animation:samTalk .18s ease-in-out infinite alternate; transform-box:fill-box; transform-origin:center; }
 @keyframes samBob { 0%,100%{transform:translateY(0) rotate(-3deg)} 50%{transform:translateY(-6px) rotate(3deg)} }
 @keyframes samWiggle { 0%,100%{transform:rotate(-8deg) scale(1.05)} 50%{transform:rotate(8deg) scale(1.1)} }
 @keyframes samSquish { 0%,100%{transform:scale(1,1)} 50%{transform:scale(1.04,.96)} }
