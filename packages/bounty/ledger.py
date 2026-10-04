@@ -114,7 +114,7 @@ def allocate(pnl: dict[str, AgentPnL], slots: int, retire_after: int) -> dict[st
 
 
 def render_ledger(pnl: dict[str, AgentPnL], allocation: dict[str, int], retire_after: int) -> str:
-    """Markdown table for the ledger issue and the job summary."""
+    """Markdown table for the Actions job summary (never a public issue)."""
     lines = [
         "| Agent | Attempts | Reviews | Submitted | Merged | Paid | Revenue | Cost | Net | Status | Slots |",
         "|---|---|---|---|---|---|---|---|---|---|---|",

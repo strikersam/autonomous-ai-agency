@@ -314,17 +314,6 @@ async def sweep(gh: GitHubClient, settings: BountySettings,
     return out
 
 
-async def publish_ledger(gh: GitHubClient, settings: BountySettings, table: str) -> None:
-    """Rewrite (or create) the single ledger issue."""
-    issues = await gh.list_tracking_issues(settings.tracking_repo, tracker.LEDGER_LABEL, state="open")
-    body = tracker.ledger_body(table)
-    if issues:
-        await gh.update_issue(settings.tracking_repo, int(issues[0]["number"]), body=body)
-    else:
-        await gh.create_issue(settings.tracking_repo, "Bounty hunter ledger", body,
-                              [tracker.TRACK_LABEL, tracker.LEDGER_LABEL])
-
-
 Scored = list[tuple[TriageInput, Verdict]]
 
 
@@ -370,5 +359,4 @@ async def run_hunt(gh: GitHubClient, settings: BountySettings, chat: ChatFn | No
         lines.append("No free tool-capable LLM provider configured; skipped solving.")
     pnl = compute_pnl(records, ROSTER, settings.review_cost_usd)
     table = render_ledger(pnl, allocation, settings.retire_after_attempts)
-    await publish_ledger(gh, settings, table)
     return "\n".join([*lines, "", table])

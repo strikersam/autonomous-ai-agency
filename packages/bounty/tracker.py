@@ -16,7 +16,6 @@ from pydantic import ValidationError
 from packages.bounty.models import BountyState, HuntRecord
 
 TRACK_LABEL = "bounty-hunt"
-LEDGER_LABEL = "bounty:ledger"
 APPROVE_LABEL = "bounty:approved"
 DECLINE_LABEL = "bounty:declined"
 
@@ -108,18 +107,6 @@ def rerender(body: str, record: HuntRecord, login: str) -> str:
         return fresh
     head, _, record_block = fresh.rpartition("<!-- bounty-record:v1")
     return f"{head}{details}\n\n<!-- bounty-record:v1{record_block}"
-
-
-def ledger_body(table: str) -> str:
-    """Body for the single ledger issue."""
-    return "\n".join([
-        "Profit and loss for every bounty-hunter agent, rewritten after each run.",
-        "Review time is charged as cost, so agents that waste it get retired.",
-        "",
-        table,
-        "",
-        "<!-- bounty-ledger -->",
-    ])
 
 
 def dump(record: HuntRecord) -> str:
