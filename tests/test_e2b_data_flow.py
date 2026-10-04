@@ -275,9 +275,9 @@ async def test_extract_changes_writes_back_to_host(monkeypatch, patched_async_sa
     # Simulate the agent editing a file in the sandbox.
     fake_sandbox.files.fs[f"{SANDBOX_WORKDIR}/src/hello.py"] = "print('edited')"
 
-    # Simulate git diff returning a changed file.
+    # Simulate git listing a changed file.
     fake_sandbox.commands.set_result(
-        f"git -C {SANDBOX_WORKDIR} diff --name-only",
+        f"git -C {SANDBOX_WORKDIR} ls-files --modified --others",
         _FakeCmdResult(stdout="src/hello.py\n", exit_code=0),
     )
     session._seeded = True  # Pretend we seeded so the git path is used.
@@ -307,12 +307,57 @@ async def test_extract_changes_empty_when_no_changes(monkeypatch, patched_async_
     await session.open()
     session._seeded = True
     fake_sandbox.commands.set_result(
-        f"git -C {SANDBOX_WORKDIR} diff --name-only",
+        f"git -C {SANDBOX_WORKDIR} ls-files --modified --others",
         _FakeCmdResult(stdout="", exit_code=0),
     )
     with tempfile.TemporaryDirectory() as host_worktree:
         changed = await session.extract_changes_to_worktree(host_worktree)
         assert changed == []
+
+
+@pytest.mark.asyncio
+async def test_extract_includes_new_untracked_files(monkeypatch, patched_async_sandbox, fake_sandbox):
+    """A file the agent created (untracked in the sandbox repo) reaches the host.
+
+    `git diff --name-only HEAD` never lists untracked files, so every new file
+    an agent wrote used to be dropped before commit.
+    """
+    monkeypatch.setenv("E2B_API_KEY", "e2b_test_key")
+    monkeypatch.setenv("E2B_ENABLED", "true")
+    session = E2BSandboxSession()
+    await session.open()
+    session._seeded = True
+    fake_sandbox.files.fs[f"{SANDBOX_WORKDIR}/src/brand_new.py"] = "x = 1"
+    fake_sandbox.commands.set_result(
+        f"git -C {SANDBOX_WORKDIR} ls-files --modified --others --exclude-standard",
+        _FakeCmdResult(stdout="src/brand_new.py\n", exit_code=0),
+    )
+    with tempfile.TemporaryDirectory() as host_worktree:
+        changed = await session.extract_changes_to_worktree(host_worktree)
+        assert changed == ["src/brand_new.py"]
+        with open(os.path.join(host_worktree, "src", "brand_new.py")) as f:
+            assert f.read() == "x = 1"
+
+
+@pytest.mark.asyncio
+async def test_runner_syncs_sandbox_before_step_commit(tmp_path):
+    """The runner copies sandbox edits to the host before committing a step."""
+    from agent.loop import AgentRunner
+
+    calls: list[str] = []
+
+    class _Sandbox:
+        async def extract_changes_to_worktree(self, path):
+            calls.append(path)
+            return []
+
+    runner = AgentRunner(ollama_base="http://localhost:1", workspace_root=str(tmp_path))
+    runner._mcp = _Sandbox()
+    await runner._sync_sandbox_to_host()
+    assert calls == [str(runner.tools.root)]
+
+    runner._mcp = None  # no sandbox → no-op, no error
+    await runner._sync_sandbox_to_host()
 
 
 # ── End-to-end: write → read → git diff all agree ────────────────────────

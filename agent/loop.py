@@ -806,6 +806,7 @@ class AgentRunner:
                         log.debug("Checkpoint after step failed (non-fatal)", exc_info=True)
 
                 if auto_commit and result["status"] == "applied" and result["changed_files"]:
+                    await self._sync_sandbox_to_host()
                     commit = self._commit_step(step_data["description"], result["changed_files"])
                     if commit:
                         commits.append(commit)
@@ -2776,6 +2777,20 @@ class AgentRunner:
             return self.tools.read_file(path, max_chars=200000)
         except Exception:  # nosec B110 -- best-effort read
             return ""
+
+    async def _sync_sandbox_to_host(self) -> None:
+        """Copy E2B sandbox edits into the host workspace before a step commit.
+
+        With a sandbox attached, edits live in the sandbox until the run ends,
+        so committing on the host mid-run found nothing and no PR ever opened.
+        """
+        extract = getattr(self._mcp, "extract_changes_to_worktree", None)
+        if extract is None:
+            return
+        try:
+            await extract(str(self.tools.root))
+        except Exception:
+            log.warning("Sandbox → host sync before commit failed", exc_info=True)
 
     def _commit_step(self, description: str, changed_files: list[str]) -> str | None:
         from packages.config.autonomy_limits import kill_switch_engaged

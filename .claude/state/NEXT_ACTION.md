@@ -1,5 +1,22 @@
 # NEXT_ACTION — updated 2026-10-04
 
+**Updated:** 2026-10-04 (agent work ships, row 96)
+
+## Agent code work ships 2026-10-04 — branch `fix/agent-work-ships`
+
+After merge and deploy, verify on prod: the next portfolio or issue task that changes files
+opens an `agent/task-*` PR on GitHub. Tasks whose changes did not reach a PR now show FAILED
+with a `Not delivered:` reason; check the Render logs for the clone/push error if they recur.
+A portfolio or issue task that changed nothing now waits In Review. Clear those by hand or retry them.
+E2B is on in prod (`E2B_ENABLED=true`): sandbox edits are now synced to the host before each step
+commit. Follow-up: a custom `E2B_TEMPLATE` with the repo's deps so scoped pytest can run in the sandbox.
+Bedrock: works (Opus 4.6 only; 4.7 denied). It is paid (AWS credit), agent brain stays off unless
+`ALLOW_PAID_BRAIN=true`; proxy lists it last after free providers. Live test marked `integration`.
+Known stale test: `tests/test_internal_agent_did_work.py` re-implements the gate (ratio 0.5,
+the code uses 1.0) instead of calling the adapter, so it cannot catch regressions.
+
+---
+**Updated:** 2026-10-03 (portfolio drain + idle agents, row 94)
 ## Last session (2026-10-04, daily automation)
 
 **What ran:** Daily 9 AM automation. Researched AI ecosystem developments since 2026-10-03.
