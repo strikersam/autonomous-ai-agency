@@ -28,6 +28,10 @@ _SECRET_KEY = os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK
 _REGION = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-east-1"
 _MODEL_ID = os.environ.get("BEDROCK_MODEL_ID") or "us.anthropic.claude-opus-4-6-v1"
 
+# Off by default (pytest.ini deselects "integration"): it spends real Bedrock credit
+# and fails wherever AWS keys are present but egress is not. Run with -m integration.
+pytestmark = [pytest.mark.integration, pytest.mark.live]
+
 _NEEDS_CREDS = pytest.mark.skipif(
     not (_ACCESS_KEY and _SECRET_KEY),
     reason="AWS credentials not set — skipping live Bedrock tests",

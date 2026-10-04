@@ -99,6 +99,7 @@ async def test_clone_failure_returns_none(monkeypatch):
 
 async def test_adapter_fails_task_whose_changes_never_shipped(monkeypatch):
     """End-to-end through the real adapter: files changed, no PR → not success."""
+    from runtimes.adapters import internal_agent
     from runtimes.adapters.internal_agent import InternalAgentAdapter
 
     async def _fake_run(self, *args, **kwargs):  # noqa: ANN001
@@ -111,7 +112,8 @@ async def test_adapter_fails_task_whose_changes_never_shipped(monkeypatch):
     async def _no_clone(*a, **k):
         return None
 
-    monkeypatch.setattr("agent.loop.AgentRunner.run", _fake_run)
+    # Patch the class the adapter imported: other tests reload agent.loop.
+    monkeypatch.setattr(internal_agent.AgentRunner, "run", _fake_run)
     monkeypatch.setattr(
         "runtimes.adapters.internal_agent.clone_repo_workspace", _no_clone, raising=False
     )
