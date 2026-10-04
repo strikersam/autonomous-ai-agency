@@ -303,3 +303,15 @@ def test_portfolio_controls_are_live_and_override(monkeypatch):
         control_overrides.apply_overrides({})
         control_overrides._applied.clear()
         control_overrides._applied.update(applied)
+
+
+def test_portfolio_prompt_keeps_definition_of_done_for_long_descriptions():
+    """A long initiative description must not truncate away the definition of done."""
+    from types import SimpleNamespace
+
+    from tasks.portfolio_intake import _DEFINITION_OF_DONE, map_initiative_to_task
+
+    initiative = SimpleNamespace(
+        title="Big initiative", description="x" * 10_000, horizon=None, source="manual",
+    )
+    assert map_initiative_to_task(initiative).prompt.endswith(_DEFINITION_OF_DONE)

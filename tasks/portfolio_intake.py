@@ -71,6 +71,17 @@ def portfolio_source_id(initiative: Any) -> str:
     return f"portfolio:{digest}"
 
 
+# The task is closed on what reached GitHub (runtimes/adapters/delivery.py),
+# so the prompt says what a finished slice looks like.
+_DEFINITION_OF_DONE = (
+    "Implement this initiative as one reviewable change:\n"
+    "1. Find the code it touches first and cite the real file paths you change.\n"
+    "2. Ship the smallest complete slice that delivers user-visible value, with tests "
+    "for it. Leave larger follow-ups out and name them in your report.\n"
+    "3. If the repo already does this, change no files and report where (file paths)."
+)
+
+
 def map_initiative_to_task(initiative: Any) -> Task:
     """Build a Task from a portfolio Initiative dataclass."""
     title = getattr(initiative, "title", "Portfolio initiative")
@@ -85,8 +96,8 @@ def map_initiative_to_task(initiative: Any) -> Task:
         f"**Horizon:** {horizon_val}\n"
         f"**Source:** {source}\n"
         f"**WSJF Score:** {wsjf:.2f}\n\n"
-        f"**Description:**\n{description}\n\n"
-        f"Implement this initiative. Break it down into concrete steps and execute."
+        f"**Description:**\n{description[:3000]}\n\n"
+        f"{_DEFINITION_OF_DONE}"
     )
 
     return Task(
