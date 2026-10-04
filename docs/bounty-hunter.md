@@ -74,8 +74,12 @@ once you approve. It runs in GitHub Actions
 - When the maintainer asks for changes on the upstream PR, you answer. The
   hunter does not reply to reviews.
 
-The **Bounty hunter ledger** issue (label `bounty:ledger`) is rewritten after
-every run with each agent's P&L.
+Each run's P&L table is written to that run's **job summary** (Actions → Bounty
+Hunter → the run). It used to be a public issue, but strangers' bounty bots
+found it by the word "bounty" and opened PRs against it asking to be paid.
+Job summaries are not in issue search, so those bots do not see them. In a
+public repository they are still readable by anyone who opens the run; only
+making the repository private hides them completely.
 
 ## Setup
 

@@ -222,7 +222,7 @@ class FullQueueGitHub(FakeGitHub):
         record, body = _awaiting()
         self.issues = [{"number": n, "body": body} for n in range(1, open_reviews + 1)]
         self.searched = False
-        self.ledger: list[str] = []
+        self.created: list[str] = []
 
     async def list_tracking_issues(self, repo, label, state="all"):
         return self.issues if label == tracker.TRACK_LABEL else []
@@ -232,7 +232,7 @@ class FullQueueGitHub(FakeGitHub):
         return []
 
     async def create_issue(self, repo, title, body, labels):
-        self.ledger.append(body)
+        self.created.append(title)
         return {"number": 99}
 
 
@@ -240,7 +240,15 @@ def test_full_review_queue_stops_new_work(settings):
     gh = FullQueueGitHub(open_reviews=settings.max_open_reviews)
     summary = asyncio.run(hunt.run_hunt(gh, settings, chat=_scripted_chat([])))
     assert "Slots this run: 0" in summary and not gh.searched
-    assert gh.ledger and "hunter-python" in gh.ledger[0]
+
+
+def test_ledger_goes_to_the_run_summary_never_a_public_issue(settings):
+    # A public "Bounty hunter ledger" issue drew a stranger's bounty bot, which
+    # opened a PR against it asking to be paid (PR #1668).
+    gh = FullQueueGitHub(open_reviews=0)
+    summary = asyncio.run(hunt.run_hunt(gh, settings, chat=None))
+    assert "hunter-python" in summary and "Agency total" in summary
+    assert gh.created == []
 
 
 def test_waiting_review_expires_when_bounty_closes(settings):
