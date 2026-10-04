@@ -637,6 +637,32 @@ Promotes a repeated failure lesson into a standing instruction stored in
 
 ---
 
+## Bounty hunter
+
+Read by `packages/config/bounty_settings.py`. The hunter runs in GitHub
+Actions, so set these as **repository variables**, not on Render. See
+`docs/bounty-hunter.md`.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `BOUNTY_HUNTER_ENABLED` | `false` | Master switch for scheduled hunts. Approve/decline labels still work when off. |
+| `BOUNTY_GITHUB_LOGIN` | repository owner | Account that owns forks, commits and claims; must match the Algora/Opire payout profile. |
+| `BOUNTY_PLATFORMS` | `algora,opire` | Comma-separated platforms to search: `algora`, `opire`, `generic`. |
+| `BOUNTY_MIN_USD` | `50` | Ignore bounties below this amount. |
+| `BOUNTY_MAX_ATTEMPTS_PER_RUN` | `2` | New solve attempts per run. |
+| `BOUNTY_MAX_OPEN_REVIEWS` | `5` | Stop starting work while this many fixes wait for your review. |
+| `BOUNTY_MAX_COMPETITORS` | `2` | Skip issues where more other users have posted `/attempt` or `/claim`. |
+| `BOUNTY_MAX_ISSUE_AGE_DAYS` | `90` | Skip older bounty issues. |
+| `BOUNTY_MAX_REPO_IDLE_DAYS` | `60` | Skip repositories with no push for this long. |
+| `BOUNTY_REVIEW_COST_USD` | `5` | Cost charged to an agent's ledger for each attempt you have to review. |
+| `BOUNTY_RETIRE_AFTER_ATTEMPTS` | `10` | Attempts an agent gets without earning before it is retired. |
+| `BOUNTY_SOLVER_MAX_STEPS` | `40` | Tool-loop step cap per attempt (always enforced). |
+| `BOUNTY_MAX_DIFF_LINES` | `400` | Reject patches larger than this many changed lines. |
+
+The workflow uses the existing `GH_PAT` secret, passed as `GH_TOKEN`.
+
+---
+
 ## Knowledge graph tooling
 
 | Variable | Default | Purpose |

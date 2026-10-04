@@ -28,10 +28,13 @@ jobs:
   generate-context:
     # Skip labeled events unless the added label is 'quick-note'.
     # This prevents spurious reruns when unrelated labels are added.
+    # `bounty-hunt` issues are the bounty hunter's review queue for work on
+    # other people's repositories, not tasks for this one.
     if: >
-      github.event.action == 'opened' ||
-      (github.event.action == 'labeled' &&
-       github.event.label.name == 'quick-note')
+      !contains(github.event.issue.labels.*.name, 'bounty-hunt') &&
+      (github.event.action == 'opened' ||
+       (github.event.action == 'labeled' &&
+        github.event.label.name == 'quick-note'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
