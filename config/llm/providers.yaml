@@ -208,8 +208,15 @@ providers:
     # PROVIDER_TIERS. As "cheap" it was never tried without allow_paid, so
     # with Groq and Gemini out of quota and Cerebras on 402, NVIDIA was the
     # planner's only free path.
+    #
+    # Priority 18 (was 48): with cold health the adaptive strategy breaks ties
+    # on priority, and at 48 every tool call spent its 6-attempt budget on
+    # groq/nvidia/google 429s first — production logged zero mistral attempts
+    # from 2026-10-02 to 2026-10-04 although the key was loaded. codestral-latest
+    # now gets the first shot; live health still sinks it if it fails, and a
+    # 401/402/403 auto-disables it (packages/llm/disabled.py).
     tier: free
-    priority: 48
+    priority: 18
     max_concurrency: 8
     timeout_sec: 60             # wall clock per attempt; see nvidia above
 
