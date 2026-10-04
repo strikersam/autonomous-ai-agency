@@ -15,7 +15,9 @@ once you approve. It runs in GitHub Actions
    means no new work.
 3. **Discover.** The hunter searches GitHub for each platform in
    `BOUNTY_PLATFORMS`:
-   - **Algora:** issues with the `💎 Bounty` label.
+   - **Algora:** issues with the `💎 Bounty` label. Search reads 3 pages,
+     and takes at most 2 issues per repository and 25 per platform, so one
+     repo that labels hundreds of issues cannot crowd out the rest.
    - **Opire:** issues whose comments mention Opire.
    - **generic:** issues with a `bounty` label. Off by default, because the
      payout route varies.
@@ -23,6 +25,9 @@ once you approve. It runs in GitHub Actions
    is rejected if any of these hold:
    - the repo is archived, or has had no pushes for `BOUNTY_MAX_REPO_IDLE_DAYS`
    - the amount is below `BOUNTY_MIN_USD`
+   - no comment from the platform's own bot (Algora or Opire) confirms the
+     funding. Anyone can add the label to their own issue, and spam repos do
+   - the repo has fewer than `BOUNTY_MIN_REPO_STARS` stars
    - the bounty was already awarded (a bot comment says so; Algora leaves the
      label on after paying)
    - the repo's contribution policy refuses AI-generated PRs

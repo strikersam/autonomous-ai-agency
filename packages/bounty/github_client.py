@@ -54,10 +54,10 @@ class GitHubClient:
             raise GitHubError(f"{method} {path} -> HTTP {resp.status_code}")
         return resp.json() if resp.content else {}
 
-    async def search_issues(self, query: str, per_page: int = 50) -> list[dict[str, Any]]:
+    async def search_issues(self, query: str, per_page: int = 50, page: int = 1) -> list[dict[str, Any]]:
         """Issue search, newest first."""
         data = await self._call("GET", "/search/issues", params={
-            "q": query, "sort": "created", "order": "desc", "per_page": per_page})
+            "q": query, "sort": "created", "order": "desc", "per_page": per_page, "page": page})
         return list((data or {}).get("items", []))
 
     async def get_repo(self, full_name: str) -> dict[str, Any] | None:

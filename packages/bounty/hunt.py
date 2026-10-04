@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import re
 import tempfile
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +33,9 @@ from packages.config.bounty_settings import BountySettings
 
 log = logging.getLogger("qwen-proxy")
 
-MAX_CANDIDATES = 40
+MAX_PER_PLATFORM = 25
+MAX_PER_REPO = 2
+SEARCH_PAGES = 3
 TrackedRecord = tuple[int, HuntRecord, str]  # (issue number, record, issue body)
 
 
@@ -61,23 +64,42 @@ async def _expand(gh: GitHubClient, item: dict[str, Any], platform_id: str,
     return TriageInput(bounty, info or {"archived": True}, comments, policy)
 
 
+async def _search(gh: GitHubClient, query: str, platform_id: str) -> list[dict[str, Any]]:
+    """Up to SEARCH_PAGES pages of results; a failed page ends the search."""
+    items: list[dict[str, Any]] = []
+    for page in range(1, SEARCH_PAGES + 1):
+        try:
+            batch = await gh.search_issues(query, page=page)
+        except (GitHubError, httpx.HTTPError) as exc:
+            log.warning("bounty: %s search page %d failed: %s", platform_id, page, exc)
+            break
+        items.extend(batch)
+        if len(batch) < 50:
+            break
+    return items
+
+
 async def discover(gh: GitHubClient, settings: BountySettings, known: set[str]) -> list[TriageInput]:
-    """Search every enabled platform and fetch what triage needs for each new hit."""
+    """Search every enabled platform and fetch what triage needs for each new hit.
+
+    Each platform gets its own budget and each repository at most
+    MAX_PER_REPO candidates, so one spam repo labelling hundreds of issues
+    cannot crowd out every real bounty (it did, on the first live run).
+    """
     out: list[TriageInput] = []
     repo_cache: RepoCache = {}
     for platform in enabled_platforms(settings.platforms):
-        try:
-            items = await gh.search_issues(platform.search_query)
-        except (GitHubError, httpx.HTTPError) as exc:
-            log.warning("bounty: %s search failed: %s", platform.platform_id, exc)
-            continue
-        for item in items:
-            if len(out) >= MAX_CANDIDATES:
-                return out
-            key = f"{repo_from_item(item)}#{item.get('number')}".lower()
-            if key in known:
+        taken = 0
+        per_repo: Counter[str] = Counter()
+        for item in await _search(gh, platform.search_query, platform.platform_id):
+            repo = repo_from_item(item)
+            key = f"{repo}#{item.get('number')}".lower()
+            if taken >= MAX_PER_PLATFORM:
+                break
+            if key in known or per_repo[repo.lower()] >= MAX_PER_REPO:
                 continue
             known.add(key)
+            per_repo[repo.lower()] += 1
             try:
                 expanded = await _expand(gh, item, platform.platform_id, repo_cache)
             except (GitHubError, httpx.HTTPError) as exc:
@@ -85,6 +107,7 @@ async def discover(gh: GitHubClient, settings: BountySettings, known: set[str]) 
                 continue
             if expanded is not None:
                 out.append(expanded)
+                taken += 1
     return out
 
 
@@ -316,6 +339,14 @@ def pick(scored: Scored, allocation: dict[str, int]) -> Scored:
     return chosen
 
 
+def rejection_summary(scored: Scored) -> list[str]:
+    """Most common rejection reasons, so a quiet run says why it was quiet."""
+    counts: Counter[str] = Counter(
+        re.sub(r"\$?\d+", "N", reason)
+        for _, verdict in scored if not verdict.accept for reason in verdict.reasons)
+    return [f"- rejected ({n}×): {reason}" for reason, n in counts.most_common(6)]
+
+
 async def run_hunt(gh: GitHubClient, settings: BountySettings, chat: ChatFn | None) -> str:
     """One full scheduled run. Returns the markdown summary."""
     tracked = await load_records(gh, settings)
@@ -330,6 +361,7 @@ async def run_hunt(gh: GitHubClient, settings: BountySettings, chat: ChatFn | No
         candidates = await discover(gh, settings, known)
         scored = [(c, triage(c, settings, ROSTER)) for c in candidates]
         lines.append(f"Candidates: {len(candidates)}, accepted: {sum(v.accept for _, v in scored)}")
+        lines += rejection_summary(scored)
         for item, verdict in pick(scored, allocation):
             record = await attempt(gh, settings, item, verdict, chat)
             lines.append(f"- {record.bounty.key} → {record.state.value}")

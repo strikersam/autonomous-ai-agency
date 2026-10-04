@@ -227,7 +227,7 @@ class FullQueueGitHub(FakeGitHub):
     async def list_tracking_issues(self, repo, label, state="all"):
         return self.issues if label == tracker.TRACK_LABEL else []
 
-    async def search_issues(self, query, per_page=50):
+    async def search_issues(self, query, per_page=50, page=1):
         self.searched = True
         return []
 
@@ -254,7 +254,9 @@ def test_waiting_review_expires_when_bounty_closes(settings):
 class SearchGitHub(FakeGitHub):
     """Search answers per query; one platform's search fails outright."""
 
-    async def search_issues(self, query, per_page=50):
+    async def search_issues(self, query, per_page=50, page=1):
+        if page > 1:
+            return []
         if "opire" in query:
             raise hunt.GitHubError("HTTP 403")
         return [
@@ -274,3 +276,29 @@ class SearchGitHub(FakeGitHub):
 def test_discovery_survives_failures_and_skips_known_and_invalid(settings):
     found = asyncio.run(hunt.discover(SearchGitHub(), settings, {"acme/lib#8"}))
     assert [(c.bounty.key, c.bounty.amount_usd) for c in found] == [("acme/lib#7", 100)]
+
+
+class SpamGitHub(SearchGitHub):
+    """One repository labels dozens of issues; one real bounty sits behind them."""
+
+    async def search_issues(self, query, per_page=50, page=1):
+        if "opire" in query or page > 1:
+            return []
+        spam = [{"repository_url": "https://api.github.com/repos/spam/farm", "number": n, "title": "$100"}
+                for n in range(1, 40)]
+        real = {"repository_url": "https://api.github.com/repos/acme/lib", "number": 7, "title": "x [$100]"}
+        return [*spam, real]
+
+
+def test_one_repo_cannot_crowd_out_the_rest(settings):
+    found = asyncio.run(hunt.discover(SpamGitHub(), settings, set()))
+    repos = [c.bounty.repo for c in found]
+    assert repos.count("spam/farm") == hunt.MAX_PER_REPO and "acme/lib" in repos
+
+
+def test_rejection_summary_groups_reasons():
+    from packages.bounty.models import Verdict
+    scored = [(None, Verdict(accept=False, reasons=["amount $10 below minimum $50"])),
+              (None, Verdict(accept=False, reasons=["amount $20 below minimum $50"])),
+              (None, Verdict(accept=True))]
+    assert hunt.rejection_summary(scored) == ["- rejected (2×): amount N below minimum N"]
