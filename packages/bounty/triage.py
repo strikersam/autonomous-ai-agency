@@ -71,11 +71,27 @@ def count_competitors(comments: list[dict[str, Any]], own_login: str) -> int:
 def already_paid(comments: list[dict[str, Any]]) -> bool:
     """True when a bot comment says the bounty was awarded or paid."""
     for comment in comments:
-        user = comment.get("user") or {}
-        is_bot = str(user.get("type", "")) == "Bot" or str(user.get("login", "")).endswith("[bot]")
-        if is_bot and _PAID_RE.search(str(comment.get("body") or "")):
+        if _is_bot(comment) and _PAID_RE.search(str(comment.get("body") or "")):
             return True
     return False
+
+
+def funding_confirmed(platform: str, comments: list[dict[str, Any]]) -> bool:
+    """True when the platform's own bot has commented on the issue.
+
+    Anyone can put a bounty label on their own issue, and spam repositories do
+    exactly that by the hundred. A real Algora or Opire bounty always carries a
+    comment from that platform's bot linking back to it, so its presence is the
+    cheapest proof the money exists. The generic source has no such bot.
+    """
+    if platform not in {"algora", "opire"}:
+        return True
+    return any(_is_bot(c) and platform in str(c.get("body") or "").lower() for c in comments)
+
+
+def _is_bot(comment: dict[str, Any]) -> bool:
+    user = comment.get("user") or {}
+    return str(user.get("type", "")) == "Bot" or str(user.get("login", "")).endswith("[bot]")
 
 
 def bans_ai(policy_text: str) -> bool:
@@ -88,6 +104,10 @@ def _hard_rejections(item: TriageInput, settings: BountySettings, now: datetime)
     reasons: list[str] = []
     if info.get("archived") or info.get("disabled"):
         reasons.append("repository is archived")
+    if int(info.get("stargazers_count") or 0) < settings.min_repo_stars:
+        reasons.append(f"repository has fewer than {settings.min_repo_stars} stars")
+    if not funding_confirmed(bounty.platform, item.comments):
+        reasons.append(f"no {bounty.platform} bot comment confirms funding")
     if bounty.amount_usd < settings.min_usd:
         reasons.append(f"amount ${bounty.amount_usd} below minimum ${settings.min_usd}")
     if already_paid(item.comments):

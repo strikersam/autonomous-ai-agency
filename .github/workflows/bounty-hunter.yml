@@ -36,6 +36,7 @@ env:
   BOUNTY_RETIRE_AFTER_ATTEMPTS: ${{ vars.BOUNTY_RETIRE_AFTER_ATTEMPTS }}
   BOUNTY_SOLVER_MAX_STEPS: ${{ vars.BOUNTY_SOLVER_MAX_STEPS }}
   BOUNTY_MAX_DIFF_LINES: ${{ vars.BOUNTY_MAX_DIFF_LINES }}
+  BOUNTY_MIN_REPO_STARS: ${{ vars.BOUNTY_MIN_REPO_STARS }}
   AGENCY_KILL_SWITCH: ${{ vars.AGENCY_KILL_SWITCH }}
   # Forks, pushes and upstream PRs act as the operator, so they need GH_PAT;
   # the workflow's own GITHUB_TOKEN cannot fork or open PRs elsewhere.

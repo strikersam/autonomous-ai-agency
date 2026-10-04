@@ -10,7 +10,9 @@ from packages.bounty.discovery import candidate_from_item, extract_amount
 from packages.bounty.ledger import ROSTER, allocate, compute_pnl, fitness
 from packages.bounty.models import Bounty, BountyState, HuntRecord
 from packages.bounty.platforms import PLATFORMS, enabled_platforms
-from packages.bounty.triage import TriageInput, already_paid, bans_ai, count_competitors, triage
+from packages.bounty.triage import (
+    TriageInput, already_paid, bans_ai, count_competitors, funding_confirmed, triage,
+)
 from packages.config.bounty_settings import load_bounty_settings
 
 NOW = datetime(2026, 10, 4, tzinfo=timezone.utc)
@@ -31,13 +33,22 @@ def _bounty(**kw) -> Bounty:
 
 
 def _repo_info(**kw):
-    info = {"archived": False, "language": "Python", "pushed_at": (NOW - timedelta(days=2)).isoformat()}
+    info = {"archived": False, "language": "Python", "stargazers_count": 500,
+            "pushed_at": (NOW - timedelta(days=2)).isoformat()}
     info.update(kw)
     return info
 
 
 def _comment(login: str, body: str, bot: bool = False):
     return {"user": {"login": login, "type": "Bot" if bot else "User"}, "body": body}
+
+
+FUNDED = _comment("algora-pbc[bot]", "## 💎 $150 bounty • acme · https://algora.io/acme/bounties", bot=True)
+
+
+def _item(*comments, **kw) -> TriageInput:
+    return TriageInput(kw.pop("bounty", _bounty()), kw.pop("repo_info", _repo_info()),
+                       [FUNDED, *comments], kw.pop("policy_text", ""))
 
 
 # ── discovery ─────────────────────────────────────────────────────────────────
@@ -69,7 +80,7 @@ def test_platform_registry_and_claim_text():
 # ── triage ────────────────────────────────────────────────────────────────────
 
 def test_triage_accepts_a_fresh_uncontested_bounty(monkeypatch):
-    verdict = triage(TriageInput(_bounty(), _repo_info()), _settings(monkeypatch), ROSTER, now=NOW)
+    verdict = triage(_item(), _settings(monkeypatch), ROSTER, now=NOW)
     assert verdict.accept and verdict.agent_id == "hunter-python" and verdict.score > 0
 
 
@@ -81,9 +92,11 @@ def test_triage_accepts_a_fresh_uncontested_bounty(monkeypatch):
     ({"repo_info": _repo_info(pushed_at=(NOW - timedelta(days=300)).isoformat())}, "unmaintained"),
     ({"comments": [_comment("algora-pbc[bot]", "🎉 The bounty has been rewarded to @x", bot=True)]}, "awarded"),
     ({"policy_text": "We do not accept AI-generated pull requests."}, "refuses AI"),
+    ({"repo_info": _repo_info(stargazers_count=3)}, "fewer than 20 stars"),
+    ({"comments": [_comment("someone", "I'll pay $500 for this")]}, "no algora bot comment"),
 ])
 def test_triage_rejections(monkeypatch, change, reason):
-    item = TriageInput(_bounty(), _repo_info())
+    item = _item()
     for key, value in change.items():
         setattr(item, key, value)
     verdict = triage(item, _settings(monkeypatch), ROSTER, now=NOW)
@@ -99,8 +112,7 @@ def test_competitors_counted_per_user_excluding_self():
 
 
 def test_too_many_competitors_rejects(monkeypatch):
-    comments = [_comment(u, "/attempt") for u in "abc"]
-    verdict = triage(TriageInput(_bounty(), _repo_info(), comments), _settings(monkeypatch), ROSTER, now=NOW)
+    verdict = triage(_item(*[_comment(u, "/attempt") for u in "abc"]), _settings(monkeypatch), ROSTER, now=NOW)
     assert not verdict.accept and "3 competing attempts" in verdict.reasons
 
 
@@ -172,3 +184,10 @@ def test_settings_defaults(monkeypatch):
     settings = _settings(monkeypatch, BOUNTY_MAX_COMPETITORS="oops")
     assert settings.min_usd == 50 and settings.platforms == "algora,opire"
     assert settings.max_competitors == 2 and settings.enabled is False
+
+
+def test_funding_proof_is_per_platform():
+    opire_bot = _comment("opire-bot[bot]", "A $50 reward via Opire", bot=True)
+    assert funding_confirmed("opire", [opire_bot]) and not funding_confirmed("algora", [opire_bot])
+    assert not funding_confirmed("algora", [_comment("human", "see algora.io")])
+    assert funding_confirmed("generic", [])

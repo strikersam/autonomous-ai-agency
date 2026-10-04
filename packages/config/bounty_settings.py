@@ -43,6 +43,7 @@ class BountySettings:
     retire_after_attempts: int
     solver_max_steps: int
     max_diff_lines: int
+    min_repo_stars: int
     step_summary_path: str
 
 
@@ -64,5 +65,6 @@ def load_bounty_settings() -> BountySettings:
         retire_after_attempts=_int("BOUNTY_RETIRE_AFTER_ATTEMPTS", 10, minimum=1),
         solver_max_steps=_int("BOUNTY_SOLVER_MAX_STEPS", 40, minimum=1),
         max_diff_lines=_int("BOUNTY_MAX_DIFF_LINES", 400, minimum=1),
+        min_repo_stars=_int("BOUNTY_MIN_REPO_STARS", 20),
         step_summary_path=os.environ.get("GITHUB_STEP_SUMMARY", "").strip(),
     )

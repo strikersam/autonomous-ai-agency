@@ -658,6 +658,7 @@ Actions, so set these as **repository variables**, not on Render. See
 | `BOUNTY_RETIRE_AFTER_ATTEMPTS` | `10` | Attempts an agent gets without earning before it is retired. |
 | `BOUNTY_SOLVER_MAX_STEPS` | `40` | Tool-loop step cap per attempt (always enforced). |
 | `BOUNTY_MAX_DIFF_LINES` | `400` | Reject patches larger than this many changed lines. |
+| `BOUNTY_MIN_REPO_STARS` | `20` | Skip repositories with fewer stars; spam repos that self-label bounties sit below this. |
 
 The workflow uses the existing `GH_PAT` secret, passed as `GH_TOKEN`.
 
