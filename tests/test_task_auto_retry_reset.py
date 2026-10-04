@@ -81,3 +81,45 @@ def test_auto_retry_count_accumulates_to_cap() -> None:
 
     assert cycles == cap, "must reach the cap in exactly `cap` cycles, not loop forever"
     assert task.auto_retry_count == cap
+
+
+def test_blocked_cooldown_backs_off_exponentially() -> None:
+    """Each auto-retry doubles the wait, so retries stop hammering an exhausted quota."""
+    from tasks.dispatcher import _BLOCKED_COOLDOWN_MAX_S, _BLOCKED_COOLDOWN_S, blocked_cooldown_s
+
+    assert blocked_cooldown_s(0) == _BLOCKED_COOLDOWN_S
+    assert blocked_cooldown_s(1) == 2 * _BLOCKED_COOLDOWN_S
+    assert blocked_cooldown_s(3) == 8 * _BLOCKED_COOLDOWN_S
+    assert blocked_cooldown_s(50) == _BLOCKED_COOLDOWN_MAX_S
+
+
+async def test_dispatcher_skips_a_retried_task_until_its_longer_cooldown(monkeypatch) -> None:
+    import time as _time
+
+    from tasks import dispatcher as disp
+
+    task = _blocked_task(auto_retry_count=2)          # needs 4x the base cooldown
+    task.updated_at = _time.time() - disp._BLOCKED_COOLDOWN_S * 2
+
+    class _Store:
+        updated: list = []
+
+        async def list_blocked(self, limit):
+            return [task]
+
+        async def update(self, t):
+            self.updated.append(t)
+
+    retried: list = []
+
+    class _Coord:
+        _active_task_ids: set = set()
+
+        class workflow:
+            @staticmethod
+            def retry(t, **kw):
+                retried.append(t.task_id)
+
+    d = disp.TaskDispatcher(workspace_root=".", store=_Store(), coordinator=_Coord())
+    await d._auto_retry_blocked()
+    assert retried == [], "re-queued before the backed-off cooldown elapsed"

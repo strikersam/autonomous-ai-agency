@@ -10,6 +10,10 @@ Biggest remaining blocker is LLM capacity: google 429 quota, groq 429/413, nvidi
 ~60 s; ~9 tasks sit BLOCKED on "All brain providers exhausted" and auto-retry burns more quota.
 The open Bug Log rows marked DEFERRED / risky-module-review need a human decision; agents no
 longer pick them up.
+Bedrock (row 98): after merge set `AWS_BEARER_TOKEN_BEDROCK` (secret) and turn on
+`BEDROCK_BRAIN_ENABLED`, then check logs for `llm.router: ... ready: ... bedrock` and
+`attempt bedrock/openai.gpt-oss-120b-1:0 ok`. Spend shows in the cost tracker at $0.15/$0.60 per 1M.
+Not fixed: Groq gpt-oss 400 "Tool choice is none, but model called a tool" (fails fast, ~0.3 s).
 
 ---
 

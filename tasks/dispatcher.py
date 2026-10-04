@@ -40,6 +40,17 @@ _BLOCKED_COOLDOWN_S = float(os.environ.get("TASK_BLOCKED_COOLDOWN_SEC", "300")) 
 # Beyond this limit the task stays BLOCKED until a human intervenes.
 _AUTO_RETRY_MAX = int(os.environ.get("TASK_AUTO_RETRY_MAX", "5"))
 
+# The cooldown doubles with each auto-retry, up to this ceiling. A fixed 5 min
+# retried every blocked task into the same exhausted free-tier quota (production
+# 2026-10-04: one task blocked 7 times in 7 hours, each block 5 more LLM runs).
+_BLOCKED_COOLDOWN_MAX_S = 4 * 3600.0
+
+
+def blocked_cooldown_s(auto_retry_count: int) -> float:
+    """Seconds a BLOCKED task waits before its next auto-retry."""
+    return min(_BLOCKED_COOLDOWN_S * (2 ** max(auto_retry_count, 0)), _BLOCKED_COOLDOWN_MAX_S)
+
+
 # A task is "stranded" if it has been IN_PROGRESS without completing for this
 # many seconds.  Default is 2× the coordinator's default execution timeout (150 s).
 _STALE_THRESHOLD_S = float(os.environ.get("TASK_STALE_THRESHOLD_SEC", "300"))
@@ -280,7 +291,7 @@ class TaskDispatcher:
                 # subtraction doesn't raise TypeError.
                 from tasks.store import _ts_to_float
                 updated_at_f = _ts_to_float(task.updated_at) if task.updated_at else 0.0
-                if updated_at_f and (now - updated_at_f) < _BLOCKED_COOLDOWN_S:
+                if updated_at_f and (now - updated_at_f) < blocked_cooldown_s(task.auto_retry_count):
                     continue
                 # Respect the auto-retry limit to prevent infinite retry loops
                 if task.auto_retry_count >= _AUTO_RETRY_MAX:
