@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -13,7 +12,7 @@ import pytest
 from packages.bounty import hunt, tracker
 from packages.bounty.models import Bounty, BountyState, HuntRecord
 from packages.bounty.solver import solve
-from packages.bounty.workspace import inspect_patch
+from packages.bounty.workspace import git, inspect_patch
 from packages.config.bounty_settings import load_bounty_settings
 
 
@@ -23,7 +22,7 @@ def _git_repo(tmp_path: Path) -> Path:
     (repo / "lib.py").write_text("def add(a, b):\n    return a - b\n")
     for args in (["init", "-q"], ["add", "-A"],
                  ["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init"]):
-        subprocess.run(["git", *args], cwd=repo, check=True)
+        assert asyncio.run(git(repo, *args)).code == 0
     return repo
 
 
@@ -212,8 +211,7 @@ def test_protected_path_variants_are_refused(tmp_path, path):
     repo = _git_repo(tmp_path)
     chat = _scripted_chat([[_call("write_file", path=path, content="evil")], [_call("finish", summary="")]])
     asyncio.run(solve(BOUNTY, "", [], repo, chat, max_steps=3, plan=None))
-    assert subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True,
-                          text=True).stdout.strip() == ""
+    assert asyncio.run(git(repo, "status", "--porcelain")).out.strip() == ""
 
 
 class FullQueueGitHub(FakeGitHub):
