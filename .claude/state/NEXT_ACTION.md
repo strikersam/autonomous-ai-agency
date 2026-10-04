@@ -1,5 +1,16 @@
 # NEXT_ACTION — updated 2026-10-04
 
+**Updated:** 2026-10-04 (Bedrock live; tool-call aliases)
+
+## Bedrock live 2026-10-04
+#1654 and #1655 are on master and deployed (`4ea8b8a`). Render has AWS_BEARER_TOKEN_BEDROCK +
+BEDROCK_BRAIN_ENABLED=true. Logs 08:26: `9 provider(s) ready: ... bedrock ...` and
+`attempt bedrock/openai.gpt-oss-20b-1:0 ok`. Intake now picks fresh initiatives (no DEFERRED repeats).
+Branch `fix/tool-call-aliases`: executor accepts `command`/`action`/`operation`/... as the tool name.
+Next: watch for the first `Auto-PR opened` / `agent/task-*` PR, and Bedrock spend in the cost tracker.
+
+---
+
 **Updated:** 2026-10-04 (portfolio duplicate loop, row 97)
 
 ## Portfolio duplicate loop 2026-10-04 — branch `fix/portfolio-duplicate-loop`

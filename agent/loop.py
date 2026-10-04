@@ -2506,6 +2506,26 @@ class AgentRunner:
         ("finish", set(), "finishing"),
     ]
 
+    # Keys models use for the tool name instead of "tool". Honoured only when the
+    # value is a real tool, so a shell command under "command" is never misread.
+    _TOOL_NAME_ALIASES = ("tool_name", "function", "command", "action", "operation")
+
+    @staticmethod
+    def _tool_from_alias(raw: dict[str, Any]) -> ToolCall | None:
+        """``{"command": "list_files", "args": {...}}`` → ToolCall, else None."""
+        from agent.models import _known_tool_names
+
+        known = _known_tool_names()
+        for alias in AgentRunner._TOOL_NAME_ALIASES:
+            value = raw.get(alias)
+            if isinstance(value, str) and value.strip() in known:
+                nested = raw.get("args")
+                args = nested if isinstance(nested, dict) else {
+                    k: v for k, v in raw.items() if k != alias
+                }
+                return ToolCall(tool=value.strip(), args=args)  # type: ignore[arg-type]
+        return None
+
     def _coerce_tool_call(self, raw: dict[str, Any]) -> ToolCall:
         """Parse an LLM tool-call response, tolerating common malformations.
 
@@ -2529,7 +2549,14 @@ class AgentRunner:
                 args = {k: v for k, v in raw.items() if k != "tool"}
             else:
                 args = raw.get("args") or {}
+            nested = self._tool_from_alias(args) if isinstance(args, dict) else None
+            if nested is not None and nested.tool != tool_name:
+                return nested
             return ToolCall(tool=tool_name, args=args)  # type: ignore[arg-type]
+
+        aliased = self._tool_from_alias(raw)
+        if aliased is not None:
+            return aliased
 
         # Case 2: 'name' instead of 'tool'
         if "name" in raw:
