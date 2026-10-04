@@ -39,11 +39,5 @@ def process_reviews():
         print("{:8}|".format(str(agent["Paid"])), end="")
         print("${:.2f}|".format(agent["Revenue"]), end="")
         print("${:.2f}|".format(agent["Cost"]), end="")
-        print("${:.2f}|".format(agent["Net"]), end="")
-        print("{:8}|".format(agent["Status"]), end="")
-        print("{:5}|".format(str(agent["Slots"])))
-        
-    return agents
-
-process_reviews()
+        print("\n")
 ```
