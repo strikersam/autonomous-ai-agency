@@ -142,6 +142,29 @@ models:
   # catalogue and answered 404/400, so declaring them only routed work to a
   # dead endpoint. Do not re-add an id here without a probe.
 
+  # Llama 4 Scout 17B 16E on Groq (Preview tier, added 2026-10-04).
+  # Meta's MoE model: 17B active params out of ~109B total, 16 experts.
+  # Supports vision inputs (up to 20 MB files) and tool calling.
+  # Context on Groq: 128K (full 10M window not available on LPU hardware).
+  # Pricing: $0.11/$0.34 per MTok. Source: pricepertoken.com, console.groq.com,
+  # 2026-10-04.
+  # NOT in routing candidates — Preview status, not yet probed on this account.
+  # Reach via X-Model-Override: meta-llama/llama-4-scout-17b-16e-instruct.
+  # Note: DISTINCT from NVIDIA NIM's free "meta/llama-4-scout-17b-16e-instruct".
+  meta-llama/llama-4-scout-17b-16e-instruct:
+    provider: groq
+    display_name: Llama 4 Scout 17B 16E (Groq)
+    context_window: 131072
+    max_output_tokens: 8192
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    input_cost_per_1m: 0.11
+    output_cost_per_1m: 0.34
+    priority: 99                    # high = explicit-only; add to candidates after probe
+
   # Qwen 3.8 27B: Alibaba Qwen multimodal MoE on Groq, released Aug 2026.
   # Accepts images + text; supports tool calling and thinking mode switching.
   # Context: 131,072 tokens. Pricing: $0.80/$4.00 per MTok.
