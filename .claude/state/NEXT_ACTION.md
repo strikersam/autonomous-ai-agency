@@ -15,6 +15,18 @@ changelog and go green; close the four bad PRs (done in this session with a comm
 
 ---
 
+**Updated:** 2026-10-04 (Bedrock model → Qwen3 Coder Next)
+
+## Bedrock model switch 2026-10-04 — branch `fix/bedrock-qwen3-coder`
+#1662 merged (gpt-oss reasoning strip, reconciler retry count). This branch moves the `bedrock`
+provider to the Mantle endpoint (`bedrock-mantle.<region>.api.aws/v1`) with
+`qwen.qwen3-coder-next` as its only model. After deploy check Render logs for
+`attempt bedrock/qwen.qwen3-coder-next ok`; a 401/404 there means the Bedrock key is not
+accepted on Mantle → revert providers.yaml base_url. Then watch step-error rate and the first
+agent PR that passes `agent/pr_gate.py`. Groq gpt-oss "Tool choice is none" 400 still open.
+
+---
+
 **Updated:** 2026-10-04 (Bedrock live; tool-call aliases)
 
 ## Bedrock live 2026-10-04

@@ -258,14 +258,14 @@ providers:
   # served on this endpoint (model_not_found).
   bedrock:
     kind: openai
-    base_url: https://bedrock-runtime.${AWS_REGION:-us-east-1}.amazonaws.com/openai/v1
+    base_url: https://bedrock-mantle.${AWS_REGION:-us-east-1}.api.aws/v1
     key_env: [AWS_BEARER_TOKEN_BEDROCK]
     enabled: ${BEDROCK_BRAIN_ENABLED:-false}
     tier: cheap
     priority: 40
     max_concurrency: 4
     timeout_sec: 120
-    default_model: openai.gpt-oss-120b-1:0
+    default_model: qwen.qwen3-coder-next
     notes: Amazon Bedrock (paid, AWS credit). Set BEDROCK_BRAIN_ENABLED=true.
 
   anthropic:

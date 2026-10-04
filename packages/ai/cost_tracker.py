@@ -97,6 +97,8 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # tier, per 1M tokens (checked 2026-10-04).
     "openai.gpt-oss-120b-1:0": (0.15, 0.60),
     "openai.gpt-oss-20b-1:0": (0.07, 0.30),
+    # Qwen3 Coder Next on Bedrock (Mantle endpoint), per 1M tokens (checked 2026-10-04).
+    "qwen.qwen3-coder-next": (0.50, 1.20),
     # --- Google Gemini ---
     # Gemini 2.5 Flash: AI Studio free tier for low-RPM usage; usage through
     # the paid API is charged at $0.075/$0.30 per MTok (non-thinking, ≤200K).

@@ -116,7 +116,7 @@ See [docs/claude-code-setup.md](claude-code-setup.md) for full Claude Code setup
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BEDROCK_BRAIN_ENABLED` | `false` | Adds Amazon Bedrock (`gpt-oss-120b` / `gpt-oss-20b`, OpenAI-compatible endpoint) to the agent brain's provider pool. Its models are billed to the AWS account but marked `paid_opt_in`, so they serve while `ALLOW_PAID_BRAIN` stays off and the Anthropic API stays closed. Also in Settings → Platform controls; takes effect on restart. |
+| `BEDROCK_BRAIN_ENABLED` | `false` | Adds Amazon Bedrock (`qwen.qwen3-coder-next` on the OpenAI-compatible Mantle endpoint) to the agent brain's provider pool. Its models are billed to the AWS account but marked `paid_opt_in`, so they serve while `ALLOW_PAID_BRAIN` stays off and the Anthropic API stays closed. Also in Settings → Platform controls; takes effect on restart. |
 | `AWS_BEARER_TOKEN_BEDROCK` | _(unset)_ | Bedrock API key (bearer). Secret: Render env only. Without it the provider is skipped. |
 | `AWS_REGION` | `us-east-1` | Region in the Bedrock endpoint URL. |
 
