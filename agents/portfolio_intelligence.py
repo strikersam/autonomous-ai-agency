@@ -199,6 +199,15 @@ def initiatives_from_roadmap(markdown: str) -> List[Initiative]:
     return out
 
 
+# A bug row that says it is deferred or needs a risky-module review waits on a
+# human decision (CLAUDE.md rule 40); agents only burn quota re-attempting it.
+_HUMAN_DECISION_MARKERS = ("DEFERRED", "risky-module-review", "explicit decision")
+
+
+def _needs_human_decision(desc: str) -> bool:
+    return any(marker in desc for marker in _HUMAN_DECISION_MARKERS)
+
+
 def initiatives_from_bug_log(markdown: str) -> List[Initiative]:
     """Build urgent initiatives from open Bug Log rows."""
     out: List[Initiative] = []
@@ -208,6 +217,8 @@ def initiatives_from_bug_log(markdown: str) -> List[Initiative]:
             continue
         desc, status = _clean(cells[1]), _clean(cells[5]).upper()
         if not desc or status not in {"BUG_FOUND", "OPEN", "TODO"}:
+            continue
+        if _needs_human_decision(desc):
             continue
         out.append(_mk(
             f"Fix: {desc}", _bug_scores(),

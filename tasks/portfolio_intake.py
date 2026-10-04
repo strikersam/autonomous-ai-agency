@@ -35,6 +35,7 @@ from tasks.models import Task, TaskPriority, TaskStatus
 log = logging.getLogger("qwen-proxy")
 
 _TITLE_PREFIX = "[portfolio] "
+_TITLE_MAX = 80
 _INDEX_SCAN_LIMIT = 5000
 _ACTIVE = {
     TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.IN_REVIEW,
@@ -59,6 +60,16 @@ def portfolio_key(title: str) -> str:
     if raw.lower().startswith(_TITLE_PREFIX):
         raw = raw[len(_TITLE_PREFIX):]
     return _norm_title(raw)
+
+
+def initiative_key(initiative: Any) -> str:
+    """The key of *initiative*, as its task's (truncated) title will produce it.
+
+    A task stores only the first ``_TITLE_MAX`` characters of the title, so keying
+    an initiative on its full title never matched its task once the title ran
+    longer: the board never synced and intake queued a fresh copy every cycle.
+    """
+    return portfolio_key((getattr(initiative, "title", "") or "")[:_TITLE_MAX])
 
 
 def portfolio_source_id(initiative: Any) -> str:
@@ -102,7 +113,7 @@ def map_initiative_to_task(initiative: Any) -> Task:
 
     return Task(
         owner_id="system",
-        title=f"{_TITLE_PREFIX}{title[:80]}",
+        title=f"{_TITLE_PREFIX}{title[:_TITLE_MAX]}",
         description=f"Portfolio initiative: {title}",
         prompt=prompt[:4000],
         task_type="portfolio_initiative",
@@ -228,7 +239,7 @@ def sync_initiative_status(portfolio: Any, index: dict[str, list[Task]]) -> int:
     """
     changed = 0
     for initiative in getattr(portfolio, "_initiatives", {}).values():
-        group = index.get(portfolio_key(getattr(initiative, "title", "")))
+        group = index.get(initiative_key(initiative))
         if not group:
             continue
         statuses = {t.status for t in group}
@@ -310,7 +321,7 @@ async def materialize_committed(
         i for i in committed
         if _status_value(i.status) in eligible_status
         and getattr(i, "source", "") != "pr"
-        and portfolio_key(i.title) not in index
+        and initiative_key(i) not in index
     ]
     eligible.sort(key=_wsjf, reverse=True)
 
@@ -323,7 +334,7 @@ async def materialize_committed(
         task = map_initiative_to_task(initiative)
         await wf.create_task(task, actor="system:portfolio_intake")
         created.append(task)
-        index[portfolio_key(initiative.title)] = [task]
+        index[initiative_key(initiative)] = [task]
         _set_status(initiative, "in_progress")
         log.info("portfolio_intake: created task %s for initiative '%s' (wsjf=%.2f)",
                  task.task_id, initiative.title[:40], _wsjf(initiative))

@@ -85,6 +85,47 @@ async def test_board_sync_marks_running_work_in_progress(store):
     assert next(iter(portfolio._initiatives.values())).status.value == "in_progress"
 
 
+_LONG = ("Fix: GATE BYPASS (P0): requires_approval only redirects the final DONE to "
+         "IN_REVIEW transition, so the dispatcher runs the agent before any approval")
+
+
+async def test_long_title_initiative_matches_its_task_and_is_not_requeued(store):
+    """Titles over 80 chars: the task keeps 80, so intake must key on the same 80.
+
+    Production recreated these initiatives every intake cycle (each copy under a
+    fresh id), so retries never hit the cap and the board never drained.
+    """
+    await store.create(_ptask(_LONG[:80], TaskStatus.FAILED, created=1.0,
+                              source_id="portfolio:legacyhash0001"))
+    task = next(iter(store._mem.values()))
+    task["auto_retry_count"] = 99  # retries exhausted
+
+    initiative = _init(_LONG, source="bug")
+    assert await pi.materialize_committed(_portfolio(initiative), store=store, cap=5) == []
+    assert len(store._mem) == 1
+
+
+async def test_long_title_initiative_syncs_to_done(store):
+    await store.create(_ptask(_LONG[:80], TaskStatus.DONE, created=1.0, source_id="x"))
+    portfolio = _portfolio(_init(_LONG, source="bug"))
+    assert await pi.sync_board_status(portfolio, store=store) == 1
+    assert next(iter(portfolio._initiatives.values())).status.value == "done"
+
+
+def test_bug_rows_waiting_on_a_human_decision_are_not_queued():
+    from agents.portfolio_intelligence import initiatives_from_bug_log
+
+    md = (
+        "## Bug Log\n\n"
+        "| # | Bug Description | Found | Fixed | PR | Status |\n"
+        "|---|---|---|---|---|---|\n"
+        "| 1 | Login loop on refresh | d | — | — | BUG_FOUND |\n"
+        "| 2 | GATE BYPASS (P0, DEFERRED): needs a pre-execute gate | d | — | — | BUG_FOUND |\n"
+        "| 3 | write_file leak. Needs risky-module-review. | d | — | — | BUG_FOUND |\n"
+    )
+    assert [i.title for i in initiatives_from_bug_log(md)] == ["Fix: Login loop on refresh"]
+
+
 # ── duplicates ────────────────────────────────────────────────────────────────
 
 async def test_duplicates_are_cleaned_keeping_the_done_task(store):

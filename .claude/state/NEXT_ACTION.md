@@ -1,6 +1,18 @@
 # NEXT_ACTION — updated 2026-10-04
 
-**Updated:** 2026-10-04 (agent work ships, row 96)
+**Updated:** 2026-10-04 (portfolio duplicate loop, row 97)
+
+## Portfolio duplicate loop 2026-10-04 — branch `fix/portfolio-duplicate-loop`
+
+#1654 is live (`ff58848`): prod tasks now run in a fresh clone + E2B sandbox. After this merges,
+check Render logs: no new `portfolio_intake: created task` for the same initiative within an hour.
+Biggest remaining blocker is LLM capacity: google 429 quota, groq 429/413, nvidia 429 within
+~60 s; ~9 tasks sit BLOCKED on "All brain providers exhausted" and auto-retry burns more quota.
+The open Bug Log rows marked DEFERRED / risky-module-review need a human decision; agents no
+longer pick them up.
+
+---
+
 
 ## Agent code work ships 2026-10-04 — branch `fix/agent-work-ships`
 
