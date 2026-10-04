@@ -112,10 +112,23 @@ def assess_delivery(
     commits: list[str],
     pr_url: str | None,
     judge_verdict: str,
+    pr_blockers: list[str] | None = None,
 ) -> DeliveryOutcome:
     """Decide the honest outcome of a run (see module docstring)."""
+    if pr_url and not did_work:
+        # A PR exists, so a retry would only open a second one for the same work.
+        return DeliveryOutcome(
+            success=True, output=output, task_status="in_review",
+            review_reason=f"PR {pr_url} opened, but some steps failed — review it.",
+        )
     if not did_work:
         return DeliveryOutcome(success=False, output=output)
+    if auto_commit and changed_files and not pr_url and pr_blockers:
+        reasons = "\n".join(f"- {b}" for b in pr_blockers)
+        return DeliveryOutcome(
+            success=False,
+            output=f"Not delivered: the change failed the pre-PR checks:\n{reasons}",
+        )
     if auto_commit and changed_files and not pr_url:
         stage = "committed but never pushed / no PR opened" if commits else "never committed"
         return DeliveryOutcome(

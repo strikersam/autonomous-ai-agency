@@ -58,7 +58,7 @@ def test_judge_rejected_goes_to_review():
 
 
 def test_failed_run_stays_failed():
-    assert _assess(did_work=False).success is False
+    assert _assess(did_work=False, pr_url=None).success is False
 
 
 @pytest.mark.parametrize("url", [

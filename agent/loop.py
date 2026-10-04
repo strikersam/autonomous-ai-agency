@@ -927,6 +927,7 @@ class AgentRunner:
             # off) so this new agent-initiated GitHub write path is opt-in and has a
             # rollout kill switch.
             pr_url: str | None = None
+            pr_blockers: list[str] = []
             if (
                 auto_commit
                 and commits
@@ -934,9 +935,11 @@ class AgentRunner:
                 and os.environ.get("AGENT_AUTO_PR_ENABLED", "").strip().lower()
                 in {"true", "1", "yes"}
             ):
-                pr_url = await self._auto_push_and_pr(
-                    commits, self._current_session_id, plan.goal
-                )
+                pr_blockers = await self._pr_blockers(step_results)
+                if not pr_blockers:
+                    pr_url = await self._auto_push_and_pr(
+                        commits, self._current_session_id, plan.goal
+                    )
 
             summary = self._build_summary(plan.goal, step_results, commits, pr_url)
             self._log_event(session_id, "assistant_message", {"summary": summary})
@@ -994,6 +997,7 @@ class AgentRunner:
                 "report": self._build_report(plan.goal, step_results, commits, pr_url),
                 "judge": judge,
                 "pr_url": pr_url,
+                "pr_blockers": pr_blockers,
             }
         finally:
             # ── Durable checkpoint: snapshot on error for crash-recovery ──
@@ -2804,6 +2808,20 @@ class AgentRunner:
             return self.tools.read_file(path, max_chars=200000)
         except Exception:  # nosec B110 -- best-effort read
             return ""
+
+    async def _pr_blockers(self, step_results: list[dict[str, Any]]) -> list[str]:
+        """Run agent/pr_gate.py on everything this run changed (off the event loop)."""
+        from agent.pr_gate import pr_blockers
+
+        changed = [
+            f for step in step_results if step.get("status") == "applied"
+            for f in (step.get("changed_files") or [])
+        ]
+        try:
+            return await asyncio.to_thread(pr_blockers, self.tools.root, changed)
+        except Exception:
+            log.warning("PR gate failed to run; not opening a PR", exc_info=True)
+            return ["The pre-PR checks could not run."]
 
     async def _sync_sandbox_to_host(self) -> None:
         """Copy E2B sandbox edits into the host workspace before a step commit.
