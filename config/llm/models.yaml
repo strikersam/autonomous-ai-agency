@@ -54,6 +54,33 @@ models:
     supports_streaming: true
     priority: 25
 
+  # Amazon Bedrock copies of gpt-oss (paid; see the bedrock provider). Probed
+  # 2026-10-04 on the OpenAI-compatible endpoint: both returned tool_calls.
+  # Prices: Bedrock on-demand standard tier, per 1M tokens.
+  openai.gpt-oss-120b-1:0:
+    provider: bedrock
+    display_name: GPT-OSS 120B (Bedrock)
+    context_window: 128000
+    supports_tools: true
+    supports_function_calling: true
+    supports_streaming: true
+    input_cost_per_1m: 0.15
+    output_cost_per_1m: 0.60
+    paid_opt_in: true
+    priority: 26
+
+  openai.gpt-oss-20b-1:0:
+    provider: bedrock
+    display_name: GPT-OSS 20B (Bedrock)
+    context_window: 128000
+    supports_tools: true
+    supports_function_calling: true
+    supports_streaming: true
+    input_cost_per_1m: 0.07
+    output_cost_per_1m: 0.30
+    paid_opt_in: true
+    priority: 31
+
   openai/gpt-oss-20b:
     providers: [nvidia, groq]
     display_name: GPT-OSS 20B

@@ -436,6 +436,17 @@ _BRAIN_ROUTING: tuple[ControlSpec, ...] = (
         requires=("ANTHROPIC_API_KEY",),
     ),
     _toggle(
+        "BEDROCK_BRAIN_ENABLED",
+        "Bedrock brain (AWS credit)",
+        "brain_routing",
+        "false",
+        "Add Amazon Bedrock gpt-oss to the agent brain's providers. Billed to "
+        "the AWS account; runs without opening the Anthropic API. Takes effect "
+        "on restart.",
+        risk=RISK_HIGH,
+        requires=("AWS_BEARER_TOKEN_BEDROCK",),
+    ),
+    _toggle(
         "NORTH_MINI_CODE_DEFAULT",
         "Prefer North Mini Code for coding",
         "brain_routing",

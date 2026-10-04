@@ -200,6 +200,10 @@ services:
         sync: false
       - key: AWS_REGION
         value: "us-east-1"
+      # Bedrock API key (bearer) for the agent brain's Bedrock provider.
+      # BEDROCK_BRAIN_ENABLED is a Platform control (Settings), not set here.
+      - key: AWS_BEARER_TOKEN_BEDROCK
+        sync: false
       # Opus 4.7 requires AWS Sales approval — use Opus 4.6 until access is granted
       # To upgrade: change to us.anthropic.claude-opus-4-7 after AWS confirms access
       - key: BEDROCK_MODEL_ID

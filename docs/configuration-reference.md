@@ -112,6 +112,14 @@ See [docs/claude-code-setup.md](claude-code-setup.md) for full Claude Code setup
 | `ANTHROPIC_DEFAULT_EFFORT` | _(unset)_ | Default effort level for Anthropic adaptive-thinking models (`output_config.effort`). Valid values: `low`, `medium`, `high`, `xhigh`, `max`. Unset = model decides. Overridable per-request; also configurable live from Settings → Platform controls. Mirrors Claude Code's `maxEffortLevel` concept (Week 37, September 2026). |
 | `ANTHROPIC_THINKING_BUDGET` | `0` | Extended-thinking token budget for legacy Anthropic models that support `thinking.type="enabled"` (e.g. claude-3.7-sonnet). Zero disables extended thinking. Not applicable to adaptive-thinking models (Opus 5, Sonnet 5, Fable 5, Mythos) — use `ANTHROPIC_DEFAULT_EFFORT` for those. |
 
+### Amazon Bedrock — paid brain on AWS credit
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BEDROCK_BRAIN_ENABLED` | `false` | Adds Amazon Bedrock (`gpt-oss-120b` / `gpt-oss-20b`, OpenAI-compatible endpoint) to the agent brain's provider pool. Its models are billed to the AWS account but marked `paid_opt_in`, so they serve while `ALLOW_PAID_BRAIN` stays off and the Anthropic API stays closed. Also in Settings → Platform controls; takes effect on restart. |
+| `AWS_BEARER_TOKEN_BEDROCK` | _(unset)_ | Bedrock API key (bearer). Secret: Render env only. Without it the provider is skipped. |
+| `AWS_REGION` | `us-east-1` | Region in the Bedrock endpoint URL. |
+
 ### TokenIn — free frontier gateway
 
 [tokenin.my.id](https://tokenin.my.id/dashboard/models) is a free, OpenAI-compatible

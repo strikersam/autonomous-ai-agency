@@ -475,7 +475,7 @@ class LLMRouter:
             spec = self._registry.get(config.default_model)
             models = [spec] if spec else []
         if not allow_paid:
-            models = [m for m in models if m.is_free]
+            models = [m for m in models if m.is_free or m.paid_opt_in]
         return models
 
     @staticmethod

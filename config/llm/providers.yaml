@@ -250,6 +250,24 @@ providers:
     priority: 62
     max_concurrency: 8
 
+  # Amazon Bedrock, through its OpenAI-compatible endpoint with a Bedrock API key
+  # (bearer). Billed to the AWS account, so it is off unless BEDROCK_BRAIN_ENABLED
+  # is on; its models are `paid_opt_in`, which lets them serve while
+  # ALLOW_PAID_BRAIN stays off (the Anthropic API stays closed). Probed
+  # 2026-10-04: gpt-oss-120b/20b answer and return tool_calls; Claude is not
+  # served on this endpoint (model_not_found).
+  bedrock:
+    kind: openai
+    base_url: https://bedrock-runtime.${AWS_REGION:-us-east-1}.amazonaws.com/openai/v1
+    key_env: [AWS_BEARER_TOKEN_BEDROCK]
+    enabled: ${BEDROCK_BRAIN_ENABLED:-false}
+    tier: cheap
+    priority: 40
+    max_concurrency: 4
+    timeout_sec: 120
+    default_model: openai.gpt-oss-120b-1:0
+    notes: Amazon Bedrock (paid, AWS credit). Set BEDROCK_BRAIN_ENABLED=true.
+
   anthropic:
     kind: anthropic
     base_url: ${ANTHROPIC_BASE_URL:-https://api.anthropic.com}

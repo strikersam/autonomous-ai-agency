@@ -172,7 +172,7 @@ class ModelRegistry:
                 return False
             if min_context and model.context_window < min_context:
                 return False
-            if not allow_paid and not model.is_free:
+            if not allow_paid and not model.is_free and not model.paid_opt_in:
                 return False
             # Combined, matching the sort key below: output pricing is
             # normally the larger half, so an input-only cap admits models

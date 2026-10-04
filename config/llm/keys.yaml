@@ -66,6 +66,9 @@ keys:
   azure:
     env: [AZURE_OPENAI_API_KEY]
 
+  bedrock:
+    env: [AWS_BEARER_TOKEN_BEDROCK]
+
   anthropic:
     env:
       - ANTHROPIC_API_KEY
