@@ -395,6 +395,20 @@ loops:
     gate: none
     purpose: Reclaim expired quick-note claims so work never stalls.
 
+  # ── Revenue ─────────────────────────────────────────────────────────────
+  - id: bounty-hunter
+    name: Bounty Hunter
+    pattern: issue-triage
+    level: L2
+    trigger: schedule
+    cadence: every 3 h (+ owner label events)
+    runs_per_day: 8
+    cost: high
+    source: .github/workflows/bounty-hunter.yml
+    self_heal: false
+    gate: human
+    purpose: Find funded OSS bounties, solve them in a sandbox, and claim them once the owner approves.
+
   - id: delete-merged-branch
     name: Delete Merged Branch
     pattern: post-merge-cleanup

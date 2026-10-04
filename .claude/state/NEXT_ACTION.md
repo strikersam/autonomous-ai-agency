@@ -1,5 +1,12 @@
 # NEXT_ACTION — updated 2026-10-04
 
+**Updated:** 2026-10-04 (bounty hunter, branch `claude/bounty-hunter`)
+
+Bounty hunter shipped behind repo variable `BOUNTY_HUNTER_ENABLED`. After merge: owner sets the
+variable, then runs the workflow once by hand (Actions → Bounty Hunter → Run) and checks the
+`Bounty hunter ledger` issue and any `bounty:awaiting-review` issues. First real run is the
+first time the Docker sandbox and fork push execute — watch that job's log.
+
 **Updated:** 2026-10-04 (gpt-oss reasoning + reconciler loop, branch `fix/agent-loop-gpt-oss`)
 
 Prod 12:05–12:38: Bedrock answers every call but steps fail (inline <reasoning>, 20b invents
