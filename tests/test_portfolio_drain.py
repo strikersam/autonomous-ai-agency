@@ -356,3 +356,22 @@ def test_portfolio_prompt_keeps_definition_of_done_for_long_descriptions():
         title="Big initiative", description="x" * 10_000, horizon=None, source="manual",
     )
     assert map_initiative_to_task(initiative).prompt.endswith(_DEFINITION_OF_DONE)
+
+
+async def test_tasks_waiting_on_a_human_decision_are_closed_wont_do(store):
+    await store.create(_ptask("Fix: GATE BYPASS (P0, DEFERRED): require approval", TaskStatus.FAILED,
+                              created=1.0, source_id="portfolio:deferred01"))
+    await store.create(_ptask("Implement auth", TaskStatus.TODO, created=2.0, source_id="portfolio:auth0001"))
+    index = await pi.portfolio_task_index(store)
+    assert await pi.retire_human_decision_tasks(index, store) == 1
+    statuses = {t["title"]: t["status"] for t in store._mem.values()}
+    assert statuses["[portfolio] Fix: GATE BYPASS (P0, DEFERRED): require approval"] == "wont_do"
+    assert statuses["[portfolio] Implement auth"] == "todo"
+
+
+async def test_failed_task_whose_initiative_left_the_board_is_not_retried(store):
+    await store.create(_ptask("Old bug", TaskStatus.FAILED, created=1.0, source_id="portfolio:oldbug01"))
+    index = await pi.portfolio_task_index(store)
+    assert await pi.retry_failed(index, store, max_retries=5, live_keys=set()) == 0
+    assert await pi.retry_failed(index, store, max_retries=5,
+                                 live_keys={pi.portfolio_key("Old bug")}) == 1

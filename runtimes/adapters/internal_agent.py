@@ -615,8 +615,12 @@ class InternalAgentAdapter(RuntimeAdapter):
             commits=list(result.get("commits") or []),
             pr_url=result.get("pr_url"),
             judge_verdict=judge_verdict,
+            pr_blockers=list(result.get("pr_blockers") or []),
         )
         did_work, output_text = delivery.success, delivery.output
+        if output_text.startswith("Not delivered"):
+            # Posted as a task comment, so the next attempt sees what to fix.
+            metadata["agent_comment"] = f"{metadata.get('agent_comment', '')}\n\n{output_text}".strip()
         if delivery.task_status and "task_status" not in metadata:
             metadata["task_status"] = delivery.task_status
             metadata["review_reason"] = delivery.review_reason

@@ -88,8 +88,13 @@ _DEFINITION_OF_DONE = (
     "Implement this initiative as one reviewable change:\n"
     "1. Find the code it touches first and cite the real file paths you change.\n"
     "2. Ship the smallest complete slice that delivers user-visible value, with tests "
-    "for it. Leave larger follow-ups out and name them in your report.\n"
-    "3. If the repo already does this, change no files and report where (file paths)."
+    "for it in tests/test_<module>.py. Extend the existing package; do not add "
+    "top-level modules. Leave larger follow-ups out and name them in your report.\n"
+    "3. Add the same entry under '## [Unreleased]' in CHANGELOG.md and "
+    "docs/changelog.md (byte-identical).\n"
+    "4. If the repo already does this, change no files and report where (file paths).\n"
+    "A PR opens only if the changed files compile, the tests you touched pass and "
+    "both changelogs carry the entry."
 )
 
 
@@ -230,6 +235,43 @@ async def dedupe_portfolio_tasks(index: dict[str, list[Task]], store: Any) -> De
     return result
 
 
+_RETIRABLE = {TaskStatus.TODO, TaskStatus.BLOCKED, TaskStatus.FAILED, TaskStatus.NEEDS_CLARIFICATION}
+
+
+async def retire_human_decision_tasks(index: dict[str, list[Task]], store: Any) -> int:
+    """Close as WONT_DO the open portfolio tasks that wait on a human decision.
+
+    Bug rows marked DEFERRED or needing a risky-module review are no longer
+    queued (agents/portfolio_intelligence.py); tasks already created for them
+    otherwise sat FAILED/BLOCKED and kept being retried.
+    """
+    from agents.portfolio_intelligence import _needs_human_decision
+    from tasks.service import TaskWorkflowService
+
+    workflow = TaskWorkflowService(store=store)
+    retired = 0
+    for group in index.values():
+        for task in list(group):
+            text = f"{task.title}\n{task.description or ''}\n{task.prompt or ''}"
+            if task.status not in _RETIRABLE or not _needs_human_decision(text):
+                continue
+            try:
+                full = await store.get(task.task_id) or task
+                workflow.transition(
+                    full, TaskStatus.WONT_DO, actor=_DEDUPE_ACTOR,
+                    message="Waits on a human decision (deferred / risky module); closed.",
+                )
+                full.pending_agent_run = False
+                await store.update(full)
+                task.status = TaskStatus.WONT_DO
+                retired += 1
+            except Exception:
+                log.exception("portfolio: could not retire %s", task.task_id)
+    if retired:
+        log.info("portfolio: closed %d task(s) that wait on a human decision", retired)
+    return retired
+
+
 def sync_initiative_status(portfolio: Any, index: dict[str, list[Task]]) -> int:
     """Reflect task state onto initiatives so the board queue drains. Returns changes.
 
@@ -255,13 +297,22 @@ def sync_initiative_status(portfolio: Any, index: dict[str, list[Task]]) -> int:
     return changed
 
 
-async def retry_failed(index: dict[str, list[Task]], store: Any, *, max_retries: int) -> int:
-    """Re-queue a portfolio initiative whose only task FAILED, up to *max_retries* times."""
+async def retry_failed(
+    index: dict[str, list[Task]], store: Any, *, max_retries: int,
+    live_keys: set[str] | None = None,
+) -> int:
+    """Re-queue a portfolio initiative whose only task FAILED, up to *max_retries* times.
+
+    With *live_keys*, only initiatives still on the board are retried: work whose
+    signal is gone (a bug row closed or deferred) is not re-run.
+    """
     from tasks.service import TaskWorkflowService
 
     workflow = TaskWorkflowService(store=store)
     retried = 0
-    for group in index.values():
+    for key, group in index.items():
+        if live_keys is not None and key not in live_keys:
+            continue
         if {t.status for t in group} != {TaskStatus.FAILED}:
             continue
         task = group[-1]
@@ -307,7 +358,10 @@ async def materialize_committed(
 
     index = await portfolio_task_index(store)
     await dedupe_portfolio_tasks(index, store)
-    await retry_failed(index, store, max_retries=settings.portfolio_retry_max)
+    await retire_human_decision_tasks(index, store)
+    live_keys = {initiative_key(i) for i in getattr(portfolio, "_initiatives", {}).values()}
+    await retry_failed(index, store, max_retries=settings.portfolio_retry_max,
+                       live_keys=live_keys)
     sync_initiative_status(portfolio, index)
 
     try:

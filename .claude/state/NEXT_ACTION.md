@@ -1,5 +1,14 @@
 # NEXT_ACTION — updated 2026-10-04
 
+**Updated:** 2026-10-04 (agent PR quality gate, branch `fix/agent-pr-quality-gate`)
+
+First agent PRs exist (#1656, #1658–#1660) but none was mergeable: test for a missing module,
+three async_queue.py copies with no tests/changelog. Now gated by `agent/pr_gate.py`; one PR per
+initiative; DEFERRED work closed WONT_DO. After deploy: next agent PRs should carry tests +
+changelog and go green; close the four bad PRs (done in this session with a comment).
+
+---
+
 **Updated:** 2026-10-04 (Bedrock live; tool-call aliases)
 
 ## Bedrock live 2026-10-04
