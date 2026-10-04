@@ -54,26 +54,29 @@ models:
     supports_streaming: true
     priority: 25
 
-  # Amazon Bedrock copies of gpt-oss (paid; see the bedrock provider). Probed
-  # 2026-10-04 on the OpenAI-compatible endpoint: both returned tool_calls.
-  # Prices: Bedrock on-demand standard tier, per 1M tokens.
-  openai.gpt-oss-120b-1:0:
+  # Amazon Bedrock agent model (paid; see the bedrock provider), served on the
+  # OpenAI-compatible Mantle endpoint. Picked 2026-10-04 from a tool-call probe
+  # of the Mantle catalogue: it returned valid tool_calls on all three probes at
+  # $0.50/$1.20 per 1M — a coding model at a fraction of kimi-k2.5 ($6/$30).
+  # It is the only Bedrock model on purpose: the adaptive strategy weights cost,
+  # so a cheaper Bedrock twin would be preferred over it.
+  qwen.qwen3-coder-next:
     provider: bedrock
-    display_name: GPT-OSS 120B (Bedrock)
-    context_window: 128000
+    display_name: Qwen3 Coder Next (Bedrock)
+    context_window: 262144
     supports_tools: true
     supports_function_calling: true
     supports_streaming: true
-    input_cost_per_1m: 0.15
-    output_cost_per_1m: 0.60
+    input_cost_per_1m: 0.50
+    output_cost_per_1m: 1.20
     paid_opt_in: true
-    priority: 26
+    priority: 20
 
-  # openai.gpt-oss-20b-1:0 was removed on 2026-10-04: in production it carried
-  # nearly every agent call and most steps failed — it invented tool results
-  # (a Cargo.toml directory listing for this Python repo) or returned only
-  # <reasoning> text. The router preferred it as the cheaper twin; Bedrock agent
-  # work now runs on gpt-oss-120b. Its cost_tracker row stays for old spend.
+  # Bedrock gpt-oss was removed on 2026-10-04. openai.gpt-oss-20b-1:0 invented
+  # tool results (a Cargo.toml listing for this Python repo) and returned bare
+  # <reasoning> text; openai.gpt-oss-120b-1:0 was replaced by qwen3-coder-next
+  # above. gpt-oss-120b is still served free via Groq. Their cost_tracker rows
+  # stay for old spend.
 
   openai/gpt-oss-20b:
     providers: [nvidia, groq]

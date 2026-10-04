@@ -1,4 +1,4 @@
-"""Amazon Bedrock as an opt-in paid brain (gpt-oss on the OpenAI-compatible endpoint).
+"""Amazon Bedrock as an opt-in paid brain (Qwen3 Coder Next on the OpenAI-compatible Mantle endpoint).
 
 Bedrock is billed to the AWS account, so it must stay out of the pool until the
 operator turns it on, and turning it on must not open the other paid providers
@@ -16,7 +16,7 @@ from packages.llm.router import LLMRouter
 from packages.llm.types import LLMRequest
 
 _CONFIG_DIR = Path(__file__).resolve().parents[1] / "config" / "llm"
-_BEDROCK_MODELS = {"openai.gpt-oss-120b-1:0"}
+_BEDROCK_MODELS = {"qwen.qwen3-coder-next"}
 
 
 @pytest.fixture(autouse=True)
@@ -52,7 +52,7 @@ def test_enabled_bedrock_serves_without_opening_other_paid_models(monkeypatch):
     cfg = llm_config.load_config(_CONFIG_DIR)
     assert cfg.routing.allow_paid is False
     bedrock = cfg.providers["bedrock"]
-    assert bedrock.base_url == "https://bedrock-runtime.us-east-1.amazonaws.com/openai/v1"
+    assert bedrock.base_url == "https://bedrock-mantle.us-east-1.api.aws/v1"
 
     router = LLMRouter(cfg)
     request = LLMRequest(messages=[{"role": "user", "content": "hi"}])
@@ -72,7 +72,17 @@ def test_registry_keeps_opted_in_paid_models_only():
     assert all(cfg.models[m].is_free or cfg.models[m].paid_opt_in for m in kept)
 
 
-def test_weak_bedrock_20b_is_not_routed():
-    """gpt-oss-20b invented tool results in production (2026-10-04); 120b only."""
+def test_bedrock_routes_only_the_coding_model():
+    """gpt-oss-20b invented tool results in production (2026-10-04), and any
+    cheaper Bedrock twin would outrank the coding model on cost."""
     cfg = llm_config.load_config(_CONFIG_DIR)
-    assert "openai.gpt-oss-20b-1:0" not in cfg.models
+    on_bedrock = {mid for mid, m in cfg.models.items() if m.provider == "bedrock"}
+    assert on_bedrock == _BEDROCK_MODELS
+    assert cfg.providers["bedrock"].default_model == "qwen.qwen3-coder-next"
+
+
+def test_bedrock_model_is_priced():
+    from packages.ai.cost_tracker import _DEFAULT_COST_TABLE
+
+    for mid in _BEDROCK_MODELS:
+        assert mid in _DEFAULT_COST_TABLE
