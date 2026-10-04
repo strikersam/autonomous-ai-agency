@@ -1,9 +1,9 @@
 """packages/bounty/discovery.py — turn GitHub search results into bounty candidates.
 
-Algora marks a funded issue with the ``💎 Bounty`` label and its bot posts the
-amount in a comment ("💎 $250 bounty"). The amount is not always in the issue
-body, so extraction looks at labels, title, bot comments and body, in that
-order of trust.
+Algora's bot posts the amount in a comment ("💎 $250 bounty"); other platforms
+put it in a label or the title. The amount is often missing from the issue
+body, so extraction looks at labels, bot comments, title and body, in that
+order of trust. The searches themselves live in ``platforms.py``.
 """
 from __future__ import annotations
 
@@ -17,9 +17,6 @@ from pydantic import ValidationError
 from packages.bounty.models import Bounty, valid_repo
 
 log = logging.getLogger("qwen-proxy")
-
-ALGORA_LABEL = "💎 Bounty"
-SEARCH_QUERY = f'label:"{ALGORA_LABEL}" state:open is:issue archived:false no:assignee'
 
 _AMOUNT_RE = re.compile(r"\$\s?(\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,2})?\s*([kK])?\b")
 _BOT_AMOUNT_RE = re.compile(r"💎\s*\$\s?(\d{1,3}(?:,\d{3})+|\d+)\s*([kK])?")
@@ -37,7 +34,7 @@ def extract_amount(labels: list[str], title: str, bot_comments: list[str], body:
         if match:
             return _to_usd(*match.groups())
     for text in bot_comments:
-        match = _BOT_AMOUNT_RE.search(text)
+        match = _BOT_AMOUNT_RE.search(text) or _AMOUNT_RE.search(text)
         if match:
             return _to_usd(*match.groups())
     for text in (title, body):
@@ -62,7 +59,9 @@ def _parse_time(value: Any) -> datetime | None:
         return None
 
 
-def candidate_from_item(item: dict[str, Any], bot_comments: list[str]) -> Bounty | None:
+def candidate_from_item(
+    item: dict[str, Any], bot_comments: list[str], platform: str = "algora",
+) -> Bounty | None:
     """Build a :class:`Bounty` from one search item, or ``None`` if unusable."""
     repo = repo_from_item(item)
     if not valid_repo(repo) or "pull_request" in item:
@@ -71,6 +70,7 @@ def candidate_from_item(item: dict[str, Any], bot_comments: list[str]) -> Bounty
     amount = extract_amount(labels, str(item.get("title", "")), bot_comments, str(item.get("body") or ""))
     try:
         return Bounty(
+            platform=platform,
             repo=repo,
             issue_number=int(item.get("number", 0)),
             title=str(item.get("title", ""))[:300],

@@ -36,6 +36,7 @@ class BountyState(str, Enum):
 class Bounty(BaseModel):
     """One bounty-carrying issue on a third-party repository."""
 
+    platform: str = "algora"
     repo: str
     issue_number: int = Field(gt=0)
     title: str

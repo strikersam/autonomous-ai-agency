@@ -29,6 +29,7 @@ class BountySettings:
     """Effective configuration for one hunter run."""
 
     enabled: bool
+    platforms: str
     github_login: str
     github_token: str
     tracking_repo: str
@@ -42,12 +43,14 @@ class BountySettings:
     retire_after_attempts: int
     solver_max_steps: int
     max_diff_lines: int
+    step_summary_path: str
 
 
 def load_bounty_settings() -> BountySettings:
     """Read the bounty-hunter configuration from the environment."""
     return BountySettings(
         enabled=os.environ.get("BOUNTY_HUNTER_ENABLED", "").strip().lower() in _TRUTHY,
+        platforms=os.environ.get("BOUNTY_PLATFORMS", "").strip() or "algora,opire",
         github_login=os.environ.get("BOUNTY_GITHUB_LOGIN", "").strip(),
         github_token=os.environ.get("GH_TOKEN", "").strip(),
         tracking_repo=os.environ.get("GITHUB_REPOSITORY", "").strip(),
@@ -61,4 +64,5 @@ def load_bounty_settings() -> BountySettings:
         retire_after_attempts=_int("BOUNTY_RETIRE_AFTER_ATTEMPTS", 10, minimum=1),
         solver_max_steps=_int("BOUNTY_SOLVER_MAX_STEPS", 40, minimum=1),
         max_diff_lines=_int("BOUNTY_MAX_DIFF_LINES", 400, minimum=1),
+        step_summary_path=os.environ.get("GITHUB_STEP_SUMMARY", "").strip(),
     )
