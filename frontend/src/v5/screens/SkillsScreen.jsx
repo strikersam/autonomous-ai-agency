@@ -268,6 +268,7 @@ function SkillsScreen() {
   const [techStack,   setTechStack]   = React.useState([]);
   const [wfTypes,     setWfTypes]     = React.useState([]);
   const [refreshing,  setRefreshing]  = React.useState(false);
+  const [refreshError, setRefreshError] = React.useState('');
   const [filter,      setFilter]      = React.useState('all');
   const [search,      setSearch]      = React.useState('');
   const [tab,         setTab]         = React.useState('catalogue'); // 'catalogue' | 'recommended' | 'registry'
@@ -323,7 +324,7 @@ function SkillsScreen() {
   }, [companyId]);
 
   const handleRefresh = async () => {
-    setRefreshing(true);
+    setRefreshing(true); setRefreshError('');
     try {
       const [{ data: companyData }, { data: remoteData }] = await Promise.all([
         api.listCompanySkills(),
@@ -336,7 +337,7 @@ function SkillsScreen() {
         : api.autoRecommendCompanySkills();
       const { data: rec } = await recPromise;
       setRecommended(rec.recommendations || []);
-    } catch { /* ignore */ }
+    } catch (e) { setRefreshError(api.fmtErr?.(e?.response?.data?.detail) || e?.message || 'Could not refresh the registry — try again.'); }
     finally { setRefreshing(false); }
   };
 
@@ -455,6 +456,7 @@ function SkillsScreen() {
               color:'var(--accent)', fontFamily:'var(--font-mono)', letterSpacing:'0.04em',
             }}>{refreshing ? 'Refreshing…' : 'Refresh registry'}</button>
           </div>
+          {refreshError && <div role="alert" style={{ color:'#ff6b7d', fontSize:12, marginBottom:10 }}>{refreshError}</div>}
           {!liveSkills && !remoteSkills ? (
             <div style={{ padding:'32px', textAlign:'center', color:'var(--text-muted)', fontSize:13 }}>Click "Refresh registry" to fetch skills from bound specialists and GitHub registries.</div>
           ) : (

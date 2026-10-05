@@ -148,3 +148,21 @@ def test_consult_passes_company_context(monkeypatch):
     assert resp.status_code == 200
     assert captured["company_context"] == {"name": "Acme", "domain": "acme.test"}
     reset_executive_advisory()
+
+
+def test_consult_times_out_with_504_instead_of_hanging(monkeypatch):
+    """A stalled provider must return a clear 504, not leave the screen spinning."""
+    import asyncio
+
+    import backend.executive_advisory_api as api_mod
+
+    class _Slow:
+        async def advise(self, *a, **k):
+            await asyncio.sleep(5)
+
+    monkeypatch.setattr(api_mod, "CONSULT_TIMEOUT_SEC", 0.05)
+    monkeypatch.setattr("agent.executive_advisory.get_executive_advisory", lambda: _Slow())
+    client = TestClient(_make_app(_ADMIN))
+    r = client.post("/api/executives/consult", json={"question": "Should we raise prices?"})
+    assert r.status_code == 504
+    assert "too long" in r.json()["detail"]

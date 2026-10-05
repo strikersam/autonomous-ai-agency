@@ -136,9 +136,9 @@ class TestCacheReadCostCalculations:
         assert cost < 0.40
 
     def test_sonnet_5_5_all_cached_uses_10_percent(self, ct):
-        """Sonnet 5.5 at $1.6/MTok: 1M cached = $1.6 × 10 % = $0.16."""
+        """Sonnet 5.5 at $2/MTok: 1M cached = $2 × 10 % = $0.20."""
         cost = ct.cost_for_tokens("claude-sonnet-5-5", 1_000_000, 0, 1_000_000)
-        assert cost == pytest.approx(0.16)
+        assert cost == pytest.approx(0.20)
 
     def test_non_cached_fable_5_1_unchanged(self, ct):
         """Non-cached input is billed at the full input rate."""

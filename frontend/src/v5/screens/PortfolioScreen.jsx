@@ -131,6 +131,7 @@ export default function PortfolioScreen() {
   const [board, setBoard] = React.useState(null);   // null = loading
   const [error, setError] = React.useState('');
   const [refreshing, setRefreshing] = React.useState(false);
+  const [refreshError, setRefreshError] = React.useState('');
 
   const load = React.useCallback(async () => {
     try {
@@ -145,9 +146,9 @@ export default function PortfolioScreen() {
   React.useEffect(() => { load(); }, [load]);
 
   const refresh = async () => {
-    setRefreshing(true);
+    setRefreshing(true); setRefreshError('');
     try { const { data } = await api.refreshPortfolio(); setBoard(data); setError(''); }
-    catch { /* ignore */ }
+    catch (e) { setRefreshError(api.fmtErr?.(e?.response?.data?.detail) || e?.message || 'Refresh failed — try again.'); }
     finally { setRefreshing(false); }
   };
 
@@ -186,6 +187,7 @@ export default function PortfolioScreen() {
           <button onClick={refresh} disabled={refreshing} style={{ ...btnStyle, opacity: refreshing ? 0.6 : 1 }}>
             {refreshing ? 'Researching…' : '↻ Refresh intelligence'}
           </button>
+          {refreshError && <div role="alert" style={{ color: 'var(--danger)', fontSize: 12, marginTop: 6 }}>{refreshError}</div>}
           <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', marginTop: 6 }}>updated {timeAgo(board.generated_at)}</div>
         </div>
       </div>
