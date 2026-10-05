@@ -191,7 +191,7 @@ export const logout = () => {
 export const getMe = () => API.get('/api/auth/me');
 
 // Chat
-export const chatSend = (content, sessionId, model, providerId, temperature, agentMode = false, allowCommercialFallbackOnce = false, context = null, repoUrl = null, repoRef = null) =>
+export const chatSend = (content, sessionId, model, providerId, temperature, agentMode = false, allowCommercialFallbackOnce = false, context = null, repoUrl = null, repoRef = null, requestConfig = undefined) =>
   API.post('/api/chat/send', {
     content,
     session_id: sessionId,
@@ -203,7 +203,7 @@ export const chatSend = (content, sessionId, model, providerId, temperature, age
     ...(context ? { context } : {}),
     ...(repoUrl ? { repo_url: repoUrl } : {}),
     ...(repoRef ? { repo_ref: repoRef } : {}),
-  });
+  }, requestConfig);
 export const getAgentChatJob = (jobId) => API.get(`/api/chat/agent-jobs/${jobId}`);
 export const cancelAgentChatJob = (jobId) => API.post(`/api/chat/agent-jobs/${jobId}/cancel`);
 export const resumeAgentChatJob = (sessionId, action, input = "") => API.post(`/api/chat/resume/${sessionId}`, { action, input });
