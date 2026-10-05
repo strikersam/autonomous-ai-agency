@@ -144,7 +144,7 @@ function Approvals({ approvals, onResolve, busyId }) {
         Awaiting your decision ({approvals.length})
       </h2>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {approvals.map((a) => (
+        {approvals.map((a, i) => (
           <div key={a.approval_id} style={{
             borderRadius: 12, border: '1px solid rgba(255,189,102,0.30)',
             background: 'rgba(255,189,102,0.06)', padding: '12px 14px',
@@ -152,6 +152,11 @@ function Approvals({ approvals, onResolve, busyId }) {
           }}>
             <div style={{ flex: 1, minWidth: 220 }}>
               <div style={{ fontWeight: 700, fontSize: 13 }}>
+                {approvals.length > 1 && (
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginRight: 6 }}>
+                    {i + 1} of {approvals.length}
+                  </span>
+                )}
                 {a.agent_id} → <code style={{ fontFamily: 'var(--font-mono)' }}>{a.action}</code>
               </div>
               <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>

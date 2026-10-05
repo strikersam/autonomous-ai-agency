@@ -132,6 +132,24 @@ test('pending approvals render and approving calls the approve endpoint', async 
   expect(api.denyGovernanceRequest).not.toHaveBeenCalled();
 });
 
+test('stacked approvals show their position; a single one does not', async () => {
+  const pending = (id) => ({
+    approval_id: id, agent_id: 'agent:coder', action: `act_${id}`,
+    reason: 'requires approval', rule_id: 'r', seconds_remaining: 60,
+  });
+  mockAll({ approvals: [pending('a'), pending('b'), pending('c')] });
+  const { unmount } = render(<GovernanceScreen />);
+  await waitFor(() => expect(screen.getByText('1 of 3')).toBeInTheDocument());
+  expect(screen.getByText('2 of 3')).toBeInTheDocument();
+  expect(screen.getByText('3 of 3')).toBeInTheDocument();
+  unmount();
+
+  mockAll({ approvals: [pending('solo')] });
+  render(<GovernanceScreen />);
+  await waitFor(() => expect(screen.getByText('act_solo')).toBeInTheDocument());
+  expect(screen.queryByText(/\d+ of \d+/)).not.toBeInTheDocument();
+});
+
 test('denying an approval calls the deny endpoint', async () => {
   api.denyGovernanceRequest.mockResolvedValue({ data: {} });
   mockAll({
