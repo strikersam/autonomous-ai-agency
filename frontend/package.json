@@ -7,7 +7,7 @@
     "axios": "^1.20.0",
     "fast-uri": "^4.2.1",
     "livekit-client": "^2.22.3",
-    "lucide-react": "^1.48.0",
+    "lucide-react": "^1.49.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",
