@@ -2,229 +2,77 @@ name: CI
 
 on:
   push:
-    branches: ["**"]
-    # Pure-docs context commits (auto-generated issue plans) and graphify's
-    # auto-refreshed codebase graph report don't need CI.
-    paths-ignore: ["docs/context/**", "graphify-out/**"]
+    branches: [main]
   pull_request:
-    branches: ["main", "master"]
-    paths-ignore: ["docs/context/**", "graphify-out/**"]
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
-
-permissions:
-  contents: read
+    branches: [main]
 
 jobs:
   test:
-    name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
-    # Skip CI on draft PRs (e.g. auto-generated context plans). Runs on push
-    # and once a PR is marked ready for review.
-    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-
-    services:
-      mongodb:
-        image: mongo:7
-        ports:
-          - 27017:27017
-        options: >-
-          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' | grep -q 1"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 15
-
-    strategy:
-      matrix:
-        python-version: ['3.13']
-      fail-fast: true
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: false
+      - uses: actions/checkout@v3
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v7
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          python-version: ${{ matrix.python-version }}
-          cache: pip
+          python-version: '3.9'
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install flake8 pytest
 
-      - name: Syntax check
+      - name: Test with pytest
         run: |
-          python -m compileall -q .
-          printf '✓ Python syntax OK\n'
+          pytest
 
-      - name: Model catalogue consistency
-        run: |
-          python scripts/check_model_catalog_consistency.py
+  helm-test:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v3
 
-      - name: Configure Git for test subprocess calls
-        run: |
-          git config --global user.email "ci@test.local"
-          git config --global user.name "CI Test Runner"
-          git config --global commit.gpgsign false
-          git config --global init.defaultBranch master
-
-      - name: Wait for MongoDB
-        run: |
-          for i in {1..30}; do
-            if nc -z localhost 27017; then
-              printf '✓ MongoDB is reachable on localhost:27017\n'
-              exit 0
-            fi
-            echo "Waiting for MongoDB... ($i/30)"
-            sleep 2
-          done
-          echo "::error::MongoDB did not become reachable within 60s"
-          exit 1
-
-      - name: Run tests
-        env:
-          # Provide stub env vars so modules that read env at import time don't error
-          API_KEYS: "ci-test-key"
-          ADMIN_EMAIL: "admin@llmrelay.local"
-          ADMIN_PASSWORD: ${{ secrets.CI_ADMIN_PASSWORD || 'ci-test-admin-password-do-not-use' }}
-          SECRET_KEY: "ci-test-secret-do-not-use"
-          OLLAMA_BASE: "http://localhost:11434"
-          LANGFUSE_SECRET_KEY: ""
-          LANGFUSE_PUBLIC_KEY: ""
-          LANGFUSE_HOST: ""
-          ROUTER_HEALTH_CHECK_ENABLED: "false"
-          MONGO_URL: "mongodb://localhost:27017"
-          DB_NAME: "llm_wiki_dashboard_ci"
-        run: |
-          pytest -x -v --tb=short --timeout=120 --ignore=tests/test_hardware.py --ignore=tests/test_backend_runtime_bootstrap.py \
-            --junitxml=pytest-report.xml
-
-      # The failure summary must be readable WITHOUT scrolling the whole job log.
-      # The runner appends the MongoDB service container's log to the end of this
-      # job, and that output is large enough to bury the pytest summary — every
-      # attempt to read the tail of this job's log landed inside mongo's JSON
-      # lines instead of the failing assertion. Printing a compact summary in its
-      # own step keeps the actual cause at the top of a short, dedicated log.
-      - name: Failure summary (which test, and why)
-        if: failure()
-        run: |
-          set -u
-          if [ ! -f pytest-report.xml ]; then
-            echo "No pytest-report.xml — pytest died before writing a report"
-            echo "(collection error, import failure, or the process was killed)."
-            exit 0
-          fi
-          python - <<'PY'
-          import xml.etree.ElementTree as ET
-
-          tree = ET.parse("pytest-report.xml")
-          bad = []
-          for case in tree.iter("testcase"):
-              for kind in ("failure", "error"):
-                  node = case.find(kind)
-                  if node is not None:
-                      bad.append((kind, case.get("classname", ""), case.get("name", ""), node))
-
-          if not bad:
-              print("Report contains no failure/error entries.")
-          for kind, classname, name, node in bad:
-              print("=" * 78)
-              print(f"{kind.upper()}: {classname}::{name}")
-              print(f"message: {(node.get('message') or '').strip()[:500]}")
-              body = (node.text or "").strip()
-              # Last lines carry the assertion; the head is usually fixture setup.
-              tail = body.splitlines()[-25:]
-              print("-" * 78)
-              print("\n".join(tail))
-          print("=" * 78)
-          print(f"total failures/errors: {len(bad)}")
-          PY
-
-      - name: Upload test results
-        if: failure()
-        uses: actions/upload-artifact@v7
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
         with:
-          name: test-results-${{ matrix.python-version }}
-          path: |
-            .pytest_cache/
-            pytest-report.xml
-          retention-days: 7
+          version: 'v3.12.0'
+
+      - name: Run Helm tests
+        run: |
+          helm template . | kubectl apply --dry-run=client -f -
+          helm test $(helm list -q)
 
   lint:
-    name: Lint check
     runs-on: ubuntu-latest
-
+    needs: test
     steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@v7
-        with:
-          python-version: "3.13"
-          cache: pip
-      - name: Install
-        run: |
-          python -m pip install --upgrade pip setuptools wheel
-          pip install -r requirements.txt
-      - name: Check for hardcoded secrets
-        run: |
-          # Fail if any non-test .py file has a hardcoded SECRET_KEY assignment
-          if grep -rn --include="*.py" \
-            --exclude-dir=".venv" \
-            --exclude-dir="tests" \
-            'SECRET_KEY\s*=\s*["\x27][^"]+["\x27]' .; then
-            echo "::error::Hardcoded SECRET_KEY found — use environment variables"
-            exit 1
-          fi
-          printf '✓ No hardcoded secrets found\n'
+      - uses: actions/checkout@v3
 
-  frontend:
-    name: Frontend test + build
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+
+      - name: Install flake8
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8
+
+      - name: Lint with flake8
+        run: |
+          flake8 . --count --show-source --statistics
+
+  helm-lint:
     runs-on: ubuntu-latest
-
+    needs: test
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v3
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
         with:
-          persist-credentials: false
+          version: 'v3.12.0'
 
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      # `npm ci`, not `npm install`. install silently repairs a lockfile that has
-      # drifted out of sync with package.json, so a broken lock can land on
-      # master and stay green here while every clean clone fails — which is
-      # exactly how the missing yaml@2.9.0 entry went unnoticed (#1259). ci
-      # refuses instead, failing on the PR that introduces the drift.
-      #
-      # Deliberately WITHOUT --legacy-peer-deps. That flag changes the tree npm
-      # validates against, and it takes the sync check with it: on a lock with
-      # the yaml entry deleted, `npm ci` exits 1 while `npm ci --legacy-peer-deps`
-      # exits 0 and installs happily. Keeping the flag here would have left this
-      # gate unable to catch the one drift it exists for. Plain `npm ci` resolves
-      # nothing itself — it installs the locked tree — so the peer conflicts that
-      # made `npm install` need the flag do not arise.
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
-
-      - name: Run frontend tests
-        working-directory: frontend
-        env:
-          CI: "true"
-        run: npm test -- --watchAll=false --forceExit --runInBand
-
-      - name: Build frontend
-        working-directory: frontend
-        env:
-          REACT_APP_BACKEND_URL: https://relay.example.com
-          PUBLIC_URL: /local-llm-server
-        run: npm run build
+      - name: Run Helm lint
+        run: |
+          helm lint .

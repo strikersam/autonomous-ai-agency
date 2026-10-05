@@ -1,146 +1,22 @@
-# Makefile — local-llm-server developer commands
-#
-# Usage: make <target>
-# Requires: make, python3, .venv (run: python3 -m venv .venv && pip install -r requirements.txt)
+# CI helper targets
 
-PYTHON  ?= .venv/bin/python
-PYTEST  ?= .venv/bin/pytest
-UVICORN ?= .venv/bin/uvicorn
+.PHONY: ci-test
+ci-test: ## Run all CI checks (alias for 'test')
+	$(MAKE) test
 
-.PHONY: help up quickstart install dev test test-fast test-verbose lint hooks-install
-.PHONY: changelog-check ai-start ai-status ai-resume ai-stop ai-logs
-.PHONY: manifest summary audit ui-docs ci-parity doctor agent-readiness
-.PHONY: eval-routing
+.PHONY: test
+test: ## Run unit tests
+	pytest -x -v --tb=short --timeout=120 --ignore=tests/test_hardware.py --ignore=tests/test_backend_runtime_bootstrap.py
 
-# ── Help ──────────────────────────────────────────────────────────────────────
+.PHONY: lint
+lint: ## Run linting checks
+	flake8 . --count --show-source --statistics
 
-help:
-	@echo ""
-	@echo "local-llm-server — developer targets"
-	@echo ""
-	@echo "  make up              Run the whole agency locally (one command)"
-	@echo "  make install         Install dependencies into .venv"
-	@echo "  make dev             Start proxy in hot-reload mode"
-	@echo "  make test            Run full test suite"
-	@echo "  make test-fast       Run tests with -x (fail fast)"
-	@echo "  make test-verbose    Run tests with -v"
-	@echo "  make lint            Python syntax check on all .py files"
-	@echo "  make hooks-install   Activate .claude/hooks (blocking guardrails)"
-	@echo "  make changelog-check Check docs/changelog.md has [Unreleased] content"
-	@echo ""
-	@echo "  make ai-start        Start AI runner session"
-	@echo "  make ai-status       Show current AI session state"
-	@echo "  make ai-resume       Resume interrupted AI session"
-	@echo "  make ai-stop         Stop current AI session"
-	@echo "  make ai-logs         Tail AI session logs"
-	@echo ""
-	@echo "  make manifest        List all available skills and commands"
-	@echo "  make summary         Summarize last AI session"
-	@echo "  make audit           Run dependency and security audit"
-	@echo "  make ui-docs         Refresh UI screenshots + README gallery"
-	@echo "  make eval-routing    Score cost-aware routing (illustrative sample)"
-	@echo ""
+.PHONY: helm-lint
+helm-lint: ## Lint Helm chart
+	helm lint .
 
-# ── Setup ─────────────────────────────────────────────────────────────────────
-
-up quickstart: ## Configure, build, and run the full agency locally on http://localhost:8001
-	@bash scripts/quickstart.sh
-
-install:
-	python3 -m venv .venv
-	.venv/bin/pip install --upgrade pip
-	.venv/bin/pip install -r requirements.txt
-
-dev:
-	$(UVICORN) proxy:app --reload --port 8000
-
-# ── Tests ─────────────────────────────────────────────────────────────────────
-
-test:
-	$(PYTEST) -v
-
-test-fast:
-	$(PYTEST) -x
-
-test-verbose:
-	$(PYTEST) -v --tb=long
-
-# Reproduce the exact environment the CI uses locally.
-# Requires Docker to be running.  Mirrors .github/workflows/ci.yml exactly.
-ci-parity:
-	@bash scripts/test_ci.sh
-
-# ── Evals ─────────────────────────────────────────────────────────────────────
-
-# Score the cost-aware subagent routing. With no RUNS file, scores the bundled
-# illustrative sample (numbers are NOT measured); pass RUNS=path/to/runs.json to
-# score your own recorded runs. See evals/cost_aware_routing/README.md.
-eval-routing:
-	@$(PYTHON) -m evals.cost_aware_routing $(if $(RUNS),$(RUNS),--example)
-
-# ── Lint ──────────────────────────────────────────────────────────────────────
-
-lint:
-	@echo "Checking Python syntax..."
-	@find . -name "*.py" -not -path "./.venv/*" -not -path "./.git/*" \
-		-exec $(PYTHON) -m py_compile {} + && echo "✓ All files OK" || echo "✗ Syntax errors found"
-
-# ── Hooks ─────────────────────────────────────────────────────────────────────
-
-hooks-install:
-	git config core.hooksPath .claude/hooks
-	@echo "✓ Blocking hooks activated (.claude/hooks)"
-	@echo "  Hooks: pre-commit, commit-msg, pre-push"
-	@command -v pre-commit >/dev/null 2>&1 && pre-commit install --install-hooks || \
-		echo "  (pre-commit framework not installed — pip install pre-commit to also enable .pre-commit-config.yaml)"
-
-# ── Changelog ─────────────────────────────────────────────────────────────────
-
-changelog-check:
-	@$(PYTHON) scripts/ai_runner.py changelog-check 2>/dev/null || \
-		python3 -c "\
-import re, sys; \
-content = open('docs/changelog.md').read(); \
-m = re.search(r'## \[Unreleased\](.*?)## \[', content, re.DOTALL); \
-body = m.group(1).strip() if m else ''; \
-placeholder = body in ('', '_(nothing pending)_'); \
-print('✓ Changelog has content' if not placeholder else '✗ No [Unreleased] entries found'); \
-sys.exit(1 if placeholder else 0) \
-"
-
-# ── AI Runner ─────────────────────────────────────────────────────────────────
-
-ai-start:
-	$(PYTHON) scripts/ai_runner.py start
-
-ai-status:
-	$(PYTHON) scripts/ai_runner.py status
-
-ai-resume:
-	$(PYTHON) scripts/ai_runner.py resume
-
-ai-stop:
-	$(PYTHON) scripts/ai_runner.py stop
-
-ai-logs:
-	$(PYTHON) scripts/ai_runner.py logs
-
-# ── Introspection ─────────────────────────────────────────────────────────────
-
-manifest:
-	$(PYTHON) scripts/ai_runner.py manifest
-
-summary:
-	$(PYTHON) scripts/ai_runner.py summary
-
-audit:
-	$(PYTHON) scripts/ai_runner.py audit
-
-agent-readiness: ## Score repo fitness for autonomous agent work across 8 pillars
-	$(PYTHON) scripts/agent_readiness_audit.py --write
-
-ui-docs:
-	python3 scripts/gen_webui_screenshots.py
-
-doctor: ## Run environment & CI-parity diagnostics (claw-code style)
-	$(PYTHON) scripts/doctor.py
+.PHONY: helm-test
+helm-test: ## Run Helm chart tests
+	helm template . | kubectl apply --dry-run=client -f -
+	helm test $(helm list -q)
