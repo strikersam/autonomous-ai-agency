@@ -442,14 +442,22 @@ function SelfHealWidget({ data, loading, error, onRetry }) {
 
 function CostBreakdownWidget({ data, loading, error, onRetry }) {
   const tagColors = ['#5da2ff', '#46d9a4', '#c4b5fd', '#ffbd66', '#ff9d66', '#ff6b7d', '#7c9dff'];
-  const rows = Object.entries(data.by_tag || {})
-    .filter(([, v]) => (v.calls || 0) > 0)
-    .sort((a, b) => (b[1].estimated_cost_usd || 0) - (a[1].estimated_cost_usd || 0))
+  const tagged = Object.entries(data.by_tag || {}).filter(([, v]) => (v.calls || 0) > 0);
+  // Free-tier models cost $0, which would flatten every bar to the chart's
+  // minimum height and make the widget look empty. Chart call volume instead.
+  const hasSpend = tagged.some(([, v]) => (v.estimated_cost_usd || 0) > 0);
+  const metric = hasSpend ? 'estimated_cost_usd' : 'calls';
+  const rows = tagged
+    .sort((a, b) => (b[1][metric] || 0) - (a[1][metric] || 0))
     .slice(0, 6)
-    .map(([tag, v], i) => ({ label: tag.replace(/_/g, ' '), value: Number((v.estimated_cost_usd || 0).toFixed(4)), color: tagColors[i % tagColors.length] }));
+    .map(([tag, v], i) => ({
+      label: tag.replace(/_/g, ' '),
+      value: hasSpend ? Number((v.estimated_cost_usd || 0).toFixed(4)) : (v.calls || 0),
+      color: tagColors[i % tagColors.length],
+    }));
   const total = data.totals || {};
   return (
-    <Widget title="Spend by Task Type" loading={loading} error={error} onRetry={onRetry}>
+    <Widget title={hasSpend || rows.length === 0 ? 'Spend by Task Type' : 'Calls by Task Type'} loading={loading} error={error} onRetry={onRetry}>
       {rows.length === 0 && !loading && !error && (
         <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', lineHeight: 1.6 }}>
           No tagged LLM calls recorded yet since the last restart.
@@ -459,7 +467,7 @@ function CostBreakdownWidget({ data, loading, error, onRetry }) {
       {rows.length > 0 && (
         <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
           <span>{total.calls ?? 0} calls tracked</span>
-          <span>${(total.estimated_cost_usd ?? 0).toFixed(4)} est. spend</span>
+          <span>{hasSpend ? `$${(total.estimated_cost_usd ?? 0).toFixed(4)} est. spend` : 'free tier · $0.00 spend'}</span>
         </div>
       )}
     </Widget>
