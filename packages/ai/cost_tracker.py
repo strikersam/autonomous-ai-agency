@@ -127,8 +127,8 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "claude-opus-5-5-20260922": (4.0, 20.0),  # Opus 5.5 versioned ID
     "claude-sonnet-5": (2.0, 10.0),        # Sonnet 5 — $2/$10 per MTok (introductory price made permanent 2026-09-01)
     "claude-sonnet-5-20260501": (2.0, 10.0),
-    "claude-sonnet-5-5": (1.6, 8.0),      # Sonnet 5.5 — $1.6/$8 per MTok (released 2026-09-29; 20% cheaper than Sonnet 5)
-    "claude-sonnet-5-5-20260929": (1.6, 8.0),  # Sonnet 5.5 versioned ID
+    "claude-sonnet-5-5": (2.0, 10.0),     # Sonnet 5.5 — $2/$10 per MTok (released 2026-09-29; same price as Sonnet 5)
+    "claude-sonnet-5-5-20260929": (2.0, 10.0),  # Sonnet 5.5 versioned ID
     "claude-fable-5": (10.0, 50.0),        # Fable 5 — $10/$50 per MTok (gated flagship)
     "claude-fable-5-1": (10.0, 50.0),      # Fable 5.1 — $10/$50; cache reads 2.5 % (see _CACHE_READ_FRACTIONS)
     "claude-mythos-5": (10.0, 50.0),       # Mythos 5 — same as Fable 5 (restricted)
@@ -196,6 +196,9 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "mistral-small-latest": (0.10, 0.30),   # Mistral Small 3 — $0.10/$0.30 per MTok
     "codestral-latest": (0.30, 0.90),       # Codestral — $0.30/$0.90 per MTok
     "mistral-nemo": (0.15, 0.15),           # NeMo 12B — free/ultra-cheap tier
+    # Devstral (added 2026-10-05) — estimated at Mistral Small's $0.10/$0.30;
+    # not on the pricing page this was sourced from, so treat as an estimate.
+    "devstral-latest": (0.10, 0.30),
     # Pixtral Large / Ministral family (added 2026-10-03).
     # Pricing source: mistral.ai/technology/#pricing, 2026-10-03.
     "pixtral-large-latest": (2.00, 6.00),   # Pixtral Large 124B — $2/$6 per MTok
