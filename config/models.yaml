@@ -370,7 +370,7 @@ providers:
     base_url_env: ANTHROPIC_BASE_URL
     default_base_url: https://api.anthropic.com
     role_presets:
-      # Updated 2026-09-29: Sonnet 5.5 replaces Sonnet 5 as executor/verifier (20% cheaper, same capability tier).
+      # Updated 2026-09-29: Sonnet 5.5 replaces Sonnet 5 as executor/verifier (same $2/$10 price and capability tier).
       planner:   claude-opus-5-5
       executor:  claude-sonnet-5-5
       verifier:  claude-sonnet-5-5
@@ -400,7 +400,7 @@ providers:
     base_url_env: AEROLINK_BASE_URL
     default_base_url: https://capi.aerolink.lat/v1
     role_presets:
-      # Updated 2026-09-29: Sonnet 5.5 replaces Sonnet 5 as executor/verifier (mirrors anthropic provider; $1.6/$8, 20% cheaper).
+      # Updated 2026-09-29: Sonnet 5.5 replaces Sonnet 5 as executor/verifier (mirrors anthropic provider; same $2/$10 price as Sonnet 5).
       planner:   claude-opus-5-5
       executor:  claude-sonnet-5-5
       verifier:  claude-sonnet-5-5
@@ -409,7 +409,7 @@ providers:
       # Added 2026-09-25: Opus 5.5 as first-position candidate (cheaper + same capability tier as Opus 5).
       - claude-opus-5-5
       - claude-opus-5
-      # Added 2026-09-29: Sonnet 5.5 as executor/verifier model (20% cheaper than Sonnet 5).
+      # Added 2026-09-29: Sonnet 5.5 as executor/verifier model (same $2/$10 price as Sonnet 5).
       - claude-sonnet-5-5
       - claude-sonnet-5
       - claude-opus-4-8
