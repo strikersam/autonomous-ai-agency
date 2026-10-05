@@ -17,6 +17,14 @@ log = logging.getLogger("qwen-proxy")
 # How often (in polls) to emit a "queue depth" diagnostic log line.
 _QUEUE_DEPTH_LOG_EVERY = 12  # ~1 min at 5 s poll interval
 
+# How often (in polls) to mine recent agent sessions for repeating failures
+# (services/session_retro.py). 720 polls is about an hour at the 5 s poll.
+_RETRO_EVERY = 720
+
+# When nothing is queued or running, check for portfolio work this often (in
+# polls, ~1 min) instead of waiting for the regular intake interval.
+_IDLE_PORTFOLIO_EVERY = 12
+
 # How often (in polls) to run the stranded-task reconciler.
 # Default: every 60 polls ≈ 5 minutes at 5 s poll interval.
 _RECONCILE_EVERY = int(os.environ.get("TASK_RECONCILE_EVERY_POLLS", "60"))
@@ -31,6 +39,17 @@ _BLOCKED_COOLDOWN_S = float(os.environ.get("TASK_BLOCKED_COOLDOWN_SEC", "300")) 
 # Maximum number of times the dispatcher will auto-retry a BLOCKED task.
 # Beyond this limit the task stays BLOCKED until a human intervenes.
 _AUTO_RETRY_MAX = int(os.environ.get("TASK_AUTO_RETRY_MAX", "5"))
+
+# The cooldown doubles with each auto-retry, up to this ceiling. A fixed 5 min
+# retried every blocked task into the same exhausted free-tier quota (production
+# 2026-10-04: one task blocked 7 times in 7 hours, each block 5 more LLM runs).
+_BLOCKED_COOLDOWN_MAX_S = 4 * 3600.0
+
+
+def blocked_cooldown_s(auto_retry_count: int) -> float:
+    """Seconds a BLOCKED task waits before its next auto-retry."""
+    return min(_BLOCKED_COOLDOWN_S * (2 ** max(auto_retry_count, 0)), _BLOCKED_COOLDOWN_MAX_S)
+
 
 # A task is "stranded" if it has been IN_PROGRESS without completing for this
 # many seconds.  Default is 2× the coordinator's default execution timeout (150 s).
@@ -76,6 +95,8 @@ class TaskDispatcher:
         # Track when each task was first seen as pending so we can report
         # time-to-pickup once it actually starts.
         self._first_seen: dict[str, float] = {}
+        # Tasks this dispatcher is running right now, by task id.
+        self._running: dict[str, asyncio.Task] = {}
 
     async def run_forever(self) -> None:
         log.info(
@@ -150,13 +171,17 @@ class TaskDispatcher:
         every = settings.agency_auto_triage_every_polls
         if settings.is_agency_auto_triage_enabled and every > 0 and self._poll_count % every == 0:
             await self._ceo_triage()
-        portfolio_every = settings.portfolio_auto_materialize_every_polls
-        if portfolio_every > 0 and self._poll_count % portfolio_every == 0:
-            from tasks.autonomy_triage import materialize_portfolio
+        await self._maybe_materialize_portfolio(settings.portfolio_auto_materialize_every_polls)
+        if _RETRO_EVERY > 0 and self._poll_count % _RETRO_EVERY == 0:
+            await self._run_retro()
 
-            await materialize_portfolio()
-
-        tasks = await self.store.list_pending(limit=self.max_concurrency)
+        free = self.max_concurrency - len(self._running)
+        if free <= 0:
+            return
+        # Over-fetch so tasks this dispatcher is already running don't hide
+        # queued work behind them.
+        candidates = await self.store.list_pending(limit=self.max_concurrency * 2)
+        tasks = [t for t in candidates if t.task_id not in self._running][:free]
 
         # Emit periodic queue-depth diagnostic
         if self._poll_count % _QUEUE_DEPTH_LOG_EVERY == 0:
@@ -187,7 +212,49 @@ class TaskDispatcher:
         for task in tasks:
             self._first_seen.setdefault(task.task_id, now)
 
-        await asyncio.gather(*(self._execute_as_agent(task) for task in tasks))
+        # Start each task in its own slot and return: a free slot is refilled on
+        # the next poll instead of idling until the slowest task in a batch ends.
+        for task in tasks:
+            self._running[task.task_id] = asyncio.create_task(self._run_slot(task))
+
+    async def _run_slot(self, task: Task) -> None:
+        try:
+            await self._execute_as_agent(task)
+        except Exception as exc:  # pragma: no cover - defensive loop logging
+            log.error("TaskDispatcher: task %s crashed: %s", task.task_id, exc, exc_info=True)
+        finally:
+            self._running.pop(task.task_id, None)
+
+    async def _maybe_materialize_portfolio(self, every: int) -> None:
+        """Queue portfolio work on its cadence, and right away when agents are idle."""
+        if every <= 0:
+            return
+        idle = not self._running and self._poll_count % _IDLE_PORTFOLIO_EVERY == 0
+        if self._poll_count % every != 0 and not (idle and await self._queue_empty()):
+            return
+        from tasks.autonomy_triage import materialize_portfolio
+
+        await materialize_portfolio()
+
+    async def _run_retro(self) -> None:
+        """Learn from recent sessions: file repeating failures as improvement issues."""
+        try:
+            from services.session_retro import run_retro_cycle
+
+            result = await run_retro_cycle()
+            if result.get("routed"):
+                log.info("Session retro: routed %d recurring failure(s) to the improvement loop",
+                         result["routed"])
+        except Exception as exc:  # pragma: no cover - defensive loop logging
+            log.error("Session retro error: %s", exc, exc_info=True)
+
+    async def _queue_empty(self) -> bool:
+        return not await self.store.list_pending(limit=1)
+
+    async def drain(self) -> None:
+        """Wait for every running slot to finish (tests and graceful shutdown)."""
+        while self._running:
+            await asyncio.gather(*list(self._running.values()), return_exceptions=True)
 
     async def _execute_as_agent(self, task: Task) -> None:
         """Run one task with its LLM spend attributed to the assigned agent."""
@@ -224,7 +291,7 @@ class TaskDispatcher:
                 # subtraction doesn't raise TypeError.
                 from tasks.store import _ts_to_float
                 updated_at_f = _ts_to_float(task.updated_at) if task.updated_at else 0.0
-                if updated_at_f and (now - updated_at_f) < _BLOCKED_COOLDOWN_S:
+                if updated_at_f and (now - updated_at_f) < blocked_cooldown_s(task.auto_retry_count):
                     continue
                 # Respect the auto-retry limit to prevent infinite retry loops
                 if task.auto_retry_count >= _AUTO_RETRY_MAX:

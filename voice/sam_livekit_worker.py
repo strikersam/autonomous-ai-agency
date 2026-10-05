@@ -128,7 +128,34 @@ def _build_tts(cfg: LiveKitConfig) -> Any:
     )
 
 
-def _make_sam_assistant(owner_id: str) -> Any:
+def role_is_admin(metadata: str | None) -> bool:
+    """Whether a participant's token metadata marks them admin.
+
+    The backend writes ``{"role": ...}`` into the signed room token
+    (``POST /agent/sam/livekit/token``); participants cannot rewrite their own
+    metadata, so this is as trustworthy as the JWT. Anything unparseable is
+    treated as non-admin.
+    """
+    try:
+        return str(json.loads(metadata or "{}").get("role", "")).lower() == "admin"
+    except (ValueError, AttributeError):
+        return False
+
+
+async def voice_create_task(title: str, description: str, owner_id: str, *, is_admin: bool) -> str:
+    """The voice ``create_task`` tool: same admin gate and approval gate as SAM chat."""
+    from agent.sam_orchestrator import ADMIN_ONLY_REPLY, delegate_task
+
+    if not is_admin:
+        return ADMIN_ONLY_REPLY
+    try:
+        return await delegate_task(title.strip()[:512], owner_id or "sam-voice", description=description)
+    except Exception:
+        log.exception("voice create_task failed")
+        return "Could not create the task right now."
+
+
+def _make_sam_assistant(owner_id: str, is_admin: bool = False) -> Any:
     """Build the SAM voice Agent with in-process agency tools.
 
     Defined inside a factory (not at module level) so importing this module
@@ -179,27 +206,9 @@ def _make_sam_assistant(owner_id: str) -> Any:
         @function_tool
         async def create_task(self, title: str, description: str = "") -> str:
             """Create a new task in the agency backlog. Call this when the
-            Commander asks to create, add, or queue a task. Repeat the created
-            task title back for confirmation."""
-            try:
-                from tasks.models import Task
-                from tasks.service import TaskWorkflowService
-
-                task = Task(
-                    owner_id=owner_id or "sam-voice",
-                    title=title[:512],
-                    description=description[:4000],
-                    task_type="voice",
-                    tags=["sam-voice"],
-                    source="sam-voice",
-                )
-                # Through the workflow service, not the raw store: it sets
-                # pending_agent_run, without which the dispatcher never runs it.
-                created = await TaskWorkflowService().create_task(task, actor="sam:voice")
-                return f"Task created: '{created.title}' (id={created.task_id})"
-            except Exception as exc:
-                log.warning("create_task failed: %s", exc)
-                return f"Could not create the task: {exc}"
+            Commander asks to create, add, or queue a task. Repeat the result
+            back: deploys, deletes, payments and similar park for approval."""
+            return await voice_create_task(title, description, owner_id, is_admin=is_admin)
 
         @function_tool
         async def check_alerts(self) -> str:
@@ -248,7 +257,10 @@ async def entrypoint(ctx: "JobContext") -> None:
         llm=_build_llm(cfg),
         tts=_build_tts(cfg),
     )
-    await session.start(room=ctx.room, agent=_make_sam_assistant(participant.identity))
+    await session.start(
+        room=ctx.room,
+        agent=_make_sam_assistant(participant.identity, role_is_admin(participant.metadata)),
+    )
     await session.generate_reply(instructions=GREETING_INSTRUCTIONS)
 
 

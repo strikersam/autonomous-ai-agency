@@ -1,336 +1,108 @@
-# Next Action
+# NEXT_ACTION — updated 2026-10-05
 
-**Updated:** 2026-09-30 (row 89)
+**Updated:** 2026-10-05 (daily routine, branch `routine/daily-2026-10-05`)
 
-## Daily automation 2026-09-30 — DONE (row 89, PR TBD)
+Sonnet 5.5 cost table corrected to $2/$10 (was $1.6/$8). Backlog issue #1688 items 2-4 remain: agent web-access master switch (S), "n of m" approval counter (XS-S), and a read-only compound-shell audit of `agent/tools.py` (risky module, needs human sign-off).
 
-Two changes to `packages/ai/cost_tracker.py` shipped:
 
-1. **`_CACHE_READ_FRACTIONS` per-model overrides** for `claude-fable-5-1` (2.5%),
-   `claude-mythos-5-1` (2.5%), `claude-opus-5-5` (5%) — the 10% flat-rate for all
-   other `claude-` models is unchanged. Code comments already documented the Fable 5.1
-   rate at 0.025x; the fractions table now matches. Source: platform.claude.com pricing.
+**Updated:** 2026-10-04 (bounty hunter, branch `claude/bounty-hunter`)
 
-2. **GPT-6 family cost table entries** — `gpt-6-astra` ($10/$50/MTok), `gpt-6-luna`
-   ($0.1/$0.5/MTok), `gpt-6.1-sol` ($2/$10/MTok) added for cost attribution when
-   models are reached via OpenRouter/OpenAI. Not added to any provider's candidates.
-   Source: platform.openai.com/docs/models, 2026-09-30.
+Bounty hunter shipped behind repo variable `BOUNTY_HUNTER_ENABLED`. After merge: owner sets the
+variable, then runs the workflow once by hand (Actions → Bounty Hunter → Run) and checks the
+run's job summary (the P&L table) and any `bounty:awaiting-review` issues. First real run is the
+first time the Docker sandbox and fork push execute — watch that job's log.
 
-29 new tests, 29/29 pass. Gates: `compileall` clean, changelog PARITY OK, loop
-registry drift none. Branch: `claude/intelligent-gates-r0q0r2`; PR [#1622](https://github.com/strikersam/autonomous-ai-agency/pull/1622) open against master; merge when CI is green.
+**Updated:** 2026-10-04 (gpt-oss reasoning + reconciler loop, branch `fix/agent-loop-gpt-oss`)
 
-**Next daily run (2026-10-01):**
-- Confirm PR for row 89 merged.
-- Check Anthropic pricing page again for Haiku 5.5 release (not yet released as of
-  2026-09-30); add when confirmed.
-- Consider operator model deny-list (W40 item 3, still deferred) if rule-40 human
-  approval lands.
-- Row 84 (`ANTHROPIC_DEFAULT_EFFORT`) still `IN_PROGRESS` on
-  `routine/daily-2026-09-27` — verify whether it merged.
+Prod 12:05–12:38: Bedrock answers every call but steps fail (inline <reasoning>, 20b invents
+tool results) and the reconciler loops 2 FAILED tasks at "retry 0/5". Fixed on this branch.
+After deploy: watch for the first agent PR that passes agent/pr_gate.py.
+
+**Updated:** 2026-10-04 (agent PR quality gate, branch `fix/agent-pr-quality-gate`)
+
+First agent PRs exist (#1656, #1658–#1660) but none was mergeable: test for a missing module,
+three async_queue.py copies with no tests/changelog. Now gated by `agent/pr_gate.py`; one PR per
+initiative; DEFERRED work closed WONT_DO. After deploy: next agent PRs should carry tests +
+changelog and go green; close the four bad PRs (done in this session with a comment).
 
 ---
 
-## Daily automation 2026-09-28 — DONE (row 87, merged; row 88, docs follow-up)
+**Updated:** 2026-10-04 (Bedrock model → Qwen3 Coder Next)
 
-Row 87's three W40 backlog items are **merged to master** as #1612 (verify with
-`git log origin/master` if this note is more than a day old — the "waiting for CI"
-line above was stale by the time this second session started).
+## Bedrock model switch 2026-10-04 — branch `fix/bedrock-qwen3-coder`
+#1662 merged (gpt-oss reasoning strip, reconciler retry count). This branch moves the `bedrock`
+provider to the Mantle endpoint (`bedrock-mantle.<region>.api.aws/v1`) with
+`qwen.qwen3-coder-next` as its only model. After deploy check Render logs for
+`attempt bedrock/qwen.qwen3-coder-next ok`; a 401/404 there means the Bedrock key is not
+accepted on Mantle → revert providers.yaml base_url. Then watch step-error rate and the first
+agent PR that passes `agent/pr_gate.py`. Groq gpt-oss "Tool choice is none" 400 still open.
 
-1. **Prompt-cache billing** (`packages/ai/cost_tracker.py`, `packages/ai/router.py`,
-   `packages/llm/budget.py`): `cost_for_tokens()` and `record_usage()` accept
-   `cached_tokens`; Anthropic 10%, Gemini 25%, DeepSeek 2%.
-2. **X-Claude-Code-Prompt-Id** (`langfuse_obs.py`, `chat_handlers.py`,
-   `handlers/anthropic_compat.py`, `proxy.py`): header extracted and threaded to
-   `emit_chat_observation` as `prompt_id`; emitted as `prompt:<id>` tag + metadata
-   field in Langfuse.
-3. **Prompt-audit script** (`scripts/prompt_audit.py`): flags stale file paths and
-   unknown model IDs in CLAUDE.md/AGENTS.md; non-blocking.
+---
 
-**Item deferred (needs rule-40 human approval before touching router/):**
-Item 3 from the W40 backlog — operator deny-list for model IDs in `router/`. Requires
-human sign-off per CLAUDE.md rule 40 (change spanning >5 files in `router/`).
+**Updated:** 2026-10-04 (Bedrock live; tool-call aliases)
 
-**Row 88 (a second, concurrent 2026-09-28 session):** picked the same backlog item
-(prompt-id forwarding) before row 87 landed, built it independently, then discovered
-the collision at PR-creation time. Closed the duplicate PR (#1613) without merging
-and shipped only the genuinely new remainder — `docs/api-surfaces.md` had no
-"Observability request headers" reference at all for any of the four
-`X-Claude-Code-*` headers — as docs-only PR #1614 (auto-merge armed). See row 88
-for the full account, including why item 2 of the backlog issue (#1611) was not
-picked: its "cached tokens billed at full price" premise didn't hold up under direct
-code verification (the opposite is true — they're currently unbilled).
+## Bedrock live 2026-10-04
+#1654 and #1655 are on master and deployed (`4ea8b8a`). Render has AWS_BEARER_TOKEN_BEDROCK +
+BEDROCK_BRAIN_ENABLED=true. Logs 08:26: `9 provider(s) ready: ... bedrock ...` and
+`attempt bedrock/openai.gpt-oss-20b-1:0 ok`. Intake now picks fresh initiatives (no DEFERRED repeats).
+Branch `fix/tool-call-aliases`: executor accepts `command`/`action`/`operation`/... as the tool name.
+Next: watch for the first `Auto-PR opened` / `agent/task-*` PR, and Bedrock spend in the cost tracker.
 
-**One backlog item from #1611 remains unaddressed:** item 3, the operator model
-deny-list (deferred above, needs rule-40 human sign-off). Items 1, 2, and 4 all
-shipped in row 87 (#1612).
+---
 
-## Next daily run (2026-09-29)
+**Updated:** 2026-10-04 (portfolio duplicate loop, row 97)
 
-- Confirm PR #1614 merged (docs-only, auto-merge armed 2026-09-28 — verify it didn't
-  get stuck on a required check with no code to fix).
-- Check for new models from Anthropic / Google / NVIDIA NIM (Claude Sonnet 5.5 / Haiku
-  5.5 rumoured "coming weeks" as of 2026-09-22).
-- Row 86 planner timeout is still open — read the new attempt logs from Render to
-  determine if NVIDIA truly hangs or just runs slow, then raise `timeout_sec`/Brain
-  card timeout or switch planning to a faster free model.
-- Consider operator deny-list (W40 item 3) if the human approves router/ changes.
-- **Check for a fresh `routine-backlog` issue before re-researching from scratch** —
-  two sessions independently re-derived the same shortlist on 2026-09-28 (rows 87/88)
-  because both started from a clean slate at nearly the same time; if a same-week
-  issue already exists, read it instead of re-running the ecosystem scan.
+## Portfolio duplicate loop 2026-10-04 — branch `fix/portfolio-duplicate-loop`
 
-**Updated:** 2026-09-27
+#1654 is live (`ff58848`): prod tasks now run in a fresh clone + E2B sandbox. After this merges,
+check Render logs: no new `portfolio_intake: created task` for the same initiative within an hour.
+Biggest remaining blocker is LLM capacity: google 429 quota, groq 429/413, nvidia 429 within
+~60 s; ~9 tasks sit BLOCKED on "All brain providers exhausted" and auto-retry burns more quota.
+The open Bug Log rows marked DEFERRED / risky-module-review need a human decision; agents no
+longer pick them up.
+Bedrock (row 98): after merge set `AWS_BEARER_TOKEN_BEDROCK` (secret) and turn on
+`BEDROCK_BRAIN_ENABLED`, then check logs for `llm.router: ... ready: ... bedrock` and
+`attempt bedrock/openai.gpt-oss-120b-1:0 ok`. Spend shows in the cost tracker at $0.15/$0.60 per 1M.
+Not fixed: Groq gpt-oss 400 "Tool choice is none, but model called a tool" (fails fast, ~0.3 s).
 
-## NVIDIA blueprint adoption (branch claude/nvidia-agency-intelligence-cdvumr → PR to master)
+---
 
-Shipped: planner lessons ranked by relevance (RAG blueprint hybrid retrieval);
-dependency CVEs prioritised by first-party import reachability
-(vulnerability-analysis blueprint). The two remaining candidates already exist:
-AI-Q intent/depth routing is `agent/intent.py`; the NemoClaw egress allowlist is
-`WEB_REACH_ALLOWED_DOMAINS`/`WEB_REACH_BLOCKED_DOMAINS` plus the observe-mode
-governance policy in `agent/web_reach.py`. Checked and skipped: llm-router
-(`router/classifier.py`), data-flywheel and safety-for-agentic-ai (deprecated
-Apr 2026), portfolio-optimization (GPU-only), Retail-Agentic-Commerce (off-mission).
-After merge: nothing pending from this line of work.
 
-## Planner timeout fix (branch claude/agency-improvements-ai-learnings-k96er6)
+## Agent code work ships 2026-10-04 — branch `fix/agent-work-ships`
 
-The NVIDIA 410 fix (#1592) shipped but did not stop `planning: TimeoutError`.
-The real stall: `LLMRouter._dispatch` slept a Groq 429's clamped `Retry-After`
-(30s) before failing over to a *different* provider, then a slow NVIDIA reply
-overran the planner's 120s budget. Backoff now runs only before retrying the same
-provider; each attempt is bounded by the remaining retry budget. After deploy:
-confirm no `planning: TimeoutError` in Render logs after a groq 429. Still open:
-`anthropic-claude` HTTP 400 (priority -50); saved `nvidia-nim` record's
-`default_model` may still be `z-ai/glm-5.2` (harmless since #1592).
-## Planner timeout — closed (row 86)
+After merge and deploy, verify on prod: the next portfolio or issue task that changes files
+opens an `agent/task-*` PR on GitHub. Tasks whose changes did not reach a PR now show FAILED
+with a `Not delivered:` reason; check the Render logs for the clone/push error if they recur.
+A portfolio or issue task that changed nothing now waits In Review. Clear those by hand or retry them.
+E2B is on in prod (`E2B_ENABLED=true`): sandbox edits are now synced to the host before each step
+commit. Follow-up: a custom `E2B_TEMPLATE` with the repo's deps so scoped pytest can run in the sandbox.
+Bedrock: works (Opus 4.6 only; 4.7 denied). It is paid (AWS credit), agent brain stays off unless
+`ALLOW_PAID_BRAIN=true`; proxy lists it last after free providers. Live test marked `integration`.
+Known stale test: `tests/test_internal_agent_did_work.py` re-implements the gate (ratio 0.5,
+the code uses 1.0) instead of calling the adapter, so it cannot catch regressions.
 
-Root cause, from the per-attempt router logs (#1599): `nvidia/deepseek-v4.1-flash`
-timed out at 60s on every call and sat first for planning; #1600 removed it. The
-two retired Gemini ids (`gemini-1.5-flash`, `gemini-2.0-flash`, HTTP 404) are
-removed on this branch. Still open, not actioned: `gemini-2.0-flash` is the default
-in `docker/agent_runtime.py` and in the frontend's `ProvidersScreen.jsx`;
-`anthropic-claude` returns HTTP 400 (priority -50).
+---
+**Updated:** 2026-10-03 (portfolio drain + idle agents, row 94)
+## Last session (2026-10-04, daily automation)
 
-## Daily automation 2026-09-27 — no-op day (row 85)
+**What ran:** Daily 9 AM automation. Researched AI ecosystem developments since 2026-10-03.
 
-Clean slate at session start (0 open PRs, 0 open issues). All ship gates green
-(`compileall`, catalog consistency, changelog parity, loop registry audit).
-Installed the full `requirements.txt` in-sandbox (a first — prior sessions
-usually reported "could not run full pytest", see row 85 for the full list)
-and got a real baseline: 563 passed before hitting the one known,
-already-documented Mongo-dependent failure (`test_auth_me_regression.py`,
-see `tests/conftest.py` lines 80-96 for why `STORAGE_BACKEND` is deliberately
-left unpinned in tests). No `mongod` in this sandbox, so that test can't be
-made green here; not a new bug. Investigated two candidate bugs
-(`ceo_playbook.py` retry double-counting; a 409-hit env-var doc scan) and
-ruled both out — the first is intentional per its own test, the second is
-mostly false positives from an unscoped full-repo grep. Found and fixed one
-real thing: active-tasks.md row 84 (CEO self-learning) was still marked
-`IN_PROGRESS` though both its PRs (#1587, #1589) are on master — corrected.
-No code shipped today; see row 85 for full detail.
+**What shipped:** PR [#1653](https://github.com/strikersam/autonomous-ai-agency/pull/1653) — `feat(models): add GPT-5.5, GPT-Realtime-2.1, and Groq Llama 4 Scout to cost catalogue`
+- `packages/ai/cost_tracker.py`: 5 new cost entries (gpt-5.5, gpt-5.5-pro, gpt-realtime-2.1, gpt-realtime-2.1-mini, meta-llama/llama-4-scout-17b-16e-instruct)
+- `config/llm/models.yaml`: Groq Llama 4 Scout declared (priority 99, explicit-only, unprobed)
+- `tests/test_daily_automation_2026_10_04.py`: 29 tests, all green
+- Auto-merge armed (squash)
 
-**If picked up next:** the 409-hit env-var doc scan needs a proper allowlist
-(internal/test-only vars) before it's a usable rule-37 check — don't rerun
-the raw grep, scope it as its own task first.
+## Open items for next daily run
 
-## Prior update: 2026-09-26
+1. **Probe Groq Llama 4 Scout** (`meta-llama/llama-4-scout-17b-16e-instruct`) — if the Groq account has this model live, lower priority from 99 and add to routing candidates.
 
-## CEO self-learning (branch claude/agency-improvements-ai-learnings-k96er6)
+2. **Row 92** (`ci-failure-autofix` red) — `IN_PROGRESS` on `claude/cleanup-open-prs-issues-kdzv7g`. Check if PR was raised and merged.
 
-Built all four pieces the owner approved. The scoreboard, playbook and lessons
-now reach the CEO prompt, timeouts write lessons, and lessons are Mongo-backed.
-After deploy: check `/agent/agency/status` → `playbook` after a CEO cycle, and
-confirm the Render logs show "Agency: not reissuing" for a repeat-failing
-directive. Unresolved: the four 600s-timeout tasks themselves (task_608d…,
-task_9a40…, task_46c1…, task_c368…); the playbook stops their reissue but does
-not diagnose why they are slow.
+3. **Row 94** (portfolio drain / idle agents) — `IN_PROGRESS` on `fix/portfolio-drain-idle-agents`. Check if merged.
 
-## External learnings audit — merged (#1587, `0d80571`)
+4. **Row 95** (SAM NL actions) — `IN_PROGRESS` on `feat/sam-natural-language-actions`. Verify final status; should be merged by the time this runs.
 
-Shipped and merged 2026-09-26; tracker row 83 archived to
-`.claude/state/archive/completed-2026-09.md`. Per the owner, per-agent daily
-caps stay at 0 (unlimited): every agent runs on free models. Still unchecked on
-the live deploy: the "canary credential planted" log line on the backend.
+5. **GPT model deprecations (Oct 23, 2026)**: `gpt-3.5-turbo-0125`, `gpt-4-0613`, `gpt-4-1106-preview` are being retired by OpenAI on 2026-10-23. Check if these IDs are in the repo's routing candidates and add a deprecation comment if so.
 
-## CEO triage approves trend code changes (branch claude/sam-request-handling-fvfk05)
-
-#1584/#1585 merged. Operator still saw a full "To be approved" lane: trend
-code-change tasks are created gated and triage skipped them. Follow-up PR adds
-AGENCY_TRIAGE_APPROVE_TRENDS (live admin toggle). After deploy: the lane
-should hold only deploy/release/external-write and person-gated tasks.
-
-## Daily automation 2026-09-25 (row 81)
-
-Session start: 0 open PRs, 0 `routine-backlog` issues (clean slate). Picked
-the still-open suggestion from the "Next daily run" section below rather
-than inventing new work: a `TestNoFuzzyCollisionWithPaidModels`-style CI
-invariant in `tests/test_cost_attribution.py` that generalizes row 78's
-TokenIn fix — it scans every zero-cost cost-table id for a substring
-collision with a paid id (the same check `cost_for_tokens()`'s fuzzy
-fallback performs) and fails on anything not explicitly documented as a
-legitimate same-model/different-provider pair. Verified it fails first
-(emptied the allowlist, reran, caught 4 real live collisions) before
-documenting them. PR [#1576](https://github.com/strikersam/autonomous-ai-agency/pull/1576)
-— open, CI pending; auto-merge to be armed once green. See
-active-tasks.md row 81 for full verification detail.
-
-**The other "Next daily run" suggestion below about a
-`TestPaidModelsCostTrackerCoverage`-style routing-candidates-vs-catalog
-invariant was already shipped 2026-09-24** (row 79,
-`TestCandidatesAreDeclaredInLlmCatalog`) — checked before picking today's
-item to avoid duplicating it.
-
-**Update:** PR #1576 merged to master as `fd9f838`, CI green (row 81 marked
-DONE). No further action needed on this branch.
-
-## #1565 nightly regression (2026-09-25, row 80)
-
-Root-caused and reproduced locally: the browser-login flake was the test's own
-wait (`networkidle` resolves instantly in the SPA → 500ms for login + redirect);
-the Telegram approval e2e had failed every night behind `continue-on-error`
-(wrong localStorage key, dead route, unwrapped response). Both fixed in
-`tests/e2e/`; hermetic guards in `tests/test_nightly_e2e_helpers.py`.
-**Open, not fixed:** `/api/auth/refresh` calls `ObjectId()` on SQLite UUID ids and
-always 401s there, so on SQLite any expired access token logs the user out.
-Production (Mongo) is unaffected.
-
-## QA pass 2026-09-23 (branch `claude/autonomous-agency-qa-bugs-ut12ye`)
-
-Live QA against a SQLite backend: route map vs every frontend call, anonymous probe of
-every route, Playwright crawl + click-through of all 19 screens, status and schema
-fuzzing. Fixed and tested: six routers and the OpenClaw pairing token open to anonymous
-callers; `/api/activity` decorator on the unauthenticated impl; SQLite ignoring
-projections (`secret_hash` leak); People & access hiding new sign-ups; ObjectId-on-UUID
-500s (sources, authorize-repos); company domain 500; "Internal server error" on 4xx
-rule violations and provider outages; Doctor "Fix all" hitting a nonexistent endpoint;
-`wont_do` handling; 422 detail arrays crashing error banners.
-
-**Follow-up (2026-09-24, same branch):** closed the open items — throttled anonymous
-ticks + constant-time `CRON_SECRET`, anonymous `/api/doctor` without `GH_PAT`, Ollama
-probe SSRF guard, OAuth-unconfigured redirect, fixed-message HTTP details, dead `api.js`
-wrappers. Also found and fixed two more SSRFs (Knowledge URL ingest; scanner/SEO
-redirects). Deliberately left: onboarding toggle still accepts unknown ids (pre-approval
-by email); the "No schedules registered" alert (in production an empty scheduler does
-mean a wipe).
-
-## Previous state
-## Current state (2026-09-24)
-
-Daily automation: session start had zero open PRs and zero `routine-backlog`
-issues (clean slate after 2026-09-23's cleanup). Picked up the "next daily
-run" pointer below about cost-tracker catalog-coverage gaps, cross-checked
-every model id in `config/models.yaml` against `packages/ai/cost_tracker.py`,
-and found a real bug: TokenIn (a fully free gateway) had no entries in the
-cost table at all, so two of its ten `myt/*-free` ids
-(`myt/claude-opus-4-8-free`, `myt/gpt-5.6-sol-free`) were fuzzy-matched by
-`cost_for_tokens()`'s substring fallback to the paid `claude-opus-4-8` and
-`gpt-5.6-sol` entries — free traffic billed at $5+/MTok in cost attribution.
-Fixed with explicit `(0.0, 0.0)` entries for all ten TokenIn ids. PR
-[#1566](https://github.com/strikersam/autonomous-ai-agency/pull/1566) —
-**merged to master as `74e2c96`, CI green.** See active-tasks.md row 78 for
-full verification detail.
-
-CI on this PR caught a real gap from the Opus 5.5 change below: 8
-pre-existing regression assertions across three older daily-automation test
-files hardcoded the previous `claude-opus-5` default/first-candidate value.
-Fixed and pushed before merge — see active-tasks.md row 79's final note.
-
-**Also today (2026-09-24), same branch/PR:** a second, concurrent
-daily-automation session (deterministic `routine/daily-YYYY-MM-DD` branch
-naming collided — not a duplicate pick of the same work) independently
-added Claude Opus 5.5 (`claude-opus-5-5`, released 2026-09-22, $4/$20 per
-MTok, 20% cheaper than Opus 5) to `config/llm/models.yaml`,
-`packages/ai/cost_tracker.py`, `config/models.yaml` (first Anthropic
-candidate, new planner/judge preset), and `packages/ai/brain_config.py`
-(mirrored per rule 4), plus a new `TestCandidatesAreDeclaredInLlmCatalog`
-CI invariant. See active-tasks.md row 79. Reconciled on discovery: fetched
-the combined branch, verified no file-level conflict with the TokenIn fix,
-and re-ran the full relevant check set on the merged tree — 118/118 tests
-pass, `compileall` clean, `check_changelog_parity.py` PARITY OK,
-`check_model_catalog_consistency.py` 75 ids/no drift. PR #1566 now carries
-both changes. Watching for CI.
-
-## Prior state (2026-09-23)
-
-Cleanup session 2026-09-23 (branch `claude/cleanup-open-prs-issues-kdzv7g`): drove every
-open PR and issue to closed.
-
-- **#1561** Langfuse session headers: branch was stale (missing master's brain_config
-  nvidia entry, so `test_one_model_catalogue` failed). Merged master in, merged.
-- **#1544** langfuse pin bump: green, merged.
-- **#1541** frontend patch bumps: `npm ci` failed on an out-of-sync lockfile
-  (`yaml@2.9.1` missing). Regenerated the lockfile and merged it.
-- **#1536** 12 GLM/Qwen/Kimi catalog entries: merged master in twice (cost_tracker
-  kept both sides; its active-tasks row renumbered 70 -> 74). Driven to merge.
-- **#1553** draft context plan: closed as superseded (#1561 + #1555).
-- **#1552** W39 backlog: closed, both items shipped.
-- **#1559** "Cannot fix tests": the backoff test patched the global `time.sleep` and
-  counted other threads' calls. Fixed plus a regression test.
-- **#1557** trend digest: triaged, no action, closed.
-- **#1505** CRISPY burn-in tracker: closed. `crispy-burn-in-check.yml` no longer opens a
-  standing "not ready" issue; the gap goes to the job summary until CRISPY is ready.
-
-## Workflow hardening (same day, second PR)
-
-- `auto-merge.yml` had never merged anything: no checkout, no `--repo`, so every
-  `gh` call failed and was swallowed. Now fixed via `GH_REPO`. **Check next session:**
-  the first green non-draft `claude/*` PR should auto-merge; if not, read that run's log.
-- The Dependabot sweep now regenerates out-of-sync frontend lockfiles (hourly).
-- The agency-cycle escalation titles order-dependent failures as such, and a fix
-  attempt that adds failures is reset to the pre-fix SHA and never pushed.
-- Trend digest: issue only for `action-required` alerts. Orphaned-PR sweep: closes
-  the plan PR of a `quick-note:rejected` issue.
-- `.gitattributes` merge strategies for the tracker files and the graph report;
-  `.claude/hooks/git-merge-drivers` registers the driver at SessionStart.
-
-## Quick notes #1569 / #1570 (2026-09-25)
-
-- Both had been auto-rejected **without the source being fetched**. Fixed the cause:
-  `.github/scripts/github_source.py` reads GitHub repos/files; any verdict on an unread
-  quick note becomes `unverified` → `quick-note:needs-source` (sweep skips it).
-- #1569 → `agent/code_graph.py` (opt-in, `CODE_GRAPH_ENABLED` + `pip install codebase-memory-mcp`).
-- #1570 → `agents/persona_library.py`: specialists now get a persona system prompt.
-- **Check next session:** the next quick note linking a GitHub repo should show
-  `✅ fetched` in its draft PR's Source Grounding table.
-
-## Daily automation 2026-09-25 — DONE (row 80)
-## Prior "next daily run" notes (2026-09-25, mostly resolved — see row 81 above)
-
-PR [#1578](https://github.com/strikersam/autonomous-ai-agency/pull/1578) open,
-auto-merge armed (squash). Two changes:
-
-1. **Aerolink role_presets aligned to `claude-opus-5-5`** — `config/models.yaml` +
-   `packages/ai/brain_config.py` (rule 4). 11 regression tests in
-   `tests/test_daily_automation_2026_09_25.py`.
-2. **`TestNoFuzzyCollisionWithPaidModels` merged** — two concurrent sessions both
-   added the class independently; merge commit `3f0fc89` reconciles the allowlist
-   approach (other session) with the behavioral `cost_for_tokens()` test (this
-   session). 3 tests total, 47/47 passing. PARITY OK.
-
-## Daily automation 2026-09-26 — DONE (row 82)
-
-Fixed `/api/auth/refresh` always 401-ing on SQLite (bug noted in row 80, never fixed
-at that time). Root cause: `ObjectId(sub)` raises on UUID strings; added string-key
-fallback mirroring `get_optional_user`. 8 tests in `tests/test_daily_automation_2026_09_26.py`,
-all passing. Files: `backend/server.py`. PR on branch `claude/intelligent-gates-5dl5m0`,
-auto-merge to be armed when CI green.
-
-## Next daily run (2026-09-27)
-
-- Check for new models from DeepSeek, Google, Groq, Anthropic, NVIDIA NIM
-  (Claude Sonnet 5.5 / Haiku 5.5 rumoured "coming weeks" per Anthropic 2026-09-22).
-- **Branch-naming collision (root cause still open):** two daily-automation sessions
-  ran the same day on 2026-09-24 AND 2026-09-25 and both used the deterministic
-  `routine/daily-YYYY-MM-DD` branch name. If the same trigger fires more than once
-  a day, consider suffixing with a short session id. The collisions have been benign
-  (merge-resolvable) but they cost a cycle each time.
-- Row 50 (provider/model source-of-truth + admin UI): still IN_PROGRESS, P1-P4
-  remain; requires full backend deps in the sandbox.
-- Row 80 (#1565 nightly regression): still `IN_PROGRESS` — PR was open at last
-  check. Verify whether it merged.
-- ~~`/api/auth/refresh` 401s on SQLite~~ **Fixed 2026-09-26, row 82.**
-
-## 2026-09-26 — free-model speed (branch claude/free-model-agency-performance-r923uk)
-- Shipped: Nemotron 3 thinking off by default (`NEMOTRON_THINKING` control), coordinator time budget handed to AgentRunner so 600s timeouts return finished steps.
-- Next: after deploy, compare task `phase_end ... elapsed_s` for planning/execute_step before vs after; consider moving Gemini (free-tier key) into the free chain once billing state is confirmed.
+6. **Claude Code 2.1.287 "You Should Know" plugin** — A built-in side-agent plugin that flags things the user might miss. Consider whether there's a repo-applicable analogy (e.g., a pre-commit check that flags common mistakes). Low priority; assess against next run's candidate list.

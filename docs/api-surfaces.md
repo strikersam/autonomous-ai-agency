@@ -16,6 +16,9 @@ If you want the human-friendly product story, start with [../README.md](../READM
 ### Ollama-compatible
 - `/api/*` passthrough for Ollama-native routes such as chat and generate
 
+### AI gateway (`packages/gateway/api.py`)
+- `GET /gateway/metrics` — Prometheus text (`text/plain; version=0.0.4`) of per-request proxy usage: provider, model, prompt/completion tokens, latency, cost and outcome, labelled per consumer (capped at 50 values, then `other`). Requires an API key (`Authorization: Bearer` or `x-api-key`); `401` without one. Returns `404` unless `GATEWAY_USAGE_METRICS_ENABLED` is on. See [configuration-reference.md](configuration-reference.md#ai-gateway-hardening).
+
 ### Built-in admin and web UI
 - `/admin/ui/*`
 - `/admin/api/*`
@@ -66,6 +69,14 @@ The `backend/` app powers the separate React control plane and includes routes f
 - schedules and legacy scheduler compatibility routes
 - governance: posture, policy, approvals, audit, sandboxes, and session budgets (`/api/governance/*`, admin-only)
 - Telegram bot control-plane (`/api/telegram/*`)
+
+### SAM (`/agent/sam/*`, authenticated)
+
+- `GET /agent/sam/status` — SAM session count and uptime
+- `POST /agent/sam/chat` — talk to SAM. Optional `screen` (`hub` or `hub/tab`, e.g. `work/roadmap`) tells SAM what the Commander is looking at. The session is namespaced per caller. For admins, free text is routed to one of SAM's catalogue actions (`agent/sam_tools.py`); the response's `needs_confirmation` is `true` while a safety change waits for the Commander to reply "confirm" (2-minute window). Admins can delegate ("create a task to …"), run CEO triage ("triage the queue") and get a live brief ("brief me"); non-admins can chat and read/fix alerts
+- `POST /agent/sam/speak` — synthesise a reply as audio
+- `GET /agent/sam/avatar` — `{enabled, can_orchestrate}`: whether to show the floating SAM avatar to this caller (`SAM_AVATAR_ENABLED` / `SAM_AVATAR_SCOPE`)
+- `GET /agent/sam/livekit/status`, `POST /agent/sam/livekit/token` — realtime voice transport. The token carries a signed `{"role": "admin"|"user"}` metadata claim; the voice worker's `create_task` tool is admin-only and uses the same fail-closed approval gate as chat
 
 ### Telegram (`/api/telegram/*`)
 
@@ -131,7 +142,7 @@ company-scoped route additionally checks access to that company via
 `get_company_access` — an audit belonging to another company answers `404`.
 
 - `GET  /api/seo/checks` — the full SEO/GEO/AIO check catalog
-- `POST /api/company/{company_id}/seo/audit` — run an audit and persist the evidence
+- `POST /api/company/{company_id}/seo/audit` — start an audit; returns a `pending` stub immediately, poll `GET .../seo/audits/{audit_id}` for the result
 - `GET  /api/company/{company_id}/seo/audits` — stored audits, most recent first
 - `GET  /api/company/{company_id}/seo/audits/{audit_id}` — one complete report
 - `GET  /api/company/{company_id}/seo/audits/{audit_id}/export` — export a stored audit

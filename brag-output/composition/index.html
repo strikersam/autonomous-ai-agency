@@ -100,10 +100,19 @@
       .rule { width: 0; height: 4px; background: #5da2ff; border-radius: 3px; }
       .tagline { font-size: 33px; color: #d9e0ea; font-weight: 500; }
       .url { font-size: 29px; color: #a8b3c2; }
+
+      /* SAM */
+      .samrow { display: flex; align-items: center; gap: 70px; margin-top: 30px; }
+      .sam { filter: drop-shadow(0 18px 40px rgba(123,92,255,0.55)); }
+      .convo { display: flex; flex-direction: column; gap: 18px; width: 900px; }
+      .bub { font-size: 30px; line-height: 1.3; padding: 18px 26px; border-radius: 22px; max-width: 760px; opacity: 0; }
+      .bub.me { align-self: flex-end; background: rgba(61,242,198,0.14); border: 1px solid rgba(61,242,198,0.35); color: #d9fff4; border-bottom-right-radius: 6px; }
+      .bub.sm { align-self: flex-start; background: rgba(123,92,255,0.18); border: 1px solid rgba(255,111,216,0.35); color: #f4ecff; border-bottom-left-radius: 6px; }
+      .srow .cad.warn { color: #ffbd66; }
     </style>
   </head>
   <body>
-    <div id="root" data-composition-id="main" data-start="0" data-duration="44" data-width="1920" data-height="1080">
+    <div id="root" data-composition-id="main" data-start="0" data-duration="61" data-width="1920" data-height="1080">
       <div class="bg-glow" id="glow"></div>
 
       <!-- S1 Hook 0-3.5 -->
@@ -231,9 +240,53 @@
         <div class="cap" id="s8cap">Multi-provider routing with <b>automatic failover</b> · OpenAI-compatible proxy · switch models with no redeploy.</div>
       </section>
 
-      <!-- S9 Outro 41.0-44.0 -->
-      <section class="scene clip" id="s9" data-start="41.0" data-duration="3.0">
+
+      <!-- S10 SAM 41.0-47.0 -->
+      <section class="scene clip" id="s10" data-start="41.0" data-duration="6.0">
+        <div class="kick" id="s10k">Meet SAM</div>
+        <h2 class="title">Run the whole agency <span class="hl">in plain English</span></h2>
+        <div class="samrow">
+          <div class="sam" id="s10sam"><svg xmlns="http://www.w3.org/2000/svg" width="300" height="300" viewBox="-4 -8 108 108" role="img" aria-label="SAM"><defs><radialGradient id="samBody" cx="35%" cy="30%" r="75%"><stop offset="0%" stop-color="#ffe36e"></stop><stop offset="45%" stop-color="#ff6fd8"></stop><stop offset="100%" stop-color="#7b5cff"></stop></radialGradient></defs><title>SAM — Autonomous AI Agency</title><path d="M50 18 Q44 6 54 2" stroke="#7b5cff" stroke-width="3" fill="none" stroke-linecap="round"></path><circle cx="54" cy="3" r="4.5" fill="#3df2c6"></circle><path d="M30 22 L26 10 L36 19 Z M68 20 L76 9 L72 23 Z" fill="#ff6fd8"></path><path fill="url(#samBody)" d="M50 16 C76 14 92 34 90 58 C88 82 70 94 50 93 C28 94 10 82 10 58 C9 34 25 17 50 16 Z"></path><ellipse cx="25" cy="66" rx="7" ry="4" fill="#ff3d7f" opacity="0.45"></ellipse><ellipse cx="76" cy="66" rx="7" ry="4" fill="#ff3d7f" opacity="0.45"></ellipse><g><circle cx="35" cy="46" r="13" fill="#fff" stroke="#2a1655" stroke-width="2"></circle><circle cx="67" cy="44" r="9.5" fill="#fff" stroke="#2a1655" stroke-width="2"></circle><g><circle cx="37.1" cy="46.7" r="6" fill="#1b0f3a"></circle><circle cx="35.1" cy="44.7" r="2" fill="#fff"></circle></g><g><circle cx="68.5" cy="44.5" r="4.5" fill="#1b0f3a"></circle><circle cx="67" cy="43" r="1.5" fill="#fff"></circle></g></g><g><path d="M37 70 Q52 84 67 70" stroke="#2a1655" stroke-width="3" fill="#2a1655" stroke-linecap="round"></path><rect x="49" y="71" width="5" height="5" rx="1" fill="#fff"></rect><path d="M55 77 Q58 83 61 77" fill="#ff5c8a"></path></g></svg></div>
+          <div class="convo">
+            <div class="bub me" id="b1">Brief me</div>
+            <div class="bub sm" id="b2">CEO loop running. 2 tasks in flight, 0 waiting on you. Portfolio: 4 queued, 3 in flight, 12 done.</div>
+            <div class="bub me" id="b3">Pick up the top one</div>
+            <div class="bub sm" id="b4">Queued it. The agents are on it.</div>
+          </div>
+        </div>
+        <div class="cap" id="s10cap">On every screen, desktop and phone. It knows what you're looking at — and anything risky still waits for you.</div>
+      </section>
+
+      <!-- S11 Learning 47.0-52.5 -->
+      <section class="scene clip" id="s11" data-start="47.0" data-duration="5.5">
+        <div class="kick" id="s11k">And it keeps getting better</div>
+        <h2 class="title">Learns from <span class="g">every run</span></h2>
+        <div class="sched" id="s11rows">
+          <div class="srow"><span class="name">Failures become lessons the planner reads</span><span class="cad mono">every task</span></div>
+          <div class="srow"><span class="name">Repeating friction filed as improvements</span><span class="cad mono">hourly</span></div>
+          <div class="srow"><span class="name">CEO drops directives that keep failing</span><span class="cad mono">every cycle</span></div>
+          <div class="srow"><span class="name">Trend watch scans the web for what changed</span><span class="cad mono">continuous</span></div>
+        </div>
+        <div class="cap" id="s11cap">No idle agents: free slots refill instantly, and the portfolio drains on its own.</div>
+      </section>
+
+      <!-- S12 Leash 52.5-58.0 -->
+      <section class="scene clip" id="s12" data-start="52.5" data-duration="5.5">
+        <div class="kick" id="s12k">Autonomy, on a leash</div>
+        <h2 class="title">Bounded. Attributable. <span class="hl">Reversible.</span></h2>
+        <div class="sched" id="s12rows">
+          <div class="srow"><span class="name">Kill switch halts all autonomous work</span><span class="cad warn mono">one toggle</span></div>
+          <div class="srow"><span class="name">Per-agent daily spend and token caps</span><span class="cad warn mono">live controls</span></div>
+          <div class="srow"><span class="name">Canary credential blocks a leak and alerts you</span><span class="cad warn mono">always on</span></div>
+          <div class="srow"><span class="name">Deploys, deletes, payments wait for your approval</span><span class="cad warn mono">fail-closed</span></div>
+        </div>
+        <div class="cap" id="s12cap"><b>446 of 1109</b> merged PRs in this repo were opened by its own agents.</div>
+      </section>
+
+      <!-- S9 Outro 58.0-61.0 -->
+      <section class="scene clip" id="s9" data-start="58.0" data-duration="3.0">
         <div class="outro">
+          <div class="sam" id="s9sam"><svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="-4 -8 108 108" role="img" aria-label="SAM"><defs><radialGradient id="samBody2" cx="35%" cy="30%" r="75%"><stop offset="0%" stop-color="#ffe36e"></stop><stop offset="45%" stop-color="#ff6fd8"></stop><stop offset="100%" stop-color="#7b5cff"></stop></radialGradient></defs><title>SAM — Autonomous AI Agency</title><path d="M50 18 Q44 6 54 2" stroke="#7b5cff" stroke-width="3" fill="none" stroke-linecap="round"></path><circle cx="54" cy="3" r="4.5" fill="#3df2c6"></circle><path d="M30 22 L26 10 L36 19 Z M68 20 L76 9 L72 23 Z" fill="#ff6fd8"></path><path fill="url(#samBody2)" d="M50 16 C76 14 92 34 90 58 C88 82 70 94 50 93 C28 94 10 82 10 58 C9 34 25 17 50 16 Z"></path><ellipse cx="25" cy="66" rx="7" ry="4" fill="#ff3d7f" opacity="0.45"></ellipse><ellipse cx="76" cy="66" rx="7" ry="4" fill="#ff3d7f" opacity="0.45"></ellipse><g><circle cx="35" cy="46" r="13" fill="#fff" stroke="#2a1655" stroke-width="2"></circle><circle cx="67" cy="44" r="9.5" fill="#fff" stroke="#2a1655" stroke-width="2"></circle><g><circle cx="37.1" cy="46.7" r="6" fill="#1b0f3a"></circle><circle cx="35.1" cy="44.7" r="2" fill="#fff"></circle></g><g><circle cx="68.5" cy="44.5" r="4.5" fill="#1b0f3a"></circle><circle cx="67" cy="43" r="1.5" fill="#fff"></circle></g></g><g><path d="M37 70 Q52 84 67 70" stroke="#2a1655" stroke-width="3" fill="#2a1655" stroke-linecap="round"></path><rect x="49" y="71" width="5" height="5" rx="1" fill="#fff"></rect><path d="M55 77 Q58 83 61 77" fill="#ff5c8a"></path></g></svg></div>
           <div class="wordmark">Autonomous <span class="a">AI</span> Agency</div>
           <div class="rule" id="rule"></div>
           <div class="tagline">Self-hosted · MIT · One URL → a working AI team</div>
@@ -242,7 +295,7 @@
       </section>
 
       <!-- Audio -->
-      <audio id="bg-music" data-start="0" data-duration="44" data-track-index="10" data-volume="0.26" src="assets/music/happy-beats-business-moves-vol-1-by-ende-dot-app.mp3"></audio>
+      <audio id="bg-music" data-start="0" data-duration="61" data-track-index="10" data-volume="0.26" src="assets/music/happy-beats-business-moves-vol-1-by-ende-dot-app.mp3"></audio>
       <audio id="key-1" data-start="0.35" data-duration="0.2" data-track-index="11" data-volume="0.45" src="assets/sfx/keyboard/keypress-001.wav"></audio>
       <audio id="key-2" data-start="0.7" data-duration="0.2" data-track-index="12" data-volume="0.45" src="assets/sfx/keyboard/keypress-012.wav"></audio>
       <audio id="key-3" data-start="1.05" data-duration="0.2" data-track-index="13" data-volume="0.45" src="assets/sfx/keyboard/keypress-005.wav"></audio>
@@ -262,7 +315,10 @@
       <!-- 24x7 rows -->
       <audio id="sfx-s7" data-start="31.6" data-duration="0.2" data-track-index="13" data-volume="0.38" src="assets/sfx/interface/drop_002.ogg"></audio>
       <!-- outro bell -->
-      <audio id="sfx-out" data-start="41.2" data-duration="1.48" data-track-index="11" data-volume="0.62" src="assets/sfx/impact/impactBell_heavy_000.ogg"></audio>
+      <audio id="sfx-s10" data-start="42.4" data-duration="0.11" data-track-index="12" data-volume="0.4" src="assets/sfx/interface/drop_001.ogg"></audio>
+      <audio id="sfx-s11" data-start="48.1" data-duration="0.2" data-track-index="13" data-volume="0.38" src="assets/sfx/interface/drop_002.ogg"></audio>
+      <audio id="sfx-s12" data-start="53.6" data-duration="0.18" data-track-index="11" data-volume="0.45" src="assets/sfx/impact/impactSoft_medium_001.ogg"></audio>
+      <audio id="sfx-out" data-start="58.2" data-duration="1.48" data-track-index="11" data-volume="0.62" src="assets/sfx/impact/impactBell_heavy_000.ogg"></audio>
     </div>
 
     <script>
@@ -361,12 +417,45 @@
       });
       tl.from('#s8cap', { opacity: 0, duration: 0.5 }, 39.0);
 
-      // S9 41.0-44.0
-      tl.to('#s9', { opacity: 1, duration: 0.5 }, 41.0);
-      tl.from('.wordmark', { opacity: 0, y: 22, duration: 0.7, ease: 'power2.out' }, 41.1);
-      tl.to('#rule', { width: 360, duration: 0.7, ease: 'power2.inOut' }, 41.6);
-      tl.from('.tagline', { opacity: 0, y: 14, duration: 0.6 }, 41.9);
-      tl.from('.url', { opacity: 0, duration: 0.6 }, 42.3);
+      // S10 SAM 41.0-47.0
+      scene('#s10', 41.0, 6.0);
+      tl.from('#s10k', { opacity: 0, y: 14, duration: 0.4 }, 41.2);
+      tl.from('#s10 h2', { opacity: 0, y: 20, duration: 0.5 }, 41.4);
+      tl.from('#s10sam', { opacity: 0, scale: 0.6, rotation: -12, duration: 0.6, ease: 'back.out(2)' }, 41.7);
+      tl.to('#s10sam', { y: -10, rotation: 4, duration: 0.6, yoyo: true, repeat: 6, ease: 'sine.inOut' }, 42.3);
+      ['#b1', '#b2', '#b3', '#b4'].forEach((sel, i) => {
+        tl.to(sel, { opacity: 1, duration: 0.35, ease: 'power2.out' }, 42.4 + i * 0.85);
+        tl.from(sel, { y: 16, duration: 0.35, ease: 'power2.out' }, 42.4 + i * 0.85);
+      });
+      tl.from('#s10cap', { opacity: 0, duration: 0.5 }, 45.6);
+
+      // S11 learning 47.0-52.5
+      scene('#s11', 47.0, 5.5);
+      tl.from('#s11k', { opacity: 0, y: 14, duration: 0.4 }, 47.2);
+      tl.from('#s11 h2', { opacity: 0, y: 20, duration: 0.5 }, 47.4);
+      document.querySelectorAll('#s11rows .srow').forEach((r, i) => {
+        tl.to(r, { opacity: 1, duration: 0.35, ease: 'power2.out' }, 48.1 + i * 0.4);
+        tl.from(r, { x: -24, duration: 0.35, ease: 'power2.out' }, 48.1 + i * 0.4);
+      });
+      tl.from('#s11cap', { opacity: 0, duration: 0.5 }, 50.2);
+
+      // S12 leash 52.5-58.0
+      scene('#s12', 52.5, 5.5);
+      tl.from('#s12k', { opacity: 0, y: 14, duration: 0.4 }, 52.7);
+      tl.from('#s12 h2', { opacity: 0, y: 20, duration: 0.5 }, 52.9);
+      document.querySelectorAll('#s12rows .srow').forEach((r, i) => {
+        tl.to(r, { opacity: 1, duration: 0.35, ease: 'power2.out' }, 53.6 + i * 0.4);
+        tl.from(r, { x: -24, duration: 0.35, ease: 'power2.out' }, 53.6 + i * 0.4);
+      });
+      tl.from('#s12cap', { opacity: 0, duration: 0.5 }, 55.7);
+
+      // S9 outro 58.0-61.0
+      tl.to('#s9', { opacity: 1, duration: 0.5 }, 58.0);
+      tl.from('#s9sam', { opacity: 0, scale: 0.5, duration: 0.6, ease: 'back.out(2)' }, 58.0);
+      tl.from('.wordmark', { opacity: 0, y: 22, duration: 0.7, ease: 'power2.out' }, 58.1);
+      tl.to('#rule', { width: 360, duration: 0.7, ease: 'power2.inOut' }, 58.6);
+      tl.from('.tagline', { opacity: 0, y: 14, duration: 0.6 }, 58.9);
+      tl.from('.url', { opacity: 0, duration: 0.6 }, 59.3);
 
       window.__timelines['main'] = tl;
       tl.seek(0);

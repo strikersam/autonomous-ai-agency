@@ -28,10 +28,13 @@ jobs:
   generate-context:
     # Skip labeled events unless the added label is 'quick-note'.
     # This prevents spurious reruns when unrelated labels are added.
+    # `bounty-hunt` issues are the bounty hunter's review queue for work on
+    # other people's repositories, not tasks for this one.
     if: >
-      github.event.action == 'opened' ||
-      (github.event.action == 'labeled' &&
-       github.event.label.name == 'quick-note')
+      !contains(github.event.issue.labels.*.name, 'bounty-hunt') &&
+      (github.event.action == 'opened' ||
+       (github.event.action == 'labeled' &&
+        github.event.label.name == 'quick-note'))
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -218,7 +221,8 @@ jobs:
         if: >-
           steps.pr.outputs.pr_number != '' &&
           steps.context.outputs.verdict != 'reject' &&
-          steps.context.outputs.verdict != 'unverified'
+          steps.context.outputs.verdict != 'unverified' &&
+          steps.context.outputs.verdict != 'needs-review'
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           REPO: ${{ github.repository }}
@@ -325,6 +329,42 @@ jobs:
           To retry once the source is reachable, remove that label and re-run
           \`Bulk Issue Context Generator\` with \`regenerate: true\` for this issue, or
           paste the relevant content into the issue body.
+          MSG
+          )"
+
+      # ── 7d. Contested reject — a human decides, nothing built or buried ─────
+      # generate_context.py turns a `reject` into `needs-review` when it ignores
+      # what the repo already has from the source (R13) or cites a path that
+      # does not exist (R14). #1634 was filed as rejected that way while the
+      # repo already vendored the source. `quick-note:needs-review` keeps the
+      # sweep off it, so it is neither built from a plan nor silently buried.
+      - name: Comment — reject contradicts the repo, needs review
+        if: steps.pr.outputs.pr_number != '' && steps.context.outputs.verdict == 'needs-review'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUM: ${{ github.event.issue.number }}
+          PR_NUM: ${{ steps.pr.outputs.pr_number }}
+          PR_URL: ${{ steps.pr.outputs.pr_url }}
+        run: |
+          gh label create "quick-note:needs-review" --repo "$REPO" --color D93F0B \
+            --description "Quick note whose reject contradicts the repository" 2>/dev/null || true
+          gh issue edit "$ISSUE_NUM" --repo "$REPO" --add-label "quick-note:needs-review" \
+            2>&1 || echo "::warning::Could not add quick-note:needs-review to #${ISSUE_NUM}"
+
+          gh issue comment "$ISSUE_NUM" \
+            --repo "$REPO" \
+            --body "$(cat <<MSG
+          🔍 **Rejected by the model, but the rejection contradicts the repo.** The
+          analysis either ignored files that already use this source or cited a
+          path that does not exist, so it was **neither filed as rejected nor
+          implemented**.
+
+          The findings are in the Quality Gate of draft PR #${PR_NUM}: ${PR_URL}
+
+          Labelled \`quick-note:needs-review\`, which keeps the scheduled sweep off
+          it. Decide by hand: close it, or remove the label and re-run
+          \`Bulk Issue Context Generator\` with \`regenerate: true\`.
           MSG
           )"
 

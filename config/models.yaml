@@ -96,8 +96,8 @@ providers:
       # 07:37 (run 33241283346). Behind the default deliberately: the id above
       # has answered on every probe, this one has not.
       - nvidia/nemotron-3-ultra-550b-a55b
-      - mistralai/mistral-nemotron
-      - openai/gpt-oss-120b
+      # mistralai/mistral-nemotron and openai/gpt-oss-120b removed 2026-10-01: NVIDIA
+      # answers HTTP 410 for both on every attempt (gpt-oss-120b stays on Groq).
       - openai/gpt-oss-20b
       # deepseek-ai/deepseek-v4.1-flash removed 2026-09-27: never probed, and
       # every production attempt timed out (5 of 5). Re-add after a live probe.
@@ -207,6 +207,21 @@ providers:
       - openai/gpt-oss-20b
       - qwen/qwen3.8-27b
 
+  siliconflow:
+    display_name: SiliconFlow (free models)
+    tier: free
+    key_env: SILICONFLOW_API_KEY
+    base_url_env: SILICONFLOW_BASE_URL
+    default_base_url: https://api.siliconflow.com/v1
+    role_presets:
+      planner:   Qwen/Qwen3-8B
+      executor:  Qwen/Qwen3-8B
+      verifier:  Qwen/Qwen3-8B
+      judge:     Qwen/Qwen3-8B
+    candidates:
+      - Qwen/Qwen3-8B
+      - deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
+
   mistral:
     display_name: Mistral (free tier)
     tier: free
@@ -215,8 +230,8 @@ providers:
     default_base_url: https://api.mistral.ai/v1
     role_presets:
       planner:   mistral-large-latest
-      executor:  devstral-latest
-      verifier:  devstral-latest
+      executor:  mistral-small-latest
+      verifier:  mistral-small-latest
       judge:     mistral-large-latest
     candidates:
       - mistral-small-latest
@@ -366,8 +381,8 @@ providers:
       # Opus 5 at the same capability tier. Placed first.
       - claude-opus-5-5
       - claude-opus-5
-      # Added 2026-09-29: Sonnet 5.5 (released 2026-09-29) — 20% cheaper than
-      # Sonnet 5 at $1.6/$8 per MTok. Placed before claude-sonnet-5.
+      # Added 2026-09-29: Sonnet 5.5 (released 2026-09-29) — same $2/$10 per
+      # MTok as Sonnet 5. Placed before claude-sonnet-5.
       - claude-sonnet-5-5
       - claude-sonnet-5
       - claude-fable-5

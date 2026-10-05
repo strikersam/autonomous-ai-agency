@@ -130,6 +130,9 @@ class ModelConfig:
     max_tokens_per_minute: int = 0
     max_tokens: int = 0                 # hard per-request ceiling; 0 = unset
     aliases: list[str] = field(default_factory=list)
+    # A billed model the operator opted into on its own (its provider is gated by
+    # its own flag), so it may serve while the global allow_paid stays off.
+    paid_opt_in: bool = False
 
     @property
     def is_free(self) -> bool:

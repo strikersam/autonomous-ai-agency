@@ -43,6 +43,8 @@ else:
     SKIP_LABELS = {
         'quick-note:exhausted', 'quick-note:rejected', 'agency-escalation',
         'trend-digest', 'routine-backlog', 'crispy-burn-in', 'catalogue-drift',
+        # Bounty-hunter tracking issues are review requests, not work for this repo.
+        'bounty-hunt',
     }
     actionable = [
         i for i in all_issues

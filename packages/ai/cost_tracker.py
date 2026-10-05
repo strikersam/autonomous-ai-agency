@@ -83,6 +83,22 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # GPT-OSS 120B / 20B — served on both NVIDIA NIM and Groq free tier.
     "openai/gpt-oss-120b": (0.0, 0.0),
     "openai/gpt-oss-20b": (0.0, 0.0),
+    # GPT-OSS-Safeguard: OpenAI safety-reasoning models (Oct 2025). Fine-tuned
+    # from gpt-oss-20b / gpt-oss-120b respectively; purpose-built for safety
+    # classification — follows explicit user-provided policies and explains
+    # decisions. Not in routing candidates (specialised, not general-purpose).
+    # safeguard-20b: GroqCloud at 1000+ t/s, context 131K, 65K output.
+    # Pricing source: console.groq.com/docs/model/openai/gpt-oss-safeguard-20b, 2026-10-02.
+    "openai/gpt-oss-safeguard-20b": (0.075, 0.30),
+    # safeguard-120b: Amazon Bedrock / Opper; not on Groq self-serve as of 2026-10-02.
+    # Pricing source: futureagi.com/llm-cost-calculator/bedrock, 2026-10-02.
+    "openai/gpt-oss-safeguard-120b": (0.15, 0.60),
+    # Amazon Bedrock gpt-oss (OpenAI-compatible endpoint), on-demand standard
+    # tier, per 1M tokens (checked 2026-10-04).
+    "openai.gpt-oss-120b-1:0": (0.15, 0.60),
+    "openai.gpt-oss-20b-1:0": (0.07, 0.30),
+    # Qwen3 Coder Next on Bedrock (Mantle endpoint), per 1M tokens (checked 2026-10-04).
+    "qwen.qwen3-coder-next": (0.50, 1.20),
     # --- Google Gemini ---
     # Gemini 2.5 Flash: AI Studio free tier for low-RPM usage; usage through
     # the paid API is charged at $0.075/$0.30 per MTok (non-thinking, ≤200K).
@@ -111,8 +127,8 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "claude-opus-5-5-20260922": (4.0, 20.0),  # Opus 5.5 versioned ID
     "claude-sonnet-5": (2.0, 10.0),        # Sonnet 5 — $2/$10 per MTok (introductory price made permanent 2026-09-01)
     "claude-sonnet-5-20260501": (2.0, 10.0),
-    "claude-sonnet-5-5": (1.6, 8.0),      # Sonnet 5.5 — $1.6/$8 per MTok (released 2026-09-29; 20% cheaper than Sonnet 5)
-    "claude-sonnet-5-5-20260929": (1.6, 8.0),  # Sonnet 5.5 versioned ID
+    "claude-sonnet-5-5": (2.0, 10.0),     # Sonnet 5.5 — $2/$10 per MTok (released 2026-09-29; same price as Sonnet 5)
+    "claude-sonnet-5-5-20260929": (2.0, 10.0),  # Sonnet 5.5 versioned ID
     "claude-fable-5": (10.0, 50.0),        # Fable 5 — $10/$50 per MTok (gated flagship)
     "claude-fable-5-1": (10.0, 50.0),      # Fable 5.1 — $10/$50; cache reads 2.5 % (see _CACHE_READ_FRACTIONS)
     "claude-mythos-5": (10.0, 50.0),       # Mythos 5 — same as Fable 5 (restricted)
@@ -126,10 +142,23 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "claude-haiku-4-5": (1.0, 5.0),        # Haiku 4.5 — $1/$5 per MTok
     "claude-3-5-sonnet-20241022": (3.0, 15.0),
     "claude-3-5-haiku-20241022": (0.8, 4.0),
+    # --- OpenAI (paid) — GPT-5.5 family (May 2026) ---
+    # Source: platform.openai.com/docs/models, openrouter.ai/openai/gpt-5.5, 2026-10-04.
+    # 1,050,000-token context; 128K max output. gpt-5.5-pro is the extended-thinking
+    # variant at $30/$180 per MTok. Not yet on NVIDIA NIM; entries cover
+    # direct-OpenAI or proxied usage via OpenRouter.
+    "gpt-5.5": (5.0, 30.0),               # GPT-5.5 — $5/$30 per MTok
+    "gpt-5.5-pro": (30.0, 180.0),         # GPT-5.5-pro (extended thinking) — $30/$180 per MTok
     # --- OpenAI (paid) — GPT-5.6 family (GA July 9 2026) + legacy ---
     "gpt-5.6-sol": (5.0, 30.0),            # Sol: complex reasoning/coding, o3 successor
     "gpt-5.6-terra": (1.5, 7.5),           # Terra: balanced/lower cost
     "gpt-5.6-luna": (0.5, 2.0),            # Luna: fast/high-volume
+    # --- OpenAI Realtime 2.1 family (October 2026) ---
+    # Text-input pricing only (audio billed separately via Realtime API).
+    # Source: developers.openai.com/api/docs/models, 2026-10-04.
+    # Context: 128K tokens; max output: 32K tokens. WebRTC / WebSocket / SIP.
+    "gpt-realtime-2.1": (4.0, 24.0),       # Realtime 2.1 — $4/$24 per MTok (text)
+    "gpt-realtime-2.1-mini": (0.60, 2.40), # Realtime 2.1 Mini — $0.60/$2.40 per MTok (text)
     # --- OpenAI (paid) — GPT-6 family (September 2026) ---
     # Source: platform.openai.com/docs/models, 2026-09-30. Not yet on NVIDIA NIM;
     # entries here cover direct-OpenAI or proxied usage via OpenRouter/similar.
@@ -152,6 +181,13 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # Off-peak is half; cache-hit is 1/50th. Using peak as the conservative floor.
     # Source: api-docs.deepseek.com/quick_start/pricing, 2026-09-18.
     "deepseek-flash": (0.30, 1.20),
+    # --- Groq: Llama 4 Scout 17B 16E (added 2026-10-04) ---
+    # Distinct from NVIDIA NIM's free "meta/llama-4-scout-17b-16e-instruct" ($0/$0).
+    # Groq serves this as "meta-llama/llama-4-scout-17b-16e-instruct" (different prefix).
+    # 128K context on Groq (full 10M window not available on LPU hardware), Preview tier.
+    # Pricing: $0.11/$0.34 per MTok. Source: pricepertoken.com/pricing-page/model/
+    # meta-llama-llama-4-scout, 2026-10-04.
+    "meta-llama/llama-4-scout-17b-16e-instruct": (0.11, 0.34),
     # --- Groq: Qwen 3.8 27B (added 2026-09-18) ---
     "qwen/qwen3.8-27b": (0.80, 4.00),
     # --- Mistral API (added 2026-09-19) ---
@@ -160,9 +196,11 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "mistral-small-latest": (0.10, 0.30),   # Mistral Small 3 — $0.10/$0.30 per MTok
     "codestral-latest": (0.30, 0.90),       # Codestral — $0.30/$0.90 per MTok
     "mistral-nemo": (0.15, 0.15),           # NeMo 12B — free/ultra-cheap tier
-    # Devstral / Pixtral Large / Ministral family (added 2026-10-05).
-    # Pricing source: mistral.ai/technology/#pricing, 2026-10-05.
-    "devstral-latest": (0.10, 0.30),        # Devstral (Small 3.1 arch) — estimated $0.10/$0.30 per MTok
+    # Devstral (added 2026-10-05) — estimated at Mistral Small's $0.10/$0.30;
+    # not on the pricing page this was sourced from, so treat as an estimate.
+    "devstral-latest": (0.10, 0.30),
+    # Pixtral Large / Ministral family (added 2026-10-03).
+    # Pricing source: mistral.ai/technology/#pricing, 2026-10-03.
     "pixtral-large-latest": (2.00, 6.00),   # Pixtral Large 124B — $2/$6 per MTok
     "ministral-8b-latest": (0.10, 0.10),    # Ministral 8B — flat $0.10 per MTok
     "ministral-3b-latest": (0.04, 0.04),    # Ministral 3B — flat $0.04 per MTok

@@ -22,6 +22,7 @@ from typing import Any
 
 from agent.loop import AgentRunner
 from packages.ai.router import ProviderConfig, _normalize_nvidia_base_url
+from runtimes.adapters.delivery import assess_delivery, clone_repo_workspace
 from runtimes.base import (
     IntegrationMode,
     RuntimeAdapter,
@@ -369,9 +370,7 @@ class InternalAgentAdapter(RuntimeAdapter):
         # the workspace is not a git repo).  This prevents concurrent tasks
         # from clobbering each other's in-flight edits.
         base_workspace = spec.workspace_path or self._workspace_root
-        worktree_path, _worktree_tmp = self._create_worktree(
-            base_workspace, spec.task_id or "adhoc"
-        )
+        worktree_path, _worktree_tmp = await self._open_workspace(spec, base_workspace)
         # ------------------------------------------------------------------
 
         if not provider_headers:
@@ -607,6 +606,25 @@ class InternalAgentAdapter(RuntimeAdapter):
         # Clean up the isolated worktree once the agent is done.
         self._remove_worktree(base_workspace, worktree_path, _worktree_tmp)
 
+        delivery = assess_delivery(
+            did_work=did_work,
+            output=output_text,
+            auto_commit=auto_commit,
+            task_type=spec.task_type or "",
+            changed_files=unique_files,
+            commits=list(result.get("commits") or []),
+            pr_url=result.get("pr_url"),
+            judge_verdict=judge_verdict,
+            pr_blockers=list(result.get("pr_blockers") or []),
+        )
+        did_work, output_text = delivery.success, delivery.output
+        if output_text.startswith("Not delivered"):
+            # Posted as a task comment, so the next attempt sees what to fix.
+            metadata["agent_comment"] = f"{metadata.get('agent_comment', '')}\n\n{output_text}".strip()
+        if delivery.task_status and "task_status" not in metadata:
+            metadata["task_status"] = delivery.task_status
+            metadata["review_reason"] = delivery.review_reason
+
         # If the task failed the step-success-ratio gate, prepend a clear
         # failure summary to the output so the task's error_message (set by
         # _apply_result when success=False) explains what went wrong.
@@ -634,6 +652,22 @@ class InternalAgentAdapter(RuntimeAdapter):
         )
 
     # ── Worktree helpers ──────────────────────────────────────────────────────
+
+    async def _open_workspace(
+        self, spec: TaskSpec, base_workspace: str
+    ) -> "tuple[str, tempfile.TemporaryDirectory | None]":
+        """A fresh clone when the task ships to a repo, else a local worktree."""
+        repo_url = spec.context.get("repo_url")
+        if repo_url:
+            tmp = await clone_repo_workspace(
+                repo_url,
+                spec.context.get("base_branch", "main"),
+                spec.context.get("github_token") or "",
+                spec.task_id or "adhoc",
+            )
+            if tmp is not None:
+                return tmp.name, tmp
+        return self._create_worktree(base_workspace, spec.task_id or "adhoc")
 
     @staticmethod
     def _create_worktree(

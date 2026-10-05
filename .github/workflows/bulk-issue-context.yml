@@ -16,10 +16,10 @@ on:
         type: boolean
         default: false
       skip_labels:
-        description: "Comma-separated labels to skip (default: quick-note:exhausted,agency-escalation)"
+        description: "Comma-separated labels to skip (default: quick-note:exhausted,agency-escalation,bounty-hunt)"
         required: false
         type: string
-        default: "quick-note:exhausted,agency-escalation"
+        default: "quick-note:exhausted,agency-escalation,bounty-hunt"
       max_issues:
         description: "Max issues to process (0 = all)"
         required: false

@@ -632,6 +632,8 @@ class TaskStore:
             task = Task.model_validate(doc)
             task.status = TaskStatus.TODO
             task.pending_agent_run = True
+            # Count the retry, or the cap above never trips.
+            task.auto_retry_count = int(doc.get("auto_retry_count") or 0) + 1
             task.add_log(
                 f"Task re-queued by reconciler (was stranded IN_PROGRESS for "
                 f">{stale_threshold_s:.0f}s without completion)",
@@ -740,12 +742,16 @@ class TaskStore:
                 # raw doc comes from Mongo/sqlite before the Task model's
                 # _coerce_ts validator runs, so we must handle both here.
                 age_s = now_s - _ts_to_float(updated_at)
-                if age_s < MIN_RETRY_AGE_S:
+                # Back off with each retry (2 min, 4, 8, … capped at 4 h).
+                if age_s < min(MIN_RETRY_AGE_S * 2 ** retry_count, 4 * 3600):
                     continue  # too soon — let the brain recover first
 
             task = Task.model_validate(doc)
             task.status = TaskStatus.TODO
             task.pending_agent_run = True
+            # Count the retry, or the cap above never trips: production re-ran
+            # the same two FAILED tasks every ~10 min at "retry 0/5" (2026-10-04).
+            task.auto_retry_count = retry_count + 1
             task.add_log(
                 f"Task re-queued by reconciler (was FAILED, auto_retry_count={retry_count} < cap={auto_retry_cap})",
                 event_type="reconciled",

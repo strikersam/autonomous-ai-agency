@@ -53,4 +53,5 @@ async def test_dispatcher_executes_pending_tasks_concurrently() -> None:
 
     coordinator.release.set()
     await asyncio.wait_for(poll, timeout=0.2)
+    await asyncio.wait_for(dispatcher.drain(), timeout=0.2)
     assert set(coordinator.finished) == {task.task_id for task in pending}

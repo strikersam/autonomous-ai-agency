@@ -45,6 +45,7 @@ const PROVIDER_LABEL_FALLBACK = {
   groq:      'Groq',
   ollama:    'Local Ollama',
   mistral:   'Mistral',
+  siliconflow: 'SiliconFlow',
   deepseek:  'DeepSeek',
   zhipu:     'ZhipuAI',
   zai:       'Z.ai',

@@ -607,13 +607,16 @@ class E2BSandboxSession:
             # Get the list of changed files.
             if self._seeded:
                 # Sandbox was seeded → git diff works.
+                # Modified and new (untracked, not ignored) files: `git diff HEAD`
+                # alone misses every file the agent created.
                 result = await self._sandbox.commands.run(
-                    f"git -C {SANDBOX_WORKDIR} diff --name-only HEAD", timeout=30
+                    f"git -C {SANDBOX_WORKDIR} ls-files --modified --others --exclude-standard",
+                    timeout=30,
                 )
                 stdout = getattr(result, "stdout", "") or ""
                 if isinstance(stdout, bytes):
                     stdout = stdout.decode(errors="replace")
-                changed = [l.strip() for l in stdout.strip().splitlines() if l.strip()]
+                changed = sorted({l.strip() for l in stdout.strip().splitlines() if l.strip()})
             else:
                 # No git baseline → find all files (everything is "changed").
                 result = await self._sandbox.commands.run(

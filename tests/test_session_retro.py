@@ -11,9 +11,10 @@ from agent.state import AgentSessionStore
 from services import session_retro
 
 
-def test_retro_disabled_by_default(monkeypatch):
+def test_retro_enabled_by_default(monkeypatch):
+    """On by default since the dispatcher runs it hourly (no LLM cost)."""
     monkeypatch.delenv("SESSION_RETRO_ENABLED", raising=False)
-    assert session_retro.retro_enabled() is False
+    assert session_retro.retro_enabled() is True
 
 
 @pytest.fixture
@@ -68,8 +69,8 @@ def test_clusters_to_issues_respects_min_count(store: AgentSessionStore):
     assert len(session_retro.clusters_to_issues(clusters, min_count=2)) == 1
 
 
-def test_run_retro_cycle_disabled_by_default(monkeypatch):
-    monkeypatch.delenv("SESSION_RETRO_ENABLED", raising=False)
+def test_run_retro_cycle_can_be_turned_off(monkeypatch):
+    monkeypatch.setenv("SESSION_RETRO_ENABLED", "false")
     result = asyncio.run(session_retro.run_retro_cycle())
     assert result == {"scanned": 0, "clusters": 0, "routed": 0, "reason": "disabled"}
 

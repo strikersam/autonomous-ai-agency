@@ -1,30 +1,12 @@
 """tests/test_daily_automation_2026_10_05.py — Daily automation 2026-10-05.
 
-Changes shipped today:
-- **Devstral declared in Mistral routing candidates** (``devstral-latest``).
-  Mistral's agentic software-engineering model, fine-tuned on the Mistral Small 3.1
-  architecture for tool-using agent loops. Specifically optimised for SWE-bench
-  and coding agent tasks — the strongest alignment with this repo's plan→execute→verify
-  loop of any model on the Mistral free tier. 128K context; function calling supported.
-  Added to ``PROVIDER_CANDIDATES['mistral']`` and set as the default executor/verifier
-  in ``PROVIDER_PRESETS['mistral']``. Declared from docs.mistral.ai, 2026-10-05 —
-  not probed on this account; live health checks apply. Priority 63 (between
-  mistral-small-latest at 62 and codestral-latest at 64 in the model-level ordering).
-  Source: docs.mistral.ai/capabilities/code_generation/, 2026-10-05.
-
-- **Pixtral Large, Ministral 8B, Ministral 3B cost entries added**.
-  These three models were declared in ``config/llm/models.yaml`` on 2026-10-03 but
-  their cost entries were missing from ``packages/ai/cost_tracker.py``. Added:
-  ``pixtral-large-latest`` ($2.00/$6.00 per MTok), ``ministral-8b-latest``
-  ($0.10/$0.10 per MTok), ``ministral-3b-latest`` ($0.04/$0.04 per MTok).
-  Pricing source: mistral.ai/technology/#pricing, 2026-10-05.
-
-Files changed:
-  ``config/llm/models.yaml``,
-  ``packages/ai/brain_config.py``,
-  ``packages/ai/cost_tracker.py``,
-  ``CHANGELOG.md``, ``docs/changelog.md``,
-  ``tests/test_daily_automation_2026_10_05.py`` (this file).
+``devstral-latest`` (Mistral's agentic coding model) is declared in
+``config/llm/models.yaml`` and appended to ``PROVIDER_CANDIDATES['mistral']``.
+The id is from docs.mistral.ai and unprobed on this account, so it is a
+candidate only: the Mistral executor/verifier presets stay on
+``mistral-small-latest``. Pixtral Large and Ministral 8B/3B were already
+covered by #1644 (``tests/test_daily_automation_2026_10_03.py``) and are not
+re-tested here.
 """
 from __future__ import annotations
 
@@ -99,74 +81,6 @@ class TestDevstralCostEntry:
 
 
 # ---------------------------------------------------------------------------
-# Pixtral Large cost entry
-# ---------------------------------------------------------------------------
-
-class TestPixtralLargeCostEntry:
-    def test_pixtral_large_input_cost(self, ct):
-        cost = ct.cost_for_tokens("pixtral-large-latest", 1_000_000, 0)
-        assert cost == pytest.approx(2.00), "pixtral-large-latest input must be $2.00/MTok"
-
-    def test_pixtral_large_output_cost(self, ct):
-        cost = ct.cost_for_tokens("pixtral-large-latest", 0, 1_000_000)
-        assert cost == pytest.approx(6.00), "pixtral-large-latest output must be $6.00/MTok"
-
-    def test_pixtral_large_more_expensive_than_mistral_large(self, ct):
-        pixtral_out = ct.cost_for_tokens("pixtral-large-latest", 0, 1_000_000)
-        large_out = ct.cost_for_tokens("mistral-large-latest", 0, 1_000_000)
-        assert pixtral_out < large_out, "pixtral-large output should be cheaper than mistral-large ($9/MTok)"
-
-
-# ---------------------------------------------------------------------------
-# Ministral 8B cost entry
-# ---------------------------------------------------------------------------
-
-class TestMinistral8BCostEntry:
-    def test_ministral_8b_input_cost(self, ct):
-        cost = ct.cost_for_tokens("ministral-8b-latest", 1_000_000, 0)
-        assert cost == pytest.approx(0.10), "ministral-8b-latest input must be $0.10/MTok"
-
-    def test_ministral_8b_flat_pricing(self, ct):
-        """Ministral 8B has flat per-token pricing (input == output cost per MTok)."""
-        in_cost = ct.cost_for_tokens("ministral-8b-latest", 1_000_000, 0)
-        out_cost = ct.cost_for_tokens("ministral-8b-latest", 0, 1_000_000)
-        assert in_cost == pytest.approx(out_cost), "ministral-8b-latest should have flat pricing"
-
-    def test_ministral_8b_cheaper_than_ministral_large(self, ct):
-        ministral_in = ct.cost_for_tokens("ministral-8b-latest", 1_000_000, 0)
-        large_in = ct.cost_for_tokens("mistral-large-latest", 1_000_000, 0)
-        assert ministral_in < large_in
-
-
-# ---------------------------------------------------------------------------
-# Ministral 3B cost entry
-# ---------------------------------------------------------------------------
-
-class TestMinistral3BCostEntry:
-    def test_ministral_3b_input_cost(self, ct):
-        cost = ct.cost_for_tokens("ministral-3b-latest", 1_000_000, 0)
-        assert cost == pytest.approx(0.04), "ministral-3b-latest input must be $0.04/MTok"
-
-    def test_ministral_3b_flat_pricing(self, ct):
-        in_cost = ct.cost_for_tokens("ministral-3b-latest", 1_000_000, 0)
-        out_cost = ct.cost_for_tokens("ministral-3b-latest", 0, 1_000_000)
-        assert in_cost == pytest.approx(out_cost), "ministral-3b-latest should have flat pricing"
-
-    def test_ministral_3b_cheapest_mistral(self, ct):
-        """Ministral 3B is the cheapest model in the Mistral family."""
-        models_to_compare = [
-            "devstral-latest",
-            "mistral-small-latest",
-            "codestral-latest",
-            "ministral-8b-latest",
-        ]
-        m3b_in = ct.cost_for_tokens("ministral-3b-latest", 1_000_000, 0)
-        for model_id in models_to_compare:
-            other_in = ct.cost_for_tokens(model_id, 1_000_000, 0)
-            assert m3b_in <= other_in, f"ministral-3b should be cheaper than {model_id}"
-
-
-# ---------------------------------------------------------------------------
 # models.yaml — devstral declared
 # ---------------------------------------------------------------------------
 
@@ -216,17 +130,18 @@ class TestDevstralBrainConfig:
             "devstral-latest must be in PROVIDER_CANDIDATES['mistral']"
         )
 
-    def test_devstral_as_executor_preset(self, brain_cfg):
+    def test_unprobed_devstral_is_not_a_preset_default(self, brain_cfg):
+        """devstral-latest is unprobed: a wrong id as the default would fail every
+        executor call, so the presets stay on the known-good mistral-small-latest."""
         preset = brain_cfg.PROVIDER_PRESETS.get("mistral", {})
-        assert preset.get("executor") == "devstral-latest", (
-            "Mistral executor preset should be devstral-latest (agentic coding model)"
-        )
+        assert preset.get("executor") == "mistral-small-latest"
+        assert preset.get("verifier") == "mistral-small-latest"
 
-    def test_devstral_as_verifier_preset(self, brain_cfg):
-        preset = brain_cfg.PROVIDER_PRESETS.get("mistral", {})
-        assert preset.get("verifier") == "devstral-latest", (
-            "Mistral verifier preset should be devstral-latest"
-        )
+    def test_yaml_presets_mirror_brain_config(self):
+        cfg = yaml.safe_load((REPO_ROOT / "config" / "models.yaml").read_text())
+        presets = cfg["providers"]["mistral"]["role_presets"]
+        assert presets["executor"] == presets["verifier"] == "mistral-small-latest"
+        assert "devstral-latest" in cfg["providers"]["mistral"]["candidates"]
 
     def test_mistral_planner_still_large(self, brain_cfg):
         preset = brain_cfg.PROVIDER_PRESETS.get("mistral", {})
@@ -238,3 +153,34 @@ class TestDevstralBrainConfig:
         """codestral-latest must stay in candidates — routing test in #1665 depends on it."""
         candidates = brain_cfg.PROVIDER_CANDIDATES.get("mistral", [])
         assert "codestral-latest" in candidates
+
+
+# ---------------------------------------------------------------------------
+# No duplicate declarations — a repeated dict key or YAML key silently wins
+# ---------------------------------------------------------------------------
+
+def _duplicate_dict_keys(path: pathlib.Path) -> list[str]:
+    import ast
+    import collections
+
+    dupes: list[str] = []
+    for node in ast.walk(ast.parse(path.read_text())):
+        if isinstance(node, ast.Dict):
+            keys = [k.value for k in node.keys if isinstance(k, ast.Constant)]
+            dupes += [k for k, n in collections.Counter(keys).items() if n > 1]
+    return dupes
+
+
+def test_cost_table_has_no_duplicate_model_ids():
+    """#1689 re-added three Mistral entries #1644 had already added; Python
+    keeps the last one silently, so a later edit to the first would be lost."""
+    assert _duplicate_dict_keys(REPO_ROOT / "packages" / "ai" / "cost_tracker.py") == []
+
+
+def test_model_catalogue_has_no_duplicate_ids():
+    import collections
+    import re
+
+    lines = (REPO_ROOT / "config" / "llm" / "models.yaml").read_text().splitlines()
+    ids = [ln.strip()[:-1] for ln in lines if re.match(r"^  [A-Za-z0-9][^ :]*:\s*$", ln)]
+    assert [k for k, n in collections.Counter(ids).items() if n > 1] == []

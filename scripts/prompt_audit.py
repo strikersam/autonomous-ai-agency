@@ -2,7 +2,12 @@
 
 Checks two categories of drift:
   (a) File paths referenced in backticks that no longer exist in the repo.
-  (b) Model IDs mentioned that are not present in config/models.yaml.
+  (b) Model IDs mentioned that are in neither config/models.yaml (routing) nor
+      config/llm/models.yaml (the full model catalogue).
+
+A model id immediately followed (or preceded) by "deprecated", "retired" or
+"removed" is a deliberate mention and is not flagged; other ids on the same
+line still are.
 
 Non-blocking: prints findings to stdout and exits 0.  This is an informational
 report, not a hard CI gate — false positives are possible (e.g. a path mentioned
@@ -24,8 +29,21 @@ ROOT = Path(__file__).parent.parent
 
 # ── Model ID loading ─────────────────────────────────────────────────────────
 
+def _load_catalogue_ids() -> set[str]:
+    """Model ids declared in config/llm/models.yaml (the full catalogue)."""
+    path = ROOT / "config" / "llm" / "models.yaml"
+    try:
+        import yaml  # type: ignore[import-untyped]
+
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return set()
+    models = data.get("models") if isinstance(data, dict) else None
+    return {str(k) for k in models} if isinstance(models, dict) else set()
+
+
 def _load_model_ids() -> set[str]:
-    """Return every model id listed in config/models.yaml candidates/role_presets."""
+    """Model ids from config/models.yaml candidates/role_presets plus the catalogue."""
     models_yaml = ROOT / "config" / "models.yaml"
     if not models_yaml.exists():
         return set()
@@ -54,7 +72,7 @@ def _load_model_ids() -> set[str]:
             for v in presets.values():
                 if isinstance(v, str):
                     ids.add(v)
-    return ids
+    return ids | _load_catalogue_ids()
 
 
 # ── Path extraction ──────────────────────────────────────────────────────────
@@ -71,19 +89,29 @@ _PATH_EXTS = {
 }
 
 
+# Files that exist only while something runs (a session lock, a pid file).
+_RUNTIME_SUFFIXES = {".lock", ".pid"}
+
+
+def _looks_like_path(token: str) -> bool:
+    if Path(token).suffix.lower() not in _PATH_EXTS:
+        return False
+    # Bare filenames without a directory separator are usually example text.
+    return "/" in token or token.startswith(".")
+
+
 def _check_file_paths(text: str, source: str) -> list[str]:
     findings: list[str] = []
     for m in _PATH_RE.finditer(text):
-        candidate = m.group(1).strip()
-        ext = Path(candidate).suffix.lower()
-        if ext not in _PATH_EXTS:
-            continue
-        # Skip obvious non-paths: bare filenames without a directory separator
-        # that look like example text (e.g. `file.txt` in a sentence).
-        if "/" not in candidate and not candidate.startswith("."):
-            continue
-        if not (ROOT / candidate).exists():
-            findings.append(f"  {source}: path `{candidate}` does not exist")
+        # A backticked command (`python scripts/x.py --check`) is checked token
+        # by token; the whole string was being reported as one missing path.
+        for token in m.group(1).split():
+            if not _looks_like_path(token):
+                continue
+            if Path(token).suffix.lower() in _RUNTIME_SUFFIXES:
+                continue
+            if not (ROOT / token).exists():
+                findings.append(f"  {source}: path `{token}` does not exist")
     return findings
 
 
@@ -93,18 +121,50 @@ def _check_file_paths(text: str, source: str) -> list[str]:
 # like `claude-sonnet-5`, `nvidia/llama-3.3-nemotron-super-49b-v1`.
 _MODEL_RE = re.compile(
     r"`([a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._/-]+|"
-    r"(?:claude|gpt|gemini|deepseek|llama|mistral|qwen|nvidia|meta|openai|groq)"
+    r"(?:claude|gpt|gemini|deepseek|llama|mistral|qwen|nvidia|meta|openai|groq|kimi|gemma|glm|phi)"
     r"[a-z0-9._/-]+)`",
     re.IGNORECASE,
 )
+
+
+_DELIBERATE_MENTION = re.compile(r"deprecat|retired|removed|sunset", re.IGNORECASE)
+
+
+def _is_path_not_model(candidate: str) -> bool:
+    """`handlers/v3_auth.py` and `tests/e2e/` match the provider/model shape."""
+    return (
+        candidate.endswith("/")
+        or Path(candidate).suffix.lower() in _PATH_EXTS
+        or (ROOT / candidate).exists()
+    )
+
+
+# How close a deprecation word must be to excuse one id, not the whole line:
+# "`deepseek-r1-70b` deprecated" and "retired `x`" excuse only that id.
+_MENTION_AFTER = 12
+_MENTION_BEFORE = 12
 
 
 def _check_model_ids(text: str, source: str, known_ids: set[str]) -> list[str]:
     if not known_ids:
         return []
     findings: list[str] = []
-    for m in _MODEL_RE.finditer(text):
+    for line in text.splitlines():
+        findings.extend(_unknown_models_in(line, source, known_ids))
+    return findings
+
+
+def _deliberate(line: str, start: int, end: int) -> bool:
+    window = line[max(0, start - _MENTION_BEFORE):start] + line[end:end + _MENTION_AFTER]
+    return bool(_DELIBERATE_MENTION.search(window))
+
+
+def _unknown_models_in(line: str, source: str, known_ids: set[str]) -> list[str]:
+    findings: list[str] = []
+    for m in _MODEL_RE.finditer(line):
         candidate = m.group(1).strip()
+        if _is_path_not_model(candidate) or _deliberate(line, m.start(), m.end()):
+            continue
         # Only flag if it looks like a real model id (has a digit somewhere).
         if not re.search(r"\d", candidate):
             continue
@@ -115,7 +175,7 @@ def _check_model_ids(text: str, source: str, known_ids: set[str]) -> list[str]:
         )
         if not matched:
             findings.append(
-                f"  {source}: model `{candidate}` not found in config/models.yaml"
+                f"  {source}: model `{candidate}` not in config/models.yaml or config/llm/models.yaml"
             )
     return findings
 

@@ -191,7 +191,7 @@ export const logout = () => {
 export const getMe = () => API.get('/api/auth/me');
 
 // Chat
-export const chatSend = (content, sessionId, model, providerId, temperature, agentMode = false, allowCommercialFallbackOnce = false, context = null, repoUrl = null, repoRef = null) =>
+export const chatSend = (content, sessionId, model, providerId, temperature, agentMode = false, allowCommercialFallbackOnce = false, context = null, repoUrl = null, repoRef = null, requestConfig = undefined) =>
   API.post('/api/chat/send', {
     content,
     session_id: sessionId,
@@ -203,7 +203,7 @@ export const chatSend = (content, sessionId, model, providerId, temperature, age
     ...(context ? { context } : {}),
     ...(repoUrl ? { repo_url: repoUrl } : {}),
     ...(repoRef ? { repo_ref: repoRef } : {}),
-  });
+  }, requestConfig);
 export const getAgentChatJob = (jobId) => API.get(`/api/chat/agent-jobs/${jobId}`);
 export const cancelAgentChatJob = (jobId) => API.post(`/api/chat/agent-jobs/${jobId}/cancel`);
 export const resumeAgentChatJob = (sessionId, action, input = "") => API.post(`/api/chat/resume/${sessionId}`, { action, input });
@@ -570,8 +570,9 @@ export const setLlmProviderEnabled = (providerId, enabled, durationSec = 300) =>
 
 // ── SAM Voice Agent (issue #666) ──────────────────────────────────────────
 export const samStatus = () => API.get('/agent/sam/status');
-export const samChat   = (text, sessionId) => API.post('/agent/sam/chat', { text, session_id: sessionId || 'default' });
+export const samChat   = (text, sessionId, screen) => API.post('/agent/sam/chat', { text, session_id: sessionId || 'default', ...(screen ? { screen } : {}) });
 export const samSpeak  = (text) => API.post('/agent/sam/speak', { text });
+export const samAvatarConfig = () => API.get('/agent/sam/avatar');
 
 // ── Agent governance (packages/governance) ────────────────────────────────
 // Admin-only. Reads are gated too: an audit trail is an inventory of the

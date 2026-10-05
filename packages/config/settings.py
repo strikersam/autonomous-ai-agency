@@ -108,6 +108,9 @@ class Settings:
         self.agency_triage_approve_trends: str = os.environ.get(
             "AGENCY_TRIAGE_APPROVE_TRENDS", "true"
         ).lower()
+        # SAM floating avatar: on by default, admins-only unless widened.
+        self.sam_avatar_enabled: str = os.environ.get("SAM_AVATAR_ENABLED", "true").lower()
+        self.sam_avatar_scope: str = os.environ.get("SAM_AVATAR_SCOPE", "admins").lower()
         self.run_background_in_web: str = os.environ.get("RUN_BACKGROUND_IN_WEB", "true").lower()
         self.run_hermes_in_process: str = os.environ.get("RUN_HERMES_IN_PROCESS", "true").lower()
         self.cron_secret: str = os.environ.get("CRON_SECRET", "")
@@ -142,12 +145,14 @@ class Settings:
         # Portfolio materializer (default ON — flag is the rollback lever)
         self.portfolio_materialize_enabled: str = os.environ.get("PORTFOLIO_MATERIALIZE_ENABLED", "true").lower()
         # Initiatives turned into tasks per pass, and dispatcher polls between
-        # automatic passes (~1h at the 5 s poll). Before the automatic pass,
-        # materialisation only ran when someone pressed refresh on the board.
+        # automatic passes (~5 min at the 5 s poll; the dispatcher also runs a
+        # pass whenever its queue is empty). Failed portfolio tasks are retried
+        # this many times before they wait for a human.
         self.portfolio_materialize_max: int = _env_int("PORTFOLIO_MATERIALIZE_MAX", 3)
         self.portfolio_auto_materialize_every_polls: int = _env_int(
-            "PORTFOLIO_AUTO_MATERIALIZE_EVERY_POLLS", 720
+            "PORTFOLIO_AUTO_MATERIALIZE_EVERY_POLLS", 60
         )
+        self.portfolio_retry_max: int = _env_int("PORTFOLIO_RETRY_MAX", 2)
 
         # Free-LLM-API model catalog sync (UNIT 8 — default ON).
         # When ON, the catalog (config/models.yaml) + active BrainConfig are
@@ -333,6 +338,12 @@ class Settings:
             "CODE_GRAPH_MODE", "full"
         ).strip().lower()
 
+        # ── Model deny-list (packages/ai/model_policy.py) ────────────────────
+        # Comma-separated model ids (fnmatch globs allowed) that are never
+        # dispatched, on any provider. An operator control (Platform controls),
+        # re-read per call, so a block lands without a redeploy.
+        self.denied_model_ids_raw: str = os.environ.get("DENIED_MODEL_IDS", "")
+
         # ── Operational-incident tracker (agent/operational_incidents.py) ────
         # Operational failures (timeouts, "all runtimes failed", rate limits)
         # never become code-fix tasks — an LLM editing source cannot fix a
@@ -449,6 +460,12 @@ class Settings:
         return self.browser_automation_enabled_raw in {"1", "true", "yes", "on"}
 
     @property
+    def denied_model_patterns(self) -> tuple[str, ...]:
+        """Lower-cased DENIED_MODEL_IDS entries; empty when nothing is denied."""
+        parts = (p.strip().lower() for p in self.denied_model_ids_raw.split(","))
+        return tuple(p for p in parts if p)
+
+    @property
     def code_graph_enabled(self) -> bool:
         """When True, agents get code_trace/code_search/code_impact tools."""
         return self.code_graph_enabled_raw in {"1", "true", "yes", "on"}
@@ -522,6 +539,12 @@ class Settings:
     @property
     def is_triage_approve_trends_enabled(self) -> bool:
         return self.agency_triage_approve_trends in {"1", "true", "yes", "on"}
+
+    def sam_avatar_visible_to(self, is_admin: bool) -> bool:
+        """Whether the SAM floating avatar is shown to a user of this role."""
+        if self.sam_avatar_enabled not in {"1", "true", "yes", "on"}:
+            return False
+        return is_admin or self.sam_avatar_scope == "all"
 
     @property
     def is_background_in_web(self) -> bool:

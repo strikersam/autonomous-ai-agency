@@ -10184,6 +10184,10 @@ class VoiceTranscribeRequest(BaseModel):
 class SamChatRequest(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000, description="Transcribed voice command")
     session_id: str = Field(default="default", max_length=64)
+    screen: str = Field(
+        default="", max_length=41, pattern=r"^([a-z_]{1,20}(/[a-z_-]{1,20})?)?$",
+        description="Dashboard screen the Commander is on, e.g. work/roadmap",
+    )
 
 
 class SamSpeakRequest(BaseModel):
@@ -10266,16 +10270,36 @@ async def sam_chat_backend(body: SamChatRequest, user: dict = Depends(get_curren
             user.get("_id") or user.get("id") or user.get("sub")
             or user.get("email") or "sam-voice"
         )
+        from backend.company_api import _is_admin
+        # Namespace the session by caller so two users never share SAM's history.
         response_text = await sam.process_command(
-            body.text, session_id=body.session_id, owner_id=owner_id,
+            body.text, session_id=f"{owner_id}:{body.session_id}", owner_id=owner_id,
+            is_admin=_is_admin(user), screen=body.screen,
         )
         return {
             "text": response_text,
             "session_id": body.session_id,
+            # A safety action is held until the Commander replies "confirm".
+            "needs_confirmation": sam.has_pending(f"{owner_id}:{body.session_id}"),
         }
     except Exception as exc:
         log.exception("sam_chat failed")
         raise HTTPException(status_code=500, detail="SAM chat failed")
+
+
+class SamAvatarConfig(BaseModel):
+    enabled: bool
+    can_orchestrate: bool
+
+
+@app.get("/agent/sam/avatar", response_model=SamAvatarConfig)
+async def sam_avatar_config_backend(user: dict = Depends(get_current_user)) -> SamAvatarConfig:
+    """Tell the dashboard whether to show the SAM floating avatar to this user."""
+    from backend.company_api import _is_admin
+    from packages.config import settings as _settings
+
+    is_admin = _is_admin(user)
+    return SamAvatarConfig(enabled=_settings.sam_avatar_visible_to(is_admin), can_orchestrate=is_admin)
 
 
 @app.post("/agent/sam/speak")
@@ -10336,6 +10360,8 @@ async def sam_livekit_token_backend(
             detail="LiveKit is not configured — missing: " + ", ".join(cfg.missing),
         )
 
+    from backend.company_api import _is_admin
+
     identity = str(user.get("email") or user.get("_id") or "commander")
     room = (body.room or "").strip() or f"{cfg.room_prefix}-{identity.split('@')[0]}"
     try:
@@ -10345,6 +10371,8 @@ async def sam_livekit_token_backend(
             identity=identity,
             room=room,
             name=str(user.get("name") or "Commander"),
+            # Signed role claim: the voice worker gates create_task on it.
+            metadata=json.dumps({"role": "admin" if _is_admin(user) else "user"}),
         )
     except ValueError:
         log.exception("LiveKit token minting failed")

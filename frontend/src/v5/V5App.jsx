@@ -6,6 +6,8 @@ import { AppShell } from './AppShell';
 // the common case paints in one round trip. Everything else is code-split.
 import AlertsBell from './screens/AlertsBell';
 import QuickNotesFAB from './screens/QuickNotesFAB';
+import SamAvatar from './components/SamAvatar';
+import { setScreen } from './screenContext';
 import ActivationGate from './screens/ActivationGate';
 import AssistantHub from './screens/AssistantHub';
 import Spinner from './components/ui/Spinner';
@@ -91,6 +93,8 @@ export default function V5App() {
   const isAdmin = user?.role === 'admin';
   const agentRunning = true;
 
+  React.useEffect(() => { setScreen(current.screen); }, [current.screen]);
+
   const go = React.useCallback((id) => {
     const t = resolveTarget(id);
     setCurrent(t);
@@ -140,6 +144,7 @@ export default function V5App() {
         </AppShell>
         <AlertsBell onNavigate={go} />
         <QuickNotesFAB visible={true} />
+        <SamAvatar onNavigate={go} />
       </div>
     </ActivationGate>
   );

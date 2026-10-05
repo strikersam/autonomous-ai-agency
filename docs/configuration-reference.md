@@ -52,6 +52,25 @@ Complete reference for every environment variable in `.env`. Copy `.env.example`
 
 ---
 
+## AI Gateway Hardening
+
+Hardening for the OpenAI-compatible proxy (`packages/gateway/`). Every switch except the security headers defaults to off (or `0`), which leaves the proxy exactly as it was. All of them except `GATEWAY_PROMPT_POLICY_FILE` are also **Settings → Platform controls → AI Gateway** and take effect without a restart. They are read only in `packages/gateway/config.py`.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `GATEWAY_MAX_REQUEST_BYTES` | `0` (off) | Reject request bodies larger than this many bytes with `413`. Checks `Content-Length` and counts streamed bytes. Applies to every HTTP route on the proxy. |
+| `GATEWAY_SECURITY_HEADERS_ENABLED` | `true` | Add `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY` and `Cache-Control: no-store` to responses under `/v1/`, `/api/` and `/agent/` that do not already set them (streaming responses keep their `no-cache`). |
+| `GATEWAY_TOKENS_PER_MINUTE` | `0` (off) | Per-consumer token quota per UTC minute. A consumer is the key id, or a sha256 digest for legacy keys; the raw key is never stored. Over quota returns `429` with `Retry-After`. Non-streaming JSON responses carry `X-RateLimit-Limit-Tokens` / `X-RateLimit-Remaining-Tokens`. Applies to `/v1/chat/completions` and `/v1/messages`. Tokens are counted after the response, so one request can overshoot its window. |
+| `GATEWAY_TOKENS_PER_DAY` | `0` (off) | As above, per UTC day. |
+| `GATEWAY_PROMPT_POLICY_ENABLED` | `false` | Enforce the policy file named by `GATEWAY_PROMPT_POLICY_FILE` on `/v1/chat/completions`. |
+| `GATEWAY_PROMPT_POLICY_FILE` | (none) | Path to the policy JSON (env-only, deploy wiring): `{"deny": [regex], "allow": [regex], "prepend_system": "", "append_system": ""}`. A match on `deny` (or no match on a non-empty `allow`) returns `400 Request blocked by policy`. Patterns over 512 characters or that do not compile are dropped. The file is reloaded when its mtime changes; if it becomes unreadable the last good policy stays in force. Prompt text is never logged. |
+| `GATEWAY_SANITIZER_MODE` | `off` | Redact prompts before they reach an upstream: `off`, `pii` (SSNs, Luhn-valid card numbers) or `secrets_and_pii` (also API tokens, bearer headers, connection-URI credentials, `key=value` secrets). Uses `packages/security/redact.py`. |
+| `GATEWAY_USAGE_METRICS_ENABLED` | `false` | Record provider, model, tokens, latency, cost and outcome per proxied chat request and serve them at `GET /gateway/metrics` (Prometheus text). The consumer label is capped at 50 distinct values, then `other`. |
+| `GATEWAY_UPSTREAM_RETRIES` | `0` (off) | Extra attempts (max 10) for a non-streaming upstream call after `429`/`502`/`503`/`504` or a connect error, with backoff, jitter and `Retry-After`, before the existing model-swap fallback. Streams are never retried. |
+| `GATEWAY_PROXY_CACHE_ENABLED` | `false` | Exact-match cache for non-streaming `/v1/chat/completions` requests with `temperature: 0` and no `tools`, keyed per consumer, with `X-Cache: HIT` / `MISS`. Reuses `packages/ai/response_cache.py`, so `RESPONSE_CACHE_ENABLED=false` and its TTL / size settings also apply. |
+
+---
+
 ## Anthropic API Compatibility / Claude Code
 
 | Variable | Default | Description |
@@ -77,10 +96,10 @@ See [docs/claude-code-setup.md](claude-code-setup.md) for full Claude Code setup
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AGENT_PLANNER_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | Model used for task planning (breaks task into ≤5 steps, returns JSON). **On a memory-constrained free tier a heavy *reasoning* planner is the cause of the `planning: TimeoutError` failure loop** — it spends its whole token budget on thinking tokens and blows the failover deadline. Prefer a model that is cheap per call here (e.g. `nvidia/nemotron-3-super-120b-a12b` on NVIDIA, which activates ~12B params/token against the 550B default's ~55B, or `qwen-3-coder-480b` on Cerebras). Also settable from the Brain card without a redeploy. |
-| `AGENT_EXECUTOR_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | Model used for code writing and file manipulation. Coding-specialist models recommended; a fast dense model avoids the same reasoning-token latency as the planner. Also settable from the Brain card. |
-| `AGENT_VERIFIER_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | Model used to validate each code change (returns pass/fail JSON). |
-| `AGENT_JUDGE_MODEL` | `nvidia/llama-3.3-nemotron-super-49b-v1` | Final release-gate judge model (verdict / security / correctness). |
+| `AGENT_PLANNER_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | Model used for task planning (breaks task into ≤5 steps, returns JSON). **On a memory-constrained free tier a heavy *reasoning* planner is the cause of the `planning: TimeoutError` failure loop** — it spends its whole token budget on thinking tokens and blows the failover deadline. Prefer a model that is cheap per call here (e.g. `nvidia/nemotron-3-super-120b-a12b` on NVIDIA, which activates ~12B params/token against the 550B default's ~55B, or `qwen-3-coder-480b` on Cerebras). Also settable from the Brain card without a redeploy. |
+| `AGENT_EXECUTOR_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | Model used for code writing and file manipulation. Coding-specialist models recommended; a fast dense model avoids the same reasoning-token latency as the planner. Also settable from the Brain card. |
+| `AGENT_VERIFIER_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | Model used to validate each code change (returns pass/fail JSON). |
+| `AGENT_JUDGE_MODEL` | `AGENT_VERIFIER_MODEL`'s value | Final release-gate judge model (verdict / security / correctness). |
 | `AGENT_MAX_OUTPUT_TOKENS` | `4096` | Output-token budget for agent-loop LLM calls (planner/executor/verifier). Replaces a hardcoded 16384: a reasoning model given 16384 tokens could run the planner for minutes and time out. Also settable from the Brain card as **Max tokens**; the UI/DB value wins over this env. Raise it if large file writes get truncated. |
 | `AGENT_REQUEST_TIMEOUT_SEC` | `120` | Per-request timeout (seconds) for agent-loop LLM calls, passed to the failover client. Also settable from the Brain card as **Timeout (s)**; the UI/DB value wins. Lower it to fail over to a faster provider sooner, or raise it for a deliberately slow/large model. |
 | `NEMOTRON_THINKING` | `false` | Whether Nemotron 3 models (the default free NVIDIA brain, e.g. `nvidia/nemotron-3-super-120b-a12b`) think before answering. `false` sends `chat_template_kwargs.enable_thinking=false`, which cuts per-call latency several-fold on the free tier; `true` leaves the request untouched. Other models are never affected. Also a live control under Settings → Platform controls → Brain & Model Routing. |
@@ -92,6 +111,14 @@ See [docs/claude-code-setup.md](claude-code-setup.md) for full Claude Code setup
 |----------|---------|-------------|
 | `ANTHROPIC_DEFAULT_EFFORT` | _(unset)_ | Default effort level for Anthropic adaptive-thinking models (`output_config.effort`). Valid values: `low`, `medium`, `high`, `xhigh`, `max`. Unset = model decides. Overridable per-request; also configurable live from Settings → Platform controls. Mirrors Claude Code's `maxEffortLevel` concept (Week 37, September 2026). |
 | `ANTHROPIC_THINKING_BUDGET` | `0` | Extended-thinking token budget for legacy Anthropic models that support `thinking.type="enabled"` (e.g. claude-3.7-sonnet). Zero disables extended thinking. Not applicable to adaptive-thinking models (Opus 5, Sonnet 5, Fable 5, Mythos) — use `ANTHROPIC_DEFAULT_EFFORT` for those. |
+
+### Amazon Bedrock — paid brain on AWS credit
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BEDROCK_BRAIN_ENABLED` | `false` | Adds Amazon Bedrock (`qwen.qwen3-coder-next` on the OpenAI-compatible Mantle endpoint) to the agent brain's provider pool. Its models are billed to the AWS account but marked `paid_opt_in`, so they serve while `ALLOW_PAID_BRAIN` stays off and the Anthropic API stays closed. Also in Settings → Platform controls; takes effect on restart. |
+| `AWS_BEARER_TOKEN_BEDROCK` | _(unset)_ | Bedrock API key (bearer). Secret: Render env only. Without it the provider is skipped. |
+| `AWS_REGION` | `us-east-1` | Region in the Bedrock endpoint URL. |
 
 ### TokenIn — free frontier gateway
 
@@ -109,6 +136,8 @@ and on a per-model `429` the failover chain rotates to the next model in
 | `TOKENIN_BASE_URL` | `https://tokenin.my.id/v1` | Base URL override. The router appends `/chat/completions`. |
 | `TOKENIN_MODEL` | `myt/glm-5.3-free` | Default model for the `router.from_env` path when no model is requested. Role presets and the full failover list live in `config/models.yaml`. |
 | `TOKENIN_KEY_ROTATION` | `false` | Opt-in per-key rotation across `TOKENIN_API_KEY`, `_2`, `_3`… (see `<PROVIDER>_KEY_ROTATION` below). |
+| `SILICONFLOW_API_KEY` | (unset) | **Secret, env-only.** SiliconFlow key. Adds SiliconFlow (free tier, gateway priority 52) with its two zero-cost chat models, `Qwen/Qwen3-8B` and `deepseek-ai/DeepSeek-R1-Distill-Qwen-7B`. |
+| `SILICONFLOW_BASE_URL` | `https://api.siliconflow.com/v1` | International endpoint. A key issued at `cloud.siliconflow.cn` needs `https://api.siliconflow.cn/v1`; the wrong one answers HTTP 401. |
 
 ### OmniRoute — self-hosted free-tier aggregator
 
@@ -379,9 +408,13 @@ the 512MB free-instance OOM ceiling.
 | `AGENCY_AUTO_TRIAGE` | `true` | CEO triage on the dispatcher's cadence: approve parked tasks that were auto-gated but no longer need a human, reject parked duplicates of already-open tasks, and queue fix tasks for open error alerts on the dashboard bell. Deliberately gated tasks (deploys, auth/secrets, 🔴 trend items) are never touched. Set `false` to disable. Editable live in Settings → Platform controls. |
 | `AGENCY_TRIAGE_APPROVE_TRENDS` | `true` | Let CEO triage approve trend-scanner tasks that propose a code change (created waiting for approval). The agent only drafts a PR; the PR still waits for a human merge. Trend text comes from outside sources — review those PRs accordingly. Editable live in Settings → Platform controls. |
 | `AGENCY_AUTO_TRIAGE_EVERY_POLLS` | `60` | Dispatcher polls between CEO triage passes (~5 min at the default 5 s poll). `0` disables. Editable live in Settings → Platform controls. |
+| `SAM_AVATAR_ENABLED` | `true` | Show SAM as a floating avatar in the bottom-left corner of every dashboard screen (desktop and mobile). It talks to the same SAM agent as Assistant → Voice. Editable live in Settings → Platform controls. |
+| `SAM_AVATAR_SCOPE` | `admins` | Who sees the SAM avatar when it is on: `admins` or `all`. Delegating tasks and running CEO triage through SAM stay admin-only either way. Editable live in Settings → Platform controls. |
 | `PORTFOLIO_MATERIALIZE_ENABLED` | `true` | Turn committed portfolio initiatives into executable tasks. Editable live in Settings → Platform controls. |
-| `PORTFOLIO_AUTO_MATERIALIZE_EVERY_POLLS` | `720` | Dispatcher polls between automatic portfolio intake passes (~1 h at the 5 s poll). Each pass rebuilds the board if stale and queues the top-WSJF initiatives. `0` = only on a manual board refresh. Editable live in Settings → Platform controls. |
+| `PORTFOLIO_AUTO_MATERIALIZE_EVERY_POLLS` | `60` | Dispatcher polls between automatic portfolio intake passes (~5 min at the 5 s poll). The dispatcher also runs a pass about once a minute whenever nothing is queued or running, so agents are not idle while portfolio work remains. Each pass rebuilds the board if stale, closes duplicate portfolio tasks, syncs task state onto the board (done work leaves the queue), retries failed portfolio tasks, and queues the top-WSJF initiatives. `0` turns both off. Editable live in Settings → Platform controls. |
 | `PORTFOLIO_MATERIALIZE_MAX` | `3` | Initiatives turned into tasks per intake pass (automatic or manual). Editable live in Settings → Platform controls. |
+| `PORTFOLIO_RETRY_MAX` | `2` | How many times a FAILED portfolio task is re-queued on its own before it waits for a human. `0` never retries. Editable live in Settings → Platform controls. |
+| `SESSION_RETRO_ENABLED` | `true` | Hourly, the task dispatcher mines recent agent sessions for failures that keep repeating and files each cluster as an improvement issue for the fix pipeline. No LLM calls. Editable live in Settings → Platform controls. |
 | `PR_APPROVAL_GATE_ENABLED` | `false` | In-process sweep (`services/pr_approval_gate.py`) that finds every open, non-draft PR whose CI has gone green and posts a one-tap **✅ Approve & merge / ❌ Dismiss** Telegram card. Approve enables GitHub **auto-merge** (squash) via the service-token endpoint, so GitHub rebases-if-behind and lands the PR when checks pass — serialising the agent-PR stream so the recurring `CHANGELOG.md` conflict resolves itself. Needs `GH_PAT`, `TELEGRAM_BOT_TOKEN`, and a chat id. Fail-soft; deduped on PR head SHA. Requires **Allow auto-merge** enabled in the repo settings. |
 | `PR_APPROVAL_GATE_INTERVAL_SEC` | `300` | How often the PR approval sweep runs, in seconds (floored to 60). |
 | `PR_APPROVAL_GATE_CHAT_ID` | (falls back to `TELEGRAM_ADMIN_CHAT_ID` / `TELEGRAM_CHAT_ID`) | Telegram chat the approval cards are sent to. |
@@ -537,6 +570,7 @@ dashboards will actually let you set; the literal name is still read first.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `LLM_ROUTING_STRATEGY` | `priority` | How traffic is spread across providers: `priority` (strict order, the historical behaviour), `weighted-shuffle`, `least-busy`, `usage-based`, `latency-based`. An unrecognised value warns once and behaves as `priority`. |
+| `DENIED_MODEL_IDS` | _(empty)_ | Comma-separated model ids that are never dispatched, on any provider (`fnmatch` globs allowed, e.g. `claude-opus-*`; matched case-insensitively). Enforced where every call picks its models (`packages/ai/router.py`, `_candidate_models`) and in `router/model_router.py`, which moves a denied `resolved_model` to the next allowed fallback. A provider whose every model is denied is skipped with no cooldown. Also under Settings → Platform controls (live, no restart). Entries are validated: letters, digits and `. _ : / @ - * ?` only, at most 100. |
 | `<PROVIDER>_MAX_RPM` | (unset) | Requests/minute ceiling. Used both to pace requests and to route around a provider that has spent its minute. Set it to the provider's real current limit from its own dashboard — none is hardcoded, because they change and are account-specific. |
 | `<PROVIDER>_MAX_TPM` | (unset) | Tokens/minute ceiling. Free tiers usually publish one alongside the request limit, and large-context agent calls hit the token limit first. |
 | `<PROVIDER>_MAX_PARALLEL` | (unset) | In-flight request ceiling — the concurrency limit NVIDIA NIM enforces with `419`. A fractional value is rounded; anything rounding below 1 reads as unset. |
@@ -600,6 +634,33 @@ Promotes a repeated failure lesson into a standing instruction stored in
 | `HARNESS_SPEC_MIN_HITS` | `2` | Repeats before a lesson is promoted |
 | `HARNESS_SPEC_MAX_ENTRIES` | `40` | Entries retained in the file |
 | `HARNESS_SPEC_MAX_CHARS` | `1200` | Cap on the injected prompt block |
+
+---
+
+## Bounty hunter
+
+Read by `packages/config/bounty_settings.py`. The hunter runs in GitHub
+Actions, so set these as **repository variables**, not on Render. See
+`docs/bounty-hunter.md`.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `BOUNTY_HUNTER_ENABLED` | `false` | Master switch for scheduled hunts. Approve/decline labels still work when off. |
+| `BOUNTY_GITHUB_LOGIN` | repository owner | Account that owns forks, commits and claims; must match the Algora/Opire payout profile. |
+| `BOUNTY_PLATFORMS` | `algora,opire` | Comma-separated platforms to search: `algora`, `opire`, `generic`. |
+| `BOUNTY_MIN_USD` | `50` | Ignore bounties below this amount. |
+| `BOUNTY_MAX_ATTEMPTS_PER_RUN` | `2` | New solve attempts per run. |
+| `BOUNTY_MAX_OPEN_REVIEWS` | `5` | Stop starting work while this many fixes wait for your review. |
+| `BOUNTY_MAX_COMPETITORS` | `2` | Skip issues where more other users have posted `/attempt` or `/claim`. |
+| `BOUNTY_MAX_ISSUE_AGE_DAYS` | `90` | Skip older bounty issues. |
+| `BOUNTY_MAX_REPO_IDLE_DAYS` | `60` | Skip repositories with no push for this long. |
+| `BOUNTY_REVIEW_COST_USD` | `5` | Cost charged to an agent's ledger for each attempt you have to review. |
+| `BOUNTY_RETIRE_AFTER_ATTEMPTS` | `10` | Attempts an agent gets without earning before it is retired. |
+| `BOUNTY_SOLVER_MAX_STEPS` | `40` | Tool-loop step cap per attempt (always enforced). |
+| `BOUNTY_MAX_DIFF_LINES` | `400` | Reject patches larger than this many changed lines. |
+| `BOUNTY_MIN_REPO_STARS` | `20` | Skip repositories with fewer stars; spam repos that self-label bounties sit below this. |
+
+The workflow uses the existing `GH_PAT` secret, passed as `GH_TOKEN`.
 
 ---
 

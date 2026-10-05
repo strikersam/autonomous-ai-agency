@@ -14,9 +14,11 @@ Used by `.github/scripts/generate_context.py`:
 """
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 # --------------------------------------------------------------------------
 # Rule vocabulary
@@ -65,6 +67,96 @@ STALE_PROJECT_NAME = "local-llm-server"
 
 #: R8/R11 — marker exempting a path that the plan intends to create.
 NEW_FILE_MARKER = "(new)"
+
+#: R13 — trees never counted as prior art. Generated plans and graph snapshots
+#: quote URLs without implementing anything; tests quote them as fixtures. Hidden
+#: directories (caches, session state) are skipped too, except ``.github``.
+PRIOR_ART_EXCLUDED_DIRS = frozenset({
+    ".git", "node_modules", "graphify-out", "build", "dist", "__pycache__",
+})
+PRIOR_ART_EXCLUDED_PREFIXES = ("docs/context/", "tests/", "frontend/build/")
+PRIOR_ART_MAX_FILES = 10
+PRIOR_ART_MAX_BYTES = 1_000_000
+
+#: R14 — a repo-path-shaped token in prose: segments joined by "/" ending in a
+#: source or config extension. Only checked when its first segment is a
+#: top-level entry of this repo, so a path inside the *linked* project
+#: (``references/hig/x.md``) is not mistaken for one of ours.
+_PROSE_PATH = re.compile(
+    r"(?<![\w./:-])((?:[\w.-]+/)+[\w.-]+\.(?:py|ya?ml|md|jsx?|tsx?|json|toml|sh))\b"
+)
+_URL = re.compile(r"https?://\S+")
+
+#: Rules whose failure means a ``reject`` contradicts what is in the repo, so the
+#: reject must go to a human instead of being filed (#1634 rejected a source the
+#: repo already vendors, citing a file that does not exist).
+CONTESTED_REJECT_RULES = frozenset({"R13", "R14"})
+
+
+@dataclass(frozen=True)
+class PriorArt:
+    """A tracked file that already references the linked source."""
+
+    path: str
+    line: str
+
+
+def source_slug(url: str) -> str:
+    """Reduce a URL to the token a reference to it would contain.
+
+    ``https://github.com/owner/repo/tree/main/x`` → ``owner/repo``; any other
+    URL → host plus path, without scheme, ``www.`` or a trailing slash.
+    """
+    parsed = urlparse(url.strip())
+    host = parsed.netloc.lower().removeprefix("www.")
+    parts = [p for p in parsed.path.split("/") if p]
+    if host == "github.com" and len(parts) >= 2:
+        return f"{parts[0]}/{parts[1].removesuffix('.git')}".lower()
+    path = "/".join(parts)
+    return f"{host}/{path}".rstrip("/").lower() if path else host
+
+
+def find_prior_art(url: str | None, repo_root: Path) -> list[PriorArt]:
+    """Return tracked files that already mention the linked source (R13).
+
+    A quick note can re-submit something the repo already uses: #1634 linked
+    the agency-agents repo that #1570 had already vendored, and the reviewer,
+    never told, rejected it as "not compatible".
+    """
+    slug = source_slug(url) if url else ""
+    if "/" not in slug:
+        return []
+    found: list[PriorArt] = []
+    for dirpath, dirnames, filenames in os.walk(repo_root):
+        dirnames[:] = sorted(
+            d for d in dirnames
+            if d not in PRIOR_ART_EXCLUDED_DIRS and (d == ".github" or not d.startswith("."))
+        )
+        for name in sorted(filenames):
+            path = Path(dirpath) / name
+            rel = path.relative_to(repo_root).as_posix()
+            if rel.startswith(PRIOR_ART_EXCLUDED_PREFIXES):
+                continue
+            line = _first_mention(path, slug)
+            if line is not None:
+                found.append(PriorArt(rel, line))
+                if len(found) >= PRIOR_ART_MAX_FILES:
+                    return found
+    return found
+
+
+def _first_mention(path: Path, slug: str) -> str | None:
+    """The first line of ``path`` containing ``slug``, or None."""
+    try:
+        if path.stat().st_size > PRIOR_ART_MAX_BYTES:
+            return None
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    for line in text.splitlines():
+        if slug in line.lower():
+            return line.strip()[:160]
+    return None
 
 
 @dataclass(frozen=True)
@@ -288,6 +380,44 @@ def _check_project_identity(result: dict) -> list[Violation]:
     ]
 
 
+def _check_prior_art(result: dict, prior_art: list[PriorArt]) -> list[Violation]:
+    """R13 — when the repo already references the source, say what it has."""
+    if not prior_art:
+        return []
+    haystack = _text_of(result, "verdict_reason", "notes", "prompt")
+    if any(item.path.lower() in haystack for item in prior_art):
+        return []
+    return [
+        Violation(
+            "R13",
+            "the repository already references this source, and the plan names "
+            "none of it: " + ", ".join(item.path for item in prior_art),
+        )
+    ]
+
+
+def _check_prose_paths(result: dict, repo_root: Path) -> list[Violation]:
+    """R14 — every repo path cited in prose exists, whatever the verdict."""
+    missing: set[str] = set()
+    for field in ("verdict_reason", "notes", "prompt"):
+        text = _URL.sub(" ", str(result.get(field, "") or ""))
+        for match in _PROSE_PATH.finditer(text):
+            cited = match.group(1)
+            if text[match.end():match.end() + 7].lower().lstrip().startswith(NEW_FILE_MARKER):
+                continue
+            top = cited.split("/", 1)[0]
+            if (repo_root / top).is_dir() and not (repo_root / cited).exists():
+                missing.add(cited)
+    if not missing:
+        return []
+    return [
+        Violation(
+            "R14",
+            "prose cites repository paths that do not exist: " + ", ".join(sorted(missing)),
+        )
+    ]
+
+
 # --------------------------------------------------------------------------
 # Public API
 # --------------------------------------------------------------------------
@@ -297,11 +427,19 @@ def _check_project_identity(result: dict) -> list[Violation]:
 PLAN_ONLY_RULES = frozenset({"R4", "R5", "R7", "R8", "R11"})
 
 
-def validate(result: dict, *, source_fetched: bool, repo_root: Path, title: str = "") -> list[Violation]:
+def validate(
+    result: dict,
+    *,
+    source_fetched: bool,
+    repo_root: Path,
+    title: str = "",
+    prior_art: list[PriorArt] | None = None,
+) -> list[Violation]:
     """Return every unmet rule for a generated context result.
 
     `source_fetched` reports whether the linked URL yielded real content.
-    `repo_root` anchors the filesystem checks for R8/R11.
+    `repo_root` anchors the filesystem checks for R8/R11/R14.
+    `prior_art` is what `find_prior_art` found for the linked URL (R13).
     """
     violations: list[Violation] = []
     violations += _check_grounding(result, source_fetched)
@@ -313,6 +451,8 @@ def validate(result: dict, *, source_fetched: bool, repo_root: Path, title: str 
     violations += _check_todos(result)
     violations += _check_risk_flags(result)
     violations += _check_files_exist(result, repo_root)
+    violations += _check_prior_art(result, prior_art or [])
+    violations += _check_prose_paths(result, repo_root)
 
     # A `reject` verdict is a complete outcome with no plan to validate, so the
     # plan-only rules are dropped rather than skipped upstream — PLAN_ONLY_RULES
@@ -320,6 +460,54 @@ def validate(result: dict, *, source_fetched: bool, repo_root: Path, title: str 
     if str(result.get("verdict", "") or "").strip().lower() == "reject":
         return [v for v in violations if v.rule not in PLAN_ONLY_RULES]
     return violations
+
+
+NEEDS_REVIEW_REASON = (
+    "The model's verdict was `reject`, but the gate found it at odds with the "
+    "repository ({rules}), so a human decides. #1634 was rejected as \"not "
+    "compatible\" with a source the repo already vendors, citing a file that does "
+    "not exist. The model's reason is kept below for reference only.\n\n"
+    "> {reason}"
+)
+
+
+def apply_review_gate(result: dict, violations: list[Violation]) -> dict:
+    """Route a reject that contradicts the repository to a human.
+
+    A reject is filed and forgotten. When it ignores prior art (R13) or cites a
+    path that does not exist (R14), filing it buries a note whose analysis is
+    demonstrably wrong, so the verdict becomes ``needs-review``.
+    """
+    if str(result.get("verdict", "") or "").strip().lower() != "reject":
+        return result
+    rules = sorted({v.rule for v in violations} & CONTESTED_REJECT_RULES)
+    if not rules:
+        return result
+    gated = dict(result)
+    gated["verdict"] = "needs-review"
+    reason = str(result.get("verdict_reason", "") or "").strip() or "(none given)"
+    gated["verdict_reason"] = NEEDS_REVIEW_REASON.format(rules=", ".join(rules), reason=reason)
+    return gated
+
+
+def prior_art_section(prior_art: list[PriorArt]) -> str:
+    """Tell the model what the repo already has from this source — R13."""
+    if not prior_art:
+        return ""
+    rows = "\n".join(f"- `{item.path}`: {item.line}" for item in prior_art)
+    return (
+        "---\n## Prior art in this repository\n\n"
+        "These tracked files already reference the linked source. This note may "
+        "be a re-submission: say what it adds beyond them (R13).\n\n"
+        f"{rows}\n\n"
+    )
+
+
+def prior_art_cell(paths: list[str]) -> str:
+    """Render the prior-art row of the grounding table — rulebook R13."""
+    if not paths:
+        return "none found"
+    return f"{len(paths)} file(s): " + ", ".join(f"`{p}`" for p in paths)
 
 
 def repair_instruction(violations: list[Violation]) -> str:

@@ -549,8 +549,6 @@ _PROVIDER_REGISTRY: list[dict[str, Any]] = [
         "models": [
             "nvidia/nemotron-3-super-120b-a12b",
             "nvidia/nemotron-3-ultra-550b-a55b",
-            "mistralai/mistral-nemotron",
-            "openai/gpt-oss-120b",
             "openai/gpt-oss-20b",
         ],
         "cooldown": 90.0,  # NVIDIA rate limits are ~40 req/min — 90s cooldown
@@ -709,6 +707,19 @@ _PROVIDER_REGISTRY: list[dict[str, Any]] = [
         "default_base_url": "https://api.mistral.ai/v1",
         "default_model": "mistral-small-latest",
         "models": ["mistral-small-latest", "mistral-large-latest", "codestral-latest", "mistral-nemo"],
+        "cooldown": 30.0,
+    },
+    {
+        "id": "siliconflow",
+        "name": "SiliconFlow",
+        "tier": "free",
+        "key_env": "SILICONFLOW_API_KEY",
+        "base_url_env": "SILICONFLOW_BASE_URL",
+        # International endpoint; keys issued at cloud.siliconflow.cn need
+        # SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1.
+        "default_base_url": "https://api.siliconflow.com/v1",
+        "default_model": "Qwen/Qwen3-8B",
+        "models": ["Qwen/Qwen3-8B", "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"],
         "cooldown": 30.0,
     },
     # ── Paid tier (tried last, only if ALLOW_PAID_BRAIN=true) ──

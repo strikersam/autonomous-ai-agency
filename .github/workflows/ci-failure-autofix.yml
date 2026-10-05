@@ -147,7 +147,15 @@ jobs:
 
       - name: Check provider policy (skip if paid providers disabled)
         id: policy
+        env:
+          MASTER_EXIT: ${{ steps.reproduce.outputs.master_exit }}
         run: |
+          # `skip` gates every later step. The step above only logs that master
+          # is broken; without this, the run went on to patch on a red base.
+          if [ "${MASTER_EXIT}" != "0" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           # Respect the provider policy — skip Anthropic calls when allow_paid=false.
           # Default: do not call Anthropic (safe). Override with PROVIDER_POLICY_ALLOW_PAID=true.
           if [ "${PROVIDER_POLICY_ALLOW_PAID:-false}" = "true" ]; then
@@ -234,9 +242,16 @@ jobs:
           print(f"Claude response ({len(diff_text)} chars):\n{diff_text[:300]}")
           PYEOF
 
+      # Gated like the generate step: with paid providers off (the default) no
+      # patch is written, and `cat` on the missing file failed every run red.
       - name: Apply and verify patch
         id: apply
+        if: steps.policy.outputs.skip != 'true'
         run: |
+          if [ ! -s /tmp/autofix.patch ]; then
+            echo "status=no_diff" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           PATCH=$(cat /tmp/autofix.patch)
           if [ "$PATCH" = "TOO_COMPLEX" ]; then
             echo "status=too_complex" >> "$GITHUB_OUTPUT"
@@ -281,7 +296,7 @@ jobs:
           git push origin "HEAD:refs/heads/${AUTOFIX_BRANCH}"
 
       - name: Open issue when fix is too complex or verification fails
-        if: steps.apply.outputs.status != 'ok'
+        if: steps.policy.outputs.skip != 'true' && steps.apply.outputs.status != 'ok'
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
           STATUS: ${{ steps.apply.outputs.status }}

@@ -16,6 +16,7 @@ from typing import Any
 KIND_TOGGLE = "toggle"
 KIND_CHOICE = "choice"
 KIND_NUMBER = "number"
+KIND_TEXT = "text"  # a comma-separated list of identifiers
 
 TRUTHY = ("1", "true", "yes", "on")
 FALSEY = ("0", "false", "no", "off")

@@ -1,0 +1,100 @@
+name: Bounty Hunter
+
+# Agents find funded open-source issues (Algora, Opire), solve them in a
+# sandbox, push the fix to the operator's fork and open a `bounty-hunt`
+# tracking issue here. Nothing is sent upstream until the repository owner adds
+# the `bounty:approved` label to that issue. See docs/bounty-hunter.md.
+#
+# Off until the repository variable BOUNTY_HUNTER_ENABLED is "true".
+
+on:
+  schedule:
+    - cron: "17 */3 * * *"
+  workflow_dispatch:
+  issues:
+    types: [labeled]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: bounty-hunter-${{ github.event.issue.number || 'hunt' }}
+  cancel-in-progress: false
+
+env:
+  BOUNTY_HUNTER_ENABLED: ${{ vars.BOUNTY_HUNTER_ENABLED }}
+  BOUNTY_GITHUB_LOGIN: ${{ vars.BOUNTY_GITHUB_LOGIN || github.repository_owner }}
+  BOUNTY_PLATFORMS: ${{ vars.BOUNTY_PLATFORMS }}
+  BOUNTY_MIN_USD: ${{ vars.BOUNTY_MIN_USD }}
+  BOUNTY_MAX_ATTEMPTS_PER_RUN: ${{ vars.BOUNTY_MAX_ATTEMPTS_PER_RUN }}
+  BOUNTY_MAX_OPEN_REVIEWS: ${{ vars.BOUNTY_MAX_OPEN_REVIEWS }}
+  BOUNTY_MAX_COMPETITORS: ${{ vars.BOUNTY_MAX_COMPETITORS }}
+  BOUNTY_MAX_ISSUE_AGE_DAYS: ${{ vars.BOUNTY_MAX_ISSUE_AGE_DAYS }}
+  BOUNTY_MAX_REPO_IDLE_DAYS: ${{ vars.BOUNTY_MAX_REPO_IDLE_DAYS }}
+  BOUNTY_REVIEW_COST_USD: ${{ vars.BOUNTY_REVIEW_COST_USD }}
+  BOUNTY_RETIRE_AFTER_ATTEMPTS: ${{ vars.BOUNTY_RETIRE_AFTER_ATTEMPTS }}
+  BOUNTY_SOLVER_MAX_STEPS: ${{ vars.BOUNTY_SOLVER_MAX_STEPS }}
+  BOUNTY_MAX_DIFF_LINES: ${{ vars.BOUNTY_MAX_DIFF_LINES }}
+  BOUNTY_MIN_REPO_STARS: ${{ vars.BOUNTY_MIN_REPO_STARS }}
+  AGENCY_KILL_SWITCH: ${{ vars.AGENCY_KILL_SWITCH }}
+  # Forks, pushes and upstream PRs act as the operator, so they need GH_PAT;
+  # the workflow's own GITHUB_TOKEN cannot fork or open PRs elsewhere.
+  GH_TOKEN: ${{ secrets.GH_PAT }}
+
+jobs:
+  hunt:
+    if: github.event_name != 'issues'
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install -r requirements.txt --quiet || pip install -r requirements.txt --no-deps --quiet || true
+
+      - name: Hunt
+        env:
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          TESTING: "false"
+        run: python .github/scripts/bounty_hunt.py hunt
+
+  decide:
+    # Only the repository owner's label on a tracking issue publishes anything.
+    if: >
+      github.event_name == 'issues' &&
+      github.event.sender.login == github.repository_owner &&
+      contains(github.event.issue.labels.*.name, 'bounty-hunt') &&
+      (github.event.label.name == 'bounty:approved' || github.event.label.name == 'bounty:declined')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install deps
+        run: pip install -r requirements.txt --quiet || pip install -r requirements.txt --no-deps --quiet || true
+
+      - name: Approve or decline
+        env:
+          LABEL: ${{ github.event.label.name }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          if [ "$LABEL" = "bounty:approved" ]; then
+            python .github/scripts/bounty_hunt.py approve --issue "$ISSUE"
+          else
+            python .github/scripts/bounty_hunt.py decline --issue "$ISSUE"
+          fi

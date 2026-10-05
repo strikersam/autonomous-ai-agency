@@ -1,4 +1,5 @@
 import React from 'react';
+import { useReportSub } from '../screenContext';
 import HubTabs from '../components/ui/HubTabs';
 import Spinner from '../components/ui/Spinner';
 
@@ -16,6 +17,7 @@ const TABS = [
  */
 export default function InsightsHub({ initialTab, onNavigate }) {
   const [tab, setTab] = React.useState(TABS.some(t => t.id === initialTab) ? initialTab : 'activity');
+  useReportSub('insights', tab);
   return (
     <div>
       <HubTabs tabs={TABS} active={tab} onChange={setTab} />

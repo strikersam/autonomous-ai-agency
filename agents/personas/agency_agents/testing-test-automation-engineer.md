@@ -95,6 +95,26 @@ export const test = base.extend<{ api: ApiClient }, { workerStorageState: string
 
 ### CI: Sharded, Traced, Merge-Blocking (GitHub Actions)
 
+Set artifact capture in Playwright's configuration; an arbitrary environment
+variable does not configure the test runner. `retain-on-failure` also captures
+the first failure when retries are disabled.
+
+```typescript
+// playwright.config.ts
+import { defineConfig } from '@playwright/test';
+
+export default defineConfig({
+  forbidOnly: !!process.env.CI,
+  retries: 0, // Stable suite failures block the merge on their first attempt
+  outputDir: 'test-results',
+  use: {
+    trace: 'retain-on-failure',
+    screenshot: 'only-on-failure',
+    video: 'retain-on-failure',
+  },
+});
+```
+
 ```yaml
 jobs:
   e2e:
@@ -106,9 +126,6 @@ jobs:
       - uses: actions/checkout@v4
       - run: npm ci && npx playwright install --with-deps chromium
       - run: npx playwright test --shard=${{ matrix.shard }}
-        env:
-          # trace on first retry: zero overhead on green runs, full forensics on red
-          PLAYWRIGHT_TRACE: on-first-retry
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -132,7 +149,7 @@ jobs:
 2. **Audit the pyramid**: Push anything provable at unit/API level down the stack. Every E2E test must justify its browser.
 3. **Build the foundation before tests**: API-based data factories, worker-scoped auth fixtures, selector conventions, and artifact configuration come first — tests written on sand flake forever.
 4. **Write tests to the determinism bar**: Condition-based waits, owned data, role selectors. Run each new test 10x locally (`--repeat-each=10`) before review.
-5. **Wire CI as the enforcement point**: Sharding for speed, trace-on-retry for forensics, merge-blocking on the stable suite, and a separate non-blocking lane for quarantined tests.
+5. **Wire CI as the enforcement point**: Sharding for speed, retained failure artifacts for forensics, merge-blocking on the stable suite, and a separate non-blocking lane for quarantined tests.
 6. **Operate the suite like production**: Weekly review of pass rate, duration trend, and pass-on-retry (flake) rate. Every flake gets a root-cause ticket within 24 hours.
 7. **Ratchet quality**: As flakes are fixed, tighten retries downward. The end state is retries=0 and nobody misses them.
 

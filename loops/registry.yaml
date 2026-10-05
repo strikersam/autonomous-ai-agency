@@ -77,7 +77,7 @@ loops:
     source: .github/workflows/ci-failure-autofix.yml
     self_heal: true
     gate: telegram
-    purpose: React to a red CI run by diagnosing and pushing a fix.
+    purpose: React to a red CI run by diagnosing and pushing a fix; stands down quietly (green) when paid providers are off or master is already red.
 
   - id: openclaw-auto-fix
     name: OpenClaw Auto-Fix
@@ -314,7 +314,7 @@ loops:
     source: .github/workflows/process-quick-note.yml
     self_heal: true
     gate: telegram
-    purpose: Turn quick-note issues into context + implementation PRs (skips rejected, exhausted and needs-source notes).
+    purpose: Turn quick-note issues into context + implementation PRs (skips rejected, exhausted, needs-source and needs-review notes).
 
   - id: enrich-quick-note-context
     name: Enrich Quick-Note Context
@@ -340,7 +340,7 @@ loops:
     source: .github/workflows/issue-context-generator.yml
     self_heal: true
     gate: none
-    purpose: Generate a context plan + draft PR for each new issue (detects & proposes fix); a quick note whose linked source cannot be read gets no verdict (quick-note:needs-source) instead of a blind reject.
+    purpose: Generate a context plan + draft PR for each new issue (detects & proposes fix); a quick note whose linked source cannot be read gets no verdict (quick-note:needs-source) instead of a blind reject, and a reject that ignores prior art in the repo or cites a missing path goes to a human (quick-note:needs-review).
 
   - id: agile-ceremonies
     name: Agile Ceremonies
@@ -394,6 +394,20 @@ loops:
     self_heal: true
     gate: none
     purpose: Reclaim expired quick-note claims so work never stalls.
+
+  # ── Revenue ─────────────────────────────────────────────────────────────
+  - id: bounty-hunter
+    name: Bounty Hunter
+    pattern: issue-triage
+    level: L2
+    trigger: schedule
+    cadence: every 3 h (+ owner label events)
+    runs_per_day: 8
+    cost: high
+    source: .github/workflows/bounty-hunter.yml
+    self_heal: false
+    gate: human
+    purpose: Find funded OSS bounties, solve them in a sandbox, and claim them once the owner approves.
 
   - id: delete-merged-branch
     name: Delete Merged Branch
@@ -524,13 +538,13 @@ loops:
     pattern: learn-scan
     level: L2
     trigger: daemon
-    cadence: daily (default off)
-    runs_per_day: 0
-    cost: medium
+    cadence: hourly, from the task dispatcher (default on)
+    runs_per_day: 24
+    cost: low
     source: services/session_retro.py
     self_heal: false
     gate: none
-    purpose: LLM-judge recent agent session traces for recurring friction, registering clusters as improvement issues; opt-in via SESSION_RETRO_ENABLED.
+    purpose: Cluster recent agent session traces for recurring friction (no LLM call) and register clusters as improvement issues; SESSION_RETRO_ENABLED=false turns it off.
 
   - id: agent-built-proof-refresh
     name: Refresh Agent-Built Proof

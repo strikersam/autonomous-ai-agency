@@ -423,6 +423,10 @@ async def _heal_purge_backlog() -> dict[str, int]:
         status = t.status.value if hasattr(t.status, "value") else str(t.status)
         if status not in terminal:
             continue
+        # A finished portfolio task is the record that its initiative is done;
+        # deleting it would make portfolio intake queue the same work again.
+        if t.source == "portfolio":
+            continue
         ts = _ts_to_float(t.updated_at) or _ts_to_float(t.created_at) or 0.0
         if ts and ts < cutoff:
             try:

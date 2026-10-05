@@ -1,4 +1,4 @@
-"""packages/config/control_catalogue.py — the 109 operator-facing controls.
+"""packages/config/control_catalogue.py — the operator-facing controls.
 
 The declarative table itself: which feature switches and multi-option settings
 an operator may change from the dashboard, and what each one means. The types
@@ -51,6 +51,7 @@ from packages.config.control_specs import (
     ControlSpec,
     KIND_CHOICE,
     KIND_NUMBER,
+    KIND_TEXT,
     KIND_TOGGLE,
     RISK_HIGH,
     RISK_LOW,
@@ -105,6 +106,13 @@ GROUPS: tuple[ControlGroup, ...] = (
         "observability",
         "Observability & Proxy",
         "Tracing plus the response-shaping switches on the OpenAI-compatible proxy.",
+    ),
+    ControlGroup(
+        "gateway",
+        "AI Gateway",
+        "Hardening for the OpenAI-compatible proxy: request limits, token "
+        "quotas, prompt policy and sanitising, usage metrics, upstream retries "
+        "and the response cache. Every control is off (or 0) unless noted.",
     ),
 )
 
@@ -335,6 +343,20 @@ _BRAIN_ROUTING: tuple[ControlSpec, ...] = (
         risk=RISK_MEDIUM,
     ),
     ControlSpec(
+        key="DENIED_MODEL_IDS",
+        label="Denied model ids",
+        group="brain_routing",
+        kind=KIND_TEXT,
+        default="",
+        help=(
+            "Comma-separated model ids that are never dispatched, on any provider "
+            "(globs allowed, e.g. claude-opus-*). Routing falls through to the next "
+            "allowed model. Empty denies nothing."
+        ),
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    ControlSpec(
         key="LLM_ROUTING_STRATEGY",
         label="Provider routing strategy",
         group="brain_routing",
@@ -412,6 +434,17 @@ _BRAIN_ROUTING: tuple[ControlSpec, ...] = (
         live=True,
         risk=RISK_HIGH,
         requires=("ANTHROPIC_API_KEY",),
+    ),
+    _toggle(
+        "BEDROCK_BRAIN_ENABLED",
+        "Bedrock brain (AWS credit)",
+        "brain_routing",
+        "false",
+        "Add Amazon Bedrock gpt-oss to the agent brain's providers. Billed to "
+        "the AWS account; runs without opening the Anthropic API. Takes effect "
+        "on restart.",
+        risk=RISK_HIGH,
+        requires=("AWS_BEARER_TOKEN_BEDROCK",),
     ),
     _toggle(
         "NORTH_MINI_CODE_DEFAULT",
@@ -708,10 +741,12 @@ _AUTONOMY: tuple[ControlSpec, ...] = (
         "PORTFOLIO_AUTO_MATERIALIZE_EVERY_POLLS",
         "Portfolio intake interval (dispatcher polls)",
         "autonomy",
-        "720",
+        "60",
         "How often the agency turns top portfolio initiatives into tasks on its "
-        "own — 720 is about an hour at the default 5-second poll. 0 means only "
-        "when someone presses refresh on the Portfolio board.",
+        "own — 60 is about five minutes at the default 5-second poll. The "
+        "dispatcher also runs a pass whenever its queue is empty, so agents are "
+        "not left idle while portfolio work remains. 0 turns both off (only the "
+        "Portfolio board's refresh button and SAM then queue portfolio work).",
         live=True,
         minimum=0,
         maximum=100000,
@@ -727,6 +762,17 @@ _AUTONOMY: tuple[ControlSpec, ...] = (
         live=True,
         minimum=1,
         maximum=50,
+    ),
+    _number(
+        "PORTFOLIO_RETRY_MAX",
+        "Portfolio retries before a human",
+        "autonomy",
+        "2",
+        "How many times a portfolio task that FAILED is re-queued on its own "
+        "before it waits for you. 0 never retries.",
+        live=True,
+        minimum=0,
+        maximum=10,
     ),
     _toggle(
         "CEO_SUPERVISOR_ENABLED",
@@ -758,7 +804,16 @@ _AUTONOMY: tuple[ControlSpec, ...] = (
         "A code subtask is not accepted as done without tests.",
     ),
     _toggle("ISSUE_TRIAGE_ENABLED", "GitHub issue triage", "autonomy", "false", "Auto-triage inbound repo issues."),
-    _toggle("SESSION_RETRO_ENABLED", "Session retrospectives", "autonomy", "false", "Write a retro after each session."),
+    _toggle(
+        "SESSION_RETRO_ENABLED",
+        "Session retrospectives",
+        "autonomy",
+        "true",
+        "Every hour, mine recent agent sessions for failures that keep repeating "
+        "and file each one as an improvement issue for the fix pipeline. No LLM "
+        "calls.",
+        live=True,
+    ),
     _toggle(
         "TREND_HERMES_DISPATCH_ENABLED",
         "Dispatch trend findings to Hermes",
@@ -1149,6 +1204,32 @@ _INTEGRATIONS: tuple[ControlSpec, ...] = (
         "Lift per-user quota on the FreeBuff surface.",
     ),
     _toggle(
+        "SAM_AVATAR_ENABLED",
+        "SAM floating avatar",
+        "integrations",
+        "true",
+        "Show SAM as a floating avatar in the bottom-left corner of every screen, "
+        "on desktop and mobile. Tap it to talk to SAM; admins can delegate tasks "
+        "and run CEO triage from it.",
+        live=True,
+    ),
+    ControlSpec(
+        key="SAM_AVATAR_SCOPE",
+        label="SAM avatar audience",
+        group="integrations",
+        kind=KIND_CHOICE,
+        default="admins",
+        help=(
+            "Who sees the SAM avatar when it is on. Non-admins can chat and read "
+            "alerts; delegating tasks and triage stay admin-only either way."
+        ),
+        options=(
+            ControlOption("admins", "Admins only", "Only admin accounts see the avatar."),
+            ControlOption("all", "All users", "Every signed-in user sees the avatar."),
+        ),
+        live=True,
+    ),
+    _toggle(
         "SAM_VOICE_IN_PROCESS",
         "SAM voice worker",
         "integrations",
@@ -1233,6 +1314,98 @@ _OBSERVABILITY: tuple[ControlSpec, ...] = (
     ),
 )
 
+_GATEWAY: tuple[ControlSpec, ...] = (
+    _number(
+        "GATEWAY_MAX_REQUEST_BYTES",
+        "Max request body (bytes)",
+        "gateway",
+        "0",
+        "Reject request bodies larger than this with 413. 0 disables the limit.",
+        live=True,
+    ),
+    _toggle(
+        "GATEWAY_SECURITY_HEADERS_ENABLED",
+        "Security response headers",
+        "gateway",
+        "true",
+        "Add nosniff, X-Frame-Options: DENY and Cache-Control: no-store to /v1, "
+        "/api and /agent responses that do not already set them.",
+        live=True,
+    ),
+    _number(
+        "GATEWAY_TOKENS_PER_MINUTE",
+        "Token quota per minute",
+        "gateway",
+        "0",
+        "Per-consumer tokens per minute before requests are refused with 429. 0 disables.",
+        live=True,
+    ),
+    _number(
+        "GATEWAY_TOKENS_PER_DAY",
+        "Token quota per day",
+        "gateway",
+        "0",
+        "Per-consumer tokens per UTC day before requests are refused with 429. 0 disables.",
+        live=True,
+    ),
+    _toggle(
+        "GATEWAY_PROMPT_POLICY_ENABLED",
+        "Prompt policy",
+        "gateway",
+        "false",
+        "Enforce the deny/allow patterns and system decorators in the file named "
+        "by GATEWAY_PROMPT_POLICY_FILE (an env-only path).",
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    ControlSpec(
+        key="GATEWAY_SANITIZER_MODE",
+        label="Outbound prompt sanitiser",
+        group="gateway",
+        kind=KIND_CHOICE,
+        default="off",
+        help="Redact sensitive values from prompts before they reach an upstream provider.",
+        options=(
+            ControlOption("off", "Off", "Prompts are forwarded untouched."),
+            ControlOption("pii", "PII", "Redact social-security and payment-card numbers."),
+            ControlOption(
+                "secrets_and_pii",
+                "Secrets and PII",
+                "Also redact API tokens, bearer headers, connection-URI credentials and key=value secrets.",
+            ),
+        ),
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    _toggle(
+        "GATEWAY_USAGE_METRICS_ENABLED",
+        "Gateway usage metrics",
+        "gateway",
+        "false",
+        "Record per-request tokens, latency, cost and outcome and serve them at GET /gateway/metrics.",
+        live=True,
+    ),
+    _number(
+        "GATEWAY_UPSTREAM_RETRIES",
+        "Upstream retries",
+        "gateway",
+        "0",
+        "Extra attempts for a non-streaming upstream call after a 429/502/503/504 "
+        "or connect error, before falling back to another model. 0 disables.",
+        live=True,
+        maximum=10,
+    ),
+    _toggle(
+        "GATEWAY_PROXY_CACHE_ENABLED",
+        "Proxy response cache",
+        "gateway",
+        "false",
+        "Serve repeated identical non-streaming, temperature-0 chat requests from "
+        "memory, per consumer (X-Cache: HIT/MISS).",
+        live=True,
+    ),
+)
+
 
 CONTROLS: tuple[ControlSpec, ...] = (
     _AGENT_RUNTIME
@@ -1243,4 +1416,5 @@ CONTROLS: tuple[ControlSpec, ...] = (
     + _PLATFORM_OPS
     + _INTEGRATIONS
     + _OBSERVABILITY
+    + _GATEWAY
 )

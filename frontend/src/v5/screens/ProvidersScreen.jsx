@@ -602,67 +602,62 @@ function MCPTab() {
   );
 }
 
+// Tabs, in the order an operator reaches for them. Brain & Routing used to be a
+// collapsed block at the very bottom of the Providers tab — reachable only after
+// scrolling past every provider row, and its cards still fetched on every load.
+const TABS = [
+  { id: 'providers', label: 'Providers' },
+  { id: 'brain',     label: 'Brain & Routing' },
+  { id: 'ollama',    label: 'Local (Ollama)' },
+  { id: 'mcp',       label: 'MCP' },
+];
+
+function initialTab() {
+  const hash = ((typeof window !== 'undefined' && window.location.hash) || '').replace('#', '');
+  return TABS.some(t => t.id === hash) ? hash : 'providers';
+}
+
 function ProvidersScreen() {
-  const [tab, setTab]         = React.useState('providers');
+  const [tab, setTabState]    = React.useState(initialTab);
   const [showAdd, setShowAdd] = React.useState(false);
   const [editingId, setEditingId] = React.useState(null);
   const [busy, setBusy]       = React.useState(false);
   const [actionErr, setActionErr] = React.useState(null);
-  const [showCatalog, setShowCatalog] = React.useState(false);
 
-  // Paid-provider kill switch state
+  // Paid-provider policy and per-surface assignments come from one endpoint;
+  // they used to be fetched twice on every load.
   const [policy, setPolicy] = React.useState(null);  // null = loading
   const [policyBusy, setPolicyBusy] = React.useState(false);
   const [policyErr, setPolicyErr] = React.useState(null);
-  // Per-surface provider assignments
   const [surfaces, setSurfaces] = React.useState(null);
   const [surfaceBusy, setSurfaceBusy] = React.useState(null);  // which surface is saving
 
-  const loadSurfaces = React.useCallback(async () => {
-    try {
-      const { data } = await api.getProviderPolicy();
-      setSurfaces(data.surfaces || {});
-    } catch {
-      setSurfaces({});
-    }
-  }, []);
-
-  React.useEffect(() => { loadSurfaces(); }, [loadSurfaces]);
-
-
-  const loadPolicy = React.useCallback(async () => {
-    setPolicyErr(null);
-    try {
-      const { data } = await api.getProviderPolicy();
-      setPolicy(data);
-    } catch {
-      setPolicyErr('Could not load provider policy.');
-      setPolicy({ allow_paid: false });  // failsafe default
-    }
-  }, []);
+  const setTab = (next) => {
+    setTabState(next);
+    try { window.history.replaceState(null, '', `#${next}`); } catch { /* non-browser */ }
+  };
 
   React.useEffect(() => {
-    const ac = new AbortController();
     let cancelled = false;
-    const fetchPolicy = async () => {
-      setPolicyErr(null);
+    (async () => {
       try {
         const { data } = await api.getProviderPolicy();
-        if (!cancelled) setPolicy(data);
+        if (cancelled) return;
+        setPolicy(data);
+        setSurfaces(data.surfaces || {});
       } catch {
-        if (!cancelled) {
-          setPolicyErr('Could not load provider policy.');
-          setPolicy({ allow_paid: false });
-        }
+        if (cancelled) return;
+        setPolicyErr('Could not load provider policy.');
+        setPolicy({ allow_paid: false });  // failsafe default
+        setSurfaces({});
       }
-    };
-    fetchPolicy();
+    })();
     return () => { cancelled = true; };
   }, []);
 
-  // The console's segmented control names the state it wants rather than
-  // flipping whatever is current, so a double-click cannot race itself into
-  // the opposite of what the operator clicked.
+  // The segmented control names the state it wants rather than flipping
+  // whatever is current, so a double-click cannot race itself into the
+  // opposite of what the operator clicked.
   const setPaidAccess = async (next) => {
     if (policyBusy || !policy || next === policy.allow_paid) return;
     setPolicyBusy(true); setPolicyErr(null);
@@ -674,19 +669,6 @@ function ProvidersScreen() {
     } finally { setPolicyBusy(false); }
   };
 
-  const togglePolicy = async () => {
-    if (policyBusy || !policy) return;
-    const next = !policy.allow_paid;
-    setPolicyBusy(true); setPolicyErr(null);
-    try {
-      const { data } = await api.updateProviderPolicy({ allow_paid: next });
-      setPolicy(data);
-    } catch (e) {
-      setPolicyErr(api.fmtErr(e?.response?.data?.detail) || 'Failed to update policy.');
-    } finally { setPolicyBusy(false); }
-  };
-
-  
   const saveSurface = async (surface, providerId) => {
     if (!surfaces) return;
     const prev = {...surfaces};
@@ -708,7 +690,6 @@ function ProvidersScreen() {
 
   const [data, states, refetch] = useSafeData(null, { providers: '/api/providers' }, { refreshMs: 0 });
   const providers = data.providers?.providers || [];
-  const defaultProvider = providers.find(p => p.is_default) || providers[0];
 
   const handleCreate = async (payload) => {
     await api.createProvider(payload);
@@ -732,139 +713,101 @@ function ProvidersScreen() {
     refetch();
   };
 
+  const consoleProps = {
+    storedProviders: providers,
+    policy, policyBusy,
+    onTogglePaid: setPaidAccess,
+    onEditProvider: (prov) => { setEditingId(prov.provider_id); setShowAdd(false); },
+    onDeleteProvider: handleDelete,
+    onTestProvider: api.testProvider,
+    onSetRenderKey: api.syncProviderToRender,
+    onSetDefault: handleSetDefault,
+    editingId,
+    renderEditor: (prov) => (
+      <EditProviderForm provider={prov} onUpdate={handleUpdate} onClose={() => setEditingId(null)} />
+    ),
+    refreshStored: refetch,
+  };
+
+  const errBox = { marginTop: 10, padding: '8px 12px', borderRadius: 10, background: 'rgba(255,107,125,0.10)', border: '1px solid rgba(255,107,125,0.25)', color: '#ff6b7d', fontSize: 12 };
+  const section = { borderRadius: 16, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.025)', padding: '14px 16px' };
+  const sectionTitle = { fontSize: 13, fontWeight: 800, color: '#fff', marginBottom: 4 };
+  const sectionHint = { fontSize: 11.5, color: 'var(--text-tertiary)', lineHeight: 1.5, marginBottom: 11 };
+
   return (
-    <div style={{ padding:'20px 16px 48px', maxWidth:1000, margin:'0 auto' }}>
-      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:6 }}>Infrastructure</div>
-      <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', flexWrap:'wrap', gap:10, marginBottom:14 }}>
-        <div>
-          <h1 style={{ fontSize:26, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1, marginBottom:4 }}>Providers & Models</h1>
-          <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.5, maxWidth:520 }}>Every model call routes through one gateway. This page is where you see which provider is serving, why, and what to do when one degrades.</p>
-        </div>
-        {/* The "default provider" badge used to live here and routinely
-            disagreed with the brain card below it — one read the database,
-            the other read live routing. The console's SERVING row is now the
-            single answer to that question. */}
+    <div style={{ padding:'16px 16px 48px', maxWidth:1000, margin:'0 auto' }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:10, marginBottom:12 }}>
+        <h1 style={{ fontSize:24, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1 }}>Providers & Models</h1>
+        {tab === 'providers' && (
+          <button onClick={() => { setShowAdd(o => !o); setEditingId(null); }} style={{ padding: '9px 16px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', background: 'rgba(93,162,255,0.12)', border: '1px solid rgba(93,162,255,0.30)', color: 'var(--accent)' }}>
+            {showAdd ? 'Cancel' : '+ Add provider'}
+          </button>
+        )}
       </div>
 
-      {/* Tabs */}
-      <div style={{ display:'flex', gap:4, marginBottom:14 }}>
-        {['providers','ollama','mcp'].map(t => (
-          <button key={t} onClick={()=>setTab(t)} style={{ padding:'7px 18px', borderRadius:999, fontSize:12, fontWeight:600, cursor:'pointer', textTransform:t==='mcp'?'uppercase':'capitalize', letterSpacing:t==='mcp'?'0.10em':'normal', transition:'all 0.15s', background:tab===t?'rgba(93,162,255,0.15)':'rgba(255,255,255,0.04)', border:`1px solid ${tab===t?'rgba(93,162,255,0.35)':'rgba(255,255,255,0.08)'}`, color:tab===t?'#fff':'var(--text-muted)' }}>
-            {t==='mcp'?'MCP Servers':t==='ollama'?'Ollama / Local':'Providers'}
+      {/* Tabs — scroll sideways on a phone rather than wrapping into two rows. */}
+      <div role="tablist" style={{ display:'flex', gap:6, marginBottom:14, overflowX:'auto', WebkitOverflowScrolling:'touch', paddingBottom:2 }}>
+        {TABS.map(t => (
+          <button key={t.id} role="tab" aria-selected={tab===t.id} onClick={()=>setTab(t.id)} style={{ flex:'0 0 auto', padding:'9px 16px', borderRadius:999, fontSize:13, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', background:tab===t.id?'rgba(93,162,255,0.15)':'rgba(255,255,255,0.04)', border:`1px solid ${tab===t.id?'rgba(93,162,255,0.35)':'rgba(255,255,255,0.08)'}`, color:tab===t.id?'#fff':'var(--text-muted)' }}>
+            {t.label}
           </button>
         ))}
       </div>
 
       {tab === 'providers' && (
         <>
-          {/* The unified Provider Console (ADR-008).
-              Replaces what used to be five stacked surfaces here — a brain
-              card, a local-brain switch, a provider-health switch, a paid
-              kill switch, and two separate provider grids. A provider now
-              appears exactly once, ranked by live health, with every control
-              for it inside its own row. */}
-          <ProviderConsole
-            storedProviders={providers}
-            policy={policy}
-            policyBusy={policyBusy}
-            onTogglePaid={setPaidAccess}
-            onEditProvider={(prov) => { setEditingId(prov.provider_id); setShowAdd(false); }}
-            onDeleteProvider={handleDelete}
-            onTestProvider={api.testProvider}
-            onSetRenderKey={api.syncProviderToRender}
-            onSetDefault={handleSetDefault}
-            editingId={editingId}
-            renderEditor={(prov) => (
-              <EditProviderForm provider={prov} onUpdate={handleUpdate} onClose={() => setEditingId(null)} />
-            )}
-            refreshStored={refetch}
-          />
-
-          {policyErr && (
-            <div style={{ marginTop: 10, fontSize: 11.5, color: '#ff6b7d', fontFamily: 'var(--font-mono)' }}>{policyErr}</div>
-          )}
-          {actionErr && (
-            <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 10, background: 'rgba(255,107,125,0.10)', border: '1px solid rgba(255,107,125,0.25)', color: '#ff6b7d', fontSize: 12 }}>{actionErr}</div>
-          )}
+          {showAdd && <div style={{ marginBottom: 12 }}><AddProviderForm onCreate={handleCreate} onClose={() => setShowAdd(false)} /></div>}
+          <ProviderConsole {...consoleProps} section="providers" />
+          {actionErr && <div style={errBox}>{actionErr}</div>}
           {states.providers?.error && (
             <div style={{ marginTop: 10, fontSize: 12, color: '#ffbd66' }}>
               Couldn't load saved providers: {states.providers.error}
             </div>
           )}
+        </>
+      )}
 
-          {/* Add / edit a database-persisted provider. */}
-          <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
-            <button onClick={() => { setShowAdd(o => !o); setEditingId(null); }} style={{ padding: '8px 16px', borderRadius: 10, fontSize: 12, fontWeight: 700, cursor: 'pointer', background: 'rgba(93,162,255,0.12)', border: '1px solid rgba(93,162,255,0.30)', color: 'var(--accent)' }}>
-              {showAdd ? 'Cancel' : '+ Add custom provider'}
-            </button>
-          </div>
-          {showAdd && <div style={{ marginTop: 10 }}><AddProviderForm onCreate={handleCreate} onClose={() => setShowAdd(false)} /></div>}
+      {tab === 'brain' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+          <ProviderConsole {...consoleProps} section="routing" />
+          {policyErr && <div style={errBox}>{policyErr}</div>}
 
-          {/* Routing rules. Previously rendered *inside* the "N configured
-              providers" label, which nested a grid inside a text node and
-              made the whole block read as an accident. It is its own section
-              now, next to the console it modifies. */}
+          <BrainCard />
+          <LocalBrainToggleCard />
+
           {surfaces && Object.keys(surfaces).length > 0 && (
-            <div style={{ marginTop: 18, borderRadius: 16, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.025)', padding: '14px 17px' }}>
-              <div style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 4 }}>
-                Per-surface overrides
-              </div>
-              <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)', lineHeight: 1.5, marginBottom: 11 }}>
-                Pin a surface to one provider, or leave it on Auto to use the routing strategy above.
-              </div>
+            <div style={section}>
+              <div style={sectionTitle}>Per-surface overrides</div>
+              <div style={sectionHint}>Pin a surface to one provider, or leave it on Auto to follow the routing strategy.</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 7 }}>
                 {Object.entries(surfaces).map(([surface, providerId]) => (
-                  <div key={surface} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 9px', borderRadius: 9, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                    <span style={{ fontSize: 10.5, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'capitalize', minWidth: 50 }}>{surface}</span>
+                  <label key={surface} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 9px', borderRadius: 9, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'capitalize', minWidth: 56 }}>{surface}</span>
                     <select
                       value={providerId || 'auto'}
                       onChange={(e) => saveSurface(surface, e.target.value)}
                       disabled={surfaceBusy === surface}
-                      style={{ flex: 1, padding: '4px 6px', borderRadius: 6, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)', color: '#fff', fontSize: 11, fontFamily: 'var(--font-mono)', outline: 'none', cursor: 'pointer', opacity: surfaceBusy === surface ? 0.5 : 1 }}
+                      style={{ flex: 1, minWidth: 0, padding: '6px 6px', borderRadius: 6, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)', color: '#fff', fontSize: 12, outline: 'none', cursor: 'pointer', opacity: surfaceBusy === surface ? 0.5 : 1 }}
                     >
                       <option value="auto">Auto (strategy)</option>
                       {providers.map(p => (
                         <option key={p.provider_id} value={p.provider_id}>{p.name || p.provider_id}</option>
                       ))}
                     </select>
-                  </div>
+                  </label>
                 ))}
               </div>
             </div>
           )}
 
-          {/* Legacy brain controls. Kept, because they still do things the
-              console does not — per-role model assignment and the
-              cross-machine local-brain switch — but folded away so they stop
-              competing with the console for the answer to "what is running". */}
-          <details style={{ marginTop: 18 }}>
-            <summary style={{ cursor: 'pointer', fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)', padding: '8px 0', listStyle: 'none', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>▸</span>
-              Brain &amp; local-runtime controls
-              <span style={{ fontSize: 10.5, fontWeight: 400, color: 'var(--text-tertiary)' }}>
-                per-role models, local GLM toggle, legacy provider breakers
-              </span>
-            </summary>
-            {/* Two surfaces genuinely own brain settings and they are easy to
-                confuse: this section assigns a concrete provider/model per role
-                and flips the local runtime, while Controls sets the global
-                policy the resolver applies (BRAIN_PREFERENCE, ALLOW_PAID_BRAIN,
-                INCLUDE_LOCAL_FALLBACK). Saying which is which beats leaving an
-                operator to discover it by changing one and watching the other
-                not move. */}
-            <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <p style={{ fontSize: 11, lineHeight: 1.6, color: 'var(--text-tertiary)' }}>
-                These pick a specific provider and model. The global policy — preferred brain,
-                whether paid models are allowed, whether local is in the fallback chain — lives in{' '}
-                <Link to="/v5/controls" style={{ color: 'var(--accent)' }}>Controls → Brain &amp; Model Routing</Link>.
-              </p>
-              <BrainCard />
-              <LocalBrainToggleCard />
-              <ProviderHealthToggleCard />
-            </div>
-          </details>
-        </>
+          <ProviderHealthToggleCard />
+          <p style={{ fontSize: 11.5, lineHeight: 1.6, color: 'var(--text-tertiary)' }}>
+            Global brain policy (preferred brain, local fallback) lives in{' '}
+            <Link to="/v5/controls" style={{ color: 'var(--accent)' }}>Controls → Brain &amp; Model Routing</Link>.
+          </p>
+        </div>
       )}
+
       {tab === 'ollama' && <OllamaTab/>}
       {tab === 'mcp'     && <MCPTab/>}
     </div>

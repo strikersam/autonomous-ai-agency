@@ -806,6 +806,7 @@ class AgentRunner:
                         log.debug("Checkpoint after step failed (non-fatal)", exc_info=True)
 
                 if auto_commit and result["status"] == "applied" and result["changed_files"]:
+                    await self._sync_sandbox_to_host()
                     commit = self._commit_step(step_data["description"], result["changed_files"])
                     if commit:
                         commits.append(commit)
@@ -926,6 +927,7 @@ class AgentRunner:
             # off) so this new agent-initiated GitHub write path is opt-in and has a
             # rollout kill switch.
             pr_url: str | None = None
+            pr_blockers: list[str] = []
             if (
                 auto_commit
                 and commits
@@ -933,9 +935,11 @@ class AgentRunner:
                 and os.environ.get("AGENT_AUTO_PR_ENABLED", "").strip().lower()
                 in {"true", "1", "yes"}
             ):
-                pr_url = await self._auto_push_and_pr(
-                    commits, self._current_session_id, plan.goal
-                )
+                pr_blockers = await self._pr_blockers(step_results)
+                if not pr_blockers:
+                    pr_url = await self._auto_push_and_pr(
+                        commits, self._current_session_id, plan.goal
+                    )
 
             summary = self._build_summary(plan.goal, step_results, commits, pr_url)
             self._log_event(session_id, "assistant_message", {"summary": summary})
@@ -993,6 +997,7 @@ class AgentRunner:
                 "report": self._build_report(plan.goal, step_results, commits, pr_url),
                 "judge": judge,
                 "pr_url": pr_url,
+                "pr_blockers": pr_blockers,
             }
         finally:
             # ── Durable checkpoint: snapshot on error for crash-recovery ──
@@ -2438,13 +2443,18 @@ class AgentRunner:
                     raise ValueError("Model did not return a JSON object")
                 return parsed
             except Exception:  # nosec B110 -- reprompt on any parse/shape failure
-                raw = await self._chat_text(
-                    model,
-                    [
-                        {"role": "system", "content": "Return only a valid JSON object. No prose. No code fences."},
-                        {"role": "user", "content": raw},
-                    ],
-                )
+                if "{" not in self._REASONING_RE.sub("", raw or ""):
+                    # Only reasoning, no answer: there is nothing to reformat, and
+                    # asking for "a JSON object" from it made the model invent one.
+                    raw = await self._chat_text(model, messages)
+                else:
+                    raw = await self._chat_text(
+                        model,
+                        [
+                            {"role": "system", "content": "Return only a valid JSON object. No prose. No code fences."},
+                            {"role": "user", "content": raw},
+                        ],
+                    )
                 attempts += 1
         try:
             parsed = self._extract_json(raw)
@@ -2461,8 +2471,12 @@ class AgentRunner:
                 f"last raw output (truncated to 200 chars): {snippet!r}"
             ) from exc
 
+    # gpt-oss on Bedrock writes its reasoning inline as <reasoning>…</reasoning>
+    # ahead of the answer, sometimes unclosed when it runs out of tokens.
+    _REASONING_RE = re.compile(r"<reasoning>.*?(?:</reasoning>|\Z)", re.S)
+
     def _extract_json(self, raw: str) -> Any:
-        raw = raw.strip()
+        raw = self._REASONING_RE.sub("", raw or "").strip()
         try:
             return json.loads(raw)
         except json.JSONDecodeError:
@@ -2505,6 +2519,26 @@ class AgentRunner:
         ("finish", set(), "finishing"),
     ]
 
+    # Keys models use for the tool name instead of "tool". Honoured only when the
+    # value is a real tool, so a shell command under "command" is never misread.
+    _TOOL_NAME_ALIASES = ("tool_name", "function", "command", "action", "operation")
+
+    @staticmethod
+    def _tool_from_alias(raw: dict[str, Any]) -> ToolCall | None:
+        """``{"command": "list_files", "args": {...}}`` → ToolCall, else None."""
+        from agent.models import _known_tool_names
+
+        known = _known_tool_names()
+        for alias in AgentRunner._TOOL_NAME_ALIASES:
+            value = raw.get(alias)
+            if isinstance(value, str) and value.strip() in known:
+                nested = raw.get("args")
+                args = nested if isinstance(nested, dict) else {
+                    k: v for k, v in raw.items() if k != alias
+                }
+                return ToolCall(tool=value.strip(), args=args)  # type: ignore[arg-type]
+        return None
+
     def _coerce_tool_call(self, raw: dict[str, Any]) -> ToolCall:
         """Parse an LLM tool-call response, tolerating common malformations.
 
@@ -2528,7 +2562,14 @@ class AgentRunner:
                 args = {k: v for k, v in raw.items() if k != "tool"}
             else:
                 args = raw.get("args") or {}
+            nested = self._tool_from_alias(args) if isinstance(args, dict) else None
+            if nested is not None and nested.tool != tool_name:
+                return nested
             return ToolCall(tool=tool_name, args=args)  # type: ignore[arg-type]
+
+        aliased = self._tool_from_alias(raw)
+        if aliased is not None:
+            return aliased
 
         # Case 2: 'name' instead of 'tool'
         if "name" in raw:
@@ -2776,6 +2817,34 @@ class AgentRunner:
             return self.tools.read_file(path, max_chars=200000)
         except Exception:  # nosec B110 -- best-effort read
             return ""
+
+    async def _pr_blockers(self, step_results: list[dict[str, Any]]) -> list[str]:
+        """Run agent/pr_gate.py on everything this run changed (off the event loop)."""
+        from agent.pr_gate import pr_blockers
+
+        changed = [
+            f for step in step_results if step.get("status") == "applied"
+            for f in (step.get("changed_files") or [])
+        ]
+        try:
+            return await asyncio.to_thread(pr_blockers, self.tools.root, changed)
+        except Exception:
+            log.warning("PR gate failed to run; not opening a PR", exc_info=True)
+            return ["The pre-PR checks could not run."]
+
+    async def _sync_sandbox_to_host(self) -> None:
+        """Copy E2B sandbox edits into the host workspace before a step commit.
+
+        With a sandbox attached, edits live in the sandbox until the run ends,
+        so committing on the host mid-run found nothing and no PR ever opened.
+        """
+        extract = getattr(self._mcp, "extract_changes_to_worktree", None)
+        if extract is None:
+            return
+        try:
+            await extract(str(self.tools.root))
+        except Exception:
+            log.warning("Sandbox → host sync before commit failed", exc_info=True)
 
     def _commit_step(self, description: str, changed_files: list[str]) -> str | None:
         from packages.config.autonomy_limits import kill_switch_engaged

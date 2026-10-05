@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 
 import httpx
 from packages.ai.agent_budget import current_agent, ensure_agent_can_spend, record_agent_spend
+from packages.ai.model_policy import drop_denied
 from packages.ai.response_cache import get_cached, put_cached
 from packages.security.canary import ensure_payload_clean
 from packages.ai.rate_limiter import get_tracker as _get_rl_tracker
@@ -112,7 +113,7 @@ def _extend_with_live_catalogue(provider: "ProviderConfig", candidates: list[str
     """After a 410, queue the catalogue's live models if nothing live is left to try."""
     if _live_models(provider, candidates):
         return
-    for model in _live_models(provider, _catalogue_models(provider)):
+    for model in drop_denied(_live_models(provider, _catalogue_models(provider))):
         if model not in candidates:
             candidates.append(model)
 
@@ -521,6 +522,7 @@ _FREE_CLOUD_PROVIDER_IDS = {
     "cerebras",
     "sambanova",
     "mistral",
+    "siliconflow",
     "google-gemini-free",
     # The seeded Gemini record: the operator's Google key is on the free tier.
     "google-gemini",
@@ -564,6 +566,8 @@ _KNOWN_FREE_HOSTS = (
     "api.cerebras.ai",
     "api.sambanova.ai",
     "api.mistral.ai",
+    "api.siliconflow.com",
+    "api.siliconflow.cn",
     "generativelanguage.googleapis.com",
     "api.cloudflare.com",
 )
@@ -1277,6 +1281,11 @@ class ProviderRouter:
         rate_limited = False
         retry_after_sec: float | None = None
         candidates = self._candidate_models(provider, original_model, model_fallbacks, is_primary)
+        if not candidates:
+            # Every model this provider would try is on the operator deny-list.
+            # Not a provider failure: no cooldown, no watchdog strike.
+            log.info("Skipping provider %s: all candidate models are denied", provider.provider_id)
+            return None
         # Iterated as a live list: a 410 below can append the catalogue's live
         # models, so the same request continues on this provider.
         for model in candidates:
@@ -1737,6 +1746,9 @@ class ProviderRouter:
         for value in values:
             if value and value not in deduped:
                 deduped.append(value)
+        # Operator deny-list first, and unconditionally: unlike a dead model,
+        # a denied one is never retried even when nothing else is left.
+        deduped = drop_denied(deduped)
         # Drop models known-dead (410 Gone) so we don't waste a request on them.
         # If *every* candidate is flagged dead, fall through to the full list so
         # the provider is still re-probed (a recovered model refreshes itself on
@@ -1747,7 +1759,7 @@ class ProviderRouter:
         # Every configured model is dead, e.g. a provider record whose
         # default_model predates a catalogue cleanup. Use the live-probed models
         # config/models.yaml lists for this provider before re-probing the dead ones.
-        catalogue = _live_models(provider, _catalogue_models(provider))
+        catalogue = drop_denied(_live_models(provider, _catalogue_models(provider)))
         return catalogue or deduped
 
     async def _post_chat(

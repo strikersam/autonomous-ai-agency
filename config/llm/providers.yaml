@@ -156,16 +156,21 @@ providers:
     default_model: ${GEMINI_DEFAULT_MODEL:-gemini-2.5-flash}
     notes: 1M context — the escalation target when a conversation overflows.
 
-  # ── Cheap cloud (tier: cheap) ──────────────────────────────────────────
-  # Only reached when routing.allow_paid is true.
-
+  # OpenRouter: free tier for its ":free" models only. As "cheap" the router
+  # skipped it whenever allow_paid was off, so a configured key was never
+  # used. Every model declared for it in config/llm/models.yaml costs 0; a
+  # paid OpenRouter model added there must carry its price, and the
+  # allow_paid=False filter then keeps it out. Free limits: ~20 RPM, 50
+  # requests/day (1,000/day after a one-off $10 top-up), so it is an
+  # emergency layer behind the larger free providers.
   openrouter:
     kind: openai
     base_url: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
     key_env: [OPENROUTER_API_KEY]
-    tier: cheap
-    priority: 40
-    max_concurrency: 8
+    tier: free
+    priority: 56
+    max_concurrency: 4
+    timeout_sec: 60
     extra_headers:
       HTTP-Referer: https://autonomous-ai-agency.strikersam.workers.dev
       X-Title: Autonomous AI Agency
@@ -203,10 +208,30 @@ providers:
     # PROVIDER_TIERS. As "cheap" it was never tried without allow_paid, so
     # with Groq and Gemini out of quota and Cerebras on 402, NVIDIA was the
     # planner's only free path.
+    #
+    # Priority 18 (was 48): with cold health the adaptive strategy breaks ties
+    # on priority, and at 48 every tool call spent its 6-attempt budget on
+    # groq/nvidia/google 429s first — production logged zero mistral attempts
+    # from 2026-10-02 to 2026-10-04 although the key was loaded. codestral-latest
+    # now gets the first shot; live health still sinks it if it fails, and a
+    # 401/402/403 auto-disables it (packages/llm/disabled.py).
     tier: free
-    priority: 48
+    priority: 18
     max_concurrency: 8
     timeout_sec: 60             # wall clock per attempt; see nvidia above
+
+  siliconflow:
+    kind: openai
+    # International endpoint. A key issued at cloud.siliconflow.cn needs
+    # SILICONFLOW_BASE_URL=https://api.siliconflow.cn/v1 instead.
+    base_url: ${SILICONFLOW_BASE_URL:-https://api.siliconflow.com/v1}
+    key_env: [SILICONFLOW_API_KEY]
+    # Only the zero-cost models in config/llm/models.yaml are routed here.
+    # They are small (8B/7B), so this sits behind every larger free provider.
+    tier: free
+    priority: 52
+    max_concurrency: 4
+    timeout_sec: 60
 
   # ── Premium cloud (tier: premium) ──────────────────────────────────────
   # Last resort. ALLOW_PAID_BRAIN must be explicitly true (packages/ai/brain.py).
@@ -231,6 +256,24 @@ providers:
     tier: premium
     priority: 62
     max_concurrency: 8
+
+  # Amazon Bedrock, through its OpenAI-compatible endpoint with a Bedrock API key
+  # (bearer). Billed to the AWS account, so it is off unless BEDROCK_BRAIN_ENABLED
+  # is on; its models are `paid_opt_in`, which lets them serve while
+  # ALLOW_PAID_BRAIN stays off (the Anthropic API stays closed). Probed
+  # 2026-10-04: gpt-oss-120b/20b answer and return tool_calls; Claude is not
+  # served on this endpoint (model_not_found).
+  bedrock:
+    kind: openai
+    base_url: https://bedrock-mantle.${AWS_REGION:-us-east-1}.api.aws/v1
+    key_env: [AWS_BEARER_TOKEN_BEDROCK]
+    enabled: ${BEDROCK_BRAIN_ENABLED:-false}
+    tier: cheap
+    priority: 40
+    max_concurrency: 4
+    timeout_sec: 120
+    default_model: qwen.qwen3-coder-next
+    notes: Amazon Bedrock (paid, AWS credit). Set BEDROCK_BRAIN_ENABLED=true.
 
   anthropic:
     kind: anthropic
