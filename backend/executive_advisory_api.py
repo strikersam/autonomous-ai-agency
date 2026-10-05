@@ -16,6 +16,7 @@ the handler never returns raw exception detail to the client (rule 27).
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Callable
 
@@ -23,6 +24,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 log = logging.getLogger("executive_advisory_api")
+
+# Stay under the ~100s hosted-edge cutoff: a stalled provider must surface as a
+# clear 504 the screen can show, not a request that outlives the edge and spins.
+CONSULT_TIMEOUT_SEC = 85.0
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -117,12 +122,21 @@ def build_executive_advisory_router(
 
             company_context = await _company_advisory_context(body.company_id)
         try:
-            result = await get_executive_advisory().advise(
-                body.question,
-                company_context=company_context,
-                roles=body.roles,
-                ground=body.ground,
-                remember=body.remember,
+            result = await asyncio.wait_for(
+                get_executive_advisory().advise(
+                    body.question,
+                    company_context=company_context,
+                    roles=body.roles,
+                    ground=body.ground,
+                    remember=body.remember,
+                ),
+                timeout=CONSULT_TIMEOUT_SEC,
+            )
+        except asyncio.TimeoutError:
+            log.warning("executive consult timed out after %ss", CONSULT_TIMEOUT_SEC)
+            raise HTTPException(
+                status_code=504,
+                detail="The advisory took too long to answer. Try again or narrow the question.",
             )
         except Exception:  # noqa: BLE001 — never leak internals (rule 27)
             log.exception("executive consult failed")
