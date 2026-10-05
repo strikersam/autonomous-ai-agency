@@ -5,6 +5,8 @@
 ## [Unreleased]
 ### Added
 
+- **Intelligence screen competitors and trend keywords now persist** (2026-10-05). Saving on the Intelligence screen sent `intelligence_competitors` / `intelligence_keywords` to `PATCH /api/company/{id}`, but the `Company` model (`extra="forbid"`, frozen) did not declare them and the SQLite `companies` table had no columns for them, so the values were silently dropped and the screen reloaded empty on another browser or after clearing local storage. Both fields are now declared on `Company`, SQLite gains two columns (added by migration to existing DBs), and `update_company` writes them. The screen also now awaits `updateCompany` (a mis-parenthesised `await x ? a : b` left the save un-awaited). Files: `models/company_graph.py`, `services/company_graph_store.py`, `frontend/src/v5/screens/IntelligenceScreen.jsx`, `tests/test_company_intelligence_persistence.py` (2 new tests, verified failing before the fix).
+
 - **Bounty-hunter ledger no longer published as a public issue** (2026-10-04). A stranger's bounty bot found the public "Bounty hunter ledger" issue (#1666) by the word "bounty" and opened PR #1668 against it asking to be paid. The per-agent P&L table now goes only into each run's Actions job summary, and the ledger issue is no longer created or updated. Files: `packages/bounty/{hunt,tracker,ledger}.py`, `docs/bounty-hunter.md`, `tests/test_bounty_hunt_integration.py` (1 new regression test, verified failing before the fix).
 
 - **Bounty hunter skips self-labelled spam bounties** (2026-10-04). The first live run found 40 candidates and accepted none. About 30 came from one repository that labels its own issues `💎 Bounty`, and the 40-candidate cap filled before Opire was searched. Now:

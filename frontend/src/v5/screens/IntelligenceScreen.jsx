@@ -242,8 +242,7 @@ function IntelligenceScreen({ onNavigate }) {
       localStorage.setItem('intel_competitors', JSON.stringify(comps));
       localStorage.setItem('intel_keywords',    JSON.stringify(kws));
       if (companyId) {
-        await api.updateCompany ? api.updateCompany(companyId, { intelligence_competitors: comps, intelligence_keywords: kws })
-                                : Promise.resolve();
+        await api.updateCompany(companyId, { intelligence_competitors: comps, intelligence_keywords: kws });
       }
     } catch { /* non-critical */ }
   }, [companyId]);
