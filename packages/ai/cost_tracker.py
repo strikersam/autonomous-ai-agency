@@ -160,6 +160,12 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "mistral-small-latest": (0.10, 0.30),   # Mistral Small 3 — $0.10/$0.30 per MTok
     "codestral-latest": (0.30, 0.90),       # Codestral — $0.30/$0.90 per MTok
     "mistral-nemo": (0.15, 0.15),           # NeMo 12B — free/ultra-cheap tier
+    # Devstral / Pixtral Large / Ministral family (added 2026-10-05).
+    # Pricing source: mistral.ai/technology/#pricing, 2026-10-05.
+    "devstral-latest": (0.10, 0.30),        # Devstral (Small 3.1 arch) — estimated $0.10/$0.30 per MTok
+    "pixtral-large-latest": (2.00, 6.00),   # Pixtral Large 124B — $2/$6 per MTok
+    "ministral-8b-latest": (0.10, 0.10),    # Ministral 8B — flat $0.10 per MTok
+    "ministral-3b-latest": (0.04, 0.04),    # Ministral 3B — flat $0.04 per MTok
     # --- Together AI (free tier, added 2026-09-19) ---
     "Llama-3.3-70B-Instruct-Turbo-Free": (0.0, 0.0),
     "Mixtral-8x7B-Instruct-v0.1-Free": (0.0, 0.0),

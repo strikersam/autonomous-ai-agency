@@ -533,6 +533,28 @@ models:
     priority: 64
     speed_tier: fast
 
+  # Devstral (latest checkpoint). Mistral's agentic software-engineering model,
+  # fine-tuned on the Mistral Small 3.1 architecture for tool-using agent loops.
+  # Optimised for SWE-bench and coding agent tasks — strongest alignment with
+  # this repo's plan→execute→verify loop.
+  # 128K context; tool calling and function calling declared from docs.mistral.ai,
+  # 2026-10-05 — not probed on this account; live health checks apply.
+  # Costs zero: this deployment's Mistral key is on the free tier (same as
+  # other Mistral entries). A billed key should restore list prices (~$0.10/$0.30).
+  devstral-latest:
+    provider: mistral
+    display_name: Devstral (latest)
+    context_window: 131072
+    max_output_tokens: 4096
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
+    priority: 63
+    speed_tier: fast
+
   # Mistral NeMo (12B). Open-weights (Apache 2.0) checkpoint jointly developed
   # with NVIDIA. 128K context, function calling. Free self-serve tier on
   # api.mistral.ai for low-RPM usage.

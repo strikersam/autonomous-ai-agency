@@ -228,8 +228,8 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
     },
     "mistral": {
         "planner":   "mistral-large-latest",
-        "executor":  "mistral-small-latest",
-        "verifier":  "mistral-small-latest",
+        "executor":  "devstral-latest",
+        "verifier":  "devstral-latest",
         "judge":     "mistral-large-latest",
     },
     "deepseek": {
@@ -405,6 +405,7 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
     "mistral": [
         "mistral-small-latest",
         "mistral-large-latest",
+        "devstral-latest",      # agentic coding executor; declared from docs, not probed on this account
         "codestral-latest",
         "mistral-nemo",
     ],

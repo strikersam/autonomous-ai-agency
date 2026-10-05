@@ -215,12 +215,13 @@ providers:
     default_base_url: https://api.mistral.ai/v1
     role_presets:
       planner:   mistral-large-latest
-      executor:  mistral-small-latest
-      verifier:  mistral-small-latest
+      executor:  devstral-latest
+      verifier:  devstral-latest
       judge:     mistral-large-latest
     candidates:
       - mistral-small-latest
       - mistral-large-latest
+      - devstral-latest
       - codestral-latest
       - mistral-nemo
 
