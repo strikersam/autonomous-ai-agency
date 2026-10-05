@@ -181,6 +181,11 @@ const GRAPH_NODE_COLORS = {
   connector: '#66e0d0',
 };
 
+// The SVG canvas is GRAPH_SIZE square; nodes must stay inside it or they are clipped.
+const GRAPH_SIZE = 600;
+const GRAPH_MAX_RADIUS = GRAPH_SIZE / 2 - 24;   // leave room for the node circle + label
+const GRAPH_NODE_SPACING = 18;                    // min arc length between neighbours on a ring
+
 const GRAPH_CATEGORY_ORDER = ['website', 'repo', 'system', 'specialist', 'workflow', 'knowledge', 'connector'];
 
 // Pure function: CompanyGraph JSON -> { nodes, edges } for the SVG layout below.
@@ -204,9 +209,20 @@ function buildGraphElements(graph) {
   };
 
   // Ring radius grows only for categories that actually have data, so a
-  // company with just 2 systems doesn't render 5 empty rings.
+  // company with just 2 systems doesn't render 5 empty rings. Each ring is at
+  // least wide enough for its nodes not to overlap, then the whole set is
+  // scaled down if it would not fit the canvas (7 categories used to put the
+  // outer rings at radius 480 on a 300-radius canvas, clipping most nodes).
   const usedCategories = GRAPH_CATEGORY_ORDER.filter(t => (byType[t] || []).length > 0);
-  const ringRadius = Object.fromEntries(usedCategories.map((t, i) => [t, 90 + i * 65]));
+  const rawRadius = {};
+  let prev = 40;
+  usedCategories.forEach(t => {
+    const needed = (byType[t].length * GRAPH_NODE_SPACING) / (2 * Math.PI);
+    rawRadius[t] = Math.max(prev + 45, needed);
+    prev = rawRadius[t];
+  });
+  const scale = Math.min(1, GRAPH_MAX_RADIUS / Math.max(prev, 1));
+  const ringRadius = Object.fromEntries(usedCategories.map(t => [t, rawRadius[t] * scale]));
 
   usedCategories.forEach(type => {
     const items = byType[type];
@@ -378,7 +394,7 @@ function CompanyGraphPanel() {
     return <div style={{ padding:'18px 0', fontSize:13, color:'var(--text-muted)' }}>No companies found for your account yet — onboard one from the Company screen.</div>;
   }
 
-  const size = 600;
+  const size = GRAPH_SIZE;
   const center = size / 2;
   const pos = id => {
     const node = nodes.find(n => n.id === id);
@@ -661,5 +677,5 @@ function KnowledgeScreen() {
   );
 }
 
-export { KnowledgeScreen };
+export { KnowledgeScreen, buildGraphElements, GRAPH_SIZE };
 export default KnowledgeScreen;
