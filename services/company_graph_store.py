@@ -955,6 +955,8 @@ class SQLiteStore:
                 expires_at TEXT,
                 created_by_role TEXT,
                 created_by_provider TEXT,
+                intelligence_competitors TEXT,
+                intelligence_keywords TEXT,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )
@@ -1101,6 +1103,10 @@ class SQLiteStore:
             await conn.execute("ALTER TABLE companies ADD COLUMN created_by_role TEXT")
         if "created_by_provider" not in columns:
             await conn.execute("ALTER TABLE companies ADD COLUMN created_by_provider TEXT")
+        if "intelligence_competitors" not in columns:
+            await conn.execute("ALTER TABLE companies ADD COLUMN intelligence_competitors TEXT")
+        if "intelligence_keywords" not in columns:
+            await conn.execute("ALTER TABLE companies ADD COLUMN intelligence_keywords TEXT")
 
         await conn.commit()
         log.info(f"SQLite schema initialized at {self._db_path}")
@@ -1177,6 +1183,7 @@ class SQLiteStore:
             SET name = ?, domain = ?, business_category = ?, description = ?, tagline = ?,
                 owner_id = ?, is_active = ?, onboarding_status = ?, onboarding_progress = ?,
                 persistent = ?, expires_at = ?, created_by_role = ?, created_by_provider = ?,
+                intelligence_competitors = ?, intelligence_keywords = ?,
                 updated_at = ?
             WHERE id = ?
         """, (
@@ -1189,6 +1196,8 @@ class SQLiteStore:
             doc.get("expires_at"),
             doc.get("created_by_role"),
             doc.get("created_by_provider"),
+            doc.get("intelligence_competitors"),
+            doc.get("intelligence_keywords"),
             doc["updated_at"], doc["id"]
         ))
         await conn.commit()
