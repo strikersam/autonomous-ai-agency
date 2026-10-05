@@ -47,18 +47,18 @@ class TestSonnet55InLLMModels:
         entry = llm_models["models"]["claude-sonnet-5-5"]
         assert entry["provider"] == "anthropic"
 
-    def test_sonnet_55_cheaper_than_sonnet_5(self, llm_models):
+    def test_sonnet_55_same_input_price_as_sonnet_5(self, llm_models):
         s5_in = llm_models["models"]["claude-sonnet-5"]["input_cost_per_1m"]
         s55_in = llm_models["models"]["claude-sonnet-5-5"]["input_cost_per_1m"]
-        assert s55_in < s5_in, (
-            f"claude-sonnet-5-5 input cost ({s55_in}) should be cheaper than "
+        assert s55_in == s5_in, (
+            f"claude-sonnet-5-5 input cost ({s55_in}) should equal "
             f"claude-sonnet-5 ({s5_in})"
         )
 
-    def test_sonnet_55_output_cheaper_than_sonnet_5(self, llm_models):
+    def test_sonnet_55_same_output_price_as_sonnet_5(self, llm_models):
         s5_out = llm_models["models"]["claude-sonnet-5"]["output_cost_per_1m"]
         s55_out = llm_models["models"]["claude-sonnet-5-5"]["output_cost_per_1m"]
-        assert s55_out < s5_out
+        assert s55_out == s5_out
 
     def test_sonnet_55_same_context_window_as_sonnet_5(self, llm_models):
         s5_ctx = llm_models["models"]["claude-sonnet-5"]["context_window"]

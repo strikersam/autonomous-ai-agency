@@ -80,6 +80,33 @@ def build_planning_prompt(
     ]
 
 
+def _web_reach_tool_lines() -> str:
+    """Advertise the web tools unless an operator switched web access off (rule 19)."""
+    from agent.web_reach import web_access_enabled
+
+    if not web_access_enabled():
+        return "WEB REACH: switched off by the operator — no internet tools this run.\n"
+    return (
+        "WEB REACH (zero-key internet access — use to research, verify facts, or\n"
+        "  self-heal by looking up an error message before guessing a fix):\n"
+        "- fetch_url(url): Read a web page as plain text (also extracts YouTube transcripts)\n"
+        "- youtube_transcript(url): Fetch a YouTube video's spoken transcript/captions\n"
+        "- web_search(query, limit=8): Search the public web, returns titles + URLs\n"
+        "- fetch_rss(url, limit=10): Fetch and parse an RSS/Atom feed\n"
+        "- browse_page(url): Open a URL in a REAL browser and read its rendered text\n"
+        "  (after JavaScript runs). Use when fetch_url returns an empty/app-shell page.\n"
+    )
+
+
+def _web_search_example() -> str:
+    """The web_search call example, dropped with the tools it demonstrates."""
+    from agent.web_reach import web_access_enabled
+
+    if not web_access_enabled():
+        return ""
+    return 'Example: {"tool": "web_search", "args": {"query": "fastapi motor event loop closed error"}}\n'
+
+
 def _code_graph_tool_lines() -> str:
     """Advertise agent/code_graph.py tools only when they are registered."""
     from agent.code_graph import code_graph_enabled
@@ -125,14 +152,7 @@ def build_tool_prompt(
                 "- read_file(path)\n"
                 "- list_files(path='.', limit=200)\n"
                 "- search_code(query, limit=20)\n"
-                "WEB REACH (zero-key internet access — use to research, verify facts, or\n"
-                "  self-heal by looking up an error message before guessing a fix):\n"
-                "- fetch_url(url): Read a web page as plain text (also extracts YouTube transcripts)\n"
-                "- youtube_transcript(url): Fetch a YouTube video's spoken transcript/captions\n"
-                "- web_search(query, limit=8): Search the public web, returns titles + URLs\n"
-                "- fetch_rss(url, limit=10): Fetch and parse an RSS/Atom feed\n"
-                "- browse_page(url): Open a URL in a REAL browser and read its rendered text\n"
-                "  (after JavaScript runs). Use when fetch_url returns an empty/app-shell page.\n"
+                f"{_web_reach_tool_lines()}"
                 "- get_current_time(): Get the current UTC date/time. Use before reasoning\n"
                 "  about recency, deadlines, or 'how long ago' — you have no other source\n"
                 "  for the current date.\n"
@@ -168,7 +188,7 @@ def build_tool_prompt(
                 "Example: {\"tool\": \"read_file\", \"args\": {\"path\": \"src/main.py\"}}\n"
                 "Example: {\"tool\": \"list_files\", \"args\": {\"path\": \".\"}}\n"
                 "Example: {\"tool\": \"search_code\", \"args\": {\"query\": \"TODO\"}}\n"
-                "Example: {\"tool\": \"web_search\", \"args\": {\"query\": \"fastapi motor event loop closed error\"}}\n"
+                f"{_web_search_example()}"
                 "Example: {\"tool\": \"finish\", \"args\": {\"reason\": \"done inspecting\"}}\n\n"
                 "CRITICAL: The JSON MUST have a \"tool\" key. Do NOT return results, status, or\n"
                 "observations — return ONLY the next tool call to make.\n"

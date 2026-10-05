@@ -314,6 +314,10 @@ class Settings:
         self.web_reach_blocked_domains: str = os.environ.get(
             "WEB_REACH_BLOCKED_DOMAINS", ""
         )
+        # WEB_REACH_ENABLED — master switch for every agent web tool
+        # (fetch_url, youtube_transcript, web_search, fetch_rss, browse_page).
+        # Default on; when off the tools refuse and drop out of the tool prompt.
+        self.web_reach_enabled_raw: str = os.environ.get("WEB_REACH_ENABLED", "true")
 
         # ── Code graph (agent/code_graph.py) ────────────────────────────────
         # Structural code queries — who calls a function, what a diff touches —
@@ -464,6 +468,11 @@ class Settings:
         """Lower-cased DENIED_MODEL_IDS entries; empty when nothing is denied."""
         parts = (p.strip().lower() for p in self.denied_model_ids_raw.split(","))
         return tuple(p for p in parts if p)
+
+    @property
+    def web_reach_enabled(self) -> bool:
+        """False only when an operator switched agent web access off."""
+        return self.web_reach_enabled_raw.strip().lower() not in {"0", "false", "no", "off"}
 
     @property
     def code_graph_enabled(self) -> bool:

@@ -355,6 +355,7 @@ local headless Chromium, which does.
 | `BROWSERBASE_PROJECT_ID` | (empty) | Optional Browserbase project ID, appended to the CDP connect URL. |
 | `PLAYWRIGHT_MCP_URL` | (empty) | Optional external Playwright MCP server (`npx @playwright/mcp --port <n>`). Set this instead of Browserbase to route browser tools through an MCP server. |
 | `WEB_REACH_ALLOWED_DOMAINS` | (empty) | Comma-separated list of domains (and their subdomains) that agents may fetch via the `fetch_url`, `search_web`, and `fetch_rss` tools. **Default empty = all public hosts allowed** (existing behaviour). When set, any URL whose host is not in this list is refused before the network request is made. Example: `example.com,github.com`. |
+| `WEB_REACH_ENABLED` | `true` | Master switch for agent web access. When `false`, `fetch_url`, `youtube_transcript`, `web_search`, `fetch_rss` and `browse_page` refuse every call before any network request and are left out of the agent's tool prompt. Live control: Settings → Platform controls → Governance & Safety. |
 | `WEB_REACH_BLOCKED_DOMAINS` | (empty) | Comma-separated list of domains (and their subdomains) that agents are always denied, regardless of the allow list. **Default empty = no extra blocks**. Evaluated before the allow list. Example: `ads.example.com`. |
 
 Both checks run inside `agent/web_reach.py::_egress_policy_reason()` *after* the

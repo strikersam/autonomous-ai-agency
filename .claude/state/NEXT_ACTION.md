@@ -1,4 +1,9 @@
-# NEXT_ACTION — updated 2026-10-04
+# NEXT_ACTION — updated 2026-10-05
+
+**Updated:** 2026-10-05 (daily routine, branch `routine/daily-2026-10-05`)
+
+Sonnet 5.5 cost table corrected to $2/$10 (was $1.6/$8). Backlog issue #1688 items 2-4 remain: agent web-access master switch (S), "n of m" approval counter (XS-S), and a read-only compound-shell audit of `agent/tools.py` (risky module, needs human sign-off).
+
 
 **Updated:** 2026-10-04 (bounty hunter, branch `claude/bounty-hunter`)
 

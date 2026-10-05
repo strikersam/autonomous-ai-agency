@@ -52,6 +52,7 @@ import fnmatch
 import ipaddress
 import logging
 import posixpath
+import re
 import threading
 from dataclasses import dataclass, field
 from enum import Enum
@@ -225,6 +226,7 @@ DEFAULT_POLICY: dict[str, Any] = {
                 "*/etc/shadow*",
                 "*curl*|*sh*",
                 "*wget*|*sh*",
+                "*--no-preserve-root*",
             ],
         },
     },
@@ -340,12 +342,70 @@ def _host_matches(host: str, pattern: str) -> bool:
     return host.endswith("." + pattern)
 
 
-def _action_matches(action: str, pattern: str, surface: Surface) -> bool:
+_SHELL_SEPARATORS = re.compile(r"&&|\|\||;|\||\n")
+_SHELL_SUBSTITUTION = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
+_SHORT_FLAGS = re.compile(r"^-[a-z]{2,}$")
+
+
+def _normalise_shell(text: str) -> str:
+    """Canonical form of a shell command or rule, so trivial variants match.
+
+    Lower-cases, collapses whitespace, sorts combined short flags (``-fr`` and
+    ``-rf`` are the same command) and normalises absolute paths
+    (``/etc/./shadow`` is ``/etc/shadow``). Applied to rules too, so a rule
+    written ``rm -rf /*`` still reads the way its author meant.
+    """
+    tokens = []
+    for token in (text or "").strip().lower().split():
+        if _SHORT_FLAGS.match(token):
+            token = "-" + "".join(sorted(token[1:]))
+        elif token.startswith("/") and ("/." in token or "//" in token):
+            token = posixpath.normpath(token)
+        tokens.append(token)
+    return " ".join(tokens)
+
+
+def _shell_segments(command: str) -> list[str]:
+    """Every independently executed piece of *command*, normalised.
+
+    A deny rule matched only against the whole string misses the same command
+    behind any prefix: ``cd /tmp && rm -rf /*``, ``true; rm -rf /*`` and
+    ``echo $(rm -rf /*)`` all passed ``rm -rf /*`` (#1688 item 4).
+    """
+    pieces = [command or ""]
+    for match in _SHELL_SUBSTITUTION.finditer(command or ""):
+        pieces.append(match.group(1) or match.group(2) or "")
+    segments = [seg for piece in pieces for seg in _SHELL_SEPARATORS.split(piece)]
+    return [s for s in (_normalise_shell(seg) for seg in segments) if s]
+
+
+def _shell_matches(command: str, pattern: str, *, every_segment: bool) -> bool:
+    """Match a shell rule against the whole command and each segment.
+
+    Deny and approval rules fire when the whole command *or any* segment
+    matches. Allow rules need *every* segment to match, so ``ls && rm -rf ~``
+    cannot ride an ``ls*`` allow rule.
+    """
+    rule = _normalise_shell(pattern)
+    if not rule:
+        return False
+    segments = _shell_segments(command)
+    if every_segment:
+        return bool(segments) and all(fnmatch.fnmatch(s, rule) for s in segments)
+    whole = _normalise_shell(command)
+    return fnmatch.fnmatch(whole, rule) or any(fnmatch.fnmatch(s, rule) for s in segments)
+
+
+def _action_matches(
+    action: str, pattern: str, surface: Surface, *, every_segment: bool = False
+) -> bool:
     """Dispatch to the matcher appropriate for *surface*."""
     if surface is Surface.FILESYSTEM:
         return _path_matches(_normalise_path(action), pattern)
     if surface is Surface.NETWORK:
         return _host_matches(action, pattern)
+    if surface is Surface.SHELL:
+        return _shell_matches(action, pattern, every_segment=every_segment)
     return fnmatch.fnmatch((action or "").strip().lower(), pattern.strip().lower())
 
 
@@ -637,7 +697,7 @@ class PolicyEngine:
 
         allow_patterns = self._allow_patterns(group_rules, surface, context)
         if allow_patterns is not None:
-            hit = self._first_match(action, allow_patterns, surface)
+            hit = self._first_match(action, allow_patterns, surface, every_segment=True)
             if hit is None:
                 return verdict(
                     Decision.DENY,
@@ -686,13 +746,18 @@ class PolicyEngine:
         return group_rules.get("allow")
 
     @staticmethod
-    def _first_match(action: str, patterns: Iterable[str], surface: Surface) -> str | None:
+    def _first_match(
+        action: str, patterns: Iterable[str], surface: Surface, *, every_segment: bool = False
+    ) -> str | None:
         """Return the first pattern matching *action*, or None.
 
         Returns the pattern itself rather than a bool so the decision can name
         the exact rule that fired — an unexplainable denial is an outage, not
         a control.
         """
+        patterns = list(patterns)
+        if every_segment and surface is Surface.SHELL:
+            return PolicyEngine._shell_allow_match(action, patterns)
         for pattern in patterns:
             try:
                 if _action_matches(action, pattern, surface):
@@ -700,6 +765,21 @@ class PolicyEngine:
             except Exception as exc:  # noqa: BLE001 - one bad pattern must not void the rest
                 log.warning("Policy pattern %r failed to evaluate: %s", pattern, exc)
         return None
+
+    @staticmethod
+    def _shell_allow_match(command: str, patterns: list[str]) -> str | None:
+        """Allow a shell command only if each of its segments has an allow rule.
+
+        Returns the rule covering the first segment, or None when any segment
+        is uncovered — so ``ls && rm -rf ~`` cannot ride an ``ls*`` rule.
+        """
+        first: str | None = None
+        for segment in _shell_segments(command) or [""]:
+            hit = next((p for p in patterns if _shell_matches(segment, p, every_segment=True)), None)
+            if hit is None:
+                return None
+            first = first or hit
+        return first
 
     def describe(self) -> dict[str, Any]:
         """Return the effective policy for the dashboard and audit review.
