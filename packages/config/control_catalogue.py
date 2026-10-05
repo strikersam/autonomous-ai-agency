@@ -201,6 +201,17 @@ _AGENT_RUNTIME: tuple[ControlSpec, ...] = (
         live=True,
     ),
     _toggle(
+        "WEB_REACH_ENABLED",
+        "Agent web access",
+        "governance",
+        "true",
+        "Master switch for the agent web tools (fetch_url, youtube_transcript, "
+        "web_search, fetch_rss, browse_page). When off they refuse every call "
+        "and are left out of the agent's tool prompt.",
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    _toggle(
         "RUNTIME_EXTERNAL_DISABLED",
         "Register no external runtimes",
         "agent_runtime",

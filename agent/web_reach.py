@@ -527,6 +527,27 @@ class WebReach:
 _web_reach: WebReach | None = None
 
 
+def web_access_enabled() -> bool:
+    """Read WEB_REACH_ENABLED at call time so a Platform Controls override is live."""
+    try:
+        from packages.config import settings
+
+        return settings.web_reach_enabled
+    except Exception as exc:  # noqa: BLE001 - a broken settings read keeps the shipped default
+        log.debug("WEB_REACH_ENABLED unreadable, keeping web access on: %s", exc)
+        return True
+
+
+def web_access_refusal(tool: str) -> dict[str, Any] | None:
+    """The result an agent web tool returns when an operator switched web access off."""
+    if web_access_enabled():
+        return None
+    return {
+        "ok": False,
+        "error": f"{tool} refused: agent web access is switched off (WEB_REACH_ENABLED)",
+    }
+
+
 def get_web_reach() -> WebReach:
     """Module-level singleton, mirroring `agent.capability_registry.get_tool_registry`."""
     global _web_reach

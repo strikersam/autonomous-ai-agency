@@ -527,6 +527,7 @@ def _register_browser_tools(registry: ToolRegistry) -> None:
     and is a no-op stub returning a clear hint when browser automation is off.
     """
     from agent.browser import browse_page
+    from agent.web_reach import web_access_refusal
 
     @registry.agent_tool(
         name="browse_page",
@@ -546,13 +547,13 @@ def _register_browser_tools(registry: ToolRegistry) -> None:
         capabilities=["web", "browser", "read", "research"],
     )
     async def _browse_page_tool(url: str) -> dict:
-        return await browse_page(url)
+        return web_access_refusal("browse_page") or await browse_page(url)
 
 
 def _register_web_reach_tools(registry: ToolRegistry) -> None:
     """Register the Web Reach capability (agent/web_reach.py): zero-key
     internet access — pages, YouTube transcripts, web search, RSS feeds."""
-    from agent.web_reach import get_web_reach
+    from agent.web_reach import get_web_reach, web_access_refusal
 
     reach = get_web_reach()
 
@@ -573,7 +574,7 @@ def _register_web_reach_tools(registry: ToolRegistry) -> None:
         capabilities=["web", "read", "research"],
     )
     def _fetch_url_tool(url: str) -> dict:
-        return reach.fetch_page(url)
+        return web_access_refusal("fetch_url") or reach.fetch_page(url)
 
     @registry.agent_tool(
         name="youtube_transcript",
@@ -588,7 +589,7 @@ def _register_web_reach_tools(registry: ToolRegistry) -> None:
         capabilities=["web", "read", "research"],
     )
     def _youtube_transcript_tool(url: str) -> dict:
-        return reach.youtube_transcript(url)
+        return web_access_refusal("youtube_transcript") or reach.youtube_transcript(url)
 
     @registry.agent_tool(
         name="web_search",
@@ -604,7 +605,7 @@ def _register_web_reach_tools(registry: ToolRegistry) -> None:
         capabilities=["web", "search", "research"],
     )
     def _web_search_tool(query: str, limit: int = 8) -> dict:
-        return reach.search_web(query, limit=limit)
+        return web_access_refusal("web_search") or reach.search_web(query, limit=limit)
 
     @registry.agent_tool(
         name="fetch_rss",
@@ -620,7 +621,7 @@ def _register_web_reach_tools(registry: ToolRegistry) -> None:
         capabilities=["web", "read", "research"],
     )
     def _fetch_rss_tool(url: str, limit: int = 10) -> dict:
-        return reach.fetch_rss(url, limit=limit)
+        return web_access_refusal("fetch_rss") or reach.fetch_rss(url, limit=limit)
 
 
 def _register_code_graph_tools(registry: ToolRegistry, root: Any) -> None:
