@@ -97,6 +97,7 @@ baseline:
       - "*curl*|*sh*"
       - "*wget*|*sh*"
       - "*chmod 777 /*"
+      - "*--no-preserve-root*"
 
   credential:
     # Secret NAMES an agent session may resolve — never values. Anything not
