@@ -1294,6 +1294,17 @@ class Company(BaseModel):
         description="Auth provider of the creating user ('github' | 'google' | "
         "'local' | None).",
     )
+    # Intelligence screen data (competitors / trend keywords). Must live on the
+    # model: Company is extra="forbid", so PATCHed values that were not declared
+    # here were silently dropped on save.
+    intelligence_competitors: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="Competitor tracking data from Intelligence screen"
+    )
+    intelligence_keywords: list[dict[str, Any]] | None = Field(
+        default=None,
+        description="Trend keywords from Intelligence screen"
+    )
     # Timestamps
     created_at: datetime = Field(
         default_factory=datetime.utcnow,
