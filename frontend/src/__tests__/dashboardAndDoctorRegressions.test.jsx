@@ -71,3 +71,53 @@ describe('DoctorScreen', () => {
     expect(screen.queryByText(/Fix all/)).not.toBeInTheDocument();
   });
 });
+
+describe('DashboardScreen spend-by-task-type widget', () => {
+  const render_ = (costByTag) => {
+    useSafeData.mockReturnValue([
+      { costByTag },
+      new Proxy({}, { get: () => idle }),
+      jest.fn(),
+    ]);
+    render(<DashboardScreen />);
+  };
+
+  test('free-tier traffic ($0 spend) charts call counts instead of flat slivers', () => {
+    render_({
+      by_tag: {
+        code_generation: { calls: 9, total_tokens: 900, estimated_cost_usd: 0 },
+        fast_response: { calls: 3, total_tokens: 90, estimated_cost_usd: 0 },
+      },
+      totals: { calls: 12, estimated_cost_usd: 0 },
+    });
+    expect(screen.getByText('Calls by Task Type')).toBeInTheDocument();
+    expect(screen.getByText(/free tier/)).toBeInTheDocument();
+    // the biggest bucket is charted at its call count, not at a $0 minimum sliver
+    expect(screen.getByTitle('code generation: 9')).toBeInTheDocument();
+  });
+
+  test('paid traffic still charts spend', () => {
+    render_({
+      by_tag: { reasoning: { calls: 2, total_tokens: 500, estimated_cost_usd: 0.0123 } },
+      totals: { calls: 2, estimated_cost_usd: 0.0123 },
+    });
+    expect(screen.getByText('Spend by Task Type')).toBeInTheDocument();
+    expect(screen.getByText(/\$0\.0123 est\. spend/)).toBeInTheDocument();
+  });
+});
+
+describe('DashboardScreen request-volume trend', () => {
+  test('draws the sparkline from /api/observability/savings daily buckets', () => {
+    useSafeData.mockReturnValue([
+      {
+        // /metrics has no time series — only summary + traces
+        metrics: { summary_24h: { total_requests: 9, total_tokens: 900, total_savings_usd: 0 }, recent_traces: [] },
+        usageTrend: { time_series: [{ requests: 2 }, { requests: 5 }, { requests: 2 }] },
+      },
+      new Proxy({}, { get: () => idle }),
+      jest.fn(),
+    ]);
+    render(<DashboardScreen />);
+    expect(screen.getByText('3 buckets')).toBeInTheDocument();
+  });
+});
