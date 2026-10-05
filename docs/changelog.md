@@ -5,6 +5,8 @@
 ## [Unreleased]
 ### Added
 
+- **Intelligence screen: competitors and trend keywords now save and load** (2026-10-05). Adding a competitor never reached the backend, so it vanished on reload; the Trend Keywords tab started empty, so it looked broken; and sync failures were swallowed silently. Now new competitors persist, an empty keyword list is seeded with four defaults, a failed sync shows a visible warning, competitor links open the real site, and cards tolerate records without `tracked`/`lastScan`. Files: `frontend/src/v5/screens/IntelligenceScreen.jsx`, `frontend/src/__tests__/intelligenceScreen.test.jsx` (3 new tests).
+
 - **Bounty-hunter ledger no longer published as a public issue** (2026-10-04). A stranger's bounty bot found the public "Bounty hunter ledger" issue (#1666) by the word "bounty" and opened PR #1668 against it asking to be paid. The per-agent P&L table now goes only into each run's Actions job summary, and the ledger issue is no longer created or updated. Files: `packages/bounty/{hunt,tracker,ledger}.py`, `docs/bounty-hunter.md`, `tests/test_bounty_hunt_integration.py` (1 new regression test, verified failing before the fix).
 
 - **Bounty hunter skips self-labelled spam bounties** (2026-10-04). The first live run found 40 candidates and accepted none. About 30 came from one repository that labels its own issues `💎 Bounty`, and the 40-candidate cap filled before Opire was searched. Now:

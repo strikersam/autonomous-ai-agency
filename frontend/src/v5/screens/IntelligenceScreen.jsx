@@ -6,6 +6,21 @@ import { COMPANY_ID_KEY } from './CompanyScreen';
 // intelligence.jsx — Commerce Intelligence
 // Competitor monitoring + trend scanning with live AI analysis via /api/chat/send
 
+const DEFAULT_KEYWORDS = [
+  { id:'k-default-1', keyword:'AI shopping assistants',   category:'AI & Commerce', tracked:true },
+  { id:'k-default-2', keyword:'checkout conversion rate', category:'Conversion',    tracked:true },
+  { id:'k-default-3', keyword:'customer retention email', category:'Retention',     tracked:true },
+  { id:'k-default-4', keyword:'ecommerce market trends',  category:'Market Intel',  tracked:true },
+];
+
+// Accept "competitor.com" as well as full URLs; only http(s) is ever linked.
+const safeHref = url => {
+  const u = String(url || '').trim();
+  if (!u) return null;
+  const full = /^https?:\/\//i.test(u) ? u : `https://${u}`;
+  try { const p = new URL(full); return /^https?:$/.test(p.protocol) ? p.href : null; } catch { return null; }
+};
+
 const TRACK_OPTIONS = ['pricing','campaigns','new-arrivals','features','tech-stack','seo','social'];
 const trackColors   = { pricing:'#ffbd66', campaigns:'#ff6b7d', 'new-arrivals':'#46d9a4', features:'#5da2ff', 'tech-stack':'#c4b5fd', seo:'#7c9dff', social:'#f97316' };
 
@@ -130,13 +145,13 @@ function CompetitorCard({ comp, onRemove, onToggleTrack }) {
       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8, marginBottom:10 }}>
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ fontSize:14, fontWeight:700, color:'#fff', marginBottom:2 }}>{comp.name}</div>
-          <a href="#" style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', textDecoration:'none' }}>{comp.url}</a>
+          <a href={safeHref(comp.url) || undefined} target="_blank" rel="noopener noreferrer" style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', textDecoration:'none' }}>{comp.url}</a>
           <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:2 }}>{comp.industry}</div>
         </div>
         <div style={{ display:'flex', gap:5, flexShrink:0 }}>
           <div style={{ display:'flex', alignItems:'center', gap:4, padding:'3px 8px', borderRadius:999, background:'rgba(70,217,164,0.08)', border:'1px solid rgba(70,217,164,0.18)' }}>
             <span style={{ width:5, height:5, borderRadius:'50%', background:'#46d9a4', animation:'pulse 2s infinite' }}/>
-            <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'#46d9a4' }}>{comp.lastScan}</span>
+            <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'#46d9a4' }}>{comp.lastScan || 'never'}</span>
           </div>
           <button onClick={()=>onRemove(comp.id)} style={{ padding:'3px 8px', borderRadius:8, fontSize:11, cursor:'pointer', background:'rgba(255,107,125,0.07)', border:'1px solid rgba(255,107,125,0.18)', color:'#ff6b7d' }}>✕</button>
         </div>
@@ -145,7 +160,7 @@ function CompetitorCard({ comp, onRemove, onToggleTrack }) {
       <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.10em', textTransform:'uppercase', marginBottom:7 }}>What to track</div>
       <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
         {TRACK_OPTIONS.map(opt => {
-          const on = comp.tracked.includes(opt);
+          const on = (comp.tracked || []).includes(opt);
           const c  = trackColors[opt] || 'var(--text-muted)';
           return (
             <button key={opt} onClick={()=>onToggleTrack(comp.id,opt)} style={{
@@ -197,7 +212,7 @@ function AddCompetitorForm({ onAdd, onClose }) {
           </div>
         </div>
         <div style={{ display:'flex', gap:8 }}>
-          <button onClick={()=>{ if(name&&url){ onAdd({id:`c-${Date.now()}`,name,url,industry,tracked,lastScan:'never',status:'active'}); onClose(); }}} style={{ flex:1, padding:'9px', borderRadius:10, background:'var(--accent)', color:'#06111f', fontSize:13, fontWeight:800, border:'none', cursor:'pointer' }}>Add</button>
+          <button onClick={()=>{ if(name.trim()&&url.trim()){ onAdd({id:`c-${Date.now()}`,name:name.trim(),url:url.trim(),industry:industry.trim(),tracked,lastScan:'never',status:'active'}); onClose(); }}} style={{ flex:1, padding:'9px', borderRadius:10, background:'var(--accent)', color:'#06111f', fontSize:13, fontWeight:800, border:'none', cursor:'pointer' }}>Add</button>
           <button onClick={onClose} style={{ padding:'9px 14px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)', fontSize:13, cursor:'pointer' }}>Cancel</button>
         </div>
       </div>
@@ -234,6 +249,7 @@ function IntelligenceScreen({ onNavigate }) {
   const [newKw,       setNewKw]       = React.useState('');
   const [newKwCat,    setNewKwCat]    = React.useState('Tech Trends');
   const [tab,         setTab]         = React.useState('briefing');
+  const [saveError,   setSaveError]   = React.useState('');
   const companyId = React.useMemo(() => { try { return localStorage.getItem(COMPANY_ID_KEY); } catch { return null; } }, []);
 
   // Storage helpers — backend when company exists, localStorage fallback
@@ -242,10 +258,12 @@ function IntelligenceScreen({ onNavigate }) {
       localStorage.setItem('intel_competitors', JSON.stringify(comps));
       localStorage.setItem('intel_keywords',    JSON.stringify(kws));
       if (companyId) {
-        await api.updateCompany ? api.updateCompany(companyId, { intelligence_competitors: comps, intelligence_keywords: kws })
-                                : Promise.resolve();
+        await api.updateCompany(companyId, { intelligence_competitors: comps, intelligence_keywords: kws });
       }
-    } catch { /* non-critical */ }
+      setSaveError('');
+    } catch (e) {
+      setSaveError('Saved on this device only — could not sync to your company: ' + (e?.response?.data?.detail ? api.fmtErr(e.response.data.detail) : (e?.message || 'unknown error')));
+    }
   }, [companyId]);
 
   // Load on mount
@@ -259,7 +277,7 @@ function IntelligenceScreen({ onNavigate }) {
           if (co.name) setCompanyName(co.name);
           if (Array.isArray(co.intelligence_competitors) && co.intelligence_competitors.length > 0) {
             setCompetitors(co.intelligence_competitors);
-            setKeywords(co.intelligence_keywords || []);
+            setKeywords(co.intelligence_keywords?.length ? co.intelligence_keywords : DEFAULT_KEYWORDS);
             return;
           }
         } catch { /* fall through to localStorage */ }
@@ -269,8 +287,8 @@ function IntelligenceScreen({ onNavigate }) {
         const comps = JSON.parse(localStorage.getItem('intel_competitors') || '[]');
         const kws   = JSON.parse(localStorage.getItem('intel_keywords')    || '[]');
         if (comps.length) setCompetitors(comps);
-        if (kws.length)   setKeywords(kws);
-      } catch { /* ignore */ }
+        setKeywords(kws.length ? kws : DEFAULT_KEYWORDS);
+      } catch { setKeywords(DEFAULT_KEYWORDS); }
     };
     loadData();
   }, [companyId]);
@@ -299,6 +317,8 @@ function IntelligenceScreen({ onNavigate }) {
           </button>
         ))}
       </div>
+
+      {saveError && <div style={{ padding:'8px 12px', borderRadius:10, background:'rgba(255,189,102,0.08)', border:'1px solid rgba(255,189,102,0.25)', fontSize:12, color:'#ffbd66', marginBottom:12 }}>{saveError}</div>}
 
       {tab === 'briefing' && (
         <div style={{ animation:'fadeSlideUp 0.3s ease-out' }}>
@@ -335,7 +355,7 @@ function IntelligenceScreen({ onNavigate }) {
             </div>
             <button onClick={()=>setShowAddComp(o=>!o)} style={{ padding:'8px 16px', borderRadius:10, fontSize:12, fontWeight:700, cursor:'pointer', background:'rgba(93,162,255,0.12)', border:'1px solid rgba(93,162,255,0.25)', color:'var(--accent)', flexShrink:0, marginLeft:10 }}>+ Add competitor</button>
           </div>
-          {showAddComp && <AddCompetitorForm onAdd={c=>{setCompetitors(p=>[...p,c]);setShowAddComp(false);}} onClose={()=>setShowAddComp(false)}/>}
+          {showAddComp && <AddCompetitorForm onAdd={c=>{const next=[...competitors,c];setCompetitors(next);save(next,keywords);setShowAddComp(false);}} onClose={()=>setShowAddComp(false)}/>}
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))', gap:12 }}>
             {competitors.map(comp => <CompetitorCard key={comp.id} comp={comp} onRemove={removeComp} onToggleTrack={toggleTrack}/>)}
           </div>
