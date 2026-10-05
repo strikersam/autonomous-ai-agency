@@ -54,3 +54,13 @@ test('a failed sync is surfaced, not swallowed', async () => {
   fireEvent.click(screen.getByText('+ Add'));
   expect(await screen.findByText(/could not sync/)).toBeInTheDocument();
 });
+
+test('briefing request is bounded and a timeout shows an error', async () => {
+  api.chatSend.mockRejectedValue(Object.assign(new Error('timeout of 95000ms exceeded'), { code: 'ECONNABORTED' }));
+  render(<IntelligenceScreen />);
+  fireEvent.click(screen.getByRole('button', { name: /Run analysis/ }));
+  expect(await screen.findByText(/took too long/)).toBeInTheDocument();
+  const cfg = api.chatSend.mock.calls[0][10];
+  expect(cfg.timeout).toBeGreaterThan(0);
+  expect(cfg.timeout).toBeLessThan(100000);
+});

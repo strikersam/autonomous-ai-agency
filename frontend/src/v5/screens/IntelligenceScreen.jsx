@@ -6,6 +6,9 @@ import { COMPANY_ID_KEY } from './CompanyScreen';
 // intelligence.jsx — Commerce Intelligence
 // Competitor monitoring + trend scanning with live AI analysis via /api/chat/send
 
+// Stay under the ~100s hosted-edge cutoff so a stalled provider shows an error instead of spinning forever.
+const BRIEFING_TIMEOUT_MS = 95000;
+
 const DEFAULT_KEYWORDS = [
   { id:'k-default-1', keyword:'AI shopping assistants',   category:'AI & Commerce', tracked:true },
   { id:'k-default-2', keyword:'checkout conversion rate', category:'Conversion',    tracked:true },
@@ -68,13 +71,15 @@ Provide a concise, actionable intelligence briefing covering:
 
 Keep it sharp, practical, and under 300 words. No fluff. Write in plain English for a non-technical founder.`;
 
-      const { data } = await api.chatSend(prompt, null, null, null, null, false);
+      const { data } = await api.chatSend(prompt, null, null, null, null, false, false, null, null, null, { timeout: BRIEFING_TIMEOUT_MS });
       const result = data?.response || '';
       if (!result) throw new Error('No response from AI.');
       setAnalysis(result);
       setGenerated(true);
     } catch (e) {
-      const errMsg = e?.response?.data?.detail ? api.fmtErr(e.response.data.detail) : (e?.message || 'Unknown error');
+      const errMsg = e?.code === 'ECONNABORTED'
+        ? 'The AI provider took too long to answer. Try again in a moment.'
+        : e?.response?.data?.detail ? api.fmtErr(e.response.data.detail) : (e?.message || 'Unknown error');
       setError('Could not generate analysis: ' + errMsg);
     } finally {
       setLoading(false);
