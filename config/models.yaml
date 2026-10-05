@@ -380,8 +380,8 @@ providers:
       # Opus 5 at the same capability tier. Placed first.
       - claude-opus-5-5
       - claude-opus-5
-      # Added 2026-09-29: Sonnet 5.5 (released 2026-09-29) — 20% cheaper than
-      # Sonnet 5 at $1.6/$8 per MTok. Placed before claude-sonnet-5.
+      # Added 2026-09-29: Sonnet 5.5 (released 2026-09-29) — same $2/$10 per
+      # MTok as Sonnet 5. Placed before claude-sonnet-5.
       - claude-sonnet-5-5
       - claude-sonnet-5
       - claude-fable-5
