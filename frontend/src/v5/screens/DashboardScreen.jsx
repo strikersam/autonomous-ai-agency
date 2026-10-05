@@ -483,6 +483,8 @@ function DashboardScreen() {
     stats:     '/api/stats',
     activity:  '/api/activity?limit=8',
     metrics:   '/api/observability/metrics',
+    // /metrics has no time series; the daily request buckets live on /savings.
+    usageTrend: '/api/observability/savings?period=week&bucket=day',
     providers: '/api/providers',
     tasks:     '/api/tasks/',
     rateLimits: '/api/metrics/rate-limits',
@@ -552,7 +554,8 @@ function DashboardScreen() {
     const tokens = s.total_tokens || 0;
     // Real time-series for the request-volume sparkline (observability metrics
     // expose `time_series` / `buckets`; fall back gracefully if absent).
-    const series = m.time_series || m.buckets || [];
+    const t = data.usageTrend || {};
+    const series = t.time_series || t.buckets || m.time_series || m.buckets || [];
     const trend = Array.isArray(series) ? series.map((b) => Number(b.requests) || 0) : [];
     return {
       saved: `$${saved.toFixed(2)}`,
@@ -562,7 +565,7 @@ function DashboardScreen() {
       localRatio: null, // no cloud/local split in metrics yet — bar hidden
       trend,
     };
-  }, [data.metrics]);
+  }, [data.metrics, data.usageTrend]);
 
   // Task status breakdown for the distribution donut.
   const taskBreakdown = React.useMemo(() => {

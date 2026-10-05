@@ -105,3 +105,19 @@ describe('DashboardScreen spend-by-task-type widget', () => {
     expect(screen.getByText(/\$0\.0123 est\. spend/)).toBeInTheDocument();
   });
 });
+
+describe('DashboardScreen request-volume trend', () => {
+  test('draws the sparkline from /api/observability/savings daily buckets', () => {
+    useSafeData.mockReturnValue([
+      {
+        // /metrics has no time series — only summary + traces
+        metrics: { summary_24h: { total_requests: 9, total_tokens: 900, total_savings_usd: 0 }, recent_traces: [] },
+        usageTrend: { time_series: [{ requests: 2 }, { requests: 5 }, { requests: 2 }] },
+      },
+      new Proxy({}, { get: () => idle }),
+      jest.fn(),
+    ]);
+    render(<DashboardScreen />);
+    expect(screen.getByText('3 buckets')).toBeInTheDocument();
+  });
+});
