@@ -41,6 +41,12 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "mistralai/mistral-nemotron": (0.0, 0.0),
     # Nemotron 3 Ultra 550B on NVIDIA NIM — intermittent (404'd on some probes).
     "nvidia/nemotron-3-ultra-550b-a55b": (0.0, 0.0),
+    # Nemotron 3.5 Lightning 30B-A3B on NVIDIA NIM — MoE + Mamba-2 + Attention
+    # hybrid; 30B total / 3B active params; 1M-token context; free on NIM.
+    # Returned 404 on 2026-08-28 account probe (model may have launched later).
+    # Re-probe before adding to routing candidates.
+    # Source: build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b, 2026-10-06.
+    "nvidia/nemotron-3.5-lightning-30b-a3b": (0.0, 0.0),
     # DeepSeek V4 Pro — live in NIM catalog Aug 2026 (free tier).
     "deepseek-ai/deepseek-v4-pro": (0.0, 0.0),
     # --- TokenIn (tokenin.my.id, free frontier gateway) ---
@@ -165,6 +171,15 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "gpt-6-astra": (10.0, 50.0),           # Astra: frontier reasoning, $10/$50 per MTok (released Sept 4)
     "gpt-6-luna": (0.1, 0.5),              # Luna: fast/high-volume, $0.1/$0.5 per MTok (released Sept 22)
     "gpt-6.1-sol": (2.0, 10.0),            # gpt-6.1-sol: $2/$10 per MTok (released Sept 29)
+    # --- xAI / Grok ---
+    # Grok 4.7 released 2026-09-21. $2.00/$6.00 per MTok (<200K tier);
+    # 500K context window. xAI's recommended model for coding and agents.
+    # No xAI gateway provider in this deployment yet — reach via direct
+    # xAI API (model id: grok-4.7) or OpenRouter (x-ai/grok-4.7).
+    # Sources: docs.x.ai/developers/grok-4-7, eesel.ai/blog/grok-4-7-pricing,
+    # openrouter.ai/x-ai/grok-4.7, 2026-10-06.
+    "grok-4.7": (2.0, 6.0),
+    "x-ai/grok-4.7": (2.0, 6.0),
     "gpt-4o": (2.5, 10.0),
     "gpt-4o-mini": (0.15, 0.6),
     "o1": (15.0, 60.0),

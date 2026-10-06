@@ -1372,3 +1372,46 @@ models:
     output_cost_per_1m: 1.68
     priority: 60
     speed_tier: slow
+
+  # ---------------------------------------------------------------------------
+  # xAI / Grok 4.7 (added 2026-10-06)
+  # Released 2026-09-21. Recommended by xAI for coding and agents.
+  # 500K-token context. Pricing: $2.00/$6.00 per MTok (<200K tier).
+  # priority: 99 — explicit-only; no xAI gateway provider wired yet.
+  # Sources: docs.x.ai/developers/grok-4-7, openrouter.ai/x-ai/grok-4.7.
+  # ---------------------------------------------------------------------------
+  grok-4.7:
+    provider: openrouter
+    display_name: Grok 4.7 (xAI)
+    context_window: 524288
+    max_output_tokens: 32768
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 2.0
+    output_cost_per_1m: 6.0
+    priority: 99
+    speed_tier: fast
+
+  # ---------------------------------------------------------------------------
+  # NVIDIA Nemotron 3.5 Lightning 30B-A3B (added 2026-10-06)
+  # MoE + Mamba-2 + Attention hybrid; 30B total / 3B active params.
+  # 1M-token context window; free on NVIDIA NIM.
+  # Returned 404 on 2026-08-28 account probe — re-probe before routing.
+  # priority: 99 — explicit-only until live-probed on this account.
+  # Source: build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b, 2026-10-06.
+  # ---------------------------------------------------------------------------
+  nvidia/nemotron-3.5-lightning-30b-a3b:
+    provider: nvidia
+    display_name: Nemotron 3.5 Lightning 30B-A3B (NVIDIA NIM)
+    context_window: 1048576
+    max_output_tokens: 65536
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
+    priority: 99
+    speed_tier: fast
