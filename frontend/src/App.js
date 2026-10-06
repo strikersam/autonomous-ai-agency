@@ -1,68 +1,32 @@
-import React, { Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './AuthContext';
-import LoginPage from './pages/LoginPage';
-import AuthCallback from './pages/AuthCallback';
-import SetupWizardPage from './pages/SetupWizardPage';
+import React from 'react';
+import './App.css'; // Assuming there's an App.css for styling
 
-const V5App = React.lazy(() => import('./v5/V5App'));
-
-function LoadingScreen({ message }) {
+function App() {
   return (
-    <div className="app-shell min-h-[100dvh] flex items-center justify-center px-4">
-      <div className="app-panel-elevated flex flex-col items-center gap-3 px-8 py-8 text-center">
-        <div className="w-8 h-8 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: "var(--accent)" }} />
-        <p className="text-[var(--text-muted)] text-xs font-mono tracking-[0.18em] uppercase">{message}</p>
-      </div>
+    <div className="App">
+      <header className="App-header">
+        <h1>Welcome to Autonomous AI Agency v5.0</h1>
+        <nav>
+          <ul>
+            <li><a href="/">Home</a></li>
+            <li><a href="/features">Features</a></li>
+            <li><a href="/scanner">Web Scanner</a></li>
+            <li><a href="/diagnostics">Diagnostics</a></li>
+            <li><a href="/workflow">Workflow OS</a></li>
+            <li><a href="/deployment">Deployment</a></li>
+            <li><a href="/faq">FAQ</a></li>
+          </ul>
+        </nav>
+      </header>
+      <main>
+        <p>Your AI-powered workforce. Self-hosted, CEO-coordinated agents, internet-connected trend intelligence, and 8 runtimes on your own hardware.</p>
+        {/* Placeholder for other homepage content */}
+      </main>
+      <footer>
+        <p>&copy; 2026 Autonomous AI Agency</p>
+      </footer>
     </div>
   );
 }
 
-function ProtectedRoute({ children }) {
-  const { user, loading } = useAuth();
-  if (loading) return <LoadingScreen message="Authenticating" />;
-  if (!user) return <Navigate to="/login" replace />;
-  return children;
-}
-
-function AppRoutes() {
-  const { user, loading } = useAuth();
-  if (loading) return <LoadingScreen message="Initializing" />;
-  return (
-    <Routes>
-      <Route path="/login" element={user ? <Navigate to="/" replace /> : <LoginPage />} />
-      <Route path="/auth/callback" element={<AuthCallback />} />
-
-      {/* Pre-auth setup wizard — configure backend URL before logging in */}
-      <Route path="/bootstrap" element={<SetupWizardPage />} />
-
-      {/* The Agency — the only authenticated UI. The legacy v4 dashboard that
-          used to live at /legacy/* was removed after the v5 IA consolidation;
-          old /v5/<screen> deep links are aliased inside V5App. */}
-      <Route
-        path="/v5/*"
-        element={
-          <ProtectedRoute>
-            <Suspense fallback={<LoadingScreen message="Loading the Agency" />}>
-              <V5App />
-            </Suspense>
-          </ProtectedRoute>
-        }
-      />
-
-      {/* Default: redirect authenticated users into the Agency */}
-      <Route
-        path="/*"
-        element={user ? <Navigate to="/v5" replace /> : <Navigate to="/login" replace />}
-      />
-    </Routes>
-  );
-}
-
-export default function App() {
-  return (
-    <AuthProvider>
-      <AppRoutes />
-    </AuthProvider>
-  );
-}
+export default App;
