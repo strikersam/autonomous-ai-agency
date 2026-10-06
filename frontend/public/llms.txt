@@ -1,0 +1,17 @@
+# Autonomous AI Agency
+
+> A self-hosted, OpenAI-compatible AI proxy and multi-agent platform. Paste a website URL to get an audit; a CEO agent and a fleet of specialist agents then plan, write code, test it and open pull requests for human approval. MIT licensed, runs on your own servers and models.
+
+## Links
+
+- [Live dashboard](https://autonomous-ai-agency.strikersam.workers.dev/): the hosted instance of this app
+- [Source code](https://github.com/strikersam/autonomous-ai-agency): README, setup and architecture
+- [Changelog](https://github.com/strikersam/autonomous-ai-agency/blob/master/CHANGELOG.md)
+- [Releases](https://github.com/strikersam/autonomous-ai-agency/releases)
+
+## What it does
+
+- OpenAI-compatible `/v1/*`, Anthropic `/v1/messages` and Ollama `/api/*` endpoints with Bearer-token auth, rate limiting and model routing
+- Plan, execute, verify agent loop driving a CEO-coordinated fleet of specialist agents
+- Provider failover across NVIDIA NIM, Cerebras, Groq and Ollama
+- React admin dashboard for companies, specialists, tasks, governance and system health
