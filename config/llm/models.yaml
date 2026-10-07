@@ -1372,3 +1372,25 @@ models:
     output_cost_per_1m: 1.68
     priority: 60
     speed_tier: slow
+
+  # ---------------------------------------------------------------------------
+  # xAI / Grok 4.7 (added 2026-10-06)
+  # Released 2026-09-21. Recommended by xAI for coding and agents.
+  # 500K-token context. Pricing: $2.00/$6.00 per MTok (<200K tier).
+  # priority: 99 — explicit-only; no xAI gateway provider wired yet.
+  # Sources: docs.x.ai/developers/grok-4-7, openrouter.ai/x-ai/grok-4.7.
+  # ---------------------------------------------------------------------------
+  grok-4.7:
+    provider: openrouter
+    display_name: Grok 4.7 (xAI)
+    context_window: 524288
+    max_output_tokens: 32768
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 2.0
+    output_cost_per_1m: 6.0
+    priority: 99
+    speed_tier: fast
+
