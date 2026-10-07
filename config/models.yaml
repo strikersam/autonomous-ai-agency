@@ -99,9 +99,6 @@ providers:
       # mistralai/mistral-nemotron and openai/gpt-oss-120b removed 2026-10-01: NVIDIA
       # answers HTTP 410 for both on every attempt (gpt-oss-120b stays on Groq).
       - openai/gpt-oss-20b
-      # llama-3.3-nemotron-super-49b-v1.5: added 2026-10-07; not yet probed on
-      # this account. 16K context, Llama 3.3 + Nemotron post-training, free NIM.
-      - nvidia/llama-3.3-nemotron-super-49b-v1.5
       # deepseek-ai/deepseek-v4.1-flash removed 2026-09-27: never probed, and
       # every production attempt timed out (5 of 5). Re-add after a live probe.
 

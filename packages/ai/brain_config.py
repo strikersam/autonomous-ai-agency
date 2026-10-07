@@ -371,9 +371,6 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         # mistralai/mistral-nemotron and openai/gpt-oss-120b removed 2026-10-01:
         # NVIDIA answers HTTP 410 for both (gpt-oss-120b is still served by Groq).
         "openai/gpt-oss-20b",
-        # llama-3.3-nemotron-super-49b-v1.5: added 2026-10-07; not yet probed.
-        # 16K context, Llama 3.3 base + Nemotron post-training, free on NVIDIA NIM.
-        "nvidia/llama-3.3-nemotron-super-49b-v1.5",
         # deepseek-ai/deepseek-v4.1-flash removed 2026-09-27: never probed, and
         # every production attempt timed out. Mirrors config/models.yaml.
     ],

@@ -106,21 +106,6 @@ models:
     priority: 34
     speed_tier: slow
 
-  # Llama 3.3 Nemotron Super 49B v1.5: NVIDIA NIM free model added 2026-10-07.
-  # Llama 3.3 base with Nemotron post-training. 16K context. Not yet probed on
-  # this account — capabilities are conservative floors (tools: false). Source:
-  # build.nvidia.com/models free catalog and the NVIDIA NIM 2026 free API guide.
-  # Re-probe via catalogue-probe.yml before raising supports_tools to true.
-  nvidia/llama-3.3-nemotron-super-49b-v1.5:
-    provider: nvidia
-    display_name: Llama 3.3 Nemotron Super 49B v1.5 (NVIDIA NIM)
-    context_window: 16384
-    supports_tools: false           # not yet probed on this account
-    supports_function_calling: false
-    supports_streaming: true
-    priority: 33
-    speed_tier: fast                # 49B smaller than 120b — expect lower latency
-
   # deepseek-ai/deepseek-v4.1-flash was declared here on 2026-09-22 without a
   # live probe. In production on 2026-09-27 every attempt to it timed out at
   # the 60s cap (5 of 5), and its declared 1M-token window put it first for

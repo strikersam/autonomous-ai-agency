@@ -4,16 +4,14 @@
 
 **What ran:** Daily 9 AM automation. Researched AI ecosystem developments since 2026-10-06.
 
-**What shipped:** PR [#1697](https://github.com/strikersam/autonomous-ai-agency/pull/1697) — `feat(models): NVIDIA NIM Nemotron 49B + Groq prompt-caching cost fractions`
-- `config/llm/models.yaml`: `nvidia/llama-3.3-nemotron-super-49b-v1.5` declared (priority 33, tools: false, 16K ctx)
-- `config/models.yaml` + `packages/ai/brain_config.py`: added to NVIDIA candidates
+**What shipped:** PR [#1697](https://github.com/strikersam/autonomous-ai-agency/pull/1697) — `feat(models): Groq prompt-caching cost fractions` (the proposed Nemotron 49B addition was dropped in review: the id is on RETIRED)
 - `packages/ai/cost_tracker.py`: `qwen/` and `meta-llama/` added to `_CACHE_READ_FRACTIONS` (50 % Groq cache discount)
-- `tests/test_daily_automation_2026_10_07.py`: 22 tests, all green
+- `tests/test_daily_automation_2026_10_07.py`: 9 tests, all green
 - Auto-merge armed (squash)
 
 ## Open items for next daily run
 
-1. **Probe NVIDIA NIM `nvidia/llama-3.3-nemotron-super-49b-v1.5`** — if the account has it live, raise `supports_tools: true` after a successful tool-call probe and lower priority.
+1. **Do not re-add retired ids.** Before proposing any model, check `RETIRED` in `tests/test_nvidia_default_model.py` and the retired comments in `config/models.yaml`; `nvidia/llama-3.3-nemotron-super-49b-v1.5` (2026-10-07) and `nvidia/nemotron-3.5-lightning-30b-a3b` (2026-10-06) were both proposed and rejected for this.
 
 2. **GPT model deprecations (Oct 23, 2026)**: `gpt-3.5-turbo-0125`, `gpt-4-0613`, `gpt-4-1106-preview` are being retired by OpenAI on 2026-10-23. Check if these IDs are in the repo's routing candidates and add a deprecation note if so.
 
