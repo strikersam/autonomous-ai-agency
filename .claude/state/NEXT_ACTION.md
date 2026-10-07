@@ -1,3 +1,26 @@
+# NEXT_ACTION — updated 2026-10-07
+
+## Last session (2026-10-07, daily automation)
+
+**What ran:** Daily 9 AM automation. Researched AI ecosystem developments since 2026-10-06.
+
+**What shipped:** PR [#1697](https://github.com/strikersam/autonomous-ai-agency/pull/1697) — `feat(models): NVIDIA NIM Nemotron 49B + Groq prompt-caching cost fractions`
+- `config/llm/models.yaml`: `nvidia/llama-3.3-nemotron-super-49b-v1.5` declared (priority 33, tools: false, 16K ctx)
+- `config/models.yaml` + `packages/ai/brain_config.py`: added to NVIDIA candidates
+- `packages/ai/cost_tracker.py`: `qwen/` and `meta-llama/` added to `_CACHE_READ_FRACTIONS` (50 % Groq cache discount)
+- `tests/test_daily_automation_2026_10_07.py`: 22 tests, all green
+- Auto-merge armed (squash)
+
+## Open items for next daily run
+
+1. **Probe NVIDIA NIM `nvidia/llama-3.3-nemotron-super-49b-v1.5`** — if the account has it live, raise `supports_tools: true` after a successful tool-call probe and lower priority.
+
+2. **GPT model deprecations (Oct 23, 2026)**: `gpt-3.5-turbo-0125`, `gpt-4-0613`, `gpt-4-1106-preview` are being retired by OpenAI on 2026-10-23. Check if these IDs are in the repo's routing candidates and add a deprecation note if so.
+
+3. **Groq Llama 4 Scout probe** (`meta-llama/llama-4-scout-17b-16e-instruct`) — move to active routing if probe passes (currently explicit-only, priority 99).
+
+4. **Cerebras `qwen3-235b` preview** — Cerebras account currently returns 402; add as a conservative candidate once the model answers HTTP 200.
+
 # NEXT_ACTION — updated 2026-10-05
 
 **Updated:** 2026-10-05 (daily routine, branch `routine/daily-2026-10-05`)
