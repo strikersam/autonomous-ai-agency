@@ -41,12 +41,6 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "mistralai/mistral-nemotron": (0.0, 0.0),
     # Nemotron 3 Ultra 550B on NVIDIA NIM — intermittent (404'd on some probes).
     "nvidia/nemotron-3-ultra-550b-a55b": (0.0, 0.0),
-    # Nemotron 3.5 Lightning 30B-A3B on NVIDIA NIM — MoE + Mamba-2 + Attention
-    # hybrid; 30B total / 3B active params; 1M-token context; free on NIM.
-    # Returned 404 on 2026-08-28 account probe (model may have launched later).
-    # Re-probe before adding to routing candidates.
-    # Source: build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b, 2026-10-06.
-    "nvidia/nemotron-3.5-lightning-30b-a3b": (0.0, 0.0),
     # DeepSeek V4 Pro — live in NIM catalog Aug 2026 (free tier).
     "deepseek-ai/deepseek-v4-pro": (0.0, 0.0),
     # --- TokenIn (tokenin.my.id, free frontier gateway) ---

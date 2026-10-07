@@ -1,17 +1,12 @@
 """tests/test_daily_automation_2026_10_06.py — Daily automation 2026-10-06.
 
-Two model additions:
+One model addition:
 
 1. **Grok 4.7** (xAI, released 2026-09-21) — added to ``packages/ai/cost_tracker.py``
    and ``config/llm/models.yaml`` (priority 99, explicit-only; no xAI gateway
    provider wired yet). Pricing: $2.00/$6.00 per MTok, 500K context.
    Sources: docs.x.ai/developers/grok-4-7, openrouter.ai/x-ai/grok-4.7.
 
-2. **Nemotron 3.5 Lightning 30B-A3B** (NVIDIA NIM, free tier) — MoE + Mamba-2 +
-   Attention hybrid; 30B total / 3B active params; 1M-token context. Added to
-   ``packages/ai/cost_tracker.py`` (free, $0/$0) and ``config/llm/models.yaml``
-   (priority 99, explicit-only; returned 404 on 2026-08-28 account probe).
-   Source: build.nvidia.com/nvidia/nemotron-3.5-lightning-30b-a3b.
 """
 from __future__ import annotations
 
@@ -118,65 +113,6 @@ class TestGrok47ModelsYaml:
 
     def test_grok_47_output_cost(self, llm_models):
         assert llm_models["grok-4.7"]["output_cost_per_1m"] == pytest.approx(6.0)
-
-
-# ---------------------------------------------------------------------------
-# Nemotron 3.5 Lightning — cost entry
-# ---------------------------------------------------------------------------
-
-class TestNemotron35LightningCostEntry:
-    MODEL_ID = "nvidia/nemotron-3.5-lightning-30b-a3b"
-
-    def test_nemotron_lightning_free_input(self, ct):
-        cost = ct.cost_for_tokens(self.MODEL_ID, 1_000_000, 0)
-        assert cost == pytest.approx(0.0), (
-            "nemotron-3.5-lightning-30b-a3b is free on NVIDIA NIM"
-        )
-
-    def test_nemotron_lightning_free_output(self, ct):
-        cost = ct.cost_for_tokens(self.MODEL_ID, 0, 1_000_000)
-        assert cost == pytest.approx(0.0)
-
-    def test_nemotron_lightning_cheaper_than_super(self, ct):
-        """Both are free on NIM; the cost entry must not accidentally charge more
-        than the default Nemotron 3 Super."""
-        lightning = ct.cost_for_tokens(self.MODEL_ID, 1_000_000, 1_000_000)
-        sup = ct.cost_for_tokens("nvidia/nemotron-3-super-120b-a12b", 1_000_000, 1_000_000)
-        assert lightning <= sup, "Lightning NIM cost must not exceed Super NIM cost"
-
-
-# ---------------------------------------------------------------------------
-# Nemotron 3.5 Lightning — models.yaml declaration
-# ---------------------------------------------------------------------------
-
-class TestNemotron35LightningModelsYaml:
-    MODEL_ID = "nvidia/nemotron-3.5-lightning-30b-a3b"
-
-    def test_lightning_declared(self, llm_models):
-        assert self.MODEL_ID in llm_models, (
-            "nvidia/nemotron-3.5-lightning-30b-a3b must be in config/llm/models.yaml"
-        )
-
-    def test_lightning_provider(self, llm_models):
-        assert llm_models[self.MODEL_ID]["provider"] == "nvidia"
-
-    def test_lightning_context_window(self, llm_models):
-        m = llm_models[self.MODEL_ID]
-        assert m["context_window"] >= 1_000_000, (
-            "Nemotron 3.5 Lightning has a 1M-token context window"
-        )
-
-    def test_lightning_priority_explicit_only(self, llm_models):
-        """Returned 404 on 2026-08-28 probe; keep explicit-only until re-probed."""
-        assert llm_models[self.MODEL_ID]["priority"] == 99
-
-    def test_lightning_free_cost(self, llm_models):
-        m = llm_models[self.MODEL_ID]
-        assert m["input_cost_per_1m"] == pytest.approx(0.0)
-        assert m["output_cost_per_1m"] == pytest.approx(0.0)
-
-    def test_lightning_supports_tools(self, llm_models):
-        assert llm_models[self.MODEL_ID].get("supports_tools") is True
 
 
 # ---------------------------------------------------------------------------
