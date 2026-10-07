@@ -290,6 +290,9 @@ _COST_TABLE: dict[str, tuple[float, float]] = _build_cost_table()
 #     Opus 5.5              — 5 %   ($0.20/MTok on a $4/MTok input rate).
 # Google Gemini: cached content billed at 25 % of the input rate (ai.google.dev/gemini-api/docs/caching).
 # DeepSeek API: cache hit at 1/50th of the input rate (api-docs.deepseek.com/quick_start/pricing).
+# Groq: implicit caching (automatic, 5-min TTL) discounts repeat inputs 50 %
+#   (console.groq.com/docs/prompt-caching, 2026-07).  Applies to qwen/ and
+#   meta-llama/ ids (the free openai/gpt-oss-* ids cost $0, fraction is moot).
 # Per-model overrides must appear before the generic "claude-" prefix below.
 _CACHE_READ_FRACTIONS: tuple[tuple[str, float], ...] = (
     # Per-model Anthropic overrides (more-specific prefixes before "claude-").
@@ -302,6 +305,9 @@ _CACHE_READ_FRACTIONS: tuple[tuple[str, float], ...] = (
     ("deepseek-chat", 0.02),
     ("deepseek-reasoner", 0.02),
     ("deepseek-flash", 0.02),
+    # Groq: qwen/ and meta-llama/ are paid models with 50 % implicit cache discount.
+    ("qwen/", 0.50),
+    ("meta-llama/", 0.50),
 )
 
 

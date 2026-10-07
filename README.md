@@ -144,6 +144,8 @@ flowchart LR
 
 The full log is in [**docs/changelog.md**](docs/changelog.md). The highlights from the last few weeks:
 
+- 🆕 **NVIDIA NIM `llama-3.3-nemotron-super-49b-v1.5`** (2026-10-07). A new free fallback on NVIDIA's developer tier — Llama 3.3 base with Nemotron fine-tuning, 16K context, declared conservatively until a live probe. Expands NVIDIA headroom when the primary model is busy.
+- 💸 **Groq cached-token cost tracking** (2026-10-07). Groq's implicit prompt caching (50 % off cached inputs, automatic, no code change) is now reflected in `cost_for_tokens`, so the spend dashboard shows accurate costs for `qwen/qwen3.8-27b` and Llama 4 Scout requests that hit the cache.
 - 🤪 **SAM is the face of the agency** (2026-10-03). A floating avatar on every admin's screen that can brief you, delegate work, pick up portfolio work and run CEO triage. It knows which screen you're on, so "pick up the top one" means something. Delegated work fails closed, in chat and in realtime voice: anything not plainly internal waits for your approval. It's also the new logo.
 - 🏃 **No idle agents, and the portfolio drains** (2026-10-03). The dispatcher refills each free slot right away instead of waiting on its slowest task, and pulls in portfolio work whenever the queue is empty. Finished initiatives leave the board, duplicates are cleaned up, and failed work is retried before it waits for you.
 - 🔁 **It learns from its own sessions, hourly** (2026-10-03). Session retrospectives cluster failures that keep repeating and file them as improvement issues for the fix pipeline. No LLM cost.
