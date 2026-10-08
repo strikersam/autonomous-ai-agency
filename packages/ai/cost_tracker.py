@@ -138,6 +138,8 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "claude-opus-4-8": (5.0, 25.0),        # Opus 4.8 — $5/$25 per MTok (same tier as Opus 5)
     "claude-opus-4-7": (5.0, 25.0),        # Opus 4.7 — $5/$25 per MTok
     "claude-opus-4-6": (5.0, 25.0),        # Opus 4.6 — $5/$25 per MTok
+    "claude-haiku-5-5": (0.10, 0.50),       # Haiku 5.5 — $0.10/$0.50 per MTok (released 2026-10-07; 1M context, 128K output)
+    "claude-haiku-5-5-20261007": (0.10, 0.50),  # Haiku 5.5 versioned ID
     "claude-haiku-4-5-20251001": (1.0, 5.0),
     "claude-haiku-4-5": (1.0, 5.0),        # Haiku 4.5 — $1/$5 per MTok
     "claude-3-5-sonnet-20241022": (3.0, 15.0),
