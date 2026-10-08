@@ -51,6 +51,9 @@ uvicorn backend.server:app --host 0.0.0.0 --port 8001
 
 ### Frontend dev server fails to start (Node 22+)
 
+> **Historical (before 2026-10-08).** The frontend now builds with Vite and tests with Vitest; `react-scripts` is gone. Kept for anyone debugging an older checkout.
+
+
 **Symptom:** `npm start` in `frontend/` exits with `Invalid configuration object. Webpack has been initialized using a configuration object that does not match the API schema` mentioning `onAfterSetupMiddleware`.
 
 **Cause:** `react-scripts@5.0.1` bundles a version of `webpack-dev-server` that removed the `onAfterSetupMiddleware` option in newer releases.

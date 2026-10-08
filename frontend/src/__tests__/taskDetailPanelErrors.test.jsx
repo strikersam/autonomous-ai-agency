@@ -10,13 +10,13 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-jest.mock('../api', () => ({
-  getTask: jest.fn(),
-  updateTask: jest.fn(),
-  fetchSprints: jest.fn(),
-  fmtErr: jest.requireActual('../api').fmtErr,
+vi.mock('../api', async () => ({
+  getTask: vi.fn(),
+  updateTask: vi.fn(),
+  fetchSprints: vi.fn(),
+  fmtErr: (await vi.importActual('../api')).fmtErr,
 }));
-jest.mock('../v5/components/Charts', () => ({ ExecutionTimeline: () => null }));
+vi.mock('../v5/components/Charts', () => ({ ExecutionTimeline: () => null }));
 
 import * as api from '../api';
 import TaskDetailPanel from '../v5/screens/TaskDetailPanel';

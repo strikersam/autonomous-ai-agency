@@ -7,8 +7,8 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-jest.mock('../AuthContext', () => ({ useAuth: () => ({ login: jest.fn() }) }));
-jest.mock('../api', () => ({ fmtErr: (d) => d, getBackendUrl: () => '' }));
+vi.mock('../AuthContext', () => ({ useAuth: () => ({ login: vi.fn() }) }));
+vi.mock('../api', () => ({ fmtErr: (d) => d, getBackendUrl: () => '' }));
 
 import LoginPage from '../pages/LoginPage';
 

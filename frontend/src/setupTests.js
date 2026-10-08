@@ -1,5 +1,5 @@
-import '@testing-library/jest-dom';
+import '@testing-library/jest-dom/vitest';
+import { TextDecoder, TextEncoder } from 'util';
 
-const { TextEncoder, TextDecoder } = require('util');
 global.TextEncoder = TextEncoder;
 global.TextDecoder = TextDecoder;

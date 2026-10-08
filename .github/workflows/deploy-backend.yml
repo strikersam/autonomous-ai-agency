@@ -70,11 +70,20 @@ concurrency:
 
 jobs:
   deploy:
-    name: Trigger Render Deploy
+    name: Verify Render Deploy
     runs-on: ubuntu-latest
     # No additional permissions needed beyond the workflow-level read
+    #
+    # Render auto-deploys local-llm-server on every push to master
+    # (autoDeploy: yes, trigger: commit). This job used to POST the deploy hook
+    # as well, so every merge built and deployed the backend twice (Render
+    # events on 2026-10-08: one deploy with trigger new_commit, a second with
+    # trigger deploy_hook, same commit, the first immediately deactivated).
+    # On push it now only verifies that Render's own deploy of this commit goes
+    # live; a manual dispatch still triggers a deploy through the hook.
     steps:
       - name: Validate deploy hook secret is set
+        if: github.event_name == 'workflow_dispatch'
         run: |
           if [ -z "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
             echo "::error::RENDER_DEPLOY_HOOK_URL secret is missing."
@@ -83,6 +92,7 @@ jobs:
           fi
 
       - name: Trigger Render deployment
+        if: github.event_name == 'workflow_dispatch'
         run: |
           echo "Triggering Render deploy for commit ${{ github.sha }}"
           RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \

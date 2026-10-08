@@ -14,10 +14,10 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-jest.mock('../api', () => ({
-  getBrainProviders: jest.fn(),
-  setBrainProviderEnabled: jest.fn(),
-  fmtErr: jest.requireActual('../api').fmtErr,
+vi.mock('../api', async () => ({
+  getBrainProviders: vi.fn(),
+  setBrainProviderEnabled: vi.fn(),
+  fmtErr: (await vi.importActual('../api')).fmtErr,
 }));
 
 import * as api from '../api';
@@ -43,7 +43,7 @@ function respond({ providers, durable = true }) {
 }
 
 beforeEach(() => {
-  jest.clearAllMocks();
+  vi.clearAllMocks();
   api.setBrainProviderEnabled.mockResolvedValue({ data: {} });
 });
 

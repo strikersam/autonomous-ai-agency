@@ -26,7 +26,6 @@
  * that reads api.js as text and verifies the config. It does NOT make
  * real HTTP requests or use any real passwords/tokens.
  */
-const { describe, test, expect } = require('@jest/globals');
 
 const fs = require('fs');
 const path = require('path');

@@ -3,15 +3,15 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import LoginPage from '../pages/LoginPage';
 
-jest.mock('../AuthContext', () => ({
+vi.mock('../AuthContext', () => ({
   useAuth: () => ({
-    login: jest.fn(),
+    login: vi.fn(),
   }),
 }));
 
-jest.mock('../api', () => ({
-  fmtErr: jest.fn((value) => value ?? 'Something went wrong.'),
-  getBackendUrl: jest.fn(() => ''),
+vi.mock('../api', () => ({
+  fmtErr: vi.fn((value) => value ?? 'Something went wrong.'),
+  getBackendUrl: vi.fn(() => ''),
 }));
 
 describe('LoginPage', () => {

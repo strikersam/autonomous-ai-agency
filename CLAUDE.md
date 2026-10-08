@@ -247,12 +247,19 @@ test fails, fix the code, not the test.
 | Check | Command | Healthy output |
 |-------|---------|----------------|
 | Python tests | `pytest -x` | `N passed` and no `FAILED` line |
-| Frontend tests | `cd frontend && npm test -- --watchAll=false --forceExit` | `Tests: N passed, N total` |
-| Frontend build | `cd frontend && CI=true npm run build` | `The build folder is ready to be deployed.` |
+| Frontend tests | `cd frontend && npm test` (Vitest) | `Tests  N passed (N)` |
+| Frontend build | `cd frontend && npm run build` (Vite) | `✓ built in Ns`, output in `frontend/build/` |
 | Byte-compile | `python -m compileall -q .` | no output, exit 0 |
 | Changelog parity | `python scripts/check_changelog_parity.py` | `PARITY OK: bodies match …` |
 | Loop registry | `python agent/loop_registry.py audit --check` | `Drift: none — registry matches scheduled workflows on disk` |
 | Knowledge graph | `graphify update .` | `GRAPH_REPORT.md` "Built from commit" names your parent commit |
+
+**Render access.** In Claude Code sessions the MCP server named `render` often reports
+`CONNECTION_CLOSED`; the separate **Render connector** (`mcp__Render__*` tools, loaded via
+tool search) works. Use it before concluding Render is unreachable: workspace
+`tea-d7car44p3tds739qdrs0`, backend service `srv-d7cb43beo5us73e1leug` (`local-llm-server`).
+The backend deploys once per merge, from Render's own auto-deploy; `deploy-backend.yml`
+only verifies the commit goes live (and deploys on manual dispatch).
 
 ---
 

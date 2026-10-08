@@ -315,3 +315,26 @@ async def test_runner_commits_the_plan_and_shows_review_policy_to_the_judge(tmp_
     assert "docs/plans/agent/" in _git(root, "show", "--name-only", "--format=", shas[0])
     brief = await runner._judge_brief(plan, [{"status": "applied"}], ["c"])
     assert "Review policy (REVIEW.md in this repository):" in brief and "- Bugs" in brief
+
+
+async def test_runner_commits_without_any_git_identity(tmp_path, monkeypatch):
+    """#1704: with no user.name/email anywhere, `git commit` exited 128 and the
+    plan was silently left uncommitted; the runner now falls back to a bot identity."""
+    from agent.loop import AgentRunner
+
+    root, _ = _based_repo(tmp_path, {"a.txt": "0\n"}, {"a.txt": "1\n"})
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", "/dev/null")
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+    # Forbid git guessing an identity from the hostname, so the result is host-independent.
+    for key, value in {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "user.useConfigOnly",
+                       "GIT_CONFIG_VALUE_0": "true"}.items():
+        monkeypatch.setenv(key, value)
+    for var in ("GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"):
+        monkeypatch.delenv(var, raising=False)
+    runner = AgentRunner(ollama_base="http://localhost:1", workspace_root=str(root))
+    plan = AgentPlan(goal="tweak a", steps=[AgentStep(id=1, description="d", files=["a.txt"], type="edit")])
+    shas = await runner._commit_plan_artifact(plan)
+    assert len(shas) == 1
+    committer = subprocess.run(["git", "log", "-1", "--format=%cn <%ce>"], cwd=root,  # nosec B603 B607
+                               check=True, capture_output=True, text=True).stdout.strip()
+    assert committer == "Agency Bot <agency-bot@local-llm-server>"

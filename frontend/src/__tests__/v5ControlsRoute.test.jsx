@@ -13,19 +13,19 @@ import { MemoryRouter } from 'react-router-dom';
 import { NAV_ITEMS } from '../v5/AppShell';
 import { ALIASES } from '../v5/V5App';
 
-jest.mock('../AuthContext', () => ({
-  useAuth: () => ({ user: { role: 'admin', email: 'a@b.c' }, logout: jest.fn() }),
+vi.mock('../AuthContext', () => ({
+  useAuth: () => ({ user: { role: 'admin', email: 'a@b.c' }, logout: vi.fn() }),
 }));
 // The eager assistant pulls in the whole chat stack; this suite is about
 // routing, so the hubs are stubbed to keep it hermetic.
-jest.mock('../v5/screens/AssistantHub', () => () => <div>assistant</div>);
-jest.mock('../v5/screens/AlertsBell', () => () => null);
-jest.mock('../v5/screens/QuickNotesFAB', () => () => null);
-jest.mock('../v5/screens/ActivationGate', () => ({ children }) => <>{children}</>);
-jest.mock('../v5/screens/SettingsHub', () => ({ initialSection }) => <div>SETTINGS HUB: {initialSection}</div>);
-jest.mock('../v5/screens/DashboardScreen', () => () => <div>HOME</div>);
+vi.mock('../v5/screens/AssistantHub', () => ({ default: () => <div>assistant</div> }));
+vi.mock('../v5/screens/AlertsBell', () => ({ default: () => null }));
+vi.mock('../v5/screens/QuickNotesFAB', () => ({ default: () => null }));
+vi.mock('../v5/screens/ActivationGate', () => ({ default: ({ children }) => <>{children}</> }));
+vi.mock('../v5/screens/SettingsHub', () => ({ default: ({ initialSection }) => <div>SETTINGS HUB: {initialSection}</div> }));
+vi.mock('../v5/screens/DashboardScreen', () => ({ default: () => <div>HOME</div> }));
 
-const V5App = require('../v5/V5App').default;
+import V5App from '../v5/V5App';
 
 test('/v5/controls aliases into the Settings hub on the controls section', async () => {
   render(<MemoryRouter initialEntries={['/v5/controls']}><V5App /></MemoryRouter>);

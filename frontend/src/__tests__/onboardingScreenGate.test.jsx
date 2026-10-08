@@ -11,9 +11,9 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 
-jest.mock('../api', () => ({
-  getSetupState: jest.fn(),
-  getOnboardingProgress: jest.fn(),
+vi.mock('../api', () => ({
+  getSetupState: vi.fn(),
+  getOnboardingProgress: vi.fn(),
 }));
 
 import * as api from '../api';
@@ -21,7 +21,7 @@ import OnboardingScreen from '../v5/screens/OnboardingScreen';
 
 describe('OnboardingScreen access gate for non-admin users', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     try { localStorage.clear(); } catch { /* noop */ }
   });
 

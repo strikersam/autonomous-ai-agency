@@ -108,7 +108,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          node-version: "22"
 
       # A grouped npm update can leave frontend/package-lock.json out of sync
       # with package.json (#1541: "Missing: yaml@2.9.1 from lock file"), so

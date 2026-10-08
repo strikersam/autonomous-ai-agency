@@ -8,13 +8,12 @@ import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import SamVoiceScreen from '../v5/screens/SamVoiceScreen';
 
-jest.mock('../api', () => ({
-  __esModule: true,
-  default: { get: jest.fn(), post: jest.fn() },
+vi.mock('../api', () => ({
+  default: { get: vi.fn(), post: vi.fn() },
   fmtErr: (e) => String(e),
 }));
 
-const API = require('../api').default;
+import API from '../api';
 
 let ctxClose;
 let audioPlay;
@@ -27,17 +26,17 @@ function installBrowserMocks() {
   });
   window.requestAnimationFrame = () => 0;
   window.cancelAnimationFrame = () => {};
-  ctxClose = jest.fn(() => Promise.resolve());
-  window.AudioContext = jest.fn(() => ({
+  ctxClose = vi.fn(() => Promise.resolve());
+  window.AudioContext = vi.fn(function () { return {
     state: 'running',
     close: ctxClose,
     createMediaStreamSource: () => ({ connect: () => {} }),
     createAnalyser: () => ({ fftSize: 0, frequencyBinCount: 0, getByteFrequencyData: () => {} }),
-  }));
+  }; });
 
   Object.defineProperty(navigator, 'mediaDevices', {
     configurable: true,
-    value: { getUserMedia: jest.fn(() => Promise.resolve({ getTracks: () => [{ stop: () => {} }] })) },
+    value: { getUserMedia: vi.fn(() => Promise.resolve({ getTracks: () => [{ stop: () => {} }] })) },
   });
 
   class FakeRecorder {
@@ -52,15 +51,15 @@ function installBrowserMocks() {
   }
   window.MediaRecorder = FakeRecorder;
 
-  audioPlay = jest.fn(() => Promise.resolve());
-  window.Audio = jest.fn(() => ({ play: audioPlay }));
-  window.speechSynthesis = { speak: jest.fn(), cancel: jest.fn() };
-  window.SpeechSynthesisUtterance = jest.fn();
+  audioPlay = vi.fn(() => Promise.resolve());
+  window.Audio = vi.fn(function () { return { play: audioPlay }; });
+  window.speechSynthesis = { speak: vi.fn(), cancel: vi.fn() };
+  window.SpeechSynthesisUtterance = vi.fn(function () {});
 
-  window.webkitSpeechRecognition = jest.fn(() => {
+  window.webkitSpeechRecognition = vi.fn(function () {
     recognition = {
-      start: jest.fn(),
-      stop: jest.fn(() => {
+      start: vi.fn(),
+      stop: vi.fn(() => {
         recognition.onresult({ resultIndex: 0, results: [
           Object.assign([{ transcript: 'fix the alerts' }], { isFinal: true }),
           Object.assign([{ transcript: 'fix the alerts' }], { isFinal: true }), // iOS repeat
@@ -101,8 +100,8 @@ test('start tap leaves audio alone; stop tap unlocks it and sends one clean tran
 });
 
 test('an empty transcript tells the user instead of going silently idle', async () => {
-  window.webkitSpeechRecognition = jest.fn(() => {
-    recognition = { start: jest.fn(), stop: jest.fn(() => recognition.onend()) };
+  window.webkitSpeechRecognition = vi.fn(function () {
+    recognition = { start: vi.fn(), stop: vi.fn(() => recognition.onend()) };
     return recognition;
   });
   API.post.mockImplementation((url) => Promise.resolve({ data: url === '/agent/voice/transcribe' ? { text: '' } : {} }));

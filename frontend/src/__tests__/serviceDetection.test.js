@@ -17,18 +17,18 @@ import {
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
 // Mock the api module so getBackendUrl returns a controllable value
-jest.mock('../api', () => ({
-  getBackendUrl: jest.fn(() => ''),
+vi.mock('../api', () => ({
+  getBackendUrl: vi.fn(() => ''),
 }));
 
-const { getBackendUrl } = require('../api');
+import { getBackendUrl } from '../api';
 
 // Save original fetch
 const originalFetch = global.fetch;
 
 function mockFetch(responses) {
   // responses: Map of url-substring → { ok, status } | Error
-  global.fetch = jest.fn(async (url) => {
+  global.fetch = vi.fn(async (url) => {
     for (const [key, val] of Object.entries(responses)) {
       if (url.includes(key)) {
         if (val instanceof Error) throw val;
@@ -41,7 +41,7 @@ function mockFetch(responses) {
 
 afterEach(() => {
   global.fetch = originalFetch;
-  jest.clearAllMocks();
+  vi.clearAllMocks();
 });
 
 // ─── detectBackend ─────────────────────────────────────────────────────────────
