@@ -300,6 +300,21 @@ def _handler_params(handler: Any) -> frozenset[str]:
         return frozenset()
 
 
+_FALLBACK_GIT_IDENTITY = ["-c", "user.name=Agency Bot", "-c", "user.email=agency-bot@local-llm-server"]
+
+
+def _fallback_identity(root: Any) -> list[str]:
+    """Git ``-c`` args for a bot identity, only when git has no committer identity.
+
+    Without one ``git commit`` exits 128 and the step is silently not committed
+    (#1704). A configured identity, or GIT_AUTHOR_*/GIT_COMMITTER_* env, still wins.
+    """
+    probe = subprocess.run(  # nosec - constant git argv, list form (no shell)
+        ["git", "var", "GIT_COMMITTER_IDENT"], cwd=root, capture_output=True, text=True,
+    )
+    return [] if probe.returncode == 0 else list(_FALLBACK_GIT_IDENTITY)
+
+
 class AgentRunner:
     """GATE: Golden Path steps #7-12 — the primary agent execution loop.
 
@@ -2926,7 +2941,7 @@ class AgentRunner:
             # comma-separated list, so the B603,B607 form left B603 live.
             subprocess.run(["git", "add", *changed_files], cwd=self.tools.root, check=True, capture_output=True, text=True)  # nosec - constant git argv, list form (no shell)
             subprocess.run(  # nosec - constant git argv, list form (no shell)
-                ["git", "commit", "-m", f"agent: {description}"],
+                ["git", *_fallback_identity(self.tools.root), "commit", "-m", f"agent: {description}"],
                 cwd=self.tools.root,
                 check=True,
                 capture_output=True,
