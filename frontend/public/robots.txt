@@ -3,3 +3,6 @@ Allow: /
 Disallow: /api/
 Disallow: /v1/
 Disallow: /admin/
+Disallow: /v5/
+
+Sitemap: https://autonomous-ai-agency.strikersam.workers.dev/sitemap.xml

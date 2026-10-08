@@ -4,7 +4,8 @@
 
 ## Links
 
-- [Live dashboard](https://autonomous-ai-agency.strikersam.workers.dev/): the hosted instance of this app
+- [Home](https://autonomous-ai-agency.strikersam.workers.dev/): what the agency does, how it works, and the proof
+- [Live dashboard](https://autonomous-ai-agency.strikersam.workers.dev/login): sign in to the hosted instance
 - [Source code](https://github.com/strikersam/autonomous-ai-agency): README, setup and architecture
 - [Changelog](https://github.com/strikersam/autonomous-ai-agency/blob/master/CHANGELOG.md)
 - [Releases](https://github.com/strikersam/autonomous-ai-agency/releases)
