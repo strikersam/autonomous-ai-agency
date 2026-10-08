@@ -1,4 +1,4 @@
-"""Replay every recorded agent-PR incident against the pre-PR gate (tests/evals/gate_cases.yaml).
+"""Replay every recorded agent-PR incident against the pre-PR gate (tests/agent_evals/gate_cases.yaml).
 
 A change to the gate, the agents' prompts or CLAUDE.md that lets one of these
 through is a regression, whatever else it improves.

@@ -83,7 +83,7 @@ and the PR stays closed on any blocker:
 
 The PR body lists the plan, every check that ran with its result, and the judge's verdict. The plan is also committed as `docs/plans/agent/<date>-<slug>.md`, and the judge reviews against the target repository's `REVIEW.md` when it has one.
 
-Recorded agent-PR incidents are replayed against the gate by `tests/evals/` (`.github/workflows/agent-evals.yml`, nightly and on every change to CLAUDE.md, REVIEW.md, skills or prompts). Add a case to `tests/evals/gate_cases.yaml` for every new incident.
+Recorded agent-PR incidents are replayed against the gate by `tests/agent_evals/` (`.github/workflows/agent-evals.yml`, nightly and on every change to CLAUDE.md, REVIEW.md, skills or prompts). Add a case to `tests/agent_evals/gate_cases.yaml` for every new incident.
 
 ### Unlimited by default
 
