@@ -196,7 +196,7 @@ class TestClaudeMdGroqReference:
 
     def test_deepseek_r1_70b_not_sole_groq_reference(self) -> None:
         from pathlib import Path
-        content = (Path(__file__).parent.parent / "CLAUDE.md").read_text()
+        content = (Path(__file__).parent.parent / "docs" / "reference" / "repo-reference.md").read_text()
         # The old inaccurate claim was "Free fast LLM (`deepseek-r1-70b`)"
         # The updated line must mention the deprecation, not claim it as current
         assert "deprecated" in content.lower() or "gpt-oss-120b" in content, (
@@ -206,7 +206,7 @@ class TestClaudeMdGroqReference:
 
     def test_gpt_oss_mentioned_for_groq(self) -> None:
         from pathlib import Path
-        content = (Path(__file__).parent.parent / "CLAUDE.md").read_text()
+        content = (Path(__file__).parent.parent / "docs" / "reference" / "repo-reference.md").read_text()
         assert "gpt-oss-120b" in content, (
             "CLAUDE.md should mention gpt-oss-120b as the current Groq self-serve model"
         )

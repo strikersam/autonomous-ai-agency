@@ -56,6 +56,7 @@ CARRIERS = (
     "packages/ai/router.py",
     "packages/ai/cost_tracker.py",
     "CLAUDE.md",
+    "docs/reference/repo-reference.md",
 )
 
 

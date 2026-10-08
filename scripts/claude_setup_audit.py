@@ -50,14 +50,15 @@ def _check_claude_md_sections(path: Path) -> list[CheckResult]:
     results = []
     # Anchored on the structure the 2026-08 rules audit produced: §1 carries the
     # binding rules (coding, testing and changelog among them) and §2 the agent
-    # discipline both production prompt paths extract. The codebase map moved to
-    # AGENTS.md, so CLAUDE.md is checked for the bill of materials instead.
+    # discipline both production prompt paths extract. Reference material (bill of
+    # materials, architecture, env vars) moved to docs/reference/repo-reference.md on
+    # 2026-10-08, so CLAUDE.md is checked for the verification block and the pointer.
     required = [
         ("## 1. The Rules", "binding ruleset"),
         ("## 2. Standing Instructions", "agent discipline"),
         ("What this repo is", "purpose section"),
-        ("Bill of materials", "file map"),
-        ("Key commands", "commands cheatsheet"),
+        ("verifying your work", "verification commands"),
+        ("docs/reference/repo-reference.md", "reference pointer"),
         ("`CHANGELOG.md`", "changelog enforcement"),
     ]
     if not path.exists():

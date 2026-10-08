@@ -1,0 +1,29 @@
+# loops/bands.yaml — control bands for the closed maintenance loop.
+#
+# Detection is deterministic (scripts/control_bands.py, no model involved). A
+# breach writes an intent.md-shaped issue that enters the normal pipeline; the
+# tier decides what happens (AI-native SDLC playbook, Stage 6).
+#
+#   1sigma  log only (job summary)
+#   2sigma  diagnose: open or update one intent issue
+#   3sigma  propose: same issue, labelled priority
+#
+# Rules are Western Electric, upper side only (a rising failure rate is the
+# defect; a falling one is good news): one point beyond 3σ; two of three beyond
+# 2σ; four of five beyond 1σ; eight in a row above the mean.
+
+version: 1
+
+metrics:
+  - id: ci_test_failure_rate
+    description: Share of CI runs on master that failed, per UTC day
+    workflow: ci.yml
+    branch: master
+    baseline_days: 30      # rolling baseline window
+    recent_days: 8         # points evaluated against it
+    min_baseline_points: 14
+    sigma_floor: 0.02      # a perfectly quiet baseline must not make every blip 3σ
+    tiers:
+      1sigma: { action: log }
+      2sigma: { action: diagnose }
+      3sigma: { action: propose }

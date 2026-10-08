@@ -48,7 +48,7 @@ PROTECTED_PATHS: tuple[str, ...] = (
 # Paths whose change does not need a changelog entry.
 _NO_CHANGELOG = ("docs/*", ".claude/state/*", "graphify-out/*", "*.md")
 # Paths a plan does not have to name.
-_SCOPE_EXEMPT = (*_CHANGELOGS, "graphify-out/*", ".claude/state/*")
+_SCOPE_EXEMPT = (*_CHANGELOGS, "graphify-out/*", ".claude/state/*", "docs/plans/agent/*")
 
 # Suites that must pass whenever these paths change, whether or not the agent
 # touched a test. The model catalogue tests are what caught #1695 and #1697
@@ -191,6 +191,37 @@ def _check_destructive(ctx: _Ctx) -> None:
         ctx.report.evidence.append(f"size: +{added}/-{deleted} across {len(stats)} file(s), nothing gutted")
 
 
+_SKIP_MARKERS = re.compile(
+    r"pytest\.mark\.(skip|xfail)|pytest\.(skip|xfail)\(|unittest\.skip|"
+    r"\b(it|test|describe)\.skip\(|\bx(it|describe|test)\("
+)
+_ASSERTION = re.compile(r"^\s*(assert\b|self\.assert|expect\()")
+
+
+def _check_tests_not_weakened(ctx: _Ctx) -> None:
+    """An agent must not weaken the checks on its own work (playbook: protect the loop)."""
+    if not ctx.base_ref:
+        return
+    weakened: list[str] = []
+    for path in (f for f in ctx.changed if _is_test(f) or ".test." in f):
+        if _run(["git", "cat-file", "-e", f"{ctx.base_ref}:{path}"], ctx.root)[0] != 0:
+            continue  # a new test file cannot weaken an existing check
+        rc, out = _run(["git", "diff", "-U0", ctx.base_ref, "--", path], ctx.root)
+        if rc != 0:
+            continue
+        lines = [ln for ln in out.splitlines() if ln[:1] in "+-" and ln[:3] not in ("+++", "---")]
+        lost = sum(bool(_ASSERTION.match(ln[1:])) for ln in lines if ln[0] == "-")
+        gained = sum(bool(_ASSERTION.match(ln[1:])) for ln in lines if ln[0] == "+")
+        skips = sum(bool(_SKIP_MARKERS.search(ln)) for ln in lines if ln[0] == "+")
+        if lost > gained or skips:
+            weakened.append(f"{path} (assertions -{lost}/+{gained}, skips added: {skips})")
+    if weakened:
+        ctx.report.blockers.append(
+            "Existing tests were weakened: " + ", ".join(weakened)
+            + ". Fix the code, not the test; add new tests instead of loosening old ones."
+        )
+
+
 def _check_changelog(ctx: _Ctx) -> None:
     needs = [f for f in ctx.changed if not _is_test(f) and not _matches(f, _NO_CHANGELOG)
              and f not in _CHANGELOGS]
@@ -292,6 +323,7 @@ def run_pr_gate(
     _check_protected(ctx)
     _check_scope(ctx)
     _check_destructive(ctx)
+    _check_tests_not_weakened(ctx)
     if _check_python(ctx):
         _check_frontend(ctx)
         _check_changelog(ctx)
@@ -377,3 +409,33 @@ def render_pr_body(
             out.append(f"- notes: {str(judge['notes'])[:800]}")
     out += ["", "## Commits"] + [f"- `{c[:7]}`" for c in commits]
     return "\n".join(out)
+
+
+def review_policy(root: str | Path, max_chars: int = 4000) -> str:
+    """The target repository's REVIEW.md, if it has one, for the judge to review against."""
+    path = Path(root) / "REVIEW.md"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    return text if len(text) <= max_chars else text[:max_chars] + "\n… (truncated)"
+
+
+PLAN_DIR = "docs/plans/agent"
+
+
+def plan_artifact(plan: object, today: str) -> tuple[str, str]:
+    """The plan as a committed file (playbook: plan.md joins the audit trail the PR is checked against)."""
+    goal = str(getattr(plan, "goal", "") or "untitled")
+    slug = re.sub(r"[^a-z0-9]+", "-", goal.lower()).strip("-")[:60].rstrip("-") or "plan"
+    out = [f"# Plan: {goal}", "", f"Written by the agent on {today}; the PR is reviewed against it.", ""]
+    steps = list(getattr(plan, "steps", None) or [])
+    files = sorted({f for s in steps for f in s.files})
+    out += ["## Files that change"] + ([f"- `{f}`" for f in files] or ["- (none named)"]) + [""]
+    out += ["## Order of work"]
+    for s in steps:
+        done = f" Done when: {s.acceptance}" if getattr(s, "acceptance", "") else ""
+        out.append(f"{s.id}. {s.description}{done}")
+    risks = list(getattr(plan, "risks", None) or [])
+    out += ["", "## Risks"] + ([f"- {r}" for r in risks] or ["- (none recorded)"])
+    return f"{PLAN_DIR}/{today}-{slug}.md", "\n".join(out) + "\n"
