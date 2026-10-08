@@ -974,6 +974,49 @@ models:
     speed_tier: slow
     aliases: [opus5.5-20260922]
 
+  # ── Anthropic — Claude Haiku 5.5 (October 2026) ─────────────────────────
+  # Anthropic's cheapest and fastest Claude 5-generation model; replaces
+  # Haiku 4.5 for high-volume, latency-sensitive work.
+  # 1M-token context, 128K max output, adaptive thinking via effort parameter.
+  # Pricing: $0.10/$0.50 per MTok (base rate, prompts ≤100K tokens).
+  # Above 100K tokens the prompt rate rises 5× to $0.50/MTok input.
+  # Cache reads: $0.01/MTok (10 % of input rate — covered by generic "claude-"
+  # prefix in _CACHE_READ_FRACTIONS; no special override needed).
+  # Source: platform.claude.com/docs/en/models/haiku-5-5/overview, 2026-10-07.
+  claude-haiku-5-5:
+    provider: anthropic
+    display_name: Claude Haiku 5.5
+    context_window: 1048576
+    max_output_tokens: 128000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 0.10
+    output_cost_per_1m: 0.50
+    priority: 68
+    speed_tier: fast
+    aliases: [haiku5.5]
+
+  # Dated alias pinned to the October 7, 2026 Haiku 5.5 checkpoint.
+  claude-haiku-5-5-20261007:
+    provider: anthropic
+    display_name: Claude Haiku 5.5 (2026-10-07)
+    context_window: 1048576
+    max_output_tokens: 128000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 0.10
+    output_cost_per_1m: 0.50
+    priority: 69
+    speed_tier: fast
+
   # ── Anthropic — Claude 5 Mythos-class (gated) ────────────────────────────
   # Fable 5: most intelligent generally available Claude 5 model. Suspended
   # under US export-control directive (2026-06-12); requires
@@ -1372,3 +1415,25 @@ models:
     output_cost_per_1m: 1.68
     priority: 60
     speed_tier: slow
+
+  # ---------------------------------------------------------------------------
+  # xAI / Grok 4.7 (added 2026-10-06)
+  # Released 2026-09-21. Recommended by xAI for coding and agents.
+  # 500K-token context. Pricing: $2.00/$6.00 per MTok (<200K tier).
+  # priority: 99 — explicit-only; no xAI gateway provider wired yet.
+  # Sources: docs.x.ai/developers/grok-4-7, openrouter.ai/x-ai/grok-4.7.
+  # ---------------------------------------------------------------------------
+  grok-4.7:
+    provider: openrouter
+    display_name: Grok 4.7 (xAI)
+    context_window: 524288
+    max_output_tokens: 32768
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 2.0
+    output_cost_per_1m: 6.0
+    priority: 99
+    speed_tier: fast
+

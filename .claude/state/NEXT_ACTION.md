@@ -18,6 +18,11 @@
 3. **Groq Llama 4 Scout probe** (`meta-llama/llama-4-scout-17b-16e-instruct`) — move to active routing if probe passes (currently explicit-only, priority 99).
 
 4. **Cerebras `qwen3-235b` preview** — Cerebras account currently returns 402; add as a conservative candidate once the model answers HTTP 200.
+# NEXT_ACTION — updated 2026-10-08
+
+**Updated:** 2026-10-08 (daily automation, branch `claude/intelligent-gates-5vo4pc`)
+
+Claude Haiku 5.5 (`claude-haiku-5-5`) released 2026-10-07 — added to cost tracker and models.yaml. PR #1698 opened, awaiting CI and merge. Priority 68 (candidate only; add to routing presets after a live probe on this account confirms it answers correctly). Next daily run: check CI on #1698, then scan for further new model releases (Claude Haiku 5.5 also available on Amazon Bedrock and Google Cloud — if new model IDs are announced for those platforms, add them as aliases).
 
 # NEXT_ACTION — updated 2026-10-05
 
