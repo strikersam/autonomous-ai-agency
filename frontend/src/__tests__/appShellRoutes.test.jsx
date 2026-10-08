@@ -14,13 +14,13 @@ import React from 'react';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-jest.mock('../AuthContext', () => ({
+vi.mock('../AuthContext', () => ({
   AuthProvider: ({ children }) => <>{children}</>,
-  useAuth: () => ({ user: { role: 'admin', email: 'a@b.c' }, loading: false, logout: jest.fn() }),
+  useAuth: () => ({ user: { role: 'admin', email: 'a@b.c' }, loading: false, logout: vi.fn() }),
 }));
-jest.mock('../api', () => ({
-  getSetupState: jest.fn(() => Promise.resolve({ data: { completed: true } })),
-  getBackendUrl: jest.fn(() => ''),
+vi.mock('../api', () => ({
+  getSetupState: vi.fn(() => Promise.resolve({ data: { completed: true } })),
+  getBackendUrl: vi.fn(() => ''),
 }));
 // Suspends until `mockGate.open()`, so the route's Suspense fallback is
 // actually exercised. Jest hoists this factory above the file, hence the
@@ -31,15 +31,15 @@ const mockGate = (() => {
   return { promise, ready: false, open() { this.ready = true; release(); } };
 })();
 
-jest.mock('../v5/V5App', () => () => {
+vi.mock('../v5/V5App', () => ({ default: () => {
   if (!mockGate.ready) throw mockGate.promise;
   return <div>V5 SHELL</div>;
-});
-jest.mock('../pages/LoginPage', () => () => <div>login</div>);
-jest.mock('../pages/AuthCallback', () => () => <div>callback</div>);
-jest.mock('../pages/SetupWizardPage', () => () => <div>setup</div>);
+} }));
+vi.mock('../pages/LoginPage', () => ({ default: () => <div>login</div> }));
+vi.mock('../pages/AuthCallback', () => ({ default: () => <div>callback</div> }));
+vi.mock('../pages/SetupWizardPage', () => ({ default: () => <div>setup</div> }));
 
-const App = require('../App').default;
+import App from '../App';
 
 test('/v5/* shows the fallback while the chunk loads, then the shell', async () => {
   render(<MemoryRouter initialEntries={['/v5/work']}><App /></MemoryRouter>);

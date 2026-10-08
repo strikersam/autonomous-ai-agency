@@ -9,21 +9,21 @@
 import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
-jest.mock('../api', () => ({
+vi.mock('../api', () => ({
   __esModule: true,
-  getWorkflowRuns: jest.fn(),
-  getWorkflowRun: jest.fn(),
-  buildWorkflow: jest.fn(),
-  approveWorkflow: jest.fn(),
-  rejectWorkflow: jest.fn(),
-  cancelWorkflow: jest.fn(),
+  getWorkflowRuns: vi.fn(),
+  getWorkflowRun: vi.fn(),
+  buildWorkflow: vi.fn(),
+  approveWorkflow: vi.fn(),
+  rejectWorkflow: vi.fn(),
+  cancelWorkflow: vi.fn(),
   fmtErr: (d) => (typeof d === 'string' ? d : JSON.stringify(d)),
 }));
 
 import * as api from '../api';
 import WorkflowScreen from '../v5/screens/WorkflowScreen';
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => vi.clearAllMocks());
 
 test('approving an awaiting_approval run lifts the gate with the approver identity', async () => {
   api.getWorkflowRuns.mockResolvedValue({

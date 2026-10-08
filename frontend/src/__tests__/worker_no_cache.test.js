@@ -17,7 +17,6 @@
  * a deployment) — it tests the worker code that prevents the cache from
  * forming.
  */
-const { describe, test, expect } = require('@jest/globals');
 
 // Read the worker source + verify the no-cache headers are set
 const fs = require('fs');

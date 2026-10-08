@@ -17,13 +17,13 @@
 import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
-jest.mock('../api', () => ({
-  getGovernanceStatus: jest.fn(),
-  getGovernanceMetrics: jest.fn(),
-  getGovernanceAudit: jest.fn(),
-  getGovernanceApprovals: jest.fn(),
-  approveGovernanceRequest: jest.fn(),
-  denyGovernanceRequest: jest.fn(),
+vi.mock('../api', () => ({
+  getGovernanceStatus: vi.fn(),
+  getGovernanceMetrics: vi.fn(),
+  getGovernanceAudit: vi.fn(),
+  getGovernanceApprovals: vi.fn(),
+  approveGovernanceRequest: vi.fn(),
+  denyGovernanceRequest: vi.fn(),
 }));
 
 import * as api from '../api';
@@ -47,7 +47,7 @@ function mockAll({ status = OBSERVE_STATUS, metrics = { audit: { would_block: 0 
   api.getGovernanceApprovals.mockResolvedValue({ data: { approvals, count: approvals.length } });
 }
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => vi.clearAllMocks());
 
 test('renders the would-block count — the number that decides when enforce is safe', async () => {
   mockAll({ metrics: { audit: { would_block: 7 } } });

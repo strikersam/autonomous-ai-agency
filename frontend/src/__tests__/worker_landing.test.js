@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @vitest-environment node
  *
  * The Worker serves the static landing page (frontend/public/home.html) at "/"
  * and the SPA everywhere else. Crawlers that do not run JavaScript only ever saw
@@ -7,7 +7,7 @@
  */
 import worker from '../../../worker/index.js';
 
-// CRA's Jest node environment does not expose the Fetch API globals the Worker
+// The Vitest node environment may not expose the Fetch API globals the Worker
 // runtime has. These stand-ins cover exactly what worker/index.js uses.
 class FakeHeaders {
   constructor(init) {

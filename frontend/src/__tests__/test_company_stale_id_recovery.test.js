@@ -7,7 +7,6 @@
  * Source-inspection test — reads CompanyScreen.jsx as text + verifies
  * the 404 recovery logic exists.
  */
-const { describe, test, expect } = require('@jest/globals');
 
 const fs = require('fs');
 const path = require('path');

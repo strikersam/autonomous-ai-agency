@@ -10,14 +10,14 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import McpCard from '../v5/components/McpCard';
 
-jest.mock('../api', () => ({
+vi.mock('../api', () => ({
   fmtErr: (d) => (typeof d === 'string' ? d : ''),
-  getRenderHealth: jest.fn(),
-  getRenderOpsStatus: jest.fn(),
-  runRenderOpsScan: jest.fn(),
+  getRenderHealth: vi.fn(),
+  getRenderOpsStatus: vi.fn(),
+  runRenderOpsScan: vi.fn(),
 }));
 
-const api = require('../api');
+import * as api from '../api';
 
 const status = (over = {}) => ({
   enabled: true,
@@ -41,7 +41,7 @@ const health = (over = {}) => ({
 const view = () => render(<MemoryRouter><McpCard /></MemoryRouter>);
 
 beforeEach(() => {
-  jest.clearAllMocks();
+  vi.clearAllMocks();
   api.getRenderOpsStatus.mockResolvedValue({ data: status() });
   api.getRenderHealth.mockResolvedValue({ data: health() });
 });

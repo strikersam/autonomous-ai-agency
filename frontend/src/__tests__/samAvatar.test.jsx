@@ -9,16 +9,16 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-jest.mock('../api', () => ({
-  samAvatarConfig: jest.fn(),
-  samChat: jest.fn(),
+vi.mock('../api', () => ({
+  samAvatarConfig: vi.fn(),
+  samChat: vi.fn(),
 }));
 
 import * as api from '../api';
 import SamAvatar from '../v5/components/SamAvatar';
 import { setScreen, setSub } from '../v5/screenContext';
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => vi.clearAllMocks());
 
 test('stays hidden when the toggle is off', async () => {
   api.samAvatarConfig.mockResolvedValue({ data: { enabled: false, can_orchestrate: true } });

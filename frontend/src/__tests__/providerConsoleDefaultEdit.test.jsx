@@ -12,9 +12,9 @@ import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
-jest.mock('../api', () => ({
-  getLlmStatus: jest.fn(),
-  getLlmProviders: jest.fn(),
+vi.mock('../api', () => ({
+  getLlmStatus: vi.fn(),
+  getLlmProviders: vi.fn(),
   fmtErr: (d) => String(d || ''),
 }));
 
@@ -44,10 +44,13 @@ test('the default provider sits directly under the serving one', () => {
 });
 
 test('Make default calls the handler for a non-default stored provider', async () => {
-  const onSetDefault = jest.fn();
-  render(<ProviderConsole storedProviders={stored} onSetDefault={onSetDefault} onEditProvider={() => {}} onDeleteProvider={() => {}} onTestProvider={jest.fn()} />);
-  await waitFor(() => expect(screen.getByText('Nvidia NIM (Free)')).toBeInTheDocument());
-  await userEvent.click(screen.getByText('Nvidia NIM (Free)'));
+  const onSetDefault = vi.fn();
+  render(<ProviderConsole storedProviders={stored} onSetDefault={onSetDefault} onEditProvider={() => {}} onDeleteProvider={() => {}} onTestProvider={vi.fn()} />);
+  // Once the routed providers load, the serving provider's name shows in the
+  // header as well as its row; wait for both, then open the row (the last match).
+  await waitFor(() => expect(screen.getAllByText('Nvidia NIM (Free)')).toHaveLength(2));
+  const matches = screen.getAllByText('Nvidia NIM (Free)');
+  await userEvent.click(matches[matches.length - 1]);
   await userEvent.click(await screen.findByRole('button', { name: 'Make default' }));
   expect(onSetDefault).toHaveBeenCalledWith('nvidia-nim');
 });
@@ -58,7 +61,7 @@ test('the edit form renders inside the row being edited', async () => {
       storedProviders={stored}
       editingId="zai-glm"
       renderEditor={(prov) => <div>Editing {prov.provider_id}</div>}
-      onEditProvider={() => {}} onDeleteProvider={() => {}} onTestProvider={jest.fn()}
+      onEditProvider={() => {}} onDeleteProvider={() => {}} onTestProvider={vi.fn()}
     />,
   );
   expect(await screen.findByText('Editing zai-glm')).toBeInTheDocument();

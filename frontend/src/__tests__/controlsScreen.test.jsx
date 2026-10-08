@@ -11,14 +11,14 @@ import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import ControlsScreen from '../v5/screens/ControlsScreen';
 
-jest.mock('../api', () => ({
+vi.mock('../api', () => ({
   fmtErr: (d) => (typeof d === 'string' ? d : ''),
-  getPlatformControls: jest.fn(),
-  setPlatformControls: jest.fn(),
-  resetPlatformControl: jest.fn(),
+  getPlatformControls: vi.fn(),
+  setPlatformControls: vi.fn(),
+  resetPlatformControl: vi.fn(),
 }));
 
-const { getPlatformControls, setPlatformControls, resetPlatformControl } = require('../api');
+import { getPlatformControls, setPlatformControls, resetPlatformControl } from '../api';
 
 const secondGroup = {
   id: 'governance',
@@ -124,7 +124,7 @@ const snapshot = (overrides = {}) => ({
 });
 
 beforeEach(() => {
-  jest.clearAllMocks();
+  vi.clearAllMocks();
   getPlatformControls.mockResolvedValue({ data: snapshot() });
 });
 

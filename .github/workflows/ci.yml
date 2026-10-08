@@ -220,7 +220,7 @@ jobs:
         working-directory: frontend
         env:
           CI: "true"
-        run: npm test -- --watchAll=false --forceExit --runInBand
+        run: npm test
 
       - name: Build frontend
         working-directory: frontend

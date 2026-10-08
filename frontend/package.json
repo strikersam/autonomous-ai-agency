@@ -12,17 +12,16 @@
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.18.4",
-    "react-scripts": "^5.0.1",
     "remark-gfm": "^4.0.1",
     "underscore": "^1.13.8",
     "web-vitals": "^6.2.2"
   },
   "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test"
+    "start": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
   },
-  "proxy": "http://localhost:8001",
   "browserslist": {
     "production": [
       ">0.2%",
@@ -33,27 +32,23 @@
       "last 1 chrome version"
     ]
   },
-  "jest": {
-    "moduleNameMapper": {
-      "^react-router-dom$": "<rootDir>/node_modules/react-router-dom/dist/index.js",
-      "^react-router-dom/(.*)$": "<rootDir>/node_modules/react-router-dom/$1",
-      "^react-router/dom$": "<rootDir>/node_modules/react-router/dist/development/dom-export.js",
-      "^react-router$": "<rootDir>/node_modules/react-router/dist/development/index.js",
-      "^react-router/(.*)$": "<rootDir>/node_modules/react-router/$1"
-    }
-  },
   "devDependencies": {
     "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.7",
+    "@vitejs/plugin-react": "^6.1.2",
+    "autoprefixer": "^10.4.21",
     "jsdom": "^30.1.1",
-    "react-scripts": "^5.0.1"
+    "postcss": "^8.5.6",
+    "tailwindcss": "^3.4.19",
+    "vite": "^8.3.4",
+    "vitest": "^5.0.3"
   },
   "overrides": {
     "nth-check": ">=2.1.1",
     "serialize-javascript": ">=7.0.5",
-    "postcss": ">=8.4.31",
+    "postcss": "$postcss",
     "ws": ">=8.21.0",
     "svgo": ">=2.8.0",
     "jsonpath": ">=1.1.1",

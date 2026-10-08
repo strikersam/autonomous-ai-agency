@@ -15,14 +15,14 @@
 import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
-jest.mock('../api', () => {
-  const API = { get: jest.fn() };
+vi.mock('../api', () => {
+  const API = { get: vi.fn() };
   return {
     __esModule: true,
     API,
-    approveTaskCheckpoint: jest.fn(),
-    updateTask: jest.fn(),
-    fetchSprints: jest.fn(),
+    approveTaskCheckpoint: vi.fn(),
+    updateTask: vi.fn(),
+    fetchSprints: vi.fn(),
     fmtErr: (d) => (typeof d === 'string' ? d : JSON.stringify(d)),
   };
 });
@@ -38,7 +38,7 @@ function mockBoard(tasks, gated = []) {
   });
 }
 
-beforeEach(() => jest.clearAllMocks());
+beforeEach(() => vi.clearAllMocks());
 
 test('approving a reviewed task with a pending checkpoint sends the canonical body', async () => {
   api.approveTaskCheckpoint.mockResolvedValue({ data: {} });

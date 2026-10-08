@@ -15,14 +15,14 @@ import { render, screen, waitFor } from '@testing-library/react';
 // Stub the useSafeData hook so we control both /api/doctor/diagnostics and
 // /runtimes/health responses without spinning up a real backend. The Doctor
 // screen destructures [data, states, reload] from this hook.
-jest.mock('../v5/hooks/useSafeData', () => ({
-  useSafeData: jest.fn(),
+vi.mock('../v5/hooks/useSafeData', () => ({
+  useSafeData: vi.fn(),
 }));
 
 // Stub the API base — DoctorScreen reads it at module-eval time, but it never
 // makes a real fetch because useSafeData is mocked.
-jest.mock('../api', () => ({
-  API: { get: jest.fn() },
+vi.mock('../api', () => ({
+  API: { get: vi.fn() },
 }));
 
 import { useSafeData } from '../v5/hooks/useSafeData';
@@ -38,7 +38,7 @@ function setHookData({ report = null, runtimes = null, reportError = null, runti
       report: { loading, error: reportError },
       runtimes: { loading, error: runtimesError },
     },
-    jest.fn(),  // reload
+    vi.fn(),  // reload
   ]);
 }
 
