@@ -87,6 +87,7 @@ class ScheduledJob:
     last_run: str | None = None
     run_count: int = 0
     enabled: bool = True
+    fail_count: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -109,8 +110,8 @@ class ScheduledJob:
             "run_count": self.run_count,
             "enabled": self.enabled,
             "status": "active" if self.enabled else "paused",
-            "failures": 0,
-            "fail_count": 0,
+            "failures": self.fail_count,
+            "fail_count": self.fail_count,
         }
 
     @classmethod
@@ -132,6 +133,7 @@ class ScheduledJob:
             last_run=d.get("last_run"),
             run_count=d.get("run_count", 0),
             enabled=d.get("enabled", True),
+            fail_count=int(d.get("fail_count") or 0),
         )
 
 
@@ -847,12 +849,14 @@ class AgentScheduler:
                     if running is not None:
                         # Called from an async context (e.g. scheduler.trigger()
                         # invoked from a request handler) — schedule on this loop.
-                        running.create_task(result)
+                        self._track_failure(job, running.create_task(result))
                     elif self._main_loop is not None:
                         # Called from APScheduler's background thread — dispatch
                         # onto the FastAPI main loop so the coroutine can safely
                         # use Motor/aiosqlite clients bound to it.
-                        asyncio.run_coroutine_threadsafe(result, self._main_loop)
+                        self._track_failure(
+                            job, asyncio.run_coroutine_threadsafe(result, self._main_loop)
+                        )
                     else:
                         # Last-resort fallback: only used before the lifespan
                         # wires ``attach_main_loop`` (e.g. tests). Creates a
@@ -861,6 +865,31 @@ class AgentScheduler:
                         asyncio.run(result)
             except Exception as exc:
                 log.error("on_fire callback for job %s raised: %s", job_id, exc)
+                self._record_failure(job)
+
+    def _record_failure(self, job: ScheduledJob) -> None:
+        """Count a failed run and persist it so the Schedules screen can show it."""
+        job.fail_count += 1
+        running = self._running_loop()
+        if running is not None:
+            asyncio.create_task(self._persist(job))
+        elif self._main_loop is not None:
+            try:
+                asyncio.run_coroutine_threadsafe(self._persist(job), self._main_loop)
+            except Exception as exc:  # pragma: no cover - defensive
+                log.debug("Scheduler persist thread-safe dispatch failed: %s", exc)
+
+    def _track_failure(self, job: ScheduledJob, fut: Any) -> None:
+        """Bump ``fail_count`` when the dispatched on_fire coroutine raises."""
+        def _done(f: Any) -> None:
+            try:
+                failed = f.cancelled() or f.exception() is not None
+            except Exception:  # pragma: no cover - defensive
+                failed = True
+            if failed:
+                self._record_failure(job)
+
+        fut.add_done_callback(_done)
 
 
 def _now() -> str:

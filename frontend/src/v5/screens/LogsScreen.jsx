@@ -103,11 +103,13 @@ function LogsScreen() {
   const logs     = data.activity?.logs || data.activity?.activity || [];
   const errors   = logs.filter(e => e.level === 'error' || e.event_type === 'error');
   const metrics  = data.metrics || {};
-  const langfuseUrl = data.dashUrl?.url || null;
+  const langfuseUrl = data.dashUrl?.configured === false ? null : (data.dashUrl?.url || null);
 
-  const totalTokens = metrics.total_tokens || metrics.tokens_24h || 0;
-  const totalCost   = metrics.total_cost   || metrics.cost_24h   || 0;
-  const avgLatency  = metrics.avg_latency_ms || 0;
+  const summary24h  = metrics.summary_24h || {};
+  const latencies   = (metrics.recent_traces || []).map(t => Number(t.latency_ms)).filter(n => n > 0);
+  const totalTokens = summary24h.total_tokens || metrics.total_tokens || 0;
+  const totalCost   = summary24h.total_savings_usd || metrics.total_cost || 0;
+  const avgLatency  = latencies.length ? Math.round(latencies.reduce((a, b) => a + b, 0) / latencies.length) : (metrics.avg_latency_ms || 0);
   const errorCount  = errors.length;
 
   const loading  = states.activity?.loading;

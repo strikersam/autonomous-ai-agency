@@ -203,10 +203,12 @@ function AdminScreen() {
   const [data, states, refetch] = useSafeData(null, {
     users: '/api/activation/users',
     keys:  '/api/keys',
+    companies: '/api/company?limit=200',
   }, { refreshMs: 0 });
 
   const users = Array.isArray(data.users) ? data.users : (data.users?.users || []);
   const keys  = data.keys?.keys || [];
+  const companyCount = Array.isArray(data.companies?.companies) ? data.companies.companies.length : null;
   const allowedCount = users.filter(u => u.onboarding_allowed).length;
 
   const handleToggleOnboarding = async (userId, val) => {
@@ -251,7 +253,7 @@ function AdminScreen() {
               { label:'Users', value:users.length, color:'var(--accent)' },
               { label:'Onboarding', value:allowedCount, color:'#46d9a4' },
               { label:'API keys', value:keys.length, color:'#c4b5fd' },
-              { label:'Companies', value:'—', color:'#ffbd66' },
+              { label:'Companies', value:companyCount ?? '—', color:'#ffbd66' },
             ].map(s=>(
               <div key={s.label} style={{ padding:'7px 12px', borderRadius:11, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', textAlign:'center' }}>
                 <div style={{ fontSize:18, fontWeight:800, color:s.color, letterSpacing:'-0.03em' }}>{s.value}</div>

@@ -2311,7 +2311,9 @@ async def github_repo_callback(request: Request, code: str = None, state: str = 
 
 
 @app.get("/api/github/repos")
-async def github_list_repos(user: dict = Depends(get_current_user)):
+async def github_list_repos(
+    user: dict = Depends(get_current_user), q: str = "", page: int = 1
+):
     token = user.get("github_repo_token")
     # Also check github_settings collection (set by popup OAuth flow)
     if not token:
@@ -2324,7 +2326,8 @@ async def github_list_repos(user: dict = Depends(get_current_user)):
     async with httpx.AsyncClient() as client:
         try:
             resp = await client.get(
-                "https://api.github.com/user/repos?per_page=100&sort=updated",
+                "https://api.github.com/user/repos",
+                params={"per_page": 100, "sort": "updated", "page": max(page, 1)},
                 headers={"Authorization": f"token {token}"},
             )
             if resp.status_code == 401:
@@ -2335,6 +2338,9 @@ async def github_list_repos(user: dict = Depends(get_current_user)):
                 }
             resp.raise_for_status()
             repos = resp.json()
+            needle = q.strip().lower()
+            if needle:
+                repos = [r for r in repos if needle in r["full_name"].lower()]
             return {
                 "repos": [
                     {
@@ -2343,7 +2349,11 @@ async def github_list_repos(user: dict = Depends(get_current_user)):
                         "name": r["name"],
                         "private": r["private"],
                         "url": r["html_url"],
+                        "html_url": r["html_url"],
                         "description": r["description"],
+                        "language": r.get("language") or "",
+                        "default_branch": r.get("default_branch", "main"),
+                        "updated_at": r.get("updated_at", ""),
                     }
                     for r in repos
                 ],
@@ -4177,7 +4187,11 @@ async def _get_provider_policy() -> dict:
     try:
         doc = await get_db().providers.find_one({"provider_id": "provider_policy"})
         if doc:
-            return {"allow_paid": bool(doc.get("allow_paid", False)), "surfaces": {}}
+            stored = doc.get("surfaces")
+            return {
+                "allow_paid": bool(doc.get("allow_paid", False)),
+                "surfaces": dict(stored) if isinstance(stored, dict) else {},
+            }
     except Exception:
         pass
     return {"allow_paid": False, "surfaces": {}}
@@ -4199,7 +4213,8 @@ class ProviderPolicyUpdate(BaseModel):
     )
     surfaces: dict[str, str] = Field(
         default_factory=lambda: {s: "auto" for s in _POLICY_SURFACES},
-        description="Per-surface routing override; 'auto' lets the router decide",
+        description="Per-surface routing override; 'auto' lets the router decide. "
+        "When omitted from a PUT, the stored surfaces are kept.",
     )
 
 
@@ -4211,11 +4226,16 @@ async def _set_provider_policy(update: ProviderPolicyUpdate) -> dict:
     event loop.
     """
     now = datetime.now(timezone.utc).isoformat()
+    surfaces = update.surfaces
+    if "surfaces" not in update.model_fields_set:
+        surfaces = (await _get_provider_policy()).get("surfaces") or {
+            s: "auto" for s in _POLICY_SURFACES
+        }
     await get_db().providers.update_one(
         {"provider_id": "provider_policy"},
         {"$set": {
             "allow_paid": update.allow_paid,
-            "surfaces": update.surfaces,
+            "surfaces": surfaces,
             "updated_at": now,
         }},
         upsert=True,
@@ -4245,7 +4265,7 @@ async def _set_provider_policy(update: ProviderPolicyUpdate) -> dict:
         _bf._PAID_CACHE = (update.allow_paid, 0.0)  # force cache miss
     except Exception:
         pass
-    return {"allow_paid": update.allow_paid, "surfaces": update.surfaces}
+    return {"allow_paid": update.allow_paid, "surfaces": surfaces}
 
 
 # ─── Brain config (DB-persisted, UI-switchable) ─────────────────────────────
@@ -6506,7 +6526,7 @@ async def list_providers(user: dict = Depends(get_current_user)):
     # Non-admin users get an empty list (they don't need to see provider config).
     from backend.company_api import _is_admin
     if not _is_admin(user):
-        return []
+        return {"providers": []}
     providers = []
     try:
         async for p in get_db().providers.find({}).sort("created_at", 1):
@@ -6848,6 +6868,7 @@ class ModelPullRequest(BaseModel):
 
 @app.post("/api/models/pull")
 async def pull_model(body: ModelPullRequest, user: dict = Depends(get_current_user)):
+    _require_admin(user)
     try:
         async with httpx.AsyncClient(timeout=600) as c:
             r = await c.post(
@@ -6863,6 +6884,7 @@ async def pull_model(body: ModelPullRequest, user: dict = Depends(get_current_us
 
 @app.delete("/api/models/{model_name}")
 async def delete_model(model_name: str, user: dict = Depends(get_current_user)):
+    _require_admin(user)
     try:
         async with httpx.AsyncClient(timeout=30) as c:
             r = await c.delete(f"{OLLAMA_BASE}/api/delete", json={"name": model_name})
@@ -7080,6 +7102,16 @@ class McpServerBody(BaseModel):
     tools: int = 0
 
 
+class McpServerPatch(BaseModel):
+    """Partial update for a user-owned MCP server row (only the fields sent)."""
+
+    name: str | None = None
+    cmd: str | None = None
+    desc: str | None = None
+    status: str | None = None
+    tools: int | None = None
+
+
 @app.get("/api/mcp/servers")
 async def list_mcp_servers(user: dict = Depends(get_current_user)):
     """Return platform-managed MCP servers (live) plus this user's own rows."""
@@ -7122,7 +7154,7 @@ async def create_mcp_server(body: McpServerBody, user: dict = Depends(get_curren
 
 
 @app.patch("/api/mcp/servers/{server_id}")
-async def update_mcp_server(server_id: str, body: dict, user: dict = Depends(get_current_user)):
+async def update_mcp_server(server_id: str, body: McpServerPatch, user: dict = Depends(get_current_user)):
     """Update status/tools/name on an MCP server."""
     uid = str(user.get("_id", user.get("id", "")))
     from bson import ObjectId as _ObjId
@@ -7130,7 +7162,7 @@ async def update_mcp_server(server_id: str, body: dict, user: dict = Depends(get
         oid = _ObjId(server_id)
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid server ID")
-    allowed = {k: v for k, v in body.items() if k in ("name", "cmd", "desc", "status", "tools")}
+    allowed = body.model_dump(exclude_none=True)
     if not allowed:
         raise HTTPException(status_code=400, detail="No updatable fields provided")
     result = await get_db().mcp_servers.update_one(
@@ -7166,6 +7198,7 @@ class ApiKeyCreate(BaseModel):
 
 @app.get("/api/keys")
 async def list_api_keys(user: dict = Depends(get_current_user)):
+    _require_admin(user)
     keys = []
     async for k in get_db().api_keys.find({}, {"secret_hash": 0}).sort("created_at", -1):
         k["_id"] = str(k["_id"])
@@ -7175,6 +7208,7 @@ async def list_api_keys(user: dict = Depends(get_current_user)):
 
 @app.post("/api/keys")
 async def create_api_key(body: ApiKeyCreate, user: dict = Depends(get_current_user)):
+    _require_admin(user)
     plain = "sk-wiki-" + secrets.token_urlsafe(32)
     key_id = "key_" + secrets.token_hex(4)
     hashed = bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
@@ -7195,6 +7229,7 @@ async def create_api_key(body: ApiKeyCreate, user: dict = Depends(get_current_us
 
 @app.delete("/api/keys/{key_id}")
 async def delete_api_key(key_id: str, user: dict = Depends(get_current_user)):
+    _require_admin(user)
     result = await get_db().api_keys.delete_one({"key_id": key_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Key not found")
@@ -7769,6 +7804,7 @@ async def set_brain_provider_enabled(
     cause will simply auto-disable it again on the next call — which is the
     intended feedback loop, not a bug.
     """
+    _require_admin(user)
     from services.brain_failover import (
         disabled_providers,
         get_failover_manager,
@@ -8587,7 +8623,7 @@ async def autonomy_status() -> dict[str, object]:
 
 
 @app.get("/api/loops")
-async def loops_overview() -> dict[str, object]:
+async def loops_overview(user: dict = Depends(get_current_user)) -> dict[str, object]:
     """Full Loop Engineering fleet view for the UI: the catalogued loops plus
     the loop-audit readiness score, loop-cost estimate, and drift status.
 
@@ -8642,7 +8678,7 @@ async def loops_overview() -> dict[str, object]:
         log.exception("loops_overview: failed to build loop fleet view")
         return {
             "ok": False,
-            "error": str(exc),
+            "error": "Loop registry unavailable",
             "readiness": None,
             "drift": None,
             "est_monthly_tokens": 0,
@@ -10209,7 +10245,7 @@ async def voice_status_backend(user: dict = Depends(get_current_user)):
         }
     except Exception as exc:
         log.warning("voice_status: %s", exc)
-        return {"mic_available": False, "whisper_url": False, "error": str(exc)}
+        return {"mic_available": False, "whisper_url": False, "error": "Voice unavailable"}
 
 
 @app.post("/agent/voice/transcribe")
@@ -10258,7 +10294,7 @@ async def sam_status_backend(user: dict = Depends(get_current_user)):
         }
     except Exception as exc:
         log.warning("sam_status: %s", exc)
-        return {"available": False, "error": str(exc)}
+        return {"available": False, "error": "SAM unavailable"}
 
 
 @app.post("/agent/sam/chat")
@@ -10318,7 +10354,7 @@ async def sam_speak_backend(body: SamSpeakRequest, user: dict = Depends(get_curr
         return {"audio_b64": "", "error": "TTS synthesis returned empty"}
     except Exception as exc:
         log.warning("sam_speak: %s", exc)
-        return {"audio_b64": "", "error": str(exc)}
+        return {"audio_b64": "", "error": "Speech synthesis failed"}
 
 
 # ── SAM realtime voice (LiveKit) ───────────────────────────────────────────────
@@ -11092,7 +11128,11 @@ except Exception as _render_router_err:  # noqa: BLE001
 # routing config must degrade the Router page, not the platform.
 try:
     import packages.llm.gateway as llm_gateway_module  # noqa: E402
-    app.include_router(llm_gateway_module.build_llm_router(get_current_user))
+    async def _llm_admin_dep(user: dict = Depends(get_current_user)) -> dict:
+        _require_admin(user)
+        return user
+
+    app.include_router(llm_gateway_module.build_llm_router(get_current_user, _llm_admin_dep))
     log.info("LLM router API mounted at /api/llm")
 except Exception as _llm_router_err:  # noqa: BLE001 - must not block startup
     log.warning("LLM router API not mounted: %s", _llm_router_err, exc_info=True)

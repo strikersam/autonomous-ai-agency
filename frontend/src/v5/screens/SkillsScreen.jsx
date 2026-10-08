@@ -7,6 +7,14 @@ import * as api from '../../api';
 // Commerce-focused skills with plain-English explanations
 
 // ── Concept explainer component ───────────────────────────────────────────────
+// /api/skills/discover returns { registries: [{ skills: [...] }] } (or a bare registries map).
+function flattenRemoteSkills(data) {
+  if (Array.isArray(data?.skills)) return data.skills;
+  const regs = data?.registries;
+  const list = Array.isArray(regs) ? regs : Object.values(regs || {});
+  return list.flatMap(r => r?.skills || []);
+}
+
 function Explain({ term, children }) {
   const [show, setShow] = React.useState(false);
   return (
@@ -317,7 +325,8 @@ function SkillsScreen() {
       // Load remote registry skills from GitHub repos (BUG-28)
       try {
         const { data } = await api.discoverRemoteSkills();
-        if ((data.skills || []).length > 0) setRemoteSkills(data.skills);
+        const remote = flattenRemoteSkills(data);
+        if (remote.length > 0) setRemoteSkills(remote);
       } catch { /* non-critical */ }
     };
     load();
@@ -328,10 +337,11 @@ function SkillsScreen() {
     try {
       const [{ data: companyData }, { data: remoteData }] = await Promise.all([
         api.listCompanySkills(),
-        api.discoverRemoteSkills().catch(() => ({ data: { skills: [] } })),
+        api.discoverRemoteSkills().catch(() => ({ data: { registries: [] } })),
       ]);
       setLiveSkills(companyData.skills || []);
-      if ((remoteData.skills || []).length > 0) setRemoteSkills(remoteData.skills);
+      const remote = flattenRemoteSkills(remoteData);
+      if (remote.length > 0) setRemoteSkills(remote);
       const recPromise = companyId
         ? api.autoRecommendCompanySkills(companyId)
         : api.autoRecommendCompanySkills();

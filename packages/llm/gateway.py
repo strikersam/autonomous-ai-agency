@@ -87,14 +87,19 @@ class ProviderToggle(BaseModel):
 
 def build_llm_router(
     get_current_user: Callable[..., Any] | None = None,
+    require_admin_user: Callable[..., Any] | None = None,
 ) -> APIRouter:
     """Build the ``/api/llm`` router.
 
     ``get_current_user`` is the platform's auth dependency. When omitted (in
-    tests) the routes are unauthenticated.
+    tests) the routes are unauthenticated. ``require_admin_user`` guards the
+    state-changing routes (reload, strategy, provider toggle, probe, discover);
+    it falls back to ``get_current_user`` when omitted.
     """
     router = APIRouter(prefix="/api/llm", tags=["llm-router"])
     guard = [Depends(get_current_user)] if get_current_user else []
+    admin_dep = require_admin_user or get_current_user
+    admin_guard = [Depends(admin_dep)] if admin_dep else []
 
     # ── Observability ───────────────────────────────────────────────────────
 
@@ -132,7 +137,7 @@ def build_llm_router(
         """Circuit-breaker and rolling-health state per provider."""
         return {"providers": get_tracker().snapshot()}
 
-    @router.post("/health/probe", dependencies=guard)
+    @router.post("/health/probe", dependencies=admin_guard)
     async def probe(provider_id: str | None = None) -> dict[str, Any]:
         """Actively probe providers now instead of waiting for live traffic."""
         if not _available():
@@ -144,7 +149,7 @@ def build_llm_router(
         """The model registry with full capability metadata."""
         return {"models": get_registry().snapshot()}
 
-    @router.post("/models/discover", dependencies=guard)
+    @router.post("/models/discover", dependencies=admin_guard)
     async def discover() -> dict[str, Any]:
         """Ask every provider what it serves and register anything new."""
         if not _available():
@@ -223,7 +228,7 @@ def build_llm_router(
             ],
         }
 
-    @router.post("/config/reload", dependencies=guard)
+    @router.post("/config/reload", dependencies=admin_guard)
     async def config_reload() -> dict[str, Any]:
         """Re-read ``config/llm/*.yaml`` without restarting the process."""
         from packages.llm import router as router_module
@@ -237,7 +242,7 @@ def build_llm_router(
             "strategy": cfg.routing.strategy,
         }
 
-    @router.put("/config/strategy", dependencies=guard)
+    @router.put("/config/strategy", dependencies=admin_guard)
     async def set_strategy(body: StrategyUpdate) -> dict[str, Any]:
         """Switch the active routing strategy at runtime."""
         if body.strategy not in strategy_names():
@@ -247,7 +252,7 @@ def build_llm_router(
         get_config().routing.strategy = body.strategy
         return {"strategy": body.strategy}
 
-    @router.put("/providers/{provider_id}/enabled", dependencies=guard)
+    @router.put("/providers/{provider_id}/enabled", dependencies=admin_guard)
     async def toggle_provider(provider_id: str, body: ProviderToggle) -> dict[str, Any]:
         """Take a provider out of rotation, or put it back."""
         tracker = get_tracker()
