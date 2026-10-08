@@ -55,6 +55,16 @@ export default {
       });
     }
 
+    // "/" is the public landing page (frontend/public/home.html): static HTML that
+    // crawlers can read without running the SPA. Every other path stays the SPA.
+    // If the landing asset is ever missing, fall through to the SPA as before.
+    if (url.pathname === "/" && (request.method === "GET" || request.method === "HEAD")) {
+      const landing = await env.ASSETS.fetch(new Request(new URL("/home", url.origin), request));
+      if (landing.status === 200) {
+        return landing;
+      }
+    }
+
     // For non-API paths, try to serve a static asset first.
     const assetResponse = await env.ASSETS.fetch(request);
     // If the asset exists (200), serve it. If not (404), serve index.html

@@ -385,6 +385,9 @@ class AgentRunner:
         # Repository context for auto-push + PR (Direct Chat / managed agents)
         self.repo_url = repo_url
         self.base_branch = base_branch
+        # Last pre-PR gate result and the base it diffed against (agent/pr_gate.py).
+        self._gate_report: Any = None
+        self._gate_base: str | None = None
         # Legacy auth storage (prefer passing to run())
         self.email = email
         self.department = department
@@ -886,20 +889,19 @@ class AgentRunner:
                     {
                         "role": "system",
                         "content": (
-                            "You are a code-review judge. Respond with ONLY a JSON object with keys: "
-                            "verdict (APPROVED, APPROVED_WITH_CONDITIONS, or REJECTED), "
+                            "You are a code-review judge. Review the diff against the goal and the "
+                            "plan. REJECT when the diff does not accomplish the goal, removes or "
+                            "rewrites working code the goal did not ask to change, touches files the "
+                            "plan did not name, or adds URLs, names, contacts or identifiers that do "
+                            "not appear elsewhere in the repository. Respond with ONLY a JSON object "
+                            "with keys: verdict (APPROVED, APPROVED_WITH_CONDITIONS, or REJECTED), "
                             "security (PASS, WARN, or FAIL), correctness (PASS, WARN, or FAIL), "
                             "notes (string)."
                         ),
                     },
                     {
                         "role": "user",
-                        "content": (
-                            f"Goal: {plan.goal}\n"
-                            f"Steps completed: {len(step_results)}\n"
-                            f"All applied: {all(s.get('status') == 'applied' for s in step_results)}\n"
-                            f"Risky review required: {plan.requires_risky_review}"
-                        ),
+                        "content": await self._judge_brief(plan, step_results, commits),
                     },
                 ]
                 for _ in range(3):
@@ -935,10 +937,13 @@ class AgentRunner:
                 and os.environ.get("AGENT_AUTO_PR_ENABLED", "").strip().lower()
                 in {"true", "1", "yes"}
             ):
-                pr_blockers = await self._pr_blockers(step_results)
+                from agent.pr_gate import judge_blockers
+
+                pr_blockers = await self._pr_blockers(step_results, plan, commits)
+                pr_blockers += judge_blockers(judge)
                 if not pr_blockers:
                     pr_url = await self._auto_push_and_pr(
-                        commits, self._current_session_id, plan.goal
+                        commits, self._current_session_id, plan.goal, plan=plan, judge=judge
                     )
 
             summary = self._build_summary(plan.goal, step_results, commits, pr_url)
@@ -2818,16 +2823,62 @@ class AgentRunner:
         except Exception:  # nosec B110 -- best-effort read
             return ""
 
-    async def _pr_blockers(self, step_results: list[dict[str, Any]]) -> list[str]:
-        """Run agent/pr_gate.py on everything this run changed (off the event loop)."""
-        from agent.pr_gate import pr_blockers
+    async def _judge_brief(
+        self, plan: AgentPlan, step_results: list[dict[str, Any]], commits: list[str]
+    ) -> str:
+        """What the judge reviews: goal, plan, and the actual diff (not a step count)."""
+        from agent.pr_gate import resolve_base, review_diff
 
+        planned = sorted({f for s in plan.steps for f in s.files})
+        lines = [
+            f"Goal: {plan.goal}",
+            f"Planned files: {', '.join(planned) or '(none named)'}",
+            f"Steps applied: {sum(1 for s in step_results if s.get('status') == 'applied')}"
+            f" of {len(step_results)}",
+            f"Risky review required: {plan.requires_risky_review}",
+        ]
+        diff = ""
+        if commits:
+            try:
+                base = await asyncio.to_thread(resolve_base, self.tools.root, self.base_branch, len(commits))
+                diff = await asyncio.to_thread(review_diff, self.tools.root, base)
+            except Exception:
+                log.warning("Could not build the judge diff", exc_info=True)
+        lines.append(f"Diff:\n```diff\n{diff}\n```" if diff else "Diff: (unavailable)")
+        return "\n".join(lines)
+
+    async def _pr_blockers(
+        self,
+        step_results: list[dict[str, Any]],
+        plan: AgentPlan | None = None,
+        commits: list[str] | None = None,
+    ) -> list[str]:
+        """Run agent/pr_gate.py on everything this run changed (off the event loop).
+
+        With a plan the change is checked against the files it named; with
+        commits it is sized against the base it started from. The report is
+        kept on ``self._gate_report`` for the PR body.
+        """
+        from agent.pr_gate import GateReport, resolve_base, run_pr_gate
+
+        self._gate_report = GateReport()
         changed = [
             f for step in step_results if step.get("status") == "applied"
             for f in (step.get("changed_files") or [])
         ]
+        planned = [f for s in plan.steps for f in s.files] if plan else None
         try:
-            return await asyncio.to_thread(pr_blockers, self.tools.root, changed)
+            base = None
+            if commits:
+                base = await asyncio.to_thread(resolve_base, self.tools.root, self.base_branch, len(commits))
+                if base is None:
+                    return ["Could not find the commit this work started from, so its size could not be checked."]
+            self._gate_report = await asyncio.to_thread(
+                run_pr_gate, self.tools.root, changed,
+                goal=plan.goal if plan else "", planned_files=planned, base_ref=base,
+            )
+            self._gate_base = base
+            return self._gate_report.blockers
         except Exception:
             log.warning("PR gate failed to run; not opening a PR", exc_info=True)
             return ["The pre-PR checks could not run."]
@@ -3051,7 +3102,15 @@ class AgentRunner:
             max_steps=int(max_steps) if not cfg else min(int(max_steps), cfg.max_steps),
         )
 
-    async def _auto_push_and_pr(self, commits: list[str], session_id: str | None, goal: str = "") -> str | None:
+    async def _auto_push_and_pr(
+        self,
+        commits: list[str],
+        session_id: str | None,
+        goal: str = "",
+        *,
+        plan: AgentPlan | None = None,
+        judge: dict[str, Any] | None = None,
+    ) -> str | None:
         """Push commits and open a PR on GitHub. Returns the PR URL or None.
 
         Only activates when repo_url points to a GitHub repository and the
@@ -3112,9 +3171,9 @@ class AgentRunner:
             # Cap title length for GitHub (256 char limit, leave slack).
             pr_title = pr_title[:200]
 
-            pr_body = "🤖 Automated PR created by AI Agent.\n\n### Commits\n" + "\n".join(
-                f"- `{c[:7]}`" for c in commits
-            )
+            from agent.pr_gate import render_pr_body
+
+            pr_body = render_pr_body(goal, plan, self._gate_report, judge, commits)
 
             pr_result = await self.github.open_pull_request(
                 owner=owner,

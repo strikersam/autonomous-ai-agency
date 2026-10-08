@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>Autonomous AI Agency — a self-hosted AI company that runs itself</title>
+  <meta name="description" content="Open-source, self-hosted AI agents that audit your site, then plan, build, test and open pull requests that wait for your approval. MIT licensed.">
+  <link rel="canonical" href="https://autonomous-ai-agency.strikersam.workers.dev/">
+  <meta name="theme-color" content="#0F0F13">
+  <link rel="icon" type="image/svg+xml" href="/logo.svg">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Autonomous AI Agency">
+  <meta property="og:title" content="Autonomous AI Agency — a self-hosted AI company that runs itself">
+  <meta property="og:description" content="Specialist agents that plan, build, test and open pull requests on your own servers. Nothing merges or deploys without you. MIT licensed.">
+  <meta property="og:url" content="https://autonomous-ai-agency.strikersam.workers.dev/">
+  <meta property="og:image" content="https://autonomous-ai-agency.strikersam.workers.dev/og.jpg">
+  <meta property="og:image:width" content="1920">
+  <meta property="og:image:height" content="1080">
+  <meta property="og:image:alt" content="SAM, the agency's mascot, answering 'Brief me' with live agency status">
+  <meta name="twitter:card" content="summary_large_image">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "SoftwareApplication",
+        "@id": "https://autonomous-ai-agency.strikersam.workers.dev/#app",
+        "name": "Autonomous AI Agency",
+        "url": "https://autonomous-ai-agency.strikersam.workers.dev/",
+        "description": "Self-hosted, OpenAI-compatible AI proxy and multi-agent platform: a CEO agent coordinates specialist agents through plan, execute and verify, with approval gates and an audit trail.",
+        "applicationCategory": "DeveloperApplication",
+        "operatingSystem": "Linux, macOS",
+        "softwareVersion": "5.0.0",
+        "license": "https://opensource.org/licenses/MIT",
+        "isAccessibleForFree": true,
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "image": "https://autonomous-ai-agency.strikersam.workers.dev/og.jpg",
+        "sameAs": ["https://github.com/strikersam/autonomous-ai-agency"],
+        "author": { "@type": "Person", "name": "StrikerSam", "url": "https://github.com/strikersam" }
+      },
+      {
+        "@type": "SoftwareSourceCode",
+        "name": "autonomous-ai-agency",
+        "codeRepository": "https://github.com/strikersam/autonomous-ai-agency",
+        "programmingLanguage": ["Python", "JavaScript"],
+        "license": "https://opensource.org/licenses/MIT",
+        "targetProduct": { "@id": "https://autonomous-ai-agency.strikersam.workers.dev/#app" }
+      }
+    ]
+  }
+  </script>
+  <script>
+    // Signed-in visitors go straight to the dashboard; everyone else (and every crawler) reads this page.
+    try { if (localStorage.getItem("access_token")) location.replace("/v5"); } catch (e) {}
+  </script>
+  <style>
+    :root { --bg:#0F0F13; --panel:#17171f; --line:#2a2a36; --text:#ececf1; --muted:#a3a3b2; --accent:#6ea8ff; --ok:#3ecf8e; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+    a { color:var(--accent); }
+    .wrap { max-width:1080px; margin:0 auto; padding:0 20px; }
+    header.top { position:sticky; top:0; background:rgba(15,15,19,.92); backdrop-filter:blur(6px); border-bottom:1px solid var(--line); z-index:2; }
+    header.top .wrap { display:flex; align-items:center; gap:16px; height:60px; }
+    .brand { display:flex; align-items:center; gap:10px; font-weight:700; color:var(--text); text-decoration:none; }
+    .brand img { width:28px; height:28px; }
+    nav.primary { margin-left:auto; display:flex; gap:18px; align-items:center; flex-wrap:wrap; }
+    nav.primary a { color:var(--muted); text-decoration:none; font-size:15px; }
+    nav.primary a:hover { color:var(--text); }
+    .btn { display:inline-block; padding:10px 18px; border-radius:10px; font-weight:600; text-decoration:none; border:1px solid var(--line); color:var(--text); }
+    .btn.primary { background:var(--accent); color:#0b0b10; border-color:var(--accent); }
+    nav.primary .btn { color:var(--text); padding:6px 14px; }
+    .hero { padding:72px 0 40px; text-align:center; }
+    .hero h1 { font-size:clamp(32px,5vw,52px); line-height:1.1; margin:0 0 16px; letter-spacing:-.02em; }
+    .hero p.lead { color:var(--muted); font-size:clamp(17px,2.2vw,20px); max-width:760px; margin:0 auto 28px; }
+    .cta { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+    .hero figure { margin:44px auto 0; max-width:900px; }
+    .hero img.shot { width:100%; height:auto; border-radius:16px; border:1px solid var(--line); }
+    .hero figcaption { color:var(--muted); font-size:14px; margin-top:8px; }
+    section { padding:56px 0; border-top:1px solid var(--line); }
+    h2 { font-size:clamp(24px,3.2vw,32px); margin:0 0 12px; letter-spacing:-.01em; }
+    .sub { color:var(--muted); margin:0 0 28px; max-width:760px; }
+    .grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); }
+    .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:20px; }
+    .card h3 { margin:0 0 6px; font-size:18px; }
+    .card p { margin:0; color:var(--muted); }
+    ol.flow { counter-reset:s; list-style:none; padding:0; margin:0; display:grid; gap:12px; }
+    ol.flow li { counter-increment:s; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px 14px 56px; position:relative; }
+    ol.flow li::before { content:counter(s); position:absolute; left:16px; top:13px; width:26px; height:26px; border-radius:50%; background:var(--accent); color:#0b0b10; font-weight:700; text-align:center; line-height:26px; font-size:14px; }
+    pre { background:#0a0a0e; border:1px solid var(--line); border-radius:12px; padding:16px; overflow-x:auto; font-size:14px; }
+    code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+    ul.plain { padding-left:20px; margin:0; }
+    ul.plain li { margin:6px 0; }
+    .note { color:var(--muted); font-size:15px; }
+    .stat { font-size:28px; font-weight:700; color:var(--ok); }
+    footer { border-top:1px solid var(--line); padding:28px 0 40px; color:var(--muted); font-size:14px; }
+    footer .wrap { display:flex; gap:18px; flex-wrap:wrap; justify-content:space-between; }
+    footer a { color:var(--muted); }
+    @media (max-width:640px) { nav.primary a:not(.btn) { display:none; } }
+  </style>
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="/" aria-label="Autonomous AI Agency home"><img src="/logo.svg" alt="" width="28" height="28">Autonomous AI Agency</a>
+      <nav class="primary" aria-label="Primary">
+        <a href="#how-it-works">How it works</a>
+        <a href="#proof">Proof</a>
+        <a href="#self-host">Self-host</a>
+        <a href="https://github.com/strikersam/autonomous-ai-agency">GitHub</a>
+        <a class="btn" href="/login">Sign in</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="main">
+    <section class="hero" aria-labelledby="hero-title" style="border-top:0">
+      <div class="wrap">
+        <h1 id="hero-title">An AI company that runs itself, on your servers</h1>
+        <p class="lead">Paste a website URL and get a scored SEO, GEO and security audit. Then a CEO agent and a team of specialist agents plan the work, write the code, test it and open pull requests. The only thing they ask you for is the merge.</p>
+        <div class="cta">
+          <a class="btn primary" href="/login">Try the live dashboard</a>
+          <a class="btn" href="#self-host">Run it in one command</a>
+          <a class="btn" href="https://github.com/strikersam/autonomous-ai-agency">View the source</a>
+        </div>
+        <figure>
+          <img class="shot" src="/og.jpg" width="1920" height="1080" alt="SAM, the agency's mascot, answering 'Brief me' with the CEO loop's live status and queuing the top roadmap item">
+          <figcaption>SAM runs the agency from any screen. Anything risky still waits for you.</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section id="what-it-does" aria-labelledby="what-title">
+      <div class="wrap">
+        <h2 id="what-title">What it does</h2>
+        <p class="sub">Self-hosted, MIT licensed, and OpenAI-compatible. Your code, customer data and prompts stay on infrastructure you control.</p>
+        <div class="grid">
+          <article class="card"><h3>Reads your business</h3><p>Scans a site's stack and runs a deterministic audit across SEO, GEO, AIO and security, with a 0–100 score and every finding priced.</p></article>
+          <article class="card"><h3>Staffs itself</h3><p>Provisions the specialist agents that business needs, coordinated by a CEO agent with a C-suite advisory board.</p></article>
+          <article class="card"><h3>Checks its own work</h3><p>Every change goes plan → execute → verify. It compiles and runs the tests before accepting a step; an LLM grading its own diff doesn't count.</p></article>
+          <article class="card"><h3>Fixes itself and learns</h3><p>Dashboard errors become fix tasks. Failures become lessons the planner reads next time, and repeated failures are filed as improvements.</p></article>
+          <article class="card"><h3>Stays on a leash</h3><p>Approval gates, a kill switch, per-agent daily spend caps, a policy engine and an audit trail. Nothing merges or deploys without you.</p></article>
+          <article class="card"><h3>Free models first</h3><p>Defaults to free NVIDIA NIM models and fails over across Cerebras, Groq and local Ollama, so the agency keeps working when a provider is down.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="how-it-works" aria-labelledby="how-title">
+      <div class="wrap">
+        <h2 id="how-title">How it works</h2>
+        <p class="sub">The same loop for every piece of work, whether it starts from your goal, an audit finding or an error on the dashboard.</p>
+        <ol class="flow">
+          <li><strong>You give it a goal or a URL.</strong> Type it, or tell SAM.</li>
+          <li><strong>The CEO agent plans.</strong> It breaks the goal into tasks and assigns specialists, prioritised by value and urgency.</li>
+          <li><strong>Specialists execute in an isolated workspace.</strong> Each change is a small step with the files it touches named up front.</li>
+          <li><strong>A verifier checks every step.</strong> Code must compile and tests must pass before a step is kept; the PR carries the evidence.</li>
+          <li><strong>You approve.</strong> A pull request waits for your review. Deploys, deletes, payments and messages always ask first.</li>
+        </ol>
+      </div>
+    </section>
+
+    <section id="proof" aria-labelledby="proof-title">
+      <div class="wrap">
+        <h2 id="proof-title">Don't trust it, check the proof</h2>
+        <p class="sub">Most agent projects show a demo video. This one publishes its own output, including where it falls short.</p>
+        <div class="grid">
+          <article class="card"><p class="stat">Built by its own agents</p><p>A large share of this repository's merged pull requests were opened by AI agent sessions, each verifiable from its branch name. <a href="https://github.com/strikersam/autonomous-ai-agency/blob/master/proof/agent-built.md">See the count and how to check it</a>.</p></article>
+          <article class="card"><p class="stat">43.1 / 100</p><p>The audit engine run against this project's own docs page, published unedited with every finding. <a href="https://github.com/strikersam/autonomous-ai-agency/blob/master/proof/README.md">Read the self-audit</a>.</p></article>
+          <article class="card"><p class="stat">Open source</p><p>MIT licensed. Every gate, prompt and test is in the repository, with a public changelog of what changed and why. <a href="https://github.com/strikersam/autonomous-ai-agency/blob/master/CHANGELOG.md">Changelog</a>.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section id="self-host" aria-labelledby="self-title">
+      <div class="wrap">
+        <h2 id="self-title">Run it in one command</h2>
+        <p class="sub">No cloud account, no database server, no Docker. SQLite storage, the dashboard and the 24×7 loops run in one process.</p>
+<pre><code>git clone https://github.com/strikersam/autonomous-ai-agency.git
+cd autonomous-ai-agency
+./scripts/quickstart.sh          # or: make up</code></pre>
+        <p class="note">Open http://localhost:8001/ and sign in with the credentials the script prints. Requires Python 3.11+ and Node 20+. A free NVIDIA NIM key gives top-tier output with no GPU. <a href="https://github.com/strikersam/autonomous-ai-agency/blob/master/docs/local-setup.md">Setup guide</a>.</p>
+      </div>
+    </section>
+
+    <section id="who" aria-labelledby="who-title">
+      <div class="wrap">
+        <h2 id="who-title">Who it's for</h2>
+        <ul class="plain">
+          <li>Teams paying per seat for AI dev and ops tools who want the same leverage on infrastructure they control.</li>
+          <li>Anyone who needs agents that can write to production without choosing between no gates and a human on every step.</li>
+          <li>People evaluating autonomous-agent platforms who want one that runs on its own codebase, in public.</li>
+          <li>Organisations that care where their code, customer data and prompts go.</li>
+        </ul>
+        <p class="note">If you only want help writing code in one repository, a coding assistant such as Claude Code, Cursor or Aider is a better fit.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <span>© StrikerSam · MIT licensed</span>
+      <nav aria-label="Footer">
+        <a href="https://github.com/strikersam/autonomous-ai-agency">Source</a> ·
+        <a href="https://github.com/strikersam/autonomous-ai-agency/releases">Releases</a> ·
+        <a href="https://github.com/strikersam/autonomous-ai-agency/blob/master/CHANGELOG.md">Changelog</a> ·
+        <a href="/llms.txt">llms.txt</a> ·
+        <a href="/login">Sign in</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>
