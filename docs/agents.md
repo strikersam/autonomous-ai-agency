@@ -66,6 +66,22 @@ never pushed to protected branches directly — the runner isolates changes on a
 fresh feature branch and opens a PR (gated by `AGENT_AUTO_PR_ENABLED`). The repo
 target comes from `repo_url` or the `FREEBUFF_REPO_URL` env var.
 
+Before any PR opens, `agent/pr_gate.py` checks the change in the agent's own clone
+and the PR stays closed on any blocker:
+
+| Check | Blocks when |
+|-------|-------------|
+| Protected paths | auth modules (rule 15), `App.js`/`index.html`, deploy and CI config, or the gate itself changed |
+| Scope | a file changed that no plan step named (tests, changelogs, graph report exempt) |
+| Size | a file lost ≥ 40 lines and more than twice what it gained, or was deleted, and the goal did not ask for removal |
+| Python | files do not compile; code changed without tests; tests fail |
+| Guard suites | model config changed and the catalogue tests fail |
+| Frontend | related Jest tests or `npm run build` fail (reported as *not run* when `node_modules` is absent) |
+| Changelog | a non-doc change has no entry in both changelogs, or they differ |
+| Judge | the judge, shown the real diff and plan, returns `REJECTED`/`BLOCKED` or a correctness/security `FAIL` |
+
+The PR body lists the plan, every check that ran with its result, and the judge's verdict.
+
 ### Unlimited by default
 
 FreeBuff is meant to be an *unlimited* free coding agent, so the `/freebuff/*`
