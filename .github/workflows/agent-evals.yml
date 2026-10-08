@@ -1,0 +1,53 @@
+name: agent-evals
+
+# Continuous evals for the configuration that steers the agents (AI-native SDLC
+# playbook, Stage 4). CLAUDE.md, REVIEW.md, skills, prompts and the pre-PR gate
+# are code the agents run on; tests/agent_evals replays every recorded agent-PR
+# incident against the gate and checks that config still reaches the prompts.
+# Runs on any PR touching that config, and nightly.
+
+on:
+  pull_request:
+    paths:
+      - 'CLAUDE.md'
+      - 'REVIEW.md'
+      - 'AGENTS.md'
+      - '.claude/skills/**'
+      - 'agents/**'
+      - 'agent/prompts.py'
+      - 'agent/pr_gate.py'
+      - '.github/scripts/**'
+      - 'tests/agent_evals/**'
+  schedule:
+    - cron: '41 2 * * *'   # nightly 02:41 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  evals:
+    name: Agent config evals
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TESTING: "true"
+      AGENCY_CEO_ENABLED: "false"
+      RUN_BACKGROUND_IN_WEB: "false"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install --quiet -r requirements.txt
+
+      - name: Run evals
+        run: python -m pytest tests/agent_evals -q

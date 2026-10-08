@@ -224,189 +224,48 @@ effort placement. What survives is the part that changes an output.
 
 ## 3. What this repo is
 
-A **self-hosted, OpenAI-compatible AI proxy and multi-agent platform**. It sits in front
-of Ollama and the cloud providers, adds Bearer-token auth, rate limiting, CORS and model
-routing, runs a three-role plan→execute→verify agent loop over a fleet of specialist
-agents, and serves a React dashboard for administration and company-graph management.
-Langfuse observability, Telegram bot control, and GitHub integration are built in.
-
-It is a product, not a framework, and not a SaaS. Every change is production-grade.
-
-| | |
-|---|---|
-| Repository | `https://github.com/strikersam/autonomous-ai-agency` |
-| Frontend | Cloudflare Worker — `https://autonomous-ai-agency.strikersam.workers.dev` |
-| Backend | Render — `https://local-llm-server.onrender.com` (FastAPI, port 8001) |
-| Database | MongoDB in production, SQLite in dev/CI |
-
-The repository was previously named `local-llm-server`; older documents, PR links, and
-the Render service name still carry that name.
+A **self-hosted, OpenAI-compatible AI proxy and multi-agent platform**: Bearer-token
+auth, rate limiting and model routing in front of Ollama and the cloud providers, a
+plan→execute→verify agent loop over a fleet of specialist agents, and a React dashboard.
+It is a product, not a framework: every change is production-grade. Architecture,
+providers, auth flows, bill of materials and environment variables are in
+[`docs/reference/repo-reference.md`](docs/reference/repo-reference.md).
 
 ---
 
-## 4. Architecture reference
-
-### Deployment topology
-
-```
-        Cloudflare Worker (:443)          Serves the React SPA, proxies /api/*
-                  │                       and /agent/* to Render, cron 1/min
-                  ▼
-        Render — backend/server.py        FastAPI :8001, MongoDB, Hermes
-        FastAPI :8001                     in-process :8100, APScheduler,
-                  │                       Telegram bot, 37 autonomous loops
-        ┌─────────┼─────────┐
-        ▼         ▼         ▼
-     MongoDB   NVIDIA    Cloudflare
-      Atlas      NIM       cron
-```
-
-`proxy.py` is a second FastAPI app on port 8000 exposing three API surfaces: OpenAI
-`/v1/*`, Anthropic `/v1/messages`, and Ollama native `/api/*`.
-
-### Providers
-
-| Provider | Env var | Purpose |
-|----------|---------|---------|
-| NVIDIA NIM | `NVIDIA_API_KEY` | Free LLM (`nvidia/nemotron-3-super-120b-a12b`) |
-| Cerebras | `CEREBRAS_API_KEY` | Fast LLM (`gpt-oss-120b`, paid tier — see CHANGELOG 2026-08-29) |
-| Groq | `GROQ_API_KEY` | Free fast LLM (`openai/gpt-oss-120b`, `openai/gpt-oss-20b`, `qwen/qwen3.8-27b` — `deepseek-r1-70b` deprecated self-serve Aug 2026) |
-| Anthropic | `ANTHROPIC_API_KEY` | Paid LLM (Claude) |
-| Ollama | `OLLAMA_BASE` | Local LLM |
-| GitHub / Google OAuth | `*_CLIENT_ID` / `*_CLIENT_SECRET` | Social login (`packages/auth/oauth.py`) |
-| Telegram | `TELEGRAM_BOT_TOKEN` | Bot control (`telegram_bot.py`) |
-
-Provider health and auto-failover live in `packages/ai/watchdog.py`; the failover
-threshold is `BRAIN_WATCHDOG_MAX_FAILURES` (default 3). Runtime adapters (hermes, goose,
-aider, and 8 others) are in `runtimes/adapters/`.
-
-All secrets are stored as Render environment variables with `sync: false`, except
-`CLOUDFLARE_API_TOKEN` and `RENDER_BACKEND_URL` which are GitHub Actions secrets, and
-`GH_PAT` which is both.
-
-### Auth flows
-
-| Flow | Module | Token |
-|------|--------|-------|
-| Email/password | `backend/server.py` `/api/auth/login` | JWT (24h access + refresh) |
-| GitHub / Google OAuth | `packages/auth/oauth.py`, `backend/server.py` | JWT |
-| API key | `proxy.py` `verify_api_key` | Bearer |
-| Service token | `packages/auth/service_token.py` | `X-Service-Token` |
-| Admin session | `packages/auth/admin.py` | Session cookie |
-| JWT validation | `handlers/v3_auth.py` | JWT |
-
-Dependency chain: `get_optional_user` → `get_current_user` → `_require_admin`, with
-`_user_or_service_token` for dual-auth endpoints.
-
-### Agent loop
-
-```
-Directive → Planner → Executor → Verifier → Result
-                ↑                      ↓
-              Memory ←─────────────────┘
-```
-
-`agent/loop.py` drives it (`AgentRunner`); `agent/agency.py` coordinates the multi-agent
-agency under a CEO; `agents/` holds 24 specialist profiles.
-
-`agent/web_reach.py` gives every agent zero-key, read-only internet access —
-`fetch_url`, `youtube_transcript`, `web_search`, `fetch_rss` — registered through
-`agent/capability_registry.py` and advertised in `agent/prompts.py::build_tool_prompt`.
-The Executor can call them mid-step. This is what makes closed-loop self-healing work:
-`agent/self_healing.py` and `agent/improvement_loop.py` schedule their fixes through the
-same Executor, so a fix can research an error or a changed dependency before writing the
-patch. `agent/trend_watcher.py` covers the scheduled counterpart, scanning 13 public
-sources. Rule 14 governs every URL any of this touches.
-
-### Scheduler
-
-`packages/scheduler/scheduler.py` wraps APScheduler over a durable store
-(`packages/scheduler/store.py`). `force_cleanup()` runs on every cron tick and at
-startup — this is deliberate, and it is what stops failed run-once tasks from
-multiplying in the database.
-
----
-
-## 5. Bill of materials
-
-Re-derived 2026-08-10. If you are reading this more than a few months later, re-run the
-commands rather than trusting the numbers.
-
-| Metric | Count | Command |
-|--------|-------|---------|
-| Python files | 901 | `find . -name '*.py' -not -path './.git/*' -not -path './node_modules/*' \| wc -l` |
-| Python test files | 431 | `find tests -name 'test_*.py' \| wc -l` |
-| Frontend JS/JSX | 102 | `find frontend/src -name '*.js' -o -name '*.jsx' \| wc -l` |
-| Frontend test files | 14 | `find frontend/src -name '*.test.js' \| wc -l` |
-| GitHub workflows | 41 | `ls .github/workflows/*.yml \| wc -l` |
-| Loop registry entries | 37 | `python3 -c "import yaml;print(len(yaml.safe_load(open('loops/registry.yaml'))['loops']))"` |
-| `backend/server.py` | 10,666 lines | `wc -l < backend/server.py` |
-| `proxy.py` | 4,116 lines | `wc -l < proxy.py` |
-
-The two largest files are both far past the 800-line limit in rule 28 and are being
-migrated. Do not treat them as licence to add more; see `REWRITE_PLAN.md`.
-
----
-
-## 6. Key commands
+## 4. Key commands and verifying your work
 
 ```bash
-# Run it
 uvicorn backend.server:app --reload --port 8001    # dashboard API
 uvicorn proxy:app --reload --port 8000             # AI proxy
-
-# Test — before every commit
-pytest -x                                          # fast fail
-pytest -v --tb=short                               # verbose
-cd frontend && npm test -- --watchAll=false --forceExit
-
-# Gates
-python -m compileall -q .
-python agent/loop_registry.py audit --check
-python scripts/check_changelog_parity.py
-cd frontend && npm run build
-
-# Knowledge graph
-graphify query "<question>"
-graphify update .
-
-# Hooks (once per clone)
-git config core.hooksPath .claude/hooks
+git config core.hooksPath .claude/hooks            # once per clone
 ```
 
----
+Run every check below before reporting a task complete, and paste the output. If a
+test fails, fix the code, not the test.
 
-## 7. Environment variables
-
-The full list is `docs/configuration-reference.md` and `.env.example`. The ones that
-change behaviour most:
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `STORAGE_BACKEND` | `mongo` | `mongo` or `sqlite` |
-| `MONGO_URL` | — | Required in mongo mode |
-| `OLLAMA_BASE` | `http://localhost:11434` | Ollama endpoint |
-| `CORS_ORIGINS` | `*` | **Never `*` in production** (rule 41) |
-| `RATE_LIMIT_RPM` | `60` | Per-key request limit |
-| `AGENT_WORKSPACE_ROOT` | `.` | Agent filesystem sandbox root |
-| `NVIDIA_DEFAULT_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | Free NVIDIA NIM model |
-| `AGENT_{PLANNER,EXECUTOR,VERIFIER,JUDGE}_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | Per-role LLMs (judge falls back to the verifier's model) |
-| `BRAIN_WATCHDOG_MAX_FAILURES` | `3` | Failover threshold |
-| `ACTIVATION_REQUIRED` | `true` | `false` for self-hosted |
-| `RUN_HERMES_IN_PROCESS` | `true` | Hermes on port 8100 |
-| `TESTING` / `AGENCY_CEO_ENABLED` / `RUN_BACKGROUND_IN_WEB` | — | Test flags (rule 33) |
+| Check | Command | Healthy output |
+|-------|---------|----------------|
+| Python tests | `pytest -x` | `N passed` and no `FAILED` line |
+| Frontend tests | `cd frontend && npm test -- --watchAll=false --forceExit` | `Tests: N passed, N total` |
+| Frontend build | `cd frontend && CI=true npm run build` | `The build folder is ready to be deployed.` |
+| Byte-compile | `python -m compileall -q .` | no output, exit 0 |
+| Changelog parity | `python scripts/check_changelog_parity.py` | `PARITY OK: bodies match …` |
+| Loop registry | `python agent/loop_registry.py audit --check` | `Drift: none — registry matches scheduled workflows on disk` |
+| Knowledge graph | `graphify update .` | `GRAPH_REPORT.md` "Built from commit" names your parent commit |
 
 ---
 
-## 8. Where else to look
+## 5. Reference
 
 | Topic | File |
 |-------|------|
+| Architecture, providers, auth flows, bill of materials, environment variables | `docs/reference/repo-reference.md` |
+| How PRs are reviewed: passes, severity, what not to report | `REVIEW.md` |
 | Codebase map, risky modules, ops runbook, agent roles | `AGENTS.md` |
 | Naming, log levels, fixtures, performance targets | `ENGINEERING_STANDARDS.md` |
-| Target architecture | `ARCHITECTURE.md` |
-| Migration plan | `REWRITE_PLAN.md` |
-| Agent package internals | `agent/CLAUDE.md` |
-| Router internals | `router/CLAUDE.md` |
+| Target architecture and migration plan | `ARCHITECTURE.md`, `REWRITE_PLAN.md` |
+| Agent and router internals | `agent/CLAUDE.md`, `router/CLAUDE.md` |
+| Intent and plan artifacts for each change | `docs/intent/`, `docs/plans/` |
 | The rules audit — what was cut and why | `.claude/rules-archive/` |
-| Configuration, runbooks, ADRs, changelog | `docs/` |
+| Configuration, runbooks, ADRs | `docs/` |

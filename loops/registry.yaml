@@ -184,6 +184,32 @@ loops:
     gate: none
     purpose: Evaluate CRISPY run-history; file promotion-tracking issue when ready (gap goes to the job summary otherwise).
 
+  - id: agent-evals
+    name: Agent Config Evals
+    pattern: daily-triage
+    level: L1
+    trigger: schedule
+    cadence: nightly (02:41 UTC) + on config PRs
+    runs_per_day: 1
+    cost: low
+    source: .github/workflows/agent-evals.yml
+    self_heal: false
+    gate: none
+    purpose: Replay recorded agent-PR incidents against the pre-PR gate and check CLAUDE.md/REVIEW.md/skills still reach the prompts.
+
+  - id: control-bands
+    name: Control Bands
+    pattern: daily-triage
+    level: L3
+    trigger: schedule
+    cadence: daily (07:17 UTC)
+    runs_per_day: 1
+    cost: low
+    source: .github/workflows/control-bands.yml
+    self_heal: true
+    gate: none
+    purpose: Deterministic Western Electric check of master CI failure rate (loops/bands.yaml); a 2σ/3σ breach files one intent issue.
+
   # ── Learn / improve loops ───────────────────────────────────────────────
   - id: continuous-improvement
     name: Continuous Improvement

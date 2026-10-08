@@ -2823,11 +2823,26 @@ class AgentRunner:
         except Exception:  # nosec B110 -- best-effort read
             return ""
 
+    async def _commit_plan_artifact(self, plan: AgentPlan) -> list[str]:
+        """Commit the plan as docs/plans/agent/<date>-<slug>.md; returns the new commit, if any."""
+        from datetime import datetime, timezone
+
+        from agent.pr_gate import plan_artifact
+
+        rel, body = plan_artifact(plan, datetime.now(timezone.utc).date().isoformat())
+        try:
+            await asyncio.to_thread(self.tools.write_file, rel, body)
+            sha = await asyncio.to_thread(self._commit_step, f"plan: {plan.goal[:60]}", [rel])
+        except Exception:
+            log.warning("Could not commit the plan artifact", exc_info=True)
+            return []
+        return [sha] if sha else []
+
     async def _judge_brief(
         self, plan: AgentPlan, step_results: list[dict[str, Any]], commits: list[str]
     ) -> str:
         """What the judge reviews: goal, plan, and the actual diff (not a step count)."""
-        from agent.pr_gate import resolve_base, review_diff
+        from agent.pr_gate import resolve_base, review_diff, review_policy
 
         planned = sorted({f for s in plan.steps for f in s.files})
         lines = [
@@ -2845,6 +2860,9 @@ class AgentRunner:
             except Exception:
                 log.warning("Could not build the judge diff", exc_info=True)
         lines.append(f"Diff:\n```diff\n{diff}\n```" if diff else "Diff: (unavailable)")
+        policy = await asyncio.to_thread(review_policy, self.tools.root)
+        if policy:
+            lines.append(f"Review policy (REVIEW.md in this repository):\n{policy}")
         return "\n".join(lines)
 
     async def _pr_blockers(
@@ -3158,6 +3176,9 @@ class AgentRunner:
                 self._log_event(session_id, "step_start", {"description": f"Created branch {push_branch}"})
             else:
                 push_branch = current_branch
+
+            if plan is not None:
+                commits = commits + await self._commit_plan_artifact(plan)
 
             # Push with token-scrubbing (LocalWorkspace.push handles try/finally).
             await ws.push(branch=push_branch, agent_initiated=True)

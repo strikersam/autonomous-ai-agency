@@ -258,3 +258,60 @@ async def test_runner_sizes_and_scopes_against_the_plan(tmp_path):
     assert any("plan did not name: svc/b.txt" in b for b in blockers)
     brief = await runner._judge_brief(plan, steps, ["c1"])
     assert "Planned files: svc/a.txt" in brief and "+gone" in brief
+
+
+# ── 2026-10-08: playbook artifacts — plan.md, REVIEW.md, protected feedback loop ──
+
+def test_plan_artifact_is_a_reviewable_plan_file():
+    from agent.pr_gate import plan_artifact
+
+    plan = AgentPlan(goal="Add a footer link!", risks=["nav breaks"], steps=[
+        AgentStep(id=1, description="edit footer", files=["web/footer.js"], type="edit", acceptance="link renders")])
+    rel, body = plan_artifact(plan, "2026-10-08")
+    assert rel == "docs/plans/agent/2026-10-08-add-a-footer-link.md"
+    assert body.startswith("# Plan: Add a footer link!")
+    assert "- `web/footer.js`" in body and "1. edit footer Done when: link renders" in body
+    assert "- nav breaks" in body
+
+
+def test_the_plan_file_is_outside_scope_and_changelog_checks(tmp_path):
+    root = _repo(tmp_path, {"docs/plans/agent/x.md": "# Plan\n"})
+    assert run_pr_gate(root, ["docs/plans/agent/x.md"], planned_files=["src/a.py"]).ok
+
+
+def test_review_policy_is_read_and_truncated(tmp_path):
+    from agent.pr_gate import review_policy
+
+    assert review_policy(tmp_path) == ""
+    (tmp_path / "REVIEW.md").write_text("x" * 5000)
+    assert review_policy(tmp_path).endswith("(truncated)")
+
+
+def test_assertions_removed_from_an_existing_test_block_the_pr(tmp_path):
+    root, base = _based_repo(
+        tmp_path,
+        {"tests/test_a.py": "def test_a():\n    assert 1\n    assert 2\n"},
+        {"tests/test_a.py": "def test_a():\n    assert 1\n"},
+    )
+    blockers = run_pr_gate(root, ["tests/test_a.py"], base_ref=base).blockers
+    assert any("tests/test_a.py (assertions -1/+0, skips added: 0)" in b for b in blockers)
+
+
+def test_jest_skip_in_an_existing_test_blocks_the_pr(tmp_path):
+    path = "frontend/src/__tests__/x.test.js"
+    root, base = _based_repo(tmp_path, {path: "test('a', () => { expect(1).toBe(1); });\n"},
+                             {path: "test.skip('a', () => { expect(1).toBe(1); });\n"})
+    assert any("skips added: 1" in b for b in run_pr_gate(root, [path], base_ref=base).blockers)
+
+
+async def test_runner_commits_the_plan_and_shows_review_policy_to_the_judge(tmp_path):
+    from agent.loop import AgentRunner
+
+    root, _ = _based_repo(tmp_path, {"REVIEW.md": "## Passes\n- Bugs\n"}, {"a.txt": "1\n"})
+    runner = AgentRunner(ollama_base="http://localhost:1", workspace_root=str(root))
+    plan = AgentPlan(goal="tweak a", steps=[AgentStep(id=1, description="d", files=["a.txt"], type="edit")])
+    shas = await runner._commit_plan_artifact(plan)
+    assert len(shas) == 1
+    assert "docs/plans/agent/" in _git(root, "show", "--name-only", "--format=", shas[0])
+    brief = await runner._judge_brief(plan, [{"status": "applied"}], ["c"])
+    assert "Review policy (REVIEW.md in this repository):" in brief and "- Bugs" in brief

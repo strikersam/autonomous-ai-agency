@@ -1,0 +1,88 @@
+name: control-bands
+
+# Closed maintenance loop (AI-native SDLC playbook, Stage 6).
+#
+# A deterministic script (scripts/control_bands.py) checks master's daily CI
+# failure rate against a 30-day rolling baseline with Western Electric rules
+# (loops/bands.yaml). No model is involved in detection. On a 2σ or 3σ breach
+# it opens one intent.md-shaped issue (or comments on the open one), which
+# enters the normal intake pipeline; a 1σ breach is logged to the job summary.
+
+on:
+  schedule:
+    - cron: '17 7 * * *'   # daily 07:17 UTC
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  issues: write
+
+concurrency:
+  group: control-bands
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    name: Evaluate control bands
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+
+      - name: Install PyYAML
+        run: python -m pip install --quiet pyyaml
+
+      - name: Fetch master CI runs (last 40 days)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          SINCE="$(date -u -d '40 days ago' +%Y-%m-%d)"
+          gh api -X GET "repos/${REPO}/actions/workflows/ci.yml/runs" \
+            -f branch=master -f per_page=100 -f "created=>=${SINCE}" --paginate \
+            --jq '.workflow_runs[] | {status, conclusion, created_at}' | jq -s '.' > runs.json
+          echo "Fetched $(jq length runs.json) runs since ${SINCE}"
+
+      - name: Detect
+        run: |
+          python scripts/control_bands.py --runs runs.json --metric ci_test_failure_rate \
+            --decision decision.json --intent intent.md
+          {
+            echo "### Control band: ci_test_failure_rate"
+            echo '```json'
+            cat decision.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: File or update the intent issue
+        if: hashFiles('intent.md') != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          TITLE="Control band breached: ci_test_failure_rate"
+          TIER="$(jq -r .tier decision.json)"
+          gh label create control-band --repo "${REPO}" --color FBCA04 \
+            --description "Opened by the control-bands loop (loops/bands.yaml)" --force
+          LABELS="control-band"
+          if [ "${TIER}" = "3sigma" ]; then
+            gh label create priority --repo "${REPO}" --color B60205 --force
+            LABELS="control-band,priority"
+          fi
+          EXISTING="$(gh issue list --repo "${REPO}" --state open --label control-band \
+            --search "in:title \"${TITLE}\"" --json number --jq '.[0].number // empty')"
+          if [ -n "${EXISTING}" ]; then
+            gh issue comment "${EXISTING}" --repo "${REPO}" --body-file intent.md
+            echo "Updated #${EXISTING}" >> "$GITHUB_STEP_SUMMARY"
+          else
+            gh issue create --repo "${REPO}" --title "${TITLE}" --label "${LABELS}" --body-file intent.md
+          fi

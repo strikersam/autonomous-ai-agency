@@ -74,13 +74,16 @@ and the PR stays closed on any blocker:
 | Protected paths | auth modules (rule 15), `App.js`/`index.html`, deploy and CI config, or the gate itself changed |
 | Scope | a file changed that no plan step named (tests, changelogs, graph report exempt) |
 | Size | a file lost ≥ 40 lines and more than twice what it gained, or was deleted, and the goal did not ask for removal |
+| Tests weakened | an existing test lost assertions or gained a `skip`/`xfail`/`.skip(` marker |
 | Python | files do not compile; code changed without tests; tests fail |
 | Guard suites | model config changed and the catalogue tests fail |
 | Frontend | related Jest tests or `npm run build` fail (reported as *not run* when `node_modules` is absent) |
 | Changelog | a non-doc change has no entry in both changelogs, or they differ |
 | Judge | the judge, shown the real diff and plan, returns `REJECTED`/`BLOCKED` or a correctness/security `FAIL` |
 
-The PR body lists the plan, every check that ran with its result, and the judge's verdict.
+The PR body lists the plan, every check that ran with its result, and the judge's verdict. The plan is also committed as `docs/plans/agent/<date>-<slug>.md`, and the judge reviews against the target repository's `REVIEW.md` when it has one.
+
+Recorded agent-PR incidents are replayed against the gate by `tests/agent_evals/` (`.github/workflows/agent-evals.yml`, nightly and on every change to CLAUDE.md, REVIEW.md, skills or prompts). Add a case to `tests/agent_evals/gate_cases.yaml` for every new incident.
 
 ### Unlimited by default
 
