@@ -108,4 +108,10 @@ describe('landing page at "/"', () => {
     const res = await call('/docs/', env);
     expect(res.status).toBe(308);
   });
+
+  test('a missing file is a 404, not a 200 app shell', async () => {
+    const env = { ASSETS: assets({ '/': 'APP_SHELL' }) };
+    expect((await call('/favicon.ico', env)).status).toBe(404);
+    expect((await call('/login', env)).status).toBe(200);
+  });
 });

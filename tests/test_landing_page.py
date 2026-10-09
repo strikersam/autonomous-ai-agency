@@ -153,10 +153,13 @@ def test_faq_is_visible_and_mirrored_in_faqpage_schema(html, page):
         assert q["acceptedAnswer"]["text"].replace("&", "&amp;") in html
 
 
-def test_aliases_of_the_landing_page_redirect_to_the_canonical_root():
+def test_aliases_of_the_landing_page_redirect_in_the_worker_not_in_redirects_file():
+    # Cloudflare static assets also read _redirects, so a "/home -> /" rule there makes the
+    # Worker's own internal fetch of /home redirect to "/" and fall back to the noindex shell.
     redirects = [ln.split() for ln in (PUBLIC / "_redirects").read_text(encoding="utf-8").splitlines()]
-    for alias in ("/home", "/home/", "/home.html"):
-        assert [alias, "/", "301"] in redirects, alias
+    assert not [r for r in redirects if r[0].startswith("/home")]
+    worker = (REPO / "worker" / "index.js").read_text(encoding="utf-8")
+    assert 'LANDING_ALIASES = ["/home", "/home/", "/home.html"]' in worker
     wrangler = (REPO / "wrangler.jsonc").read_text(encoding="utf-8")
     first = json.loads(re.search(r'"run_worker_first":\s*(\[.*?\])', wrangler, re.S).group(1))
     assert {"/home", "/home/", "/home.html"} <= set(first)
