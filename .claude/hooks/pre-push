@@ -37,6 +37,11 @@ else
     exit 0
 fi
 
+# Git exports GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE to hooks (always in a
+# linked worktree). Tests that drive throwaway repos with plain `git` inherit
+# them and rewrite the repo being pushed (seen: branch moved, core.bare=true).
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_OBJECT_DIRECTORY GIT_COMMON_DIR
+
 # Run tests — fail fast, quiet output (show only failures)
 if ! $PYTEST -x -q 2>&1; then
     echo ""

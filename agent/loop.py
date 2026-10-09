@@ -23,6 +23,11 @@ from agent.context_manager import ContextManager
 from agent.context_pruner import ContextPruner
 from agent.models import AgentPlan, ToolCall, VerificationResult
 from agent.token_budget import BudgetExceededError, TokenBudget
+from packages.ai.user_token_quota import (
+    anthropic_usage_total,
+    ensure_user_within_quota,
+    record_user_tokens,
+)
 from agent.prompts import (
     build_compaction_prompt,
     build_execution_prompt,
@@ -457,6 +462,7 @@ class AgentRunner:
         fed by real spend rather than sitting unreachable. Best-effort: a
         governance charge never raises and never blocks token recording.
         """
+        record_user_tokens(prompt_tokens + completion_tokens)  # per-user daily cap
         if not session_id:
             return
         usage = self._token_budget.record(
@@ -2050,6 +2056,7 @@ class AgentRunner:
         an Opus/Claude model, prefer calling Anthropic (Opus) directly. Fall
         back to the Ollama-compatible endpoint otherwise.
         """
+        ensure_user_within_quota()  # per-user daily cap (no-op without a bound user)
         payload: dict[str, Any] = {"model": model, "messages": messages, "stream": False}
 
         # Resolve the output-token budget and per-request timeout from the
@@ -2263,6 +2270,7 @@ class AgentRunner:
                         except Exception:  # nosec B110 -- KPI tracking is best-effort
                             pass
 
+                    record_user_tokens(anthropic_usage_total(resp))
                     return out_text
                 except Exception as exc:
                     # A *configured* premium provider silently degrading to Ollama
@@ -2326,6 +2334,7 @@ class AgentRunner:
                                 )
                             except Exception:  # nosec B110 -- KPI tracking is best-effort
                                 pass
+                        record_user_tokens(anthropic_usage_total(resp))
                         return out_text
                     except Exception as exc:
                         # See the Anthropic branch above: a configured premium
