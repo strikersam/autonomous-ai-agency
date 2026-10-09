@@ -265,6 +265,13 @@ allows 60-86400; a change applies to new grants only). Boundaries:
 - In-process only: a grant exists in the web process that served the approve
   and is lost on restart (the safe direction: the human is asked again).
   Do not assume it applies across replicas.
+- Grants apply only to runners that carry an identity. `AgentRunner` takes
+  optional `agent_name` / `owner` (set from the authenticated principal at
+  each construction site: proxy per-request runners, `/api/chat` agent jobs,
+  the workflow orchestrator, CEO cross-verify, and the internal-agent and E2B
+  runtimes). A runner with neither resolves to `agent:unknown` + `system` and
+  is never granted - this is the case for the shared `proxy.AGENT_RUNNER`
+  singleton, whose identity is cached for the process.
 - Any lookup error means "no grant" and a human is asked.
 - Audit: the covered call records `approval_id=grant:<id>`; issue and revoke
   are audit events (`governance.grant.issue` / `.revoke`) carrying the

@@ -1472,6 +1472,8 @@ async def run_agent_task(
 
                 email=auth.email,
 
+                owner=auth.email or auth.key_id,
+
                 department=auth.department,
 
                 key_id=auth.key_id,
@@ -1609,6 +1611,8 @@ async def run_agent_once(body: AgentRunRequest, auth: AuthContext = Depends(veri
                 session_store=AGENT_SESSIONS,
 
                 email=auth.email,
+
+                owner=auth.email or auth.key_id,
 
                 department=auth.department,
 
@@ -4043,6 +4047,8 @@ async def agent_chat(body: AgentChatRequest, auth: AuthContext = Depends(verify_
             session_store=AGENT_SESSIONS,
 
             email=auth.email,
+
+            owner=auth.email or auth.key_id,
 
             department=auth.department,
 

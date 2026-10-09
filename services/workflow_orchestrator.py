@@ -1673,6 +1673,7 @@ class WorkflowOrchestrator:
                     workspace_root=_os.getcwd(),
                     github_token=gh_token,
                     email=req.user_id,
+                    owner=req.user_id,
                 )
                 try:
                     result = await runner.run(

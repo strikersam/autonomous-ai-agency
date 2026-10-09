@@ -344,6 +344,8 @@ class AgentRunner:
         keep_alive: str | None = None,
         repo_url: str | None = None,
         base_branch: str = "main",
+        agent_name: str | None = None,
+        owner: str | None = None,
     ) -> None:
         # NOTE: "ollama_base" is kept for backwards compatibility; this runner only needs an
         # OpenAI-compatible base URL with /v1/chat/completions.
@@ -407,6 +409,9 @@ class AgentRunner:
         self.email = email
         self.department = department
         self.key_id = key_id
+        # Governance identity (read by resolve_identity_for_runner). Unset keeps
+        # the generic identity, which sticky approval grants refuse.
+        self.agent_name, self.owner = agent_name, owner
         # Per-session token spend caps (★3 roadmap item).
         # Populated via set_token_budget(); checked after every LLM call.
         self._token_budget: TokenBudget = TokenBudget()
