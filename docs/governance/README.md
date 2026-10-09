@@ -242,6 +242,47 @@ appears at `GET /api/governance/approvals`.
 - `GOVERNANCE_AUTO_APPROVE=true` self-approves for local development. Off by
   default, and audited as `resolved_by=auto-approve` whenever it fires.
 
+### Grants (sticky approvals)
+
+An admin can approve a request with a wider **scope** so the same agent
+session is not asked again: `POST /api/governance/approvals/{id}/approve` with
+`{"scope": "once" | "action" | "session"}` (no body = `once`).
+
+- `once` - today's behaviour, no grant.
+- `action` - the same surface + action, for that session.
+- `session` - any approval-gated action in that session.
+
+A grant is bound to the session, agent id and owner of the request it came
+from, and expires after `GOVERNANCE_GRANT_TTL_S` (default 3600; the control
+allows 60-86400; a change applies to new grants only). Boundaries:
+
+- Grants only short-circuit `REQUIRE_APPROVAL`. A DENY verdict is never
+  affected.
+- Never issued or honoured for the `credential` surface, for an empty or
+  `anonymous` session (any case), or for the fully generic `agent:unknown` +
+  `system` identity. Only a request that THIS call moved from pending to
+  approved can mint a grant, and an expired request cannot be approved.
+- In-process only: a grant exists in the web process that served the approve
+  and is lost on restart (the safe direction: the human is asked again).
+  Do not assume it applies across replicas.
+- Grants apply only to runners that carry an identity. `AgentRunner` takes
+  optional `agent_name` / `owner` (set from the authenticated principal at
+  each construction site: proxy per-request runners, `/api/chat` agent jobs,
+  the workflow orchestrator, CEO cross-verify, and the internal-agent and E2B
+  runtimes). A runner with neither resolves to `agent:unknown` + `system` and
+  is never granted - this is the case for the shared `proxy.AGENT_RUNNER`
+  singleton, whose identity is cached for the process.
+- Any lookup error means "no grant" and a human is asked.
+- Audit: the covered call records `approval_id=grant:<id>`; issue and revoke
+  are audit events (`governance.grant.issue` / `.revoke`) carrying the
+  approving or revoking admin and the source approval id, so the call stays
+  attributable after the grant is gone.
+- Kill switch: `GOVERNANCE_SESSION_GRANTS_ENABLED=false` (live, also under
+  Settings -> Platform controls) makes approve ignore the scope and
+  enforcement skip grants.
+- `GET /api/governance/grants` lists active grants; `DELETE
+  /api/governance/grants/{id}` revokes one.
+
 ---
 
 ## Audit trail
@@ -360,6 +401,8 @@ that is what a policy that says no does.
 | `GOVERNANCE_AUDIT_CAPACITY` | `2000` | Ring-buffer size |
 | `GOVERNANCE_APPROVAL_TTL_S` | `300` | Approval wait before expiry-deny |
 | `GOVERNANCE_AUTO_APPROVE` | `false` | Local-dev only |
+| `GOVERNANCE_SESSION_GRANTS_ENABLED` | `true` | Allow scoped (sticky) approval grants; `false` = always ask |
+| `GOVERNANCE_GRANT_TTL_S` | `3600` | Lifetime of new approval grants |
 | `GOVERNANCE_MAX_SANDBOXES` | `8` | Concurrency cap → backpressure |
 | `GOVERNANCE_ARTIFACTS_DIR` | `.artifacts` | Artifact capture destination |
 
@@ -386,7 +429,9 @@ GET    /api/governance/audit                  ?limit&agent_id&session_id&surface
 GET    /api/governance/metrics                counters, would_block, live budgets
 GET    /api/governance/approvals              pending
 GET    /api/governance/approvals/all          incl. resolved
-POST   /api/governance/approvals/{id}/approve
+POST   /api/governance/approvals/{id}/approve   optional body {note, scope: once|action|session}
+GET    /api/governance/grants                 active session approval grants
+DELETE /api/governance/grants/{id}            revoke a grant
 POST   /api/governance/approvals/{id}/deny
 GET    /api/governance/sandboxes              live sandboxes + profiles
 POST   /api/governance/sandboxes/reap         destroy expired

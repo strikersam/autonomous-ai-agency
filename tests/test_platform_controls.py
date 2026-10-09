@@ -554,3 +554,20 @@ def test_gateway_sanitizer_mode_rejects_values_outside_the_options():
         coerce("GATEWAY_SANITIZER_MODE", "everything")
     with pytest.raises(ValueError):
         coerce("GATEWAY_UPSTREAM_RETRIES", "11")
+
+
+def test_session_grant_controls_are_live_and_take_effect(clean_overrides):
+    from packages.config import settings
+
+    for key in ("GOVERNANCE_SESSION_GRANTS_ENABLED", "GOVERNANCE_GRANT_TTL_S"):
+        assert get_control(key).live is True
+
+    control_overrides.apply_overrides(
+        {"GOVERNANCE_SESSION_GRANTS_ENABLED": "false", "GOVERNANCE_GRANT_TTL_S": "120"}
+    )
+    assert settings.governance_session_grants_enabled is False
+    assert settings.governance_grant_ttl_s == 120
+
+    control_overrides.apply_overrides({})
+    assert settings.governance_session_grants_enabled is True
+    assert settings.governance_grant_ttl_s == 3600

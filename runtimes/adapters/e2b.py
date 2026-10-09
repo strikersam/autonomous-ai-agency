@@ -221,6 +221,7 @@ class E2BAdapter(RuntimeAdapter):
             key_id=(spec.context or {}).get("key_id"),
             repo_url=repo_url,
             base_branch=base_branch,
+            owner=(spec.context or {}).get("user_email"),
         )
 
         # Attach the E2B session as runner._mcp — every write_file /

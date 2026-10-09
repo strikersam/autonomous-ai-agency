@@ -37,7 +37,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 log = logging.getLogger("governance.approvals")
 
@@ -228,15 +228,38 @@ class ApprovalStore:
         """Approve or deny a pending request.
 
         Returns ``None`` for an unknown id. A request that is already resolved
-        is returned unchanged — the first decision wins, so a double-click or
-        a retried webhook cannot flip an approval into a denial.
+        (or past its TTL) is returned unchanged — the first decision wins, so
+        a double-click or a retried webhook cannot flip an approval into a
+        denial, and an expired request can no longer be approved.
+        """
+        request, _ = self.resolve_ex(
+            approval_id, approved=approved, resolved_by=resolved_by, note=note
+        )
+        return request
+
+    def resolve_ex(
+        self,
+        approval_id: str,
+        *,
+        approved: bool,
+        resolved_by: str,
+        note: str | None = None,
+    ) -> tuple[ApprovalRequest | None, bool]:
+        """Like :meth:`resolve`, also reporting whether THIS call decided it.
+
+        The flag is what lets a caller issue a follow-on effect (a sticky
+        grant) only for the call that really performed PENDING -> decided.
         """
         with self._lock:
             request = self._requests.get(approval_id)
+        if request is not None and request.expired:
+            self._mark_expired(request)
+        with self._lock:
+            request = self._requests.get(approval_id)
             if request is None:
-                return None
+                return None, False
             if request.status is not ApprovalStatus.PENDING:
-                return request
+                return request, False
             request.status = ApprovalStatus.APPROVED if approved else ApprovalStatus.DENIED
             request.resolved_by = resolved_by or "unknown"
             request.resolved_note = note
@@ -247,7 +270,7 @@ class ApprovalStore:
         )
         if event is not None:
             _set_event_threadsafe(event)
-        return request
+        return request, True
 
     async def wait(self, approval_id: str, poll_s: float = 0.25) -> ApprovalStatus:
         """Block until *approval_id* is resolved or its TTL expires.
@@ -305,6 +328,192 @@ class ApprovalStore:
             self._events.clear()
 
 
+GrantScope = Literal["once", "action", "session"]
+
+# Surfaces a sticky grant can never cover. A credential access is the one
+# action where "the operator said yes a minute ago" is not a safe proxy for
+# "the operator says yes now".
+DEFAULT_GRANT_EXCLUDED_SURFACES: frozenset[str] = frozenset({"credential"})
+_ANONYMOUS_SESSIONS = frozenset({"", "anonymous"})
+
+
+def _is_anonymous(session_id: str) -> bool:
+    """True for an empty or anonymous-sentinel id (case-insensitive).
+
+    Surrounding whitespace is stripped first: identities are system-generated,
+    so padding is not an attacker-controlled way to reach another session.
+    """
+    return str(session_id or "").strip().lower() in _ANONYMOUS_SESSIONS
+
+
+@dataclass
+class SessionGrant:
+    """A standing approval for one agent session, bounded by a TTL."""
+
+    grant_id: str
+    session_id: str
+    scope: str
+    surface: str
+    action: str
+    granted_by: str
+    ttl_s: float
+    agent_id: str = ""
+    owner: str = ""
+    source_approval_id: str = ""
+    created_iso: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: float = field(default_factory=time.monotonic)
+
+    @property
+    def expired(self) -> bool:
+        return (time.monotonic() - self.created_at) >= self.ttl_s
+
+    def covers(self, surface: str, action: str) -> bool:
+        if self.scope == "session":
+            return True
+        return self.scope == "action" and self.surface == surface and self.action == action
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "grant_id": self.grant_id,
+            "session_id": self.session_id,
+            "scope": self.scope,
+            "surface": self.surface if self.scope == "action" else None,
+            "action": self.action if self.scope == "action" else None,
+            "granted_by": self.granted_by,
+            "agent_id": self.agent_id,
+            "owner": self.owner,
+            "source_approval_id": self.source_approval_id,
+            "created_at": self.created_iso,
+            "ttl_s": self.ttl_s,
+            "seconds_remaining": round(max(0.0, self.ttl_s - (time.monotonic() - self.created_at)), 1),
+        }
+
+
+class GrantStore:
+    """Bounded, in-process store of session approval grants.
+
+    Grants only ever short-circuit a REQUIRE_APPROVAL verdict; the enforcement
+    gate never consults them for DENY. Like approvals they are in-process, so a
+    restart drops every grant, which is the fail-closed outcome. Every lookup
+    failure means "no grant".
+    """
+
+    def __init__(
+        self,
+        capacity: int = 500,
+        excluded_surfaces: frozenset[str] = DEFAULT_GRANT_EXCLUDED_SURFACES,
+    ) -> None:
+        self._grants: dict[str, SessionGrant] = {}
+        self._lock = threading.Lock()
+        self._capacity = max(1, capacity)
+        self._excluded = frozenset(excluded_surfaces)
+        self._counter = 0
+
+    def grant(
+        self,
+        session_id: str,
+        scope: str,
+        surface: str,
+        action: str,
+        granted_by: str,
+        ttl_s: float,
+        *,
+        agent_id: str = "",
+        owner: str = "",
+        source_approval_id: str = "",
+    ) -> SessionGrant | None:
+        """Create a grant, or return ``None`` when none may be issued.
+
+        Refused for scope ``once``, an empty/anonymous session (shared by
+        every caller without an identity, so a grant would leak across
+        unrelated agents), excluded surfaces, and the fully generic
+        ``agent:unknown`` + ``system`` identity. When ``agent_id`` / ``owner``
+        are given the grant is bound to them as well as the session.
+        """
+        session_id = str(session_id or "").strip()
+        if scope not in ("action", "session") or _is_anonymous(session_id):
+            return None
+        if agent_id == "agent:unknown" and owner == "system":
+            return None
+        if str(surface) in self._excluded or not granted_by:
+            return None
+        with self._lock:
+            self._prune_locked()
+            self._counter += 1
+            grant_id = f"gnt_{int(time.time()):x}_{self._counter:04d}"
+            grant = SessionGrant(
+                grant_id=grant_id, session_id=session_id, scope=scope,
+                surface=str(surface), action=str(action), granted_by=granted_by,
+                ttl_s=max(1.0, float(ttl_s)), agent_id=str(agent_id or ""),
+                owner=str(owner or ""), source_approval_id=str(source_approval_id or ""),
+            )
+            self._grants[grant_id] = grant
+            while len(self._grants) > self._capacity:
+                oldest = min(self._grants.values(), key=lambda g: g.created_at)
+                self._grants.pop(oldest.grant_id, None)
+        log.info(
+            "Approval grant %s issued from approval %s scope=%s session=%s surface=%s action=%s",
+            grant_id, source_approval_id or "-", scope, session_id, surface, action,
+        )
+        return grant
+
+    def has_grant(
+        self,
+        session_id: str,
+        surface: str,
+        action: str,
+        agent_id: str | None = None,
+        owner: str | None = None,
+    ) -> SessionGrant | None:
+        """The live grant covering this call, or ``None``. Never raises.
+
+        A grant bound to an agent or owner only matches that exact one; a
+        lookup that does not state them cannot match a bound grant.
+        """
+        try:
+            session_id = str(session_id or "").strip()
+            if _is_anonymous(session_id) or str(surface) in self._excluded:
+                return None
+            with self._lock:
+                self._prune_locked()
+                for grant in self._grants.values():
+                    if grant.session_id != session_id or not grant.covers(str(surface), str(action)):
+                        continue
+                    if grant.agent_id and grant.agent_id != agent_id:
+                        continue
+                    if grant.owner and grant.owner != owner:
+                        continue
+                    return grant
+        except Exception as exc:  # noqa: BLE001 - fail closed: no grant
+            log.warning("Grant lookup failed, treating as no grant: %s", exc)
+        return None
+
+    def list_grants(self) -> list[dict[str, Any]]:
+        with self._lock:
+            self._prune_locked()
+            grants = sorted(self._grants.values(), key=lambda g: g.created_at)
+        return [g.to_dict() for g in grants]
+
+    def revoke_grant(self, grant_id: str) -> SessionGrant | None:
+        """Remove and return the grant (so the caller can audit it), or ``None``."""
+        with self._lock:
+            removed = self._grants.pop(grant_id, None)
+        if removed is not None:
+            log.info("Approval grant %s revoked", grant_id)
+        return removed
+
+    def revoke(self, grant_id: str) -> bool:
+        return self.revoke_grant(grant_id) is not None
+
+    def clear(self) -> None:
+        with self._lock:
+            self._grants.clear()
+
+    def _prune_locked(self) -> None:
+        for key in [k for k, g in self._grants.items() if g.expired]:
+            self._grants.pop(key, None)
+
+
 def _set_event_threadsafe(event: asyncio.Event) -> None:
     """Set *event* from whichever thread resolved the approval.
 
@@ -346,3 +555,21 @@ def reset_approval_store(store: ApprovalStore | None = None) -> None:
     global _STORE
     with _STORE_LOCK:
         _STORE = store
+
+
+_GRANTS: GrantStore | None = None
+
+
+def get_grant_store() -> GrantStore:
+    global _GRANTS
+    with _STORE_LOCK:
+        if _GRANTS is None:
+            _GRANTS = GrantStore()
+        return _GRANTS
+
+
+def reset_grant_store(store: GrantStore | None = None) -> None:
+    """Replace the process-wide grant store. Tests only."""
+    global _GRANTS
+    with _STORE_LOCK:
+        _GRANTS = store

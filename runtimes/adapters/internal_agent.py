@@ -403,6 +403,7 @@ class InternalAgentAdapter(RuntimeAdapter):
             key_id=spec.context.get("key_id"),
             repo_url=spec.context.get("repo_url"),
             base_branch=spec.context.get("base_branch", "main"),
+            owner=spec.context.get("user_email"),
         )
 
         started = time.perf_counter()

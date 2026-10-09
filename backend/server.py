@@ -3784,6 +3784,7 @@ async def _run_agent_loop(
     allow_commercial_fallback: bool = True,
     workspace_root: Optional[Union[str, Path]] = None,
     context: Optional[Dict] = None,
+    owner: Optional[str] = None,
 ) -> str:
     try:
         from agent.loop import AgentRunner
@@ -3815,6 +3816,7 @@ async def _run_agent_loop(
         provider_temperature=0.3,  # default for agent
         session_store=AGENT_EVENT_STORE,
         github_token=github_token,
+        owner=owner,
     )
 
     github_status = (
@@ -5635,6 +5637,7 @@ async def chat_send(body: ChatMessage, user: dict = Depends(get_current_user)):
                 allow_commercial_fallback=policy["allow_commercial_fallback"],
                 workspace_root=workspace_root,
                 context=body.context,
+                owner=str(uid),
             )
             heartbeat("verification", f"Judge model: {role_models['judge']}")
             await _persist_agent_chat_response(

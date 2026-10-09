@@ -519,6 +519,7 @@ class CEODispatcher:
                 ollama_base=ollama_base or "http://localhost:11434",
                 workspace_root=workspace_root,
                 github_token=github_token,
+                owner=user_id,
             )
 
         # AgentRunner.run() raises immediately outside legacy/bypass mode (see

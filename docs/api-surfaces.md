@@ -99,7 +99,9 @@ over HTTP; a proposed change opens a pull request that a human reviews and merge
 - `POST /api/governance/policy/propose` — open a PR carrying a proposed policy (requires `GH_PAT`)
 - `GET  /api/governance/audit` — recent audit events, filterable
 - `GET  /api/governance/metrics` — counters for dashboards/Prometheus
-- `GET/POST /api/governance/approvals[...]` — pending approvals and approve/deny
+- `GET/POST /api/governance/approvals[...]` — pending approvals and approve/deny. `POST .../approvals/{id}/approve` takes an optional body `{"note": str, "scope": "once"|"action"|"session"}` (default `once`; no body keeps the old behaviour). A wider scope also issues a time-limited session grant so the same agent session is not asked again; the response carries a `grant` object (or `null`). Grants never cover the `credential` surface, anonymous sessions, or DENY verdicts, and are off when `GOVERNANCE_SESSION_GRANTS_ENABLED=false`
+- `GET /api/governance/grants` — active session approval grants (admin)
+- `DELETE /api/governance/grants/{grant_id}` — revoke a grant (admin)
 - `GET/POST/DELETE /api/governance/sandboxes[...]` — live sandboxes, reap, destroy
 - `GET  /api/governance/budget[/{session_id}]` — live per-session budgets
 
