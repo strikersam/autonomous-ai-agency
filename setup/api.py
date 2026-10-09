@@ -604,11 +604,9 @@ async def reset_wizard(request: Request):
 
 @setup_router.post("/secret")
 async def store_secret_during_setup(request: Request):
-    """Store API keys/secrets during setup wizard (accessible without full auth).
-
-    Used by the setup wizard frontend to store provider API keys (OpenAI, Anthropic, etc)
-    before the user has completed setup and may not have full authentication yet.
-    """
+    """Store API keys/secrets during setup wizard. Requires an authenticated user."""
+    if not getattr(request.state, "user", None):
+        raise HTTPException(status_code=401, detail="Authentication required")
     try:
         body = await request.json()
     except ValueError:
@@ -624,7 +622,7 @@ async def store_secret_during_setup(request: Request):
             raise HTTPException(status_code=400, detail="name and value are required")
 
         user = getattr(request.state, "user", {}) or {}
-        uid = user.get("email") or user.get("_id") or "setup-user"
+        uid = user.get("email") or user.get("_id")
 
         rec = SecretRecord(owner_id=uid, name=name, description=description)
         rec.set_value(value)

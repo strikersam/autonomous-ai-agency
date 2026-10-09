@@ -1,15 +1,36 @@
-"""POST /api/setup/secret — the setup wizard's pre-auth secret store."""
+"""POST /api/setup/secret — the setup wizard's secret store (authenticated)."""
 from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
 
 
-@pytest.fixture(scope="module")
-def anon() -> TestClient:
-    from backend.server import app
+def _client(*, authed: bool) -> TestClient:
+    from fastapi import FastAPI, Request
 
+    from setup.api import setup_router
+
+    app = FastAPI()
+
+    @app.middleware("http")
+    async def inject_user(request: Request, call_next):
+        if authed:
+            request.state.user = {"email": "user@example.com", "_id": "user-1"}
+        return await call_next(request)
+
+    app.include_router(setup_router)
     return TestClient(app, raise_server_exceptions=False)
+
+
+@pytest.fixture
+def anon() -> TestClient:
+    return _client(authed=True)
+
+
+def test_unauthenticated_caller_is_rejected() -> None:
+    """Regression: this endpoint used to accept secrets from anyone."""
+    resp = _client(authed=False).post("/api/setup/secret", json={"name": "k", "value": "v"})
+    assert resp.status_code == 401
 
 
 @pytest.mark.parametrize("body", ["not json", "[1, 2]", "null"])

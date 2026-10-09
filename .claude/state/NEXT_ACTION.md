@@ -1,3 +1,6 @@
+# NEXT_ACTION — updated 2026-10-08 (screen audit fixes)
+
+Branch `claude/project-thread-21yb6b`: fixes for the v5 screen vs backend audit (admin API gaps, QuickNotes, provider policy surfaces, Logs/Skills/GitHub shapes, voice STT containers, workflow route order, scheduler fail_count). Open PR, merge when CI is green. Not fixed on purpose: AgentsScreen per-agent counts (backend has no per-agent weekly stats, screen already falls back), Skills enable/disable still localStorage-only, MCP rows inert, no sprint start/complete UI, `/api/activation/settings` left readable by any signed-in user (documented design).
 # NEXT_ACTION — updated 2026-10-09
 
 **Updated:** 2026-10-09 (daily automation, branch `claude/intelligent-gates-rfkpo8`)

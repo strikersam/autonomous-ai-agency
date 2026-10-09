@@ -12,19 +12,21 @@ const TABS = [
   { id: 'now', label: 'Happening now' },
   { id: 'autopilot', label: 'On autopilot' },
   { id: 'roadmap', label: 'Planned' },
-  { id: 'workflows', label: 'Workflows' },
+  { id: 'workflows', label: 'Workflows', adminOnly: true },
 ];
 
 /**
  * WorkHub — everything the agency is doing, in one destination.
  * Absorbs the former Tasks, Schedules and Portfolio nav items.
  */
-export default function WorkHub({ initialTab }) {
-  const [tab, setTab] = React.useState(TABS.some(t => t.id === initialTab) ? initialTab : 'now');
+export default function WorkHub({ initialTab, isAdmin }) {
+  // /api/workflow/* is admin-only, so non-admins don't get the tab.
+  const tabs = TABS.filter(t => !t.adminOnly || isAdmin);
+  const [tab, setTab] = React.useState(tabs.some(t => t.id === initialTab) ? initialTab : 'now');
   useReportSub('work', tab);
   return (
     <div>
-      <HubTabs tabs={TABS} active={tab} onChange={setTab} />
+      <HubTabs tabs={tabs} active={tab} onChange={setTab} />
       <React.Suspense fallback={<Spinner center />}>
         {tab === 'now' && <TaskBoardScreen />}
         {tab === 'autopilot' && <SchedulesScreen />}

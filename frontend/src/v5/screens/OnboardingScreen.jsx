@@ -62,7 +62,7 @@ function detectBusinessCategory(systems) {
   if (vals.some(n => ['shopify','woocommerce','bigcommerce','magento','ecommerce'].includes(n))) return 'ecommerce';
   if (vals.some(n => ['stripe','chargebee','paddle'].includes(n))) return 'saas';
   if (vals.some(n => ['wordpress','ghost','contentful','strapi','sanity','cms'].includes(n))) return 'media';
-  if (vals.some(n => ['salesforce','hubspot'].includes(n))) return 'agency';
+  if (vals.some(n => ['salesforce','hubspot'].includes(n))) return 'consulting';
   return 'other';
 }
 

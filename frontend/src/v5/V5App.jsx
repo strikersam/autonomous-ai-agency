@@ -119,7 +119,7 @@ export default function V5App() {
   const screens = {
     home: <DashboardScreen dashboardState="healthy" />,
     assistant: <AssistantHub initialMode={current.sub === 'voice' ? 'voice' : 'chat'} />,
-    work: <WorkHub initialTab={current.sub} />,
+    work: <WorkHub initialTab={current.sub} isAdmin={isAdmin} />,
     company: <CompanyHub initialTab={current.sub} onNavigate={go} isAdmin={isAdmin} />,
     insights: <InsightsHub initialTab={current.sub} onNavigate={go} />,
     // People & access / controls / governance are gated per-section inside

@@ -75,13 +75,13 @@ function QuickNotes({ onClose }) {
         }
       } catch { /* fall through to tasks */ }
 
-      const { data } = await api.listTasks({ source: 'quick_note', limit: 10 });
+      const { data } = await api.listTasks({ tag: 'quick_note', limit: 10 });
       const raw = data.tasks || data.items || (Array.isArray(data) ? data : []);
       setNotes(raw.map(t => ({
         id:     t.id || t._id,
-        text:   t.instruction || t.title || t.description || '(no text)',
-        type:   /^https?:\/\//.test(t.instruction || '') ? 'url' : 'text',
-        status: t.status === 'completed' ? 'done' : t.status === 'running' ? 'processing' : 'queued',
+        text:   t.description || t.title || '(no text)',
+        type:   /^https?:\/\//.test(t.description || t.title || '') ? 'url' : 'text',
+        status: t.status === 'done' ? 'done' : t.status === 'in_progress' ? 'processing' : t.status === 'failed' ? 'failed' : 'queued',
         ago:    t.created_at ? _relTime(t.created_at) : 'recently',
       })));
     } catch {
@@ -123,10 +123,12 @@ function QuickNotes({ onClose }) {
         }
       } else {
         // Plain-text idea, or no GitHub → create internal task
+        const text = input.trim();
         await api.createTask({
-          instruction: input.trim(),
-          source: 'quick_note',
-          priority: 'normal',
+          title: text.length > 120 ? `${text.slice(0, 117)}...` : text,
+          description: text,
+          tags: ['quick_note'],
+          priority: 'medium',
         });
         setInput('');
         setSent(true);

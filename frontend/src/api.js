@@ -448,7 +448,7 @@ export const exportSeoAudit = (companyId, auditId, fmt) =>
 // Trigger a browser download of an exported audit (csv / json / markdown / urls / issues).
 export async function downloadSeoExport(companyId, auditId, fmt) {
   const resp = await exportSeoAudit(companyId, auditId, fmt);
-  const ext = fmt === 'json' ? 'json' : (fmt === 'markdown' ? 'md' : 'csv');
+  const ext = { json: 'json', markdown: 'md', pdf: 'pdf', urls: 'txt' }[fmt] || 'csv';
   const url = window.URL.createObjectURL(new Blob([resp.data]));
   const a = document.createElement('a');
   a.href = url;

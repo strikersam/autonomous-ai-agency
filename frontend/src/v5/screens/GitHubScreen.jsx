@@ -40,7 +40,10 @@ export default function GitHubScreen() {
     setReposLoading(true); setReposErr(null);
     try {
       const { data } = await api.listGithubRepos(query);
-      if (mounted.current) setRepos(data?.repos || (Array.isArray(data) ? data : []));
+      if (mounted.current) {
+        setRepos(data?.repos || (Array.isArray(data) ? data : []));
+        if (data?.error) setReposErr(data.error);
+      }
     } catch (e) {
       if (mounted.current) setReposErr(errText(e, 'Could not load repositories.'));
     } finally {

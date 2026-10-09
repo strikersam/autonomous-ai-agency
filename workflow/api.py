@@ -32,7 +32,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from workflow.engine import WorkflowEngine, get_engine
 from workflow.models import (
@@ -65,6 +65,12 @@ def _get_run_or_404(run_id: str, engine: WorkflowEngine) -> WorkflowRun:
 
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
+
+def _actor(request: Request, fallback: str) -> str:
+    """Prefer the authenticated caller's identity over the client-supplied name."""
+    user = getattr(request.state, "user", None) or {}
+    return str(user.get("email") or user.get("_id") or fallback)
+
 
 @workflow_router.post("/build", status_code=202)
 async def build(
@@ -121,6 +127,58 @@ def list_runs(
     }
 
 
+@workflow_router.get("/agents")
+def get_agent_team(
+    engine: WorkflowEngine = Depends(_engine),
+) -> dict[str, Any]:
+    """Return the current agent team composition.
+
+    Shows which model is assigned to each role, and each agent's permission
+    profile.  The key invariant — coder model ≠ reviewer model — should be
+    visible here.
+
+    Example response::
+
+        {
+          "swarm_active": true,
+          "agents": [
+            {"role": "coder",    "model": "qwen3-coder:30b",  "can_write": true, ...},
+            {"role": "reviewer", "model": "deepseek-r1:32b",  "can_review": true, ...},
+            ...
+          ]
+        }
+    """
+    swarm = engine.swarm
+    if swarm is None:
+        # agents package not available — return defaults from env
+        import os
+        _defaults = {
+            "architect": ("Architect", "qwen3-coder:30b",  False, False, False),
+            "scout":     ("Scout",     "deepseek-r1:32b",  False, False, False),
+            "coder":     ("Coder",     "qwen3-coder:30b",  True,  False, False),
+            "reviewer":  ("Reviewer",  "deepseek-r1:32b",  False, False, True),
+            "verifier":  ("Verifier",  "qwen3-coder:7b",   False, True,  False),
+        }
+        agents = [
+            {
+                "role": role,
+                "name": name,
+                "model": os.environ.get(f"CRISPY_{role.upper()}_MODEL", default_model),
+                "can_write": cw, "can_execute": ce, "can_review": cr,
+            }
+            for role, (name, default_model, cw, ce, cr) in _defaults.items()
+        ]
+        return {"swarm_active": False, "agents": agents}
+
+    return {
+        "swarm_active": True,
+        "agents": swarm.team_summary(),
+        "coder_model": swarm.get_profile("coder").model,
+        "reviewer_model": swarm.get_profile("reviewer").model,
+        "models_differ": swarm.get_profile("coder").model != swarm.get_profile("reviewer").model,
+    }
+
+
 @workflow_router.get("/{run_id}")
 def get_run(
     run_id: str,
@@ -135,6 +193,7 @@ def get_run(
 async def approve(
     run_id: str,
     body: WorkflowApproveRequest,
+    request: Request,
     engine: WorkflowEngine = Depends(_engine),
 ) -> dict[str, Any]:
     """Approve the plan and lift the ApprovalGate.
@@ -144,9 +203,9 @@ async def approve(
     """
     _get_run_or_404(run_id, engine)
     try:
-        updated = engine.approve(run_id, approved_by=body.approved_by)
+        updated = engine.approve(run_id, approved_by=_actor(request, body.approved_by))
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail="Internal server error") from exc
+        raise HTTPException(status_code=409, detail="Run is not in a state that allows this action") from exc
     return {
         "run_id": run_id,
         "status": updated.status,
@@ -159,14 +218,15 @@ async def approve(
 async def reject(
     run_id: str,
     body: WorkflowRejectRequest,
+    request: Request,
     engine: WorkflowEngine = Depends(_engine),
 ) -> dict[str, Any]:
     """Reject the plan with a reason. The run will be marked as failed."""
     _get_run_or_404(run_id, engine)
     try:
-        updated = engine.reject(run_id, reason=body.reason, rejected_by=body.rejected_by)
+        updated = engine.reject(run_id, reason=body.reason, rejected_by=_actor(request, body.rejected_by))
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail="Internal server error") from exc
+        raise HTTPException(status_code=409, detail="Run is not in a state that allows this action") from exc
     return {
         "run_id": run_id,
         "status": updated.status,
@@ -185,7 +245,7 @@ async def resume(
     try:
         updated = engine.resume(run_id)
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail="Internal server error") from exc
+        raise HTTPException(status_code=409, detail="Run is not in a state that allows this action") from exc
     return {"run_id": run_id, "status": updated.status}
 
 
@@ -199,7 +259,7 @@ async def cancel(
     try:
         updated = engine.cancel(run_id)
     except ValueError as exc:
-        raise HTTPException(status_code=409, detail="Internal server error") from exc
+        raise HTTPException(status_code=409, detail="Run is not in a state that allows this action") from exc
     return {"run_id": run_id, "status": updated.status}
 
 
@@ -323,56 +383,4 @@ def get_events(
         "events": events,
         "count": len(events),
         "from_position": from_position,
-    }
-
-
-@workflow_router.get("/agents")
-def get_agent_team(
-    engine: WorkflowEngine = Depends(_engine),
-) -> dict[str, Any]:
-    """Return the current agent team composition.
-
-    Shows which model is assigned to each role, and each agent's permission
-    profile.  The key invariant — coder model ≠ reviewer model — should be
-    visible here.
-
-    Example response::
-
-        {
-          "swarm_active": true,
-          "agents": [
-            {"role": "coder",    "model": "qwen3-coder:30b",  "can_write": true, ...},
-            {"role": "reviewer", "model": "deepseek-r1:32b",  "can_review": true, ...},
-            ...
-          ]
-        }
-    """
-    swarm = engine.swarm
-    if swarm is None:
-        # agents package not available — return defaults from env
-        import os
-        _defaults = {
-            "architect": ("Architect", "qwen3-coder:30b",  False, False, False),
-            "scout":     ("Scout",     "deepseek-r1:32b",  False, False, False),
-            "coder":     ("Coder",     "qwen3-coder:30b",  True,  False, False),
-            "reviewer":  ("Reviewer",  "deepseek-r1:32b",  False, False, True),
-            "verifier":  ("Verifier",  "qwen3-coder:7b",   False, True,  False),
-        }
-        agents = [
-            {
-                "role": role,
-                "name": name,
-                "model": os.environ.get(f"CRISPY_{role.upper()}_MODEL", default_model),
-                "can_write": cw, "can_execute": ce, "can_review": cr,
-            }
-            for role, (name, default_model, cw, ce, cr) in _defaults.items()
-        ]
-        return {"swarm_active": False, "agents": agents}
-
-    return {
-        "swarm_active": True,
-        "agents": swarm.team_summary(),
-        "coder_model": swarm.get_profile("coder").model,
-        "reviewer_model": swarm.get_profile("reviewer").model,
-        "models_differ": swarm.get_profile("coder").model != swarm.get_profile("reviewer").model,
     }

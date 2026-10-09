@@ -123,13 +123,14 @@ class VoiceCommandInterface:
         try:
             import httpx
 
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            ext, mime = _sniff_container(audio_bytes) or (".wav", "audio/wav")
+            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as f:
                 f.write(audio_bytes)
                 tmp = f.name
             with open(tmp, "rb") as af:
                 resp = httpx.post(
                     f"{self._whisper_url}/v1/audio/transcriptions",
-                    files={"file": ("audio.wav", af, "audio/wav")},
+                    files={"file": (f"audio{ext}", af, mime)},
                     data={"model": "whisper-1"},
                     timeout=30.0,
                 )
@@ -145,9 +146,17 @@ class VoiceCommandInterface:
             import numpy as np
             import whisper  # type: ignore[import]
 
-            audio = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32_768.0
             model = whisper.load_model("base")
-            result = model.transcribe(audio)
+            container = _sniff_container(audio_bytes)
+            if container:
+                # Encoded audio: let whisper/ffmpeg decode it from a file.
+                with tempfile.NamedTemporaryFile(suffix=container[0], delete=True) as f:
+                    f.write(audio_bytes)
+                    f.flush()
+                    result = model.transcribe(f.name)
+            else:
+                audio = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32_768.0
+                result = model.transcribe(audio)
             text = result.get("text", "").strip()
             return TranscriptionResult(text=text, confidence=0.85, duration_s=0.0, source="whisper-local")
         except ImportError:
@@ -156,6 +165,24 @@ class VoiceCommandInterface:
         except Exception as exc:
             log.warning("Local whisper transcription failed: %s", exc)
             return _stub_result()
+
+
+def _sniff_container(audio: bytes) -> tuple[str, str] | None:
+    """Return (extension, mime) for an encoded audio container, or None for raw PCM.
+
+    Browsers record MediaRecorder output (webm/ogg/mp4), never raw int16 PCM.
+    """
+    if audio[:4] == b"\x1aE\xdf\xa3":
+        return ".webm", "audio/webm"
+    if audio[:4] == b"OggS":
+        return ".ogg", "audio/ogg"
+    if audio[4:8] == b"ftyp":
+        return ".m4a", "audio/mp4"
+    if audio[:4] == b"RIFF" and audio[8:12] == b"WAVE":
+        return ".wav", "audio/wav"
+    if audio[:3] == b"ID3" or audio[:2] in (b"\xff\xfb", b"\xff\xf3"):
+        return ".mp3", "audio/mpeg"
+    return None
 
 
 def _stub_result() -> TranscriptionResult:
