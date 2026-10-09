@@ -414,6 +414,7 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
     "mistral": [
         "mistral-small-latest",
         "mistral-large-latest",
+        "mistral-large-4-0",    # Mistral Large 4 ("Le Chonk", 2026-10-06); declared from docs, not probed on this account
         "devstral-latest",      # agentic coding executor; declared from docs, not probed on this account
         "codestral-latest",
         "mistral-nemo",
