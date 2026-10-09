@@ -23,6 +23,8 @@ orchestration work, but it should *keep* doing context engineering.
 import logging
 from typing import Any
 
+from agent.tool_output_store import offload_hint
+
 log = logging.getLogger("qwen-agent")
 
 # ---------------------------------------------------------------------------
@@ -81,6 +83,7 @@ class ContextManager:
             if i < cutoff:
                 result = obs.get("result", "")
                 summary = self._summarise_result(result)
+                summary += offload_hint(result, len(summary))
                 masked.append(
                     {
                         "tool": obs.get("tool", "unknown"),

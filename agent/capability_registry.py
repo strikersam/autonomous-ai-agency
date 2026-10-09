@@ -393,6 +393,7 @@ def _register_builtin_tools(registry: ToolRegistry, workspace_root: str | None =
 
     _register_web_reach_tools(registry)
     _register_browser_tools(registry)
+    _register_tool_output_tools(registry)
     _register_code_graph_tools(registry, ws.root)
 
     @registry.agent_tool(
@@ -548,6 +549,44 @@ def _register_browser_tools(registry: ToolRegistry) -> None:
     )
     async def _browse_page_tool(url: str) -> dict:
         return web_access_refusal("browse_page") or await browse_page(url)
+
+
+def _register_tool_output_tools(registry: ToolRegistry) -> None:
+    """Register ``read_tool_output`` (agent/tool_output_store.py): page back in
+    tool output that observation masking shortened."""
+    from agent.tool_output_store import (
+        DEFAULT_READ_LIMIT,
+        MAX_READ_LIMIT,
+        get_tool_output_store,
+    )
+
+    @registry.agent_tool(
+        name="read_tool_output",
+        description=(
+            "Read the full text of an earlier tool result that was shortened in "
+            "your context. Pass the ref from its '[full output: ref=out_...]' "
+            "note. Returns {ok, content, offset, total_length, next_offset}; "
+            f"pass next_offset as offset to continue. limit is capped at {MAX_READ_LIMIT}."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "ref": {"type": "string", "description": "The out_... ref"},
+                "offset": {"type": "integer", "description": "Start character", "default": 0},
+                "limit": {
+                    "type": "integer",
+                    "description": "Max characters",
+                    "default": DEFAULT_READ_LIMIT,
+                },
+            },
+            "required": ["ref"],
+        },
+        capabilities=["read", "context"],
+    )
+    def _read_tool_output_tool(
+        ref: str, offset: int = 0, limit: int = DEFAULT_READ_LIMIT
+    ) -> dict:
+        return get_tool_output_store().read(ref, offset=offset, limit=limit)
 
 
 def _register_web_reach_tools(registry: ToolRegistry) -> None:

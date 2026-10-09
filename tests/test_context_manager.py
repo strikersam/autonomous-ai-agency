@@ -42,7 +42,8 @@ def test_mask_observations_truncates_old_entries():
     for o in masked[:3]:
         assert o.get("_masked") is True
         # mask_content_limit=50 + " … [masked]" (11 chars) = 61 max
-        assert len(o["result"]) <= 65
+        # the offload ref note is appended after the truncated text
+        assert len(o["result"].split(" [full output:")[0]) <= 65
 
     # Last 2 should be verbatim
     for o in masked[3:]:

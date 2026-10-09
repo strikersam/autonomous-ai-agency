@@ -14,6 +14,8 @@ import logging
 import time
 from typing import Any
 
+from agent.tool_output_store import offload_hint
+
 log = logging.getLogger("qwen-agent")
 
 
@@ -50,7 +52,7 @@ class ReactScratchpad:
         result_str = str(result)
         self.entries.append({
             "type": "observation",
-            "result": result_str[:2000],
+            "result": result_str[:2000] + offload_hint(result_str, 2000),
             "timestamp": time.time() - self._start_time,
         })
 

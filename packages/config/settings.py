@@ -318,6 +318,11 @@ class Settings:
         # (fetch_url, youtube_transcript, web_search, fetch_rss, browse_page).
         # Default on; when off the tools refuse and drop out of the tool prompt.
         self.web_reach_enabled_raw: str = os.environ.get("WEB_REACH_ENABLED", "true")
+        # AGENT_TOOL_OUTPUT_OFFLOAD — keep the full text of tool output the agent
+        # loop shortens, retrievable via read_tool_output. Default on.
+        self.agent_tool_output_offload_raw: str = os.environ.get(
+            "AGENT_TOOL_OUTPUT_OFFLOAD", "true"
+        )
 
         # ── Code graph (agent/code_graph.py) ────────────────────────────────
         # Structural code queries — who calls a function, what a diff touches —
@@ -473,6 +478,11 @@ class Settings:
     def web_reach_enabled(self) -> bool:
         """False only when an operator switched agent web access off."""
         return self.web_reach_enabled_raw.strip().lower() not in {"0", "false", "no", "off"}
+
+    @property
+    def agent_tool_output_offload(self) -> bool:
+        """False only when an operator switched tool-output offload off."""
+        return self.agent_tool_output_offload_raw.strip().lower() not in {"0", "false", "no", "off"}
 
     @property
     def code_graph_enabled(self) -> bool:
