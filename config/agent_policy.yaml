@@ -139,6 +139,11 @@ groups:
         - youtube_transcript
         - recall_memory
         - save_memory
+    agent:
+      # classify() files delegate_to_specialist under Surface.AGENT; without this
+      # the allow-list above (which only governs the tool surface) would be sidestepped.
+      deny:
+        - delegate_task
     filesystem:
       read: ["**"]
       write: []               # declared-and-empty = no writes at all
@@ -189,6 +194,9 @@ groups:
   # internet and write files is an exfiltration path wearing a badge.
   security:
     extends: default
+    agent:
+      deny:
+        - delegate_task       # a read-only scanner must not queue work for other agents
     filesystem:
       read: ["**"]
       write: []

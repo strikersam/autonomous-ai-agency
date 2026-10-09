@@ -41,6 +41,7 @@ class ToolDef:
         version: str = "1.0.0",
         cost_tier: int = 1,
         source: str = "decorator",
+        available: Callable[[], bool] | None = None,
     ) -> None:
         self.name = name
         self.description = description
@@ -50,6 +51,16 @@ class ToolDef:
         self.version = version
         self.cost_tier = cost_tier
         self.source = source
+        # Optional call-time predicate: a tool whose feature is switched off is
+        # left out of the prompt catalogues (HarnessEnrichment) as well as refusing calls.
+        self.available = available
+
+    def is_available(self) -> bool:
+        """True unless an ``available`` predicate says the tool is switched off."""
+        try:
+            return self.available is None or bool(self.available())
+        except Exception:  # noqa: BLE001 - a broken predicate must not hide a tool
+            return True
 
     def to_openai_tool(self) -> dict[str, Any]:
         """Convert to OpenAI-compatible tool definition."""
@@ -127,6 +138,7 @@ class ToolRegistry:
         capabilities: list[str] | None = None,
         version: str = "1.0.0",
         cost_tier: int = 1,
+        available: Callable[[], bool] | None = None,
     ) -> Callable:
         """Decorator to register a function as an agent tool.
 
@@ -154,6 +166,7 @@ class ToolRegistry:
                 version=version,
                 cost_tier=cost_tier,
                 source="decorator",
+                available=available,
             )
             self.register(tool)
 
@@ -552,10 +565,10 @@ def _register_browser_tools(registry: ToolRegistry) -> None:
 
 
 def _register_delegation_tools(registry: ToolRegistry) -> None:
-    """Register async delegation (agent/delegation.py). ``owner_id``,
-    ``parent_session_id`` and ``parent_instruction`` are injected by the runner
-    (``_dispatch_tool_unguarded``) and are not part of the model-facing schema."""
-    from agent.delegation import check_delegation, delegate_to_specialist
+    """Register async delegation (agent/delegation.py). Owner, session and depth
+    come from the run's ``RunContext``, never from tool arguments: stray
+    model-supplied keys are swallowed by ``**_ignored``."""
+    from agent.delegation import check_delegation, delegate_to_specialist, delegation_enabled
 
     @registry.agent_tool(
         name="delegate_to_specialist",
@@ -574,14 +587,11 @@ def _register_delegation_tools(registry: ToolRegistry) -> None:
             "required": ["instruction"],
         },
         capabilities=["delegate", "tasks"],
+        available=delegation_enabled,
     )
     async def _delegate_tool(instruction: str, specialist: str = "", reason: str = "",
-                             owner_id: str = "", parent_session_id: str = "",
-                             parent_instruction: str = "") -> dict:
-        return await delegate_to_specialist(
-            instruction, specialist, reason, owner_id=owner_id,
-            parent_session_id=parent_session_id, parent_instruction=parent_instruction,
-        )
+                             **_ignored: Any) -> dict:
+        return await delegate_to_specialist(instruction, specialist, reason)
 
     @registry.agent_tool(
         name="check_delegation",
@@ -592,10 +602,10 @@ def _register_delegation_tools(registry: ToolRegistry) -> None:
             "required": ["task_id"],
         },
         capabilities=["delegate", "tasks", "read"],
+        available=delegation_enabled,
     )
-    async def _check_delegation_tool(task_id: str, owner_id: str = "", parent_session_id: str = "",
-                                     parent_instruction: str = "") -> dict:
-        return await check_delegation(task_id, owner_id=owner_id, parent_session_id=parent_session_id)
+    async def _check_delegation_tool(task_id: str, **_ignored: Any) -> dict:
+        return await check_delegation(task_id)
 
 
 def _register_web_reach_tools(registry: ToolRegistry) -> None:

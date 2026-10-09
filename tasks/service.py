@@ -1258,6 +1258,12 @@ class TaskExecutionCoordinator:
         allow_paid_escalation = True
 
         context = {
+            # Who runs this and whether it was itself delegated; AgentRunner.run binds it
+            # for the delegation tools (agent/delegation.py). Additive: nothing else reads it.
+            "delegation": {
+                "owner_id": task.owner_id,
+                "delegated": task.source == "agent-delegation" or "agent-delegated" in (task.tags or []),
+            },
             "task": {
                 "title": task.title,
                 "description": task.description,

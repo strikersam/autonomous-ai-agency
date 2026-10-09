@@ -99,7 +99,7 @@ class HarnessEnrichment:
             try:
                 for tool in tr.list_all():
                     name = tool.name
-                    if name in seen:
+                    if name in seen or not tool.is_available():
                         continue
                     seen.add(name)
                     desc = (tool.description or "")[:100]
