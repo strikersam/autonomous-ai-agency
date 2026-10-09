@@ -98,6 +98,18 @@ def _web_reach_tool_lines() -> str:
     )
 
 
+def _tool_output_tool_lines() -> str:
+    """Advertise read_tool_output only while offload is on (rule 19)."""
+    from agent.tool_output_store import offload_enabled
+
+    if not offload_enabled():
+        return ""
+    return (
+        "- read_tool_output(ref, offset=0, limit=4000): Page in the full text of an earlier\n"
+        "  tool result shortened with a '[full output: ref=out_...]' note (max limit 8000)\n"
+    )
+
+
 def _web_search_example() -> str:
     """The web_search call example, dropped with the tools it demonstrates."""
     from agent.web_reach import web_access_enabled
@@ -152,6 +164,7 @@ def build_tool_prompt(
                 "- read_file(path)\n"
                 "- list_files(path='.', limit=200)\n"
                 "- search_code(query, limit=20)\n"
+                f"{_tool_output_tool_lines()}"
                 f"{_web_reach_tool_lines()}"
                 "- get_current_time(): Get the current UTC date/time. Use before reasoning\n"
                 "  about recency, deadlines, or 'how long ago' — you have no other source\n"

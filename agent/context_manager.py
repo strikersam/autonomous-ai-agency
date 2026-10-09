@@ -23,6 +23,8 @@ orchestration work, but it should *keep* doing context engineering.
 import logging
 from typing import Any
 
+from agent.tool_output_store import offload_hint
+
 log = logging.getLogger("qwen-agent")
 
 # ---------------------------------------------------------------------------
@@ -48,7 +50,10 @@ class ContextManager:
         mask_content_limit: int = _DEFAULT_MASK_CONTENT_LIMIT,
         compact_after: int = _DEFAULT_COMPACT_AFTER,
         jit_file_limit: int = _DEFAULT_JIT_FILE_LIMIT,
+        owner: str | None = None,
     ) -> None:
+        # Binds offloaded tool output to one agent run (see tool_output_store).
+        self.owner = owner
         self.mask_after = mask_after
         self.mask_content_limit = mask_content_limit
         self.compact_after = compact_after
@@ -81,6 +86,12 @@ class ContextManager:
             if i < cutoff:
                 result = obs.get("result", "")
                 summary = self._summarise_result(result)
+                kept = (
+                    min(len(result), self.mask_content_limit)
+                    if isinstance(result, str)
+                    else len(summary)
+                )
+                summary += offload_hint(result, kept, self.owner)
                 masked.append(
                     {
                         "tool": obs.get("tool", "unknown"),

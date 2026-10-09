@@ -41,8 +41,13 @@ class ToolDef:
         version: str = "1.0.0",
         cost_tier: int = 1,
         source: str = "decorator",
+        available: Callable[[], bool] | None = None,
     ) -> None:
         self.name = name
+        # Optional live predicate: a tool whose predicate is False is not
+        # advertised to the model; one that has a predicate is listed after
+        # the core tools so it never displaces them.
+        self.available = available
         self.description = description
         self.parameters = parameters
         self.handler = handler
@@ -50,6 +55,15 @@ class ToolDef:
         self.version = version
         self.cost_tier = cost_tier
         self.source = source
+
+    def is_available(self) -> bool:
+        """False when the tool's live availability predicate says it is off."""
+        if self.available is None:
+            return True
+        try:
+            return bool(self.available())
+        except Exception:  # noqa: BLE001 - a broken predicate hides the tool
+            return False
 
     def to_openai_tool(self) -> dict[str, Any]:
         """Convert to OpenAI-compatible tool definition."""
@@ -127,6 +141,7 @@ class ToolRegistry:
         capabilities: list[str] | None = None,
         version: str = "1.0.0",
         cost_tier: int = 1,
+        available: Callable[[], bool] | None = None,
     ) -> Callable:
         """Decorator to register a function as an agent tool.
 
@@ -154,6 +169,7 @@ class ToolRegistry:
                 version=version,
                 cost_tier=cost_tier,
                 source="decorator",
+                available=available,
             )
             self.register(tool)
 
@@ -235,7 +251,7 @@ class ToolRegistry:
             tools = self.find_by_capabilities(capabilities)
         if names:
             tools = [t for t in tools if t.name in set(names)]
-        return [t.to_openai_tool() for t in tools]
+        return [t.to_openai_tool() for t in tools if t.is_available()]
 
     # ── Auto-discovery ───────────────────────────────────────────────────────
 
@@ -393,6 +409,7 @@ def _register_builtin_tools(registry: ToolRegistry, workspace_root: str | None =
 
     _register_web_reach_tools(registry)
     _register_browser_tools(registry)
+    _register_tool_output_tools(registry)
     _register_code_graph_tools(registry, ws.root)
 
     @registry.agent_tool(
@@ -548,6 +565,53 @@ def _register_browser_tools(registry: ToolRegistry) -> None:
     )
     async def _browse_page_tool(url: str) -> dict:
         return web_access_refusal("browse_page") or await browse_page(url)
+
+
+def _register_tool_output_tools(registry: ToolRegistry) -> None:
+    """Register ``read_tool_output`` (agent/tool_output_store.py): page back in
+    tool output that observation masking shortened."""
+    from agent.tool_output_store import (
+        DEFAULT_READ_LIMIT,
+        MAX_READ_LIMIT,
+        get_tool_output_store,
+        offload_enabled,
+    )
+
+    @registry.agent_tool(
+        name="read_tool_output",
+        description=(
+            "Read the full text of an earlier tool result that was shortened in "
+            "your context. Pass the ref from its '[full output: ref=out_...]' "
+            "note. Returns {ok, content, offset, total_length, next_offset}; "
+            f"pass next_offset as offset to continue. limit is capped at {MAX_READ_LIMIT}."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "ref": {"type": "string", "description": "The out_... ref"},
+                "offset": {"type": "integer", "description": "Start character", "default": 0},
+                "limit": {
+                    "type": "integer",
+                    "description": "Max characters",
+                    "default": DEFAULT_READ_LIMIT,
+                },
+            },
+            "required": ["ref"],
+        },
+        capabilities=["read", "context"],
+        available=offload_enabled,
+    )
+    def _read_tool_output_tool(
+        ref: str,
+        offset: int = 0,
+        limit: int = DEFAULT_READ_LIMIT,
+        owner: str | None = None,
+    ) -> dict:
+        # ``owner`` is injected by AgentRunner._dispatch_tool (like
+        # workspace_root); the model cannot choose it.
+        if not offload_enabled():
+            return {"ok": False, "error": "tool output offload is switched off"}
+        return get_tool_output_store().read(ref, offset=offset, limit=limit, owner=owner)
 
 
 def _register_web_reach_tools(registry: ToolRegistry) -> None:
