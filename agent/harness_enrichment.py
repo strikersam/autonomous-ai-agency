@@ -91,6 +91,7 @@ class HarnessEnrichment:
             return self._cached_tool_block
 
         lines: list[str] = []
+        late: list[str] = []
         seen: set[str] = set()
 
         # 1. Discover from capability registry
@@ -102,8 +103,12 @@ class HarnessEnrichment:
                     if name in seen:
                         continue
                     seen.add(name)
+                    if not tool.is_available():
+                        continue
                     desc = (tool.description or "")[:100]
-                    lines.append(f"- {name}: {desc}")
+                    # Tools gated by an availability predicate are listed after
+                    # the core tools so they never push one past the size cap.
+                    (late if tool.available is not None else lines).append(f"- {name}: {desc}")
             except Exception as exc:
                 log.debug("Tool registry enumeration failed: %s", exc)
 
@@ -112,6 +117,7 @@ class HarnessEnrichment:
             if name not in seen:
                 lines.append(f"- {name}: {desc}")
 
+        lines.extend(late)
         block = "AVAILABLE TOOLS:\n" + "\n".join(lines)
         if len(block) > _MAX_TOOL_ENRICHMENT_CHARS:
             block = block[:_MAX_TOOL_ENRICHMENT_CHARS] + "\n… [truncated]"
