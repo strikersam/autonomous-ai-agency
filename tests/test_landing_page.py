@@ -174,3 +174,10 @@ def test_login_is_reached_by_form_not_crawlable_link(html):
     # as a Noindex page with no H1 and no internal links.
     assert 'href="/login"' not in html
     assert html.count('action="/login"') == 3
+
+
+def test_indexnow_key_file_matches_its_name_and_robots_meta_allows_snippets(html):
+    keys = [f for f in PUBLIC.glob("*.txt") if re.fullmatch(r"[0-9a-f]{32}", f.stem)]
+    assert len(keys) == 1
+    assert keys[0].read_text(encoding="utf-8").strip() == keys[0].stem
+    assert 'content="index,follow,max-snippet:-1,max-image-preview:large' in html
