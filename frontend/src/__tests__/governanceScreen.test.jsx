@@ -24,6 +24,8 @@ vi.mock('../api', () => ({
   getGovernanceApprovals: vi.fn(),
   approveGovernanceRequest: vi.fn(),
   denyGovernanceRequest: vi.fn(),
+  getGovernanceGrants: vi.fn(),
+  revokeGovernanceGrant: vi.fn(),
 }));
 
 import * as api from '../api';
@@ -40,11 +42,12 @@ const OBSERVE_STATUS = {
 };
 
 function mockAll({ status = OBSERVE_STATUS, metrics = { audit: { would_block: 0 } },
-                   events = [], approvals = [] } = {}) {
+                   events = [], approvals = [], grants = [] } = {}) {
   api.getGovernanceStatus.mockResolvedValue({ data: status });
   api.getGovernanceMetrics.mockResolvedValue({ data: metrics });
   api.getGovernanceAudit.mockResolvedValue({ data: { events, count: events.length } });
   api.getGovernanceApprovals.mockResolvedValue({ data: { approvals, count: approvals.length } });
+  api.getGovernanceGrants.mockResolvedValue({ data: { grants, count: grants.length } });
 }
 
 beforeEach(() => vi.clearAllMocks());
@@ -206,4 +209,49 @@ test('filtering to denied re-queries the audit endpoint with that decision', asy
       expect.objectContaining({ decision: 'deny' })
     )
   );
+});
+
+const STICKY_PENDING = {
+  approval_id: 'apr_9', agent_id: 'agent:coder', action: 'deploy_prod', surface: 'tool',
+  session_id: 'sess-1', reason: 'requires approval', rule_id: 'r', seconds_remaining: 100,
+};
+
+test('sticky approve buttons pass the chosen scope to the approve endpoint', async () => {
+  api.approveGovernanceRequest.mockResolvedValue({ data: {} });
+  mockAll({ approvals: [STICKY_PENDING] });
+  render(<GovernanceScreen />);
+  await waitFor(() => expect(screen.getByText('Approve all (session)')).toBeInTheDocument());
+
+  fireEvent.click(screen.getByText('Approve for this action (session)'));
+  await waitFor(() =>
+    expect(api.approveGovernanceRequest).toHaveBeenCalledWith('apr_9', undefined, 'action'));
+  fireEvent.click(screen.getByText('Approve all (session)'));
+  await waitFor(() =>
+    expect(api.approveGovernanceRequest).toHaveBeenCalledWith('apr_9', undefined, 'session'));
+});
+
+test('sticky buttons are hidden for credential or anonymous-session requests', async () => {
+  mockAll({
+    approvals: [
+      { ...STICKY_PENDING, approval_id: 'c', action: 'cred_x', surface: 'credential' },
+      { ...STICKY_PENDING, approval_id: 'n', action: 'anon_x', session_id: '' },
+    ],
+  });
+  render(<GovernanceScreen />);
+  await waitFor(() => expect(screen.getByText('cred_x')).toBeInTheDocument());
+  expect(screen.queryByText('Approve all (session)')).not.toBeInTheDocument();
+});
+
+test('active grants are listed and can be revoked', async () => {
+  api.revokeGovernanceGrant.mockResolvedValue({ data: { revoked: true } });
+  mockAll({
+    grants: [{
+      grant_id: 'gnt_1', session_id: 'sess-1', scope: 'session', surface: null,
+      action: null, granted_by: 'admin@example.com', seconds_remaining: 3000,
+    }],
+  });
+  render(<GovernanceScreen />);
+  await waitFor(() => expect(screen.getByText(/Active approval grants/i)).toBeInTheDocument());
+  fireEvent.click(screen.getByText('Revoke'));
+  await waitFor(() => expect(api.revokeGovernanceGrant).toHaveBeenCalledWith('gnt_1'));
 });

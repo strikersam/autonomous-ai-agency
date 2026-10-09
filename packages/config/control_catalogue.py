@@ -1002,6 +1002,28 @@ _GOVERNANCE: tuple[ControlSpec, ...] = (
         live=True,
         risk=RISK_HIGH,
     ),
+    _toggle(
+        "GOVERNANCE_SESSION_GRANTS_ENABLED",
+        "Sticky approval grants",
+        "governance",
+        "true",
+        "Let an admin approve an action once for a whole agent session "
+        "(same action, or any approval-gated action) so it is not asked again. "
+        "Off: every approval-gated call asks, and approve ignores the scope.",
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    _number(
+        "GOVERNANCE_GRANT_TTL_S",
+        "Approval grant lifetime (s)",
+        "governance",
+        "3600",
+        "How long a session-scoped approval grant stays valid before the agent "
+        "is asked again.",
+        live=True,
+        minimum=60,
+        maximum=86400,
+    ),
     _number(
         "GOVERNANCE_MAX_SANDBOXES",
         "Max concurrent sandboxes",

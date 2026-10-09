@@ -414,25 +414,62 @@ class GovernanceGate:
             log.info("Auto-approving %s (GOVERNANCE_AUTO_APPROVE=true)", decision.action)
             return "auto-approve", True
 
+        grant_id = self._find_grant(identity, decision, settings)
+        if grant_id:
+            return f"grant:{grant_id}", True
+
         store = get_approval_store()
-        request = store.create(
-            agent_id=str(getattr(identity, "agent_id", "agent:unknown")),
-            owner=str(getattr(identity, "owner", "system")),
-            session_id=str(getattr(identity, "session_id", "")),
-            surface=decision.surface.value,
-            action=decision.action,
-            reason=decision.reason,
-            rule_id=decision.rule_id,
-            arguments=args or {},
-            task_id=getattr(identity, "task_id", None),
-            repo=getattr(identity, "repo", None),
-            branch=getattr(identity, "branch", None),
-            ttl_s=settings.governance_approval_ttl_s,
-        )
+        request = store.create(**self._request_fields(identity, args, decision, settings))
         if not wait_for_approval:
             return request.approval_id, False
         status = await store.wait(request.approval_id)
         return request.approval_id, status is ApprovalStatus.APPROVED
+
+    @staticmethod
+    def _find_grant(identity: Any, decision: PolicyDecision, settings: Any) -> str | None:
+        """Id of a live session grant covering this verdict, else ``None``.
+
+        Grants only short-circuit REQUIRE_APPROVAL (the sole caller). Any
+        failure here means no grant: fail closed to asking a human.
+        """
+        try:
+            if not settings.governance_session_grants_enabled:
+                return None
+            from packages.governance.approvals import get_grant_store
+
+            grant = get_grant_store().has_grant(
+                str(getattr(identity, "session_id", "") or ""),
+                decision.surface.value, decision.action,
+            )
+            if grant is None:
+                return None
+            log.info(
+                "Approval skipped for %s: covered by grant %s (scope=%s)",
+                decision.action, grant.grant_id, grant.scope,
+            )
+            return grant.grant_id
+        except Exception as exc:  # noqa: BLE001 - fail closed
+            log.warning("Approval grant check failed, asking a human: %s", exc)
+            return None
+
+    @staticmethod
+    def _request_fields(
+        identity: Any, args: dict[str, Any] | None, decision: PolicyDecision, settings: Any
+    ) -> dict[str, Any]:
+        return {
+            "agent_id": str(getattr(identity, "agent_id", "agent:unknown")),
+            "owner": str(getattr(identity, "owner", "system")),
+            "session_id": str(getattr(identity, "session_id", "")),
+            "surface": decision.surface.value,
+            "action": decision.action,
+            "reason": decision.reason,
+            "rule_id": decision.rule_id,
+            "arguments": args or {},
+            "task_id": getattr(identity, "task_id", None),
+            "repo": getattr(identity, "repo", None),
+            "branch": getattr(identity, "branch", None),
+            "ttl_s": settings.governance_approval_ttl_s,
+        }
 
     def record_result(
         self,

@@ -19,7 +19,9 @@
 //   GET  /api/governance/metrics    would_block, decision counters, budgets
 //   GET  /api/governance/audit      recent decisions, newest first
 //   GET  /api/governance/approvals  pending human-in-the-loop requests
-//   POST /api/governance/approvals/{id}/approve|deny
+//   POST /api/governance/approvals/{id}/approve|deny   (approve takes an optional scope)
+//   GET  /api/governance/grants     active session approval grants
+//   DELETE /api/governance/grants/{id}
 import React from 'react';
 import * as api from '../../api';
 
@@ -136,6 +138,19 @@ function PostureHeader({ status, metrics }) {
 }
 
 // ── Pending approvals ────────────────────────────────────────────────────
+// A sticky grant is only possible for a named session and never for credentials
+// (the server enforces both; the buttons are hidden so the UI does not promise it).
+function canGrant(a) {
+  const sid = String(a.session_id || '').trim();
+  return Boolean(sid) && sid !== 'anonymous' && a.surface !== 'credential';
+}
+
+const STICKY_BTN = {
+  padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+  background: 'rgba(70,217,164,0.06)', border: '1px solid rgba(70,217,164,0.25)',
+  color: '#46d9a4',
+};
+
 function Approvals({ approvals, onResolve, busyId }) {
   if (!approvals.length) return null;
   return (
@@ -166,7 +181,7 @@ function Approvals({ approvals, onResolve, busyId }) {
                 rule {a.rule_id} · expires in {Math.round(a.seconds_remaining)}s
               </div>
             </div>
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button
                 onClick={() => onResolve(a.approval_id, true)}
                 disabled={busyId === a.approval_id}
@@ -176,6 +191,22 @@ function Approvals({ approvals, onResolve, busyId }) {
                   color: '#46d9a4', cursor: busyId === a.approval_id ? 'default' : 'pointer',
                 }}
               >Approve</button>
+              {canGrant(a) && (
+                <>
+                  <button
+                    onClick={() => onResolve(a.approval_id, true, 'action')}
+                    disabled={busyId === a.approval_id}
+                    title="Approve this and skip asking again for the same action in this session"
+                    style={{ ...STICKY_BTN, cursor: busyId === a.approval_id ? 'default' : 'pointer' }}
+                  >Approve for this action (session)</button>
+                  <button
+                    onClick={() => onResolve(a.approval_id, true, 'session')}
+                    disabled={busyId === a.approval_id}
+                    title="Approve this and skip asking for any approval-gated action in this session"
+                    style={{ ...STICKY_BTN, cursor: busyId === a.approval_id ? 'default' : 'pointer' }}
+                  >Approve all (session)</button>
+                </>
+              )}
               <button
                 onClick={() => onResolve(a.approval_id, false)}
                 disabled={busyId === a.approval_id}
@@ -186,6 +217,47 @@ function Approvals({ approvals, onResolve, busyId }) {
                 }}
               >Deny</button>
             </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Active session grants ────────────────────────────────────────────────
+function Grants({ grants, onRevoke, busyId }) {
+  if (!grants.length) return null;
+  return (
+    <div style={{ marginBottom: 20 }}>
+      <h2 style={{ fontSize: 14, fontWeight: 800, marginBottom: 8 }}>
+        Active approval grants ({grants.length})
+      </h2>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {grants.map((g) => (
+          <div key={g.grant_id} style={{
+            borderRadius: 10, border: '1px solid rgba(70,217,164,0.25)',
+            background: 'rgba(70,217,164,0.05)', padding: '8px 12px',
+            display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap',
+          }}>
+            <div style={{ flex: 1, minWidth: 220, fontSize: 12 }}>
+              <code style={{ fontFamily: 'var(--font-mono)' }}>{g.session_id}</code>
+              {' · '}
+              {g.scope === 'session'
+                ? 'all approval-gated actions'
+                : <code style={{ fontFamily: 'var(--font-mono)' }}>{g.surface}:{g.action}</code>}
+              <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
+                by {g.granted_by} · expires in {Math.round(g.seconds_remaining)}s
+              </div>
+            </div>
+            <button
+              onClick={() => onRevoke(g.grant_id)}
+              disabled={busyId === g.grant_id}
+              style={{
+                padding: '5px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+                background: 'rgba(255,107,125,0.12)', border: '1px solid rgba(255,107,125,0.35)',
+                color: '#ff6b7d', cursor: busyId === g.grant_id ? 'default' : 'pointer',
+              }}
+            >Revoke</button>
           </div>
         ))}
       </div>
@@ -423,6 +495,7 @@ export default function GovernanceScreen() {
   const [metrics, setMetrics]     = React.useState(null);
   const [events, setEvents]       = React.useState([]);
   const [approvals, setApprovals] = React.useState([]);
+  const [grants, setGrants]       = React.useState([]);
   const [filter, setFilter]       = React.useState('');
   const [loading, setLoading]     = React.useState(true);
   const [error, setError]         = React.useState(null);
@@ -433,16 +506,18 @@ export default function GovernanceScreen() {
     // Promise.allSettled, not Promise.all: a single failing endpoint must not
     // blank the whole screen. The sandbox probe in particular can be slow or
     // fail on its own without the audit trail being affected.
-    const [s, m, a, ap] = await Promise.allSettled([
+    const [s, m, a, ap, gr] = await Promise.allSettled([
       api.getGovernanceStatus(),
       api.getGovernanceMetrics(),
       api.getGovernanceAudit({ limit: 100, ...(filter ? { decision: filter } : {}) }),
       api.getGovernanceApprovals(),
+      api.getGovernanceGrants(),
     ]);
     if (s.status === 'fulfilled') setStatus(s.value.data); else setStatus(null);
     if (m.status === 'fulfilled') setMetrics(m.value.data); else setMetrics(null);
     if (a.status === 'fulfilled') setEvents(a.value.data?.events || []); else setEvents([]);
     if (ap.status === 'fulfilled') setApprovals(ap.value.data?.approvals || []); else setApprovals([]);
+    if (gr.status === 'fulfilled') setGrants(gr.value.data?.grants || []); else setGrants([]);
 
     if (s.status === 'rejected') {
       const code = s.reason?.response?.status;
@@ -463,14 +538,27 @@ export default function GovernanceScreen() {
     return () => clearInterval(t);
   }, [approvals.length, load]);
 
-  const resolve = React.useCallback(async (id, approved) => {
+  const resolve = React.useCallback(async (id, approved, scope) => {
     setBusyId(id);
     try {
-      if (approved) await api.approveGovernanceRequest(id);
+      if (approved && scope) await api.approveGovernanceRequest(id, undefined, scope);
+      else if (approved) await api.approveGovernanceRequest(id);
       else await api.denyGovernanceRequest(id);
       await load();
     } catch (e) {
       setError(e?.message || 'Could not record the decision.');
+    } finally {
+      setBusyId(null);
+    }
+  }, [load]);
+
+  const revoke = React.useCallback(async (grantId) => {
+    setBusyId(grantId);
+    try {
+      await api.revokeGovernanceGrant(grantId);
+      await load();
+    } catch (e) {
+      setError(e?.message || 'Could not revoke the grant.');
     } finally {
       setBusyId(null);
     }
@@ -510,6 +598,8 @@ export default function GovernanceScreen() {
       {status && <PolicyEditor />}
 
       <Approvals approvals={approvals} onResolve={resolve} busyId={busyId} />
+
+      <Grants grants={grants} onRevoke={revoke} busyId={busyId} />
 
       {status && <AuditTable events={events} filter={filter} onFilter={setFilter} />}
     </div>

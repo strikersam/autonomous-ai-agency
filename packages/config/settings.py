@@ -403,6 +403,13 @@ class Settings:
         self.governance_auto_approve_raw: str = os.environ.get(
             "GOVERNANCE_AUTO_APPROVE", "false"
         ).strip().lower()
+        # Sticky approval grants: an operator may approve one action "for this
+        # session" so the same agent session is not asked again. The TTL bounds
+        # how long such a grant lives; the flag disables the feature entirely.
+        self.governance_session_grants_enabled_raw: str = os.environ.get(
+            "GOVERNANCE_SESSION_GRANTS_ENABLED", "true"
+        ).strip().lower()
+        self.governance_grant_ttl_s: int = _env_int("GOVERNANCE_GRANT_TTL_S", 3600)
         # Backpressure rather than resource exhaustion once many agents run
         # at once — see the multi-agent scaling notes in docs/governance.
         self.governance_max_sandboxes: int = _env_int("GOVERNANCE_MAX_SANDBOXES", 8)
@@ -424,6 +431,11 @@ class Settings:
     def governance_auto_approve(self) -> bool:
         """When True, approval-gated actions self-approve. Local dev only."""
         return self.governance_auto_approve_raw in {"1", "true", "yes", "on"}
+
+    @property
+    def governance_session_grants_enabled(self) -> bool:
+        """When True, an approval may be widened into a session-scoped grant."""
+        return self.governance_session_grants_enabled_raw in {"1", "true", "yes", "on"}
 
     @property
     def is_testing(self) -> bool:

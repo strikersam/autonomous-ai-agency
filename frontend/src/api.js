@@ -594,8 +594,13 @@ export const proposeGovernancePolicy = (text, reason) =>
 export const getGovernanceMetrics  = ()  => API.get('/api/governance/metrics');
 export const getGovernanceAudit    = (params = {}) => API.get('/api/governance/audit', { params });
 export const getGovernanceApprovals = () => API.get('/api/governance/approvals');
-export const approveGovernanceRequest = (id, note) =>
-  API.post(`/api/governance/approvals/${encodeURIComponent(id)}/approve`, { note });
+// scope: 'once' (default) | 'action' | 'session' — a wider scope also issues a
+// time-limited session grant so the same agent session is not asked again.
+export const approveGovernanceRequest = (id, note, scope) =>
+  API.post(`/api/governance/approvals/${encodeURIComponent(id)}/approve`, { note, scope });
+export const getGovernanceGrants = () => API.get('/api/governance/grants');
+export const revokeGovernanceGrant = (grantId) =>
+  API.delete(`/api/governance/grants/${encodeURIComponent(grantId)}`);
 export const denyGovernanceRequest = (id, note) =>
   API.post(`/api/governance/approvals/${encodeURIComponent(id)}/deny`, { note });
 export const getGovernanceSandboxes = () => API.get('/api/governance/sandboxes');

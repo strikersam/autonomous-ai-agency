@@ -18,8 +18,10 @@ Routes::
     GET  /api/governance/metrics             counters for dashboards/Prometheus
     GET  /api/governance/approvals           pending approvals
     GET  /api/governance/approvals/all       recent approvals incl. resolved
-    POST /api/governance/approvals/{id}/approve
+    POST /api/governance/approvals/{id}/approve  optional body {note, scope: once|action|session}
     POST /api/governance/approvals/{id}/deny
+    GET  /api/governance/grants              active session approval grants (admin)
+    DELETE /api/governance/grants/{id}       revoke a grant (admin)
     GET  /api/governance/sandboxes           live sandboxes
     POST /api/governance/sandboxes/reap      destroy expired sandboxes (admin)
     DELETE /api/governance/sandboxes/{id}    destroy one sandbox (admin)
@@ -45,11 +47,19 @@ guardrails can be tightened from the dashboard but never loosened.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 log = logging.getLogger("governance.api")
+
+
+class ApproveBody(BaseModel):
+    """Optional body for ``/approve``; an empty request means scope ``once``."""
+
+    note: str | None = None
+    scope: Literal["once", "action", "session"] = "once"
 
 
 def _require_admin(user: dict) -> dict:
@@ -372,14 +382,34 @@ def build_governance_router(get_current_user: Callable[..., Any]) -> APIRouter:
         log.info("Approval %s resolved: %s", approval_id, request.status.value)
         return request.to_dict()
 
+    def _issue_grant(result: dict, scope: str, user: dict) -> dict | None:
+        """Create a sticky grant from a just-approved request, if allowed."""
+        from packages.config import settings
+        from packages.governance.approvals import get_grant_store
+
+        if scope == "once" or not settings.governance_session_grants_enabled:
+            return None
+        if result.get("status") != "approved":
+            return None
+        grant = get_grant_store().grant(
+            result.get("session_id", ""), scope, result.get("surface", ""),
+            result.get("action", ""), str(user.get("email") or user.get("id") or "operator"),
+            float(settings.governance_grant_ttl_s),
+        )
+        return grant.to_dict() if grant else None
+
     @router.post("/approvals/{approval_id}/approve")
     async def approve(
         approval_id: str,
-        body: dict = Body(default_factory=dict),
+        body: ApproveBody | None = Body(default=None),
         user: dict = Depends(get_current_user),
     ) -> dict:
+        """Approve a request; ``scope`` optionally also issues a session grant."""
         _require_admin(user)
-        return await _decide(approval_id, True, user, body.get("note"))
+        body = body or ApproveBody()
+        result = await _decide(approval_id, True, user, body.note)
+        result["grant"] = _issue_grant(result, body.scope, user)
+        return result
 
     @router.post("/approvals/{approval_id}/deny")
     async def deny(
@@ -389,6 +419,25 @@ def build_governance_router(get_current_user: Callable[..., Any]) -> APIRouter:
     ) -> dict:
         _require_admin(user)
         return await _decide(approval_id, False, user, body.get("note"))
+
+    # ── Session approval grants ──────────────────────────────────────────
+
+    @router.get("/grants")
+    async def list_grants(user: dict = Depends(get_current_user)) -> dict:
+        _require_admin(user)
+        from packages.governance.approvals import get_grant_store
+
+        grants = get_grant_store().list_grants()
+        return {"grants": grants, "count": len(grants)}
+
+    @router.delete("/grants/{grant_id}")
+    async def revoke_grant(grant_id: str, user: dict = Depends(get_current_user)) -> dict:
+        _require_admin(user)
+        from packages.governance.approvals import get_grant_store
+
+        if not get_grant_store().revoke(grant_id):
+            raise HTTPException(status_code=404, detail="Grant not found")
+        return {"revoked": True, "grant_id": grant_id}
 
     # ── Sandboxes ────────────────────────────────────────────────────────
 
