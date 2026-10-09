@@ -358,7 +358,7 @@ class AgentRunner:
         # does on GitHub: no commits/pushes to protected branches and no PR merges —
         # the agent proposes via PR and a human merges.
         self.github = GitHubTools(github_token, agent_initiated=True)
-        self.ctx = ContextManager()
+        self.ctx = ContextManager(owner=f"run_{uuid.uuid4().hex}")
         # 3-phase context-pruner middleware: runs before every LLM call to enforce
         # token budgets and wrap older context as historical memory.
         self.pruner = ContextPruner()
@@ -1779,6 +1779,8 @@ class AgentRunner:
                 # Always overwritten: the model must never choose the path.
                 if "workspace_root" in _handler_params(tool_def.handler):
                     args = {**args, "workspace_root": str(self.tools.root)}
+                if "owner" in _handler_params(tool_def.handler):
+                    args = {**args, "owner": self.ctx.owner}
                 try:
                     result = tool_def.handler(**args)
                     if asyncio.iscoroutine(result):

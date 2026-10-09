@@ -9,7 +9,19 @@ Covers the three context-engineering strategies implemented in ContextManager:
 Plus the sub-agent condensed-summary helper.
 """
 
+import pytest
+
+from agent import tool_output_store as tos
 from agent.context_manager import ContextManager
+from agent.tool_output_store import hint_for
+from packages.config import settings
+
+
+@pytest.fixture(autouse=True)
+def _fresh_offload_store():
+    tos.reset_store()
+    yield
+    tos.reset_store()
 
 
 # ---------------------------------------------------------------------------
@@ -39,16 +51,28 @@ def test_mask_observations_truncates_old_entries():
 
     assert len(masked) == 5
     # First 3 should be masked
-    for o in masked[:3]:
+    for i, o in enumerate(masked[:3]):
         assert o.get("_masked") is True
-        # mask_content_limit=50 + " … [masked]" (11 chars) = 61 max
-        # the offload ref note is appended after the truncated text
-        assert len(o["result"].split(" [full output:")[0]) <= 65
+        # mask_content_limit=50 + " … [masked]" (11 chars) = 61 max, then the
+        # offload ref note (flag off keeps the original <= 65 bound below).
+        prefix, _, ref_note = o["result"].partition(" [full output:")
+        assert len(prefix) <= 65
+        assert prefix == obs[i]["result"][:50] + " … [masked]"
+        assert o["result"] == prefix + hint_for(ref_note.split("ref=")[1].split(" ")[0])
 
     # Last 2 should be verbatim
     for o in masked[3:]:
         assert "_masked" not in o
         assert len(o["result"]) > 100
+
+
+def test_mask_observations_flag_off_keeps_original_bound(monkeypatch):
+    monkeypatch.setattr(settings, "agent_tool_output_offload_raw", "false")
+    ctx = ContextManager(mask_after=2, mask_content_limit=50)
+    for o in ctx.mask_observations(_make_obs(5))[:3]:
+        assert len(o["result"]) <= 65
+        assert "full output" not in o["result"]
+    assert len(tos.get_tool_output_store()) == 0
 
 
 def test_mask_observations_list_result():

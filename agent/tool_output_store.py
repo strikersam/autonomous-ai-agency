@@ -8,10 +8,12 @@ store the cut text is gone for good. The store keeps the full result under an
 unguessable ref so the model can page it back in with ``read_tool_output``.
 
 In-process, bounded (entries and total characters, LRU) and TTL-limited. A ref
-is a capability: possessing it is what authorises the read, so it is generated
-with ``secrets`` and never derived from the content.
+is generated with ``secrets`` and never derived from the content. Each entry is
+also bound to an *owner* (one agent run); a read from a different owner is
+refused, so a ref leaked into another run's context is useless there.
 """
 
+import hashlib
 import json
 import logging
 import secrets
@@ -52,6 +54,10 @@ def stringify(result: Any) -> str:
         return str(result)
 
 
+def _digest(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()
+
+
 def hint_for(ref: str) -> str:
     """Suffix appended to a shortened observation so the model can recover it."""
     return f" [full output: ref={ref} — call read_tool_output to page it in]"
@@ -73,43 +79,69 @@ class ToolOutputStore:
         self.ttl_seconds = ttl_seconds
         self._clock = clock
         self._lock = threading.Lock()
-        self._items: OrderedDict[str, tuple[float, str]] = OrderedDict()
+        self._items: OrderedDict[str, tuple[float, str, str | None]] = OrderedDict()
+        self._by_digest: dict[tuple[str | None, str], str] = {}
         self._total = 0
 
     def _drop(self, ref: str) -> None:
-        _, text = self._items.pop(ref)
+        _, text, owner = self._items.pop(ref)
         self._total -= len(text)
+        self._by_digest.pop((owner, _digest(text)), None)
 
     def _evict(self) -> None:
         now = self._clock()
-        for ref in [r for r, (ts, _) in self._items.items() if now - ts > self.ttl_seconds]:
+        for ref in [r for r, (ts, _, _o) in self._items.items() if now - ts > self.ttl_seconds]:
             self._drop(ref)
         while self._items and (
             len(self._items) > self.max_entries or self._total > self.max_total_chars
         ):
             self._drop(next(iter(self._items)))
 
-    def offload(self, result: Any) -> str:
-        """Store the full stringified *result* and return its ref."""
+    def offload(self, result: Any, owner: str | None = None) -> str | None:
+        """Store the full stringified *result* for *owner* and return its ref.
+
+        Identical text offloaded again by the same owner while still live
+        returns the same ref (masking re-runs every tool iteration over the
+        same history). Returns None, storing nothing and evicting nothing, when
+        the text alone exceeds the total-size cap.
+        """
         text = stringify(result)
-        ref = _REF_PREFIX + secrets.token_urlsafe(16)
+        if len(text) > self.max_total_chars:
+            return None
+        key = (owner, _digest(text))
         with self._lock:
-            self._items[ref] = (self._clock(), text)
+            self._evict()
+            existing = self._by_digest.get(key)
+            if existing is not None and existing in self._items:
+                self._items.move_to_end(existing)
+                return existing
+            ref = _REF_PREFIX + secrets.token_urlsafe(16)
+            self._items[ref] = (self._clock(), text, owner)
+            self._by_digest[key] = ref
             self._total += len(text)
             self._evict()
         return ref
 
-    def read(self, ref: str, offset: int = 0, limit: int = DEFAULT_READ_LIMIT) -> dict[str, Any]:
-        """Return a slice of a stored output. Never raises."""
+    def read(
+        self,
+        ref: str,
+        offset: int = 0,
+        limit: int = DEFAULT_READ_LIMIT,
+        owner: str | None = None,
+    ) -> dict[str, Any]:
+        """Return a slice of a stored output. Never raises.
+
+        A ref held by a different *owner* reads as unknown.
+        """
         try:
             offset = max(0, int(offset))
             limit = min(max(1, int(limit)), MAX_READ_LIMIT)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return {"ok": False, "error": "offset and limit must be integers"}
         with self._lock:
             self._evict()
             entry = self._items.get(ref) if isinstance(ref, str) else None
-            if entry is None:
+            if entry is None or entry[2] != owner:
                 return {
                     "ok": False,
                     "error": "unknown or expired ref — the output is no longer available",
@@ -151,11 +183,12 @@ def reset_store() -> None:
         _store = None
 
 
-def offload_hint(result: Any, shown_len: int) -> str:
+def offload_hint(result: Any, shown_len: int, owner: str | None = None) -> str:
     """Offload *result* and return the hint suffix, or '' when not worthwhile.
 
     Offloads only when the feature is on and the full text is longer than what
-    the caller keeps (*shown_len*). Fails soft: any error yields ''.
+    the caller keeps (*shown_len*). Fails soft: any error, or an entry too big
+    for the store, yields ''.
     """
     try:
         if not offload_enabled():
@@ -163,7 +196,8 @@ def offload_hint(result: Any, shown_len: int) -> str:
         text = stringify(result)
         if len(text) <= shown_len:
             return ""
-        return hint_for(get_tool_output_store().offload(text))
+        ref = get_tool_output_store().offload(text, owner)
+        return hint_for(ref) if ref else ""
     except Exception as exc:  # noqa: BLE001 - offload must never break the loop
         log.debug("tool output offload failed: %s", exc)
         return ""
