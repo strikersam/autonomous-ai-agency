@@ -88,6 +88,11 @@ export default {
     if (assetResponse.status >= 300 && assetResponse.status < 400) {
       return assetResponse;
     }
+    // A missing file (/favicon.ico, /old.png) is a real 404, not the app shell:
+    // client-side routes never contain a file extension, and a 200 here is a soft-404.
+    if (/\.[A-Za-z0-9]{1,8}$/.test(url.pathname)) {
+      return new Response("Not found", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+    }
     // SPA fallback: serve index.html for client-side routes like /login,
     // /dashboard, etc. This replaces the "single-page-application"
     // not_found_handling setting (which was causing the CDN to cache
