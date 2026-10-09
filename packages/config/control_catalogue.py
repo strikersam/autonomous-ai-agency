@@ -1019,7 +1019,8 @@ _GOVERNANCE: tuple[ControlSpec, ...] = (
         "governance",
         "3600",
         "How long a session-scoped approval grant stays valid before the agent "
-        "is asked again.",
+        "is asked again. Applies to new grants only; existing grants keep the "
+        "lifetime they were issued with.",
         live=True,
         minimum=60,
         maximum=86400,

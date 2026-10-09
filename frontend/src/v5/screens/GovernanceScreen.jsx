@@ -151,7 +151,7 @@ const STICKY_BTN = {
   color: '#46d9a4',
 };
 
-function Approvals({ approvals, onResolve, busyId }) {
+function Approvals({ approvals, onResolve, busyId, grantsEnabled }) {
   if (!approvals.length) return null;
   return (
     <div style={{ marginBottom: 20 }}>
@@ -191,7 +191,7 @@ function Approvals({ approvals, onResolve, busyId }) {
                   color: '#46d9a4', cursor: busyId === a.approval_id ? 'default' : 'pointer',
                 }}
               >Approve</button>
-              {canGrant(a) && (
+              {grantsEnabled && canGrant(a) && (
                 <>
                   <button
                     onClick={() => onResolve(a.approval_id, true, 'action')}
@@ -500,6 +500,7 @@ export default function GovernanceScreen() {
   const [loading, setLoading]     = React.useState(true);
   const [error, setError]         = React.useState(null);
   const [busyId, setBusyId]       = React.useState(null);
+  const [notice, setNotice]       = React.useState(null);
 
   const load = React.useCallback(async () => {
     setLoading(true); setError(null);
@@ -539,9 +540,15 @@ export default function GovernanceScreen() {
   }, [approvals.length, load]);
 
   const resolve = React.useCallback(async (id, approved, scope) => {
-    setBusyId(id);
+    setBusyId(id); setNotice(null);
     try {
-      if (approved && scope) await api.approveGovernanceRequest(id, undefined, scope);
+      if (approved && scope) {
+        const { data } = await api.approveGovernanceRequest(id, undefined, scope);
+        if (!data?.grant) {
+          setNotice('Approved once. No session grant was created (grants are disabled, the request already ' +
+                    'had a decision, or it has no named session / is a credential action).');
+        }
+      }
       else if (approved) await api.approveGovernanceRequest(id);
       else await api.denyGovernanceRequest(id);
       await load();
@@ -589,6 +596,13 @@ export default function GovernanceScreen() {
         }}>{error}</div>
       )}
 
+      {notice && (
+        <div style={{
+          padding: 12, borderRadius: 12, border: '1px solid rgba(255,189,102,0.30)',
+          background: 'rgba(255,189,102,0.06)', color: '#ffbd66', fontSize: 12, marginBottom: 16,
+        }}>{notice}</div>
+      )}
+
       {loading && !status && (
         <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading governance state…</div>
       )}
@@ -597,7 +611,8 @@ export default function GovernanceScreen() {
 
       {status && <PolicyEditor />}
 
-      <Approvals approvals={approvals} onResolve={resolve} busyId={busyId} />
+      <Approvals approvals={approvals} onResolve={resolve} busyId={busyId}
+                 grantsEnabled={status?.grants_enabled !== false} />
 
       <Grants grants={grants} onRevoke={revoke} busyId={busyId} />
 

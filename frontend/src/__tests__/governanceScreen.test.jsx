@@ -255,3 +255,19 @@ test('active grants are listed and can be revoked', async () => {
   fireEvent.click(screen.getByText('Revoke'));
   await waitFor(() => expect(api.revokeGovernanceGrant).toHaveBeenCalledWith('gnt_1'));
 });
+
+test('sticky buttons are hidden when the server reports grants disabled', async () => {
+  mockAll({ status: { ...OBSERVE_STATUS, grants_enabled: false }, approvals: [STICKY_PENDING] });
+  render(<GovernanceScreen />);
+  await waitFor(() => expect(screen.getByText('Approve')).toBeInTheDocument());
+  expect(screen.queryByText('Approve all (session)')).not.toBeInTheDocument();
+});
+
+test('a scoped approve that returns no grant shows a notice', async () => {
+  api.approveGovernanceRequest.mockResolvedValue({ data: { status: 'approved', grant: null } });
+  mockAll({ approvals: [STICKY_PENDING] });
+  render(<GovernanceScreen />);
+  await waitFor(() => expect(screen.getByText('Approve all (session)')).toBeInTheDocument());
+  fireEvent.click(screen.getByText('Approve all (session)'));
+  await waitFor(() => expect(screen.getByText(/No session grant was created/i)).toBeInTheDocument());
+});

@@ -440,6 +440,8 @@ class GovernanceGate:
             grant = get_grant_store().has_grant(
                 str(getattr(identity, "session_id", "") or ""),
                 decision.surface.value, decision.action,
+                str(getattr(identity, "agent_id", "") or ""),
+                str(getattr(identity, "owner", "") or ""),
             )
             if grant is None:
                 return None

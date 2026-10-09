@@ -55,6 +55,35 @@ from pydantic import BaseModel
 log = logging.getLogger("governance.api")
 
 
+def _audit_grant_event(
+    kind: str, grant: dict, actor: str, source_approval_id: str = ""
+) -> None:
+    """Record grant issue/revoke in the governance audit trail. Never raises.
+
+    The actor is recorded here (the audit surface for identity) because the
+    grant itself disappears on expiry or revoke, and an auto-approved action
+    must stay attributable to a named person afterwards.
+    """
+    try:
+        from packages.governance.audit import record_event
+
+        record_event(
+            agent_id=grant.get("agent_id") or "agent:unknown",
+            owner=grant.get("owner") or "system",
+            session_id=grant.get("session_id", ""),
+            surface=grant.get("surface") or "grant",
+            action=grant.get("action") or "*",
+            tool=f"governance.grant.{kind}",
+            result_status=f"grant_{kind}",
+            reason=f"grant {grant.get('grant_id')} scope={grant.get('scope')} {kind} by {actor}",
+            rule_id=f"governance.grant.{kind}",
+            approval_id=source_approval_id or grant.get("source_approval_id") or None,
+            arguments={"grant_id": grant.get("grant_id"), "actor": actor},
+        )
+    except Exception as exc:  # noqa: BLE001 - auditing must not break the request
+        log.warning("Could not audit grant %s: %s", kind, exc)
+
+
 class ApproveBody(BaseModel):
     """Optional body for ``/approve``; an empty request means scope ``once``."""
 
@@ -110,6 +139,7 @@ def build_governance_router(get_current_user: Callable[..., Any]) -> APIRouter:
             "policy_version": engine.version,
             "groups": engine.group_names(),
             "auto_approve": settings.governance_auto_approve,
+            "grants_enabled": settings.governance_session_grants_enabled,
             "sandbox": sandbox_status,
         }
 
@@ -367,36 +397,43 @@ def build_governance_router(get_current_user: Callable[..., Any]) -> APIRouter:
         approvals = get_approval_store().all(limit=limit)
         return {"approvals": approvals, "count": len(approvals)}
 
-    async def _decide(approval_id: str, approved: bool, user: dict, note: str | None) -> dict:
+    async def _decide(
+        approval_id: str, approved: bool, user: dict, note: str | None
+    ) -> tuple[dict, bool]:
+        """Resolve a request; returns (request dict, whether THIS call decided it)."""
         from packages.governance.approvals import get_approval_store
 
         # The operator's identity is recorded on the request itself, which is
         # the correct audit surface for identity — it is deliberately not
         # written to the application log (AGENTS.md logging rule).
         decided_by = str(user.get("email") or user.get("id") or "operator")
-        request = get_approval_store().resolve(
+        request, changed = get_approval_store().resolve_ex(
             approval_id, approved=approved, resolved_by=decided_by, note=note
         )
         if request is None:
             raise HTTPException(status_code=404, detail="Approval request not found")
         log.info("Approval %s resolved: %s", approval_id, request.status.value)
-        return request.to_dict()
+        return request.to_dict(), changed
 
     def _issue_grant(result: dict, scope: str, user: dict) -> dict | None:
-        """Create a sticky grant from a just-approved request, if allowed."""
+        """Create a sticky grant from a request THIS call just approved."""
         from packages.config import settings
         from packages.governance.approvals import get_grant_store
 
         if scope == "once" or not settings.governance_session_grants_enabled:
             return None
-        if result.get("status") != "approved":
-            return None
+        actor = str(user.get("email") or user.get("id") or "operator")
         grant = get_grant_store().grant(
             result.get("session_id", ""), scope, result.get("surface", ""),
-            result.get("action", ""), str(user.get("email") or user.get("id") or "operator"),
-            float(settings.governance_grant_ttl_s),
+            result.get("action", ""), actor, float(settings.governance_grant_ttl_s),
+            agent_id=result.get("agent_id", ""), owner=result.get("owner", ""),
+            source_approval_id=result.get("approval_id", ""),
         )
-        return grant.to_dict() if grant else None
+        if grant is None:
+            return None
+        data = grant.to_dict()
+        _audit_grant_event("issue", data, actor, result.get("approval_id", ""))
+        return data
 
     @router.post("/approvals/{approval_id}/approve")
     async def approve(
@@ -407,8 +444,9 @@ def build_governance_router(get_current_user: Callable[..., Any]) -> APIRouter:
         """Approve a request; ``scope`` optionally also issues a session grant."""
         _require_admin(user)
         body = body or ApproveBody()
-        result = await _decide(approval_id, True, user, body.note)
-        result["grant"] = _issue_grant(result, body.scope, user)
+        result, changed = await _decide(approval_id, True, user, body.note)
+        approved_now = changed and result.get("status") == "approved"
+        result["grant"] = _issue_grant(result, body.scope, user) if approved_now else None
         return result
 
     @router.post("/approvals/{approval_id}/deny")
@@ -418,7 +456,8 @@ def build_governance_router(get_current_user: Callable[..., Any]) -> APIRouter:
         user: dict = Depends(get_current_user),
     ) -> dict:
         _require_admin(user)
-        return await _decide(approval_id, False, user, body.get("note"))
+        result, _ = await _decide(approval_id, False, user, body.get("note"))
+        return result
 
     # ── Session approval grants ──────────────────────────────────────────
 
@@ -435,8 +474,12 @@ def build_governance_router(get_current_user: Callable[..., Any]) -> APIRouter:
         _require_admin(user)
         from packages.governance.approvals import get_grant_store
 
-        if not get_grant_store().revoke(grant_id):
+        grant = get_grant_store().revoke_grant(grant_id)
+        if grant is None:
             raise HTTPException(status_code=404, detail="Grant not found")
+        _audit_grant_event(
+            "revoke", grant.to_dict(), str(user.get("email") or user.get("id") or "operator")
+        )
         return {"revoked": True, "grant_id": grant_id}
 
     # ── Sandboxes ────────────────────────────────────────────────────────

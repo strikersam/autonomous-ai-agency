@@ -203,7 +203,12 @@ def test_approve_with_scope_creates_grant_for_the_admin(scope):
     assert grant["scope"] == scope
     assert grant["granted_by"] == "admin@example.com"
     assert grant["session_id"] == "sess-1"
-    assert approvals_module.get_grant_store().has_grant("sess-1", "tool", "deploy_prod")
+    store = approvals_module.get_grant_store()
+    assert store.has_grant("sess-1", "tool", "deploy_prod", "agent:coder", "system")
+    assert grant["source_approval_id"] == req.approval_id
+    # Bound to agent and owner too: another agent in the same session is not covered.
+    assert store.has_grant("sess-1", "tool", "deploy_prod", "agent:other", "system") is None
+    assert store.has_grant("sess-1", "tool", "deploy_prod") is None
 
 
 def test_invalid_scope_is_rejected():
@@ -265,3 +270,99 @@ def test_list_and_revoke_grants():
 )
 def test_grant_routes_require_admin(method, path):
     assert getattr(_client(VIEWER), method)(path).status_code == 403
+
+
+# -- review fixes: audit trail, transition-only grants, binding -----------------
+
+
+def _audit_tools():
+    return [e["tool"] for e in audit_module.get_audit_log().recent(50)]
+
+
+def test_grant_issue_and_revoke_are_audited_with_the_actor():
+    req = _pending()
+    client = _client(ADMIN)
+    grant = client.post(
+        f"/api/governance/approvals/{req.approval_id}/approve", json={"scope": "session"}
+    ).json()["grant"]
+    issued = [e for e in audit_module.get_audit_log().recent(50)
+              if e["tool"] == "governance.grant.issue"]
+    assert len(issued) == 1
+    assert issued[0]["approval_id"] == req.approval_id
+    assert grant["grant_id"] in issued[0]["reason"]
+    assert "admin@example.com" in issued[0]["reason"]
+
+    revoker = {"email": "second-admin@example.com", "role": "admin"}
+    assert _client(revoker).delete(f"/api/governance/grants/{grant['grant_id']}").status_code == 200
+    revoked = [e for e in audit_module.get_audit_log().recent(50)
+               if e["tool"] == "governance.grant.revoke"]
+    assert len(revoked) == 1
+    assert "second-admin@example.com" in revoked[0]["reason"]
+    assert revoked[0]["approval_id"] == req.approval_id
+
+
+def test_failed_revoke_is_not_audited():
+    assert _client(ADMIN).delete("/api/governance/grants/gnt_nope").status_code == 404
+    assert "governance.grant.revoke" not in _audit_tools()
+
+
+def test_grant_issue_keeps_source_approval_after_expiry():
+    store = GrantStore()
+    grant = store.grant("s1", "session", "tool", "a", "admin", 60, source_approval_id="apr_1")
+    assert grant.to_dict()["source_approval_id"] == "apr_1"
+
+
+def test_grant_bound_to_agent_and_owner():
+    store = GrantStore()
+    store.grant("s1", "session", "tool", "a", "admin", 60, agent_id="agent:coder", owner="sam")
+    assert store.has_grant("s1", "tool", "a", "agent:coder", "sam") is not None
+    assert store.has_grant("s1", "tool", "a", "agent:coder", "eve") is None
+    assert store.has_grant("s1", "tool", "a", "agent:other", "sam") is None
+
+
+def test_grant_refused_for_fully_generic_identity():
+    store = GrantStore()
+    assert store.grant(
+        "s1", "session", "tool", "a", "admin", 60, agent_id="agent:unknown", owner="system"
+    ) is None
+    # A named agent running as the system owner is the ordinary case and works.
+    assert store.grant(
+        "s1", "session", "tool", "a", "admin", 60, agent_id="agent:coder", owner="system"
+    ) is not None
+
+
+async def test_gate_matches_grant_on_agent_and_owner():
+    store = approvals_module.get_grant_store()
+    store.grant("sess-1", "session", "tool", "x", "admin", 60,
+                agent_id="agent:coder", owner="sam")
+    same = resolve_identity(agent_name="coder", owner="sam", session_id="sess-1")
+    result = await asyncio.wait_for(GovernanceGate().guard(same, "deploy_prod", {}), timeout=5)
+    assert result.allowed is True
+    other = resolve_identity(agent_name="intruder", owner="sam", session_id="sess-1")
+    task = asyncio.create_task(GovernanceGate().guard(other, "deploy_prod", {}))
+    await asyncio.sleep(0.1)
+    assert len(approvals_module.get_approval_store().pending()) == 1
+    task.cancel()
+
+
+def test_resolve_refuses_to_approve_an_expired_request():
+    store = approvals_module.get_approval_store()
+    req = _pending()
+    req.created_at -= req.ttl_s + 1
+    resolved = store.resolve(req.approval_id, approved=True, resolved_by="admin")
+    assert resolved.status.value == "expired"
+
+
+def test_resolve_ex_reports_only_the_first_decision():
+    store = approvals_module.get_approval_store()
+    req = _pending()
+    _, first = store.resolve_ex(req.approval_id, approved=True, resolved_by="a")
+    _, second = store.resolve_ex(req.approval_id, approved=True, resolved_by="b")
+    assert (first, second) == (True, False)
+
+
+def test_status_exposes_grants_enabled(monkeypatch):
+    client = _client(ADMIN)
+    assert client.get("/api/governance/status").json()["grants_enabled"] is True
+    _set_flag(monkeypatch, False)
+    assert client.get("/api/governance/status").json()["grants_enabled"] is False

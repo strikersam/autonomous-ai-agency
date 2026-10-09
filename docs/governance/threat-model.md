@@ -173,6 +173,17 @@ liability.
 | Now | Every gate path is wrapped and fails open with an audited `enforcement.error.fail-open`. A malformed policy falls back to the embedded default rather than denying everything. Approvals are TTL-bounded. All buffers are bounded. `GOVERNANCE_ENABLED=false` is an instant kill switch needing no deploy. |
 | Residual | Fail-open means a determined attacker who can crash the policy engine gets an unenforced system — but they get a *logged* unenforced system, and the alternative (fail-closed) hands them a full outage instead. |
 
+### T13 — Sticky approval grant abused or outliving its intent
+**Severity: Medium.** A session-scoped approval grant (scope `action` or
+`session`) skips the human for later approval-gated calls, so a stolen
+session id, a too-broad scope, or a grant minted from a stale request would
+turn one decision into many.
+
+| | |
+|---|---|
+| Now | Grants are TTL-bound (`GOVERNANCE_GRANT_TTL_S`), bound to session + agent id + owner, and only ever short-circuit `REQUIRE_APPROVAL`: a DENY is never affected. Refused for the `credential` surface, for empty/`anonymous` sessions and the generic `agent:unknown`/`system` identity. Minted only by the call that moved a request pending -> approved; expired requests cannot be approved. Issue, revoke and every covered call are audited with the admin and source approval id. Lookup errors fail closed. `GOVERNANCE_SESSION_GRANTS_ENABLED=false` is a live kill switch. |
+| Residual | Within its TTL a `session` grant approves any non-credential gated action for that agent, including ones the admin never saw; the admin chooses that scope knowingly. Grants live in one web process (lost on restart, not shared across replicas), so they cannot be revoked from a different replica than the one that issued them. |
+
 ---
 
 ## 5. Why the engine fails open but approvals fail closed
