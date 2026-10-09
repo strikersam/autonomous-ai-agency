@@ -286,3 +286,104 @@ def test_endpoints_are_mounted_and_authenticated_in_the_backend_app():
     client = TestClient(app)
     assert client.get("/api/usage/agent-tokens").status_code == 401
     assert client.get("/api/admin/usage/agent-tokens").status_code == 401
+
+
+# ── Agent loop: AgentRunner._chat_text bypasses ProviderRouter ───────────────
+
+
+def _runner(tmp_path):
+    from agent.loop import AgentRunner
+
+    return AgentRunner(ollama_base="http://localhost:11434", workspace_root=tmp_path)
+
+
+def _stub_failover(monkeypatch, calls: list[int], prompt: int = 30, completion: int = 20):
+    from packages.ai import failover_client
+
+    async def fake(payload, timeout_sec=0.0):
+        calls.append(1)
+        return failover_client.FailoverResult(
+            text="ok", model="m", provider_id="p",
+            prompt_tokens=prompt, completion_tokens=completion,
+        )
+
+    monkeypatch.setattr(failover_client, "failover_chat_completion", fake)
+
+
+@pytest.mark.anyio
+async def test_agent_runner_chat_text_records_tokens_for_the_bound_user(tmp_path, monkeypatch):
+    calls: list[int] = []
+    _stub_failover(monkeypatch, calls)
+    runner = _runner(tmp_path)
+    with q.user_scope("u1"):
+        assert await runner._chat_text("m", [{"role": "user", "content": "hi"}]) == "ok"
+    assert calls == [1]
+    assert q.usage_snapshot() == {"u1": 50}
+    await runner._chat_text("m", [{"role": "user", "content": "hi"}])  # unbound: not counted
+    assert q.usage_snapshot() == {"u1": 50}
+
+
+@pytest.mark.anyio
+async def test_agent_runner_refuses_over_cap_user_before_the_http_call(tmp_path, monkeypatch):
+    monkeypatch.setenv("AGENT_USER_TOKENS_PER_DAY", "50")
+    calls: list[int] = []
+    _stub_failover(monkeypatch, calls)
+    runner = _runner(tmp_path)
+    with q.user_scope("u1"):
+        await runner._chat_text("m", [{"role": "user", "content": "hi"}])  # reaches 50
+        with pytest.raises(q.UserTokenQuotaExceeded):
+            await runner._chat_text("m", [{"role": "user", "content": "hi"}])
+    assert calls == [1]
+
+
+def test_anthropic_usage_total_reads_sdk_usage_and_tolerates_absence():
+    from types import SimpleNamespace
+
+    resp = SimpleNamespace(usage=SimpleNamespace(input_tokens=7, output_tokens=5))
+    assert q.anthropic_usage_total(resp) == 12
+    assert q.anthropic_usage_total(SimpleNamespace()) == 0
+
+
+# ── call_llm / orchestrator propagate the quota refusal ──────────────────────
+
+
+@pytest.mark.anyio
+async def test_call_llm_reraises_quota_and_agent_budget_errors(monkeypatch):
+    import backend.server as server
+    from packages.ai.agent_budget import AgentBudgetExceeded
+
+    async def provider():
+        return {"type": "openai-compatible", "provider_id": "p"}
+
+    monkeypatch.setattr(server, "get_active_provider", provider)
+    for exc in (q.UserTokenQuotaExceeded(q.REFUSAL_MESSAGE), AgentBudgetExceeded("spent")):
+        async def boom(**_kw):
+            raise exc
+
+        monkeypatch.setattr(server, "_build_provider_router", boom)
+        with pytest.raises(type(exc)):
+            await server.call_llm([{"role": "user", "content": "x"}])
+
+
+def test_quota_errors_are_not_retryable():
+    from services.workflow_orchestrator import WorkflowOrchestrator
+
+    assert WorkflowOrchestrator._is_retryable(q.UserTokenQuotaExceeded(q.REFUSAL_MESSAGE)) is False
+
+
+@pytest.mark.anyio
+async def test_orchestrator_does_not_retry_a_quota_error_and_reports_the_reason():
+    from services.workflow_orchestrator import ExecutionRequest, Phase, WorkflowOrchestrator
+
+    orch = WorkflowOrchestrator()
+    attempts: list[int] = []
+
+    async def plan(run, req):
+        attempts.append(1)
+        raise q.UserTokenQuotaExceeded(q.REFUSAL_MESSAGE)
+
+    orch._phase_handlers = {Phase.PLAN: plan}
+    run = await orch.execute(ExecutionRequest(request="x", auto_approve=True, user_id="u1"))
+    assert run.status == "failed"
+    assert attempts == [1]
+    assert q.REFUSAL_MESSAGE in (run.error or "")

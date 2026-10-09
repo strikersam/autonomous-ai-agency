@@ -57,6 +57,8 @@ from agent.skills import SkillLibrary
 from agent.job_manager import AgentJobManager, make_isolated_workspace
 from agent.contract import AgentJobRequest, AgentJobSnapshot
 from agent.state import AgentSessionStore
+from packages.ai.agent_budget import AgentBudgetExceeded
+from packages.ai.user_token_quota import UserTokenQuotaExceeded
 from packages.ai.router import (
     CommercialFallbackRequiredError,
     ProviderConfig,
@@ -5175,6 +5177,8 @@ async def call_llm(
             except Exception as exc:
                 log.warning("Langfuse emit failed for hosted chat: %s", exc)
         return response_text
+    except (UserTokenQuotaExceeded, AgentBudgetExceeded):
+        raise  # a spent allowance is not a provider fault; keep its generic reason
     except CommercialFallbackRequiredError as exc:
         raise HTTPException(
             status_code=409,

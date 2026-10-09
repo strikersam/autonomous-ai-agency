@@ -40,7 +40,12 @@ EXEMPT_USERS = frozenset({"scheduler"})
 # Bounds the ledger: past this many users in one day, new ids fold into one
 # shared bucket, so a stream of distinct ids cannot grow the dict without limit.
 _MAX_USERS_PER_DAY = 5000
-_OVERFLOW = "other"
+# Reserved key that cannot be a user id (ids are stripped text); reported as "other".
+_OVERFLOW = "\x00overflow"
+_OVERFLOW_LABEL = "other"
+# Users folded into the overflow bucket stay refusable: their ids are remembered
+# (bounded) so the cap check reads the shared bucket for them and only for them.
+_OVERFLOW_IDS_FACTOR = 10
 # Generic, client-safe wording (CLAUDE.md rule 27): no counts, no internals.
 REFUSAL_MESSAGE = "Daily agent token limit reached. It resets at 00:00 UTC."
 
@@ -50,6 +55,8 @@ _current_user: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 _lock = threading.Lock()
 _day = ""
 _ledger: dict[str, int] = {}
+_overflowed: set[str] = set()
+_overflow_logged = False
 
 
 class UserTokenQuotaExceeded(RuntimeError):
@@ -67,6 +74,7 @@ def _roll_day() -> None:
     if today != _day:
         _day = today
         _ledger.clear()
+        _overflowed.clear()
 
 
 def _counted(user_id: str | None) -> str | None:
@@ -90,10 +98,16 @@ def user_scope(user_id: str | None) -> Iterator[None]:
 
 
 def tokens_used_today(user_id: str) -> int:
-    """Tokens recorded for *user_id* so far today (UTC)."""
+    """Tokens recorded for *user_id* so far today (UTC).
+
+    A user whose spend was folded into the overflow bucket reads that shared
+    bucket, so the cap still applies to them (conservatively).
+    """
     with _lock:
         _roll_day()
-        return _ledger.get(user_id, 0)
+        if user_id in _ledger:
+            return _ledger[user_id]
+        return _ledger.get(_OVERFLOW, 0) if user_id in _overflowed else 0
 
 
 def user_quota_refusal(user_id: str | None) -> str | None:
@@ -115,28 +129,54 @@ def ensure_user_within_quota() -> None:
         raise UserTokenQuotaExceeded(refusal)
 
 
+def _safe_count(tokens: object) -> int:
+    """Coerce *tokens* to a non-negative int; anything unusable counts as 0."""
+    try:
+        return max(int(tokens or 0), 0)  # type: ignore[call-overload]
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
 def record_user_tokens(tokens: int) -> None:
     """Add one call's tokens to the bound user's daily total. Never raises."""
+    global _overflow_logged
     uid = current_user()
     if uid is None:
         return
+    count = _safe_count(tokens)
     with _lock:
         _roll_day()
         if uid not in _ledger and len(_ledger) >= _MAX_USERS_PER_DAY:
+            if len(_overflowed) < _MAX_USERS_PER_DAY * _OVERFLOW_IDS_FACTOR:
+                _overflowed.add(uid)
+            if not _overflow_logged:
+                _overflow_logged = True
+                log.warning("user token ledger full (%d users); folding new users into a shared bucket",
+                            _MAX_USERS_PER_DAY)
             uid = _OVERFLOW
-        _ledger[uid] = _ledger.get(uid, 0) + max(int(tokens or 0), 0)
+        _ledger[uid] = _ledger.get(uid, 0) + count
+
+
+def anthropic_usage_total(resp: object) -> int:
+    """Input + output tokens from an Anthropic SDK response; 0 when absent."""
+    usage = getattr(resp, "usage", None)
+    return _safe_count(getattr(usage, "input_tokens", 0)) + _safe_count(
+        getattr(usage, "output_tokens", 0)
+    )
 
 
 def usage_snapshot() -> dict[str, int]:
     """Today's per-user token totals, for the admin endpoint and tests."""
     with _lock:
         _roll_day()
-        return dict(_ledger)
+        return {(_OVERFLOW_LABEL if k == _OVERFLOW else k): v for k, v in _ledger.items()}
 
 
 def reset() -> None:
     """Clear the ledger. Test helper."""
-    global _day
+    global _day, _overflow_logged
     with _lock:
         _ledger.clear()
+        _overflowed.clear()
+        _overflow_logged = False
         _day = ""

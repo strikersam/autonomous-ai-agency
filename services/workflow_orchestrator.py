@@ -797,6 +797,8 @@ class WorkflowOrchestrator:
     def _is_retryable(exc: Exception) -> bool:
         """True when this error class is worth retrying (transient)."""
         name = type(exc).__name__
+        if name in ("UserTokenQuotaExceeded", "AgentBudgetExceeded"):
+            return False  # a spent daily allowance cannot recover by retrying
         msg = str(exc).lower()
         retryable = {
             "TimeoutError", "ConnectionError", "ConnectionRefusedError",
