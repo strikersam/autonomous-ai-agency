@@ -44,6 +44,10 @@ class ToolDef:
         available: Callable[[], bool] | None = None,
     ) -> None:
         self.name = name
+        # Optional live predicate: a tool whose predicate is False is not
+        # advertised to the model; one that has a predicate is listed after
+        # the core tools so it never displaces them.
+        self.available = available
         self.description = description
         self.parameters = parameters
         self.handler = handler
@@ -51,16 +55,15 @@ class ToolDef:
         self.version = version
         self.cost_tier = cost_tier
         self.source = source
-        # Optional call-time predicate: a tool whose feature is switched off is
-        # left out of the prompt catalogues (HarnessEnrichment) as well as refusing calls.
-        self.available = available
 
     def is_available(self) -> bool:
-        """True unless an ``available`` predicate says the tool is switched off."""
-        try:
-            return self.available is None or bool(self.available())
-        except Exception:  # noqa: BLE001 - a broken predicate must not hide a tool
+        """False when the tool's live availability predicate says it is off."""
+        if self.available is None:
             return True
+        try:
+            return bool(self.available())
+        except Exception:  # noqa: BLE001 - a broken predicate hides the tool
+            return False
 
     def to_openai_tool(self) -> dict[str, Any]:
         """Convert to OpenAI-compatible tool definition."""
@@ -405,8 +408,9 @@ def _register_builtin_tools(registry: ToolRegistry, workspace_root: str | None =
     ws = WorkspaceTools(workspace_root or os.environ.get("AGENT_WORKSPACE_ROOT", "."))
 
     _register_web_reach_tools(registry)
-    _register_delegation_tools(registry)
     _register_browser_tools(registry)
+    _register_tool_output_tools(registry)
+    _register_delegation_tools(registry)
     _register_code_graph_tools(registry, ws.root)
 
     @registry.agent_tool(
@@ -564,48 +568,51 @@ def _register_browser_tools(registry: ToolRegistry) -> None:
         return web_access_refusal("browse_page") or await browse_page(url)
 
 
-def _register_delegation_tools(registry: ToolRegistry) -> None:
-    """Register async delegation (agent/delegation.py). Owner, session and depth
-    come from the run's ``RunContext``, never from tool arguments: stray
-    model-supplied keys are swallowed by ``**_ignored``."""
-    from agent.delegation import check_delegation, delegate_to_specialist, delegation_enabled
+def _register_tool_output_tools(registry: ToolRegistry) -> None:
+    """Register ``read_tool_output`` (agent/tool_output_store.py): page back in
+    tool output that observation masking shortened."""
+    from agent.tool_output_store import (
+        DEFAULT_READ_LIMIT,
+        MAX_READ_LIMIT,
+        get_tool_output_store,
+        offload_enabled,
+    )
 
     @registry.agent_tool(
-        name="delegate_to_specialist",
+        name="read_tool_output",
         description=(
-            "Hand a self-contained job to a specialist agent asynchronously via the task "
-            "store. Returns a task_id immediately; poll it with check_delegation. "
-            "A delegated job cannot delegate again."
+            "Read the full text of an earlier tool result that was shortened in "
+            "your context. Pass the ref from its '[full output: ref=out_...]' "
+            "note. Returns {ok, content, offset, total_length, next_offset}; "
+            f"pass next_offset as offset to continue. limit is capped at {MAX_READ_LIMIT}."
         ),
         parameters={
             "type": "object",
             "properties": {
-                "instruction": {"type": "string", "description": "The complete job, self-contained"},
-                "specialist": {"type": "string", "description": "Optional specialist role, e.g. 'qa'"},
-                "reason": {"type": "string", "description": "Why this is being delegated"},
+                "ref": {"type": "string", "description": "The out_... ref"},
+                "offset": {"type": "integer", "description": "Start character", "default": 0},
+                "limit": {
+                    "type": "integer",
+                    "description": "Max characters",
+                    "default": DEFAULT_READ_LIMIT,
+                },
             },
-            "required": ["instruction"],
+            "required": ["ref"],
         },
-        capabilities=["delegate", "tasks"],
-        available=delegation_enabled,
+        capabilities=["read", "context"],
+        available=offload_enabled,
     )
-    async def _delegate_tool(instruction: str, specialist: str = "", reason: str = "",
-                             **_ignored: Any) -> dict:
-        return await delegate_to_specialist(instruction, specialist, reason)
-
-    @registry.agent_tool(
-        name="check_delegation",
-        description="Check a task created by delegate_to_specialist: its status and, when done, a short result summary.",
-        parameters={
-            "type": "object",
-            "properties": {"task_id": {"type": "string", "description": "task_id from delegate_to_specialist"}},
-            "required": ["task_id"],
-        },
-        capabilities=["delegate", "tasks", "read"],
-        available=delegation_enabled,
-    )
-    async def _check_delegation_tool(task_id: str, **_ignored: Any) -> dict:
-        return await check_delegation(task_id)
+    def _read_tool_output_tool(
+        ref: str,
+        offset: int = 0,
+        limit: int = DEFAULT_READ_LIMIT,
+        owner: str | None = None,
+    ) -> dict:
+        # ``owner`` is injected by AgentRunner._dispatch_tool (like
+        # workspace_root); the model cannot choose it.
+        if not offload_enabled():
+            return {"ok": False, "error": "tool output offload is switched off"}
+        return get_tool_output_store().read(ref, offset=offset, limit=limit, owner=owner)
 
 
 def _register_web_reach_tools(registry: ToolRegistry) -> None:
@@ -761,3 +768,47 @@ def _register_code_graph_tools(registry: ToolRegistry, root: Any) -> None:
         base_branch: str | None = None, workspace_root: str | None = None,
     ) -> dict:
         return await run_query(graph_for(workspace_root).impact, base_branch)
+
+
+def _register_delegation_tools(registry: ToolRegistry) -> None:
+    """Register async delegation (agent/delegation.py). Owner, session and depth
+    come from the run's ``RunContext``, never from tool arguments: stray
+    model-supplied keys are swallowed by ``**_ignored``."""
+    from agent.delegation import check_delegation, delegate_to_specialist, delegation_enabled
+
+    @registry.agent_tool(
+        name="delegate_to_specialist",
+        description=(
+            "Hand a self-contained job to a specialist agent asynchronously via the task "
+            "store. Returns a task_id immediately; poll it with check_delegation. "
+            "A delegated job cannot delegate again."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "instruction": {"type": "string", "description": "The complete job, self-contained"},
+                "specialist": {"type": "string", "description": "Optional specialist role, e.g. 'qa'"},
+                "reason": {"type": "string", "description": "Why this is being delegated"},
+            },
+            "required": ["instruction"],
+        },
+        capabilities=["delegate", "tasks"],
+        available=delegation_enabled,
+    )
+    async def _delegate_tool(instruction: str, specialist: str = "", reason: str = "",
+                             **_ignored: Any) -> dict:
+        return await delegate_to_specialist(instruction, specialist, reason)
+
+    @registry.agent_tool(
+        name="check_delegation",
+        description="Check a task created by delegate_to_specialist: its status and, when done, a short result summary.",
+        parameters={
+            "type": "object",
+            "properties": {"task_id": {"type": "string", "description": "task_id from delegate_to_specialist"}},
+            "required": ["task_id"],
+        },
+        capabilities=["delegate", "tasks", "read"],
+        available=delegation_enabled,
+    )
+    async def _check_delegation_tool(task_id: str, **_ignored: Any) -> dict:
+        return await check_delegation(task_id)

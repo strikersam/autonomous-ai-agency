@@ -104,6 +104,7 @@ See [docs/claude-code-setup.md](claude-code-setup.md) for full Claude Code setup
 | `AGENT_REQUEST_TIMEOUT_SEC` | `120` | Per-request timeout (seconds) for agent-loop LLM calls, passed to the failover client. Also settable from the Brain card as **Timeout (s)**; the UI/DB value wins. Lower it to fail over to a faster provider sooner, or raise it for a deliberately slow/large model. |
 | `NEMOTRON_THINKING` | `false` | Whether Nemotron 3 models (the default free NVIDIA brain, e.g. `nvidia/nemotron-3-super-120b-a12b`) think before answering. `false` sends `chat_template_kwargs.enable_thinking=false`, which cuts per-call latency several-fold on the free tier; `true` leaves the request untouched. Other models are never affected. Also a live control under Settings → Platform controls → Brain & Model Routing. |
 | `AGENT_WORKSPACE_ROOT` | (repo root) | Absolute path to the workspace the agent operates on. Defaults to the directory containing `proxy.py`. |
+| `AGENT_TOOL_OUTPUT_OFFLOAD` | `true` | Lossless tool-output offload. When on, an older tool result that `ContextManager.mask_observations` shortens is kept in a bounded in-process store (LRU, 1 h TTL, bound to the agent run that produced it) and the shortened text ends with `[full output: ref=out_...]`; the agent pages it back with the `read_tool_output` tool. When `false`, shortened output is lost as before and the tool is left out of the prompt and tool catalogue. Live control: Settings → Platform controls → Agent loop. |
 
 ### Anthropic provider tuning
 

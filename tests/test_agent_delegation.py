@@ -296,6 +296,11 @@ def test_flag_off_harness_enrichment_block_is_identical_to_registry_without_dele
     assert "delegat" not in block(full)
     assert block(full) == block(base)
     monkeypatch.setattr(settings, "agent_delegation_enabled_raw", "true")
+    # Predicate-gated tools are listed after the core tools, inside the size cap;
+    # lift the cap so the assertion is about availability, not truncation.
+    import agent.harness_enrichment as he_mod
+
+    monkeypatch.setattr(he_mod, "_MAX_TOOL_ENRICHMENT_CHARS", 100_000)
     assert "delegate_to_specialist" in block(full)
 
 

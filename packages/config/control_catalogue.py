@@ -970,6 +970,15 @@ _AGENT_LOOP: tuple[ControlSpec, ...] = (
         "Trim and summarise context so long tasks stay inside the model window.",
     ),
     _toggle(
+        "AGENT_TOOL_OUTPUT_OFFLOAD",
+        "Lossless tool-output offload",
+        "agent_loop",
+        "true",
+        "Keep the full text of tool output the loop shortens and let the agent "
+        "page it back in with read_tool_output. When off, shortened output is lost.",
+        live=True,
+    ),
+    _toggle(
         "AGENT_CHAT_HISTORY_ENABLED",
         "Carry chat history into the loop",
         "agent_loop",
