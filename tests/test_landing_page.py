@@ -167,3 +167,10 @@ def test_ai_crawlers_are_allowed_and_llms_txt_has_an_faq():
     for bot in ("GPTBot", "ClaudeBot", "PerplexityBot", "Google-Extended"):
         assert f"User-agent: {bot}" in robots, bot
     assert "## FAQ" in (PUBLIC / "llms.txt").read_text(encoding="utf-8")
+
+
+def test_login_is_reached_by_form_not_crawlable_link(html):
+    # /login is the deliberately noindex app shell; a crawlable <a> to it was flagged
+    # as a Noindex page with no H1 and no internal links.
+    assert 'href="/login"' not in html
+    assert html.count('action="/login"') == 3

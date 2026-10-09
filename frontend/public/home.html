@@ -122,6 +122,10 @@
     footer { border-top:1px solid var(--line); padding:28px 0 40px; color:var(--muted); font-size:14px; }
     footer .wrap { display:flex; gap:18px; flex-wrap:wrap; justify-content:space-between; }
     footer a { color:var(--muted); }
+    form.go { display:inline; margin:0; }
+    button.btn, button.linklike { font:inherit; cursor:pointer; }
+    button.btn { background:transparent; }
+    button.linklike { background:none; border:0; padding:0; color:var(--muted); text-decoration:underline; font-size:inherit; }
     @media (max-width:640px) { nav.primary a:not(.btn) { display:none; } }
   </style>
 </head>
@@ -135,7 +139,7 @@
         <a href="#faq">FAQ</a>
         <a href="#self-host">Self-host</a>
         <a href="https://github.com/strikersam/autonomous-ai-agency">GitHub</a>
-        <a class="btn" href="/login">Sign in</a>
+        <form class="go" action="/login" method="get"><button class="btn" type="submit">Sign in</button></form>
       </nav>
     </div>
   </header>
@@ -146,7 +150,7 @@
         <h1 id="hero-title">An AI company that runs itself, on your servers</h1>
         <p class="lead">Paste a website URL and get a scored SEO, GEO and security audit. Then a CEO agent and a team of specialist agents plan the work, write the code, test it and open pull requests. The only thing they ask you for is the merge.</p>
         <div class="cta">
-          <a class="btn primary" href="/login">Try the live dashboard</a>
+          <form class="go" action="/login" method="get"><button class="btn primary" type="submit">Try the live dashboard</button></form>
           <a class="btn" href="#self-host">Run it in one command</a>
           <a class="btn" href="https://github.com/strikersam/autonomous-ai-agency">View the source</a>
         </div>
@@ -244,7 +248,7 @@ cd autonomous-ai-agency
         <a href="https://github.com/strikersam/autonomous-ai-agency/releases">Releases</a> ·
         <a href="https://github.com/strikersam/autonomous-ai-agency/blob/master/CHANGELOG.md">Changelog</a> ·
         <a href="/llms.txt">llms.txt</a> ·
-        <a href="/login">Sign in</a>
+        <form class="go" action="/login" method="get"><button class="linklike" type="submit">Sign in</button></form>
       </nav>
     </div>
   </footer>
