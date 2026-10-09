@@ -319,6 +319,14 @@ class Settings:
         # Default on; when off the tools refuse and drop out of the tool prompt.
         self.web_reach_enabled_raw: str = os.environ.get("WEB_REACH_ENABLED", "true")
 
+        # ── Agent-to-agent delegation (agent/delegation.py) ────────────────
+        # AGENT_DELEGATION_ENABLED — lets an executing agent hand work to a
+        # specialist through the task store. Default off; when off the tools
+        # refuse and drop out of the tool prompt. The cap bounds delegations
+        # one parent session may create.
+        self.agent_delegation_enabled_raw: str = os.environ.get("AGENT_DELEGATION_ENABLED", "false")
+        self.agent_delegation_max_per_session: int = _env_int("AGENT_DELEGATION_MAX_PER_SESSION", 5)
+
         # ── Code graph (agent/code_graph.py) ────────────────────────────────
         # Structural code queries — who calls a function, what a diff touches —
         # for any of 162 languages, via the codebase-memory-mcp CLI. Opt-in:
@@ -473,6 +481,11 @@ class Settings:
     def web_reach_enabled(self) -> bool:
         """False only when an operator switched agent web access off."""
         return self.web_reach_enabled_raw.strip().lower() not in {"0", "false", "no", "off"}
+
+    @property
+    def agent_delegation_enabled(self) -> bool:
+        """True only when an operator switched agent-to-agent delegation on."""
+        return self.agent_delegation_enabled_raw.strip().lower() in {"1", "true", "yes", "on"}
 
     @property
     def code_graph_enabled(self) -> bool:

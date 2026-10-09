@@ -640,6 +640,7 @@ class AgentRunner:
         # Store current session_id for use by helper methods that need to
         # write into the durable session event log (e.g., tool_call/tool_result).
         self._current_session_id = session_id
+        self._current_instruction = instruction  # lets delegation tools detect a delegated run
         # Reset per-run state trackers so a reused AgentRunner instance doesn't
         # carry over halter counts from a prior run.
         self._adaptive_halter = AdaptiveHalter()
@@ -1777,8 +1778,12 @@ class AgentRunner:
                 # workspace this runner edits (a worktree or sandbox copy), not
                 # the process-wide root the singleton registry was built with.
                 # Always overwritten: the model must never choose the path.
-                if "workspace_root" in _handler_params(tool_def.handler):
+                params = _handler_params(tool_def.handler)
+                if "workspace_root" in params:
                     args = {**args, "workspace_root": str(self.tools.root)}
+                if "parent_session_id" in params:  # delegation tools: runner-supplied, never model-chosen
+                    args = {**args, "owner_id": user_id or "", "parent_session_id": self._current_session_id or "",
+                            "parent_instruction": getattr(self, "_current_instruction", "")}
                 try:
                     result = tool_def.handler(**args)
                     if asyncio.iscoroutine(result):
