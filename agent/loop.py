@@ -628,6 +628,44 @@ class AgentRunner:
         session_id: str | None = None,
         metadata: dict[str, Any] | None = None,
         time_budget_s: float | None = None,
+        delegation_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Run the plan/execute/verify loop (arguments as :meth:`_run_impl`).
+
+        Binds the per-run delegation context (owner, session, delegated/depth, identity)
+        in a ContextVar for the run; sub-agents started inside inherit it.
+        ``delegation_context`` is private to the task runtime adapters (task facts); it is
+        deliberately not read from ``metadata``, which request callers control.
+        """
+        from agent.delegation import enter_run, exit_run
+
+        token = enter_run(owner_id=user_id, session_id=session_id, instruction=instruction,
+                          depth=self._depth, meta=delegation_context, runner=self)
+        try:
+            return await self._run_impl(
+                instruction=instruction, history=history, requested_model=requested_model,
+                auto_commit=auto_commit, max_steps=max_steps, user_id=user_id,
+                department=department, key_id=key_id, memory_store=memory_store,
+                session_id=session_id, metadata=metadata, time_budget_s=time_budget_s,
+            )
+        finally:
+            exit_run(token)
+
+    async def _run_impl(
+        self,
+        *,
+        instruction: str,
+        history: list[dict[str, str]],
+        requested_model: str | None,
+        auto_commit: bool,
+        max_steps: int,
+        user_id: str | None = None,
+        department: str | None = None,
+        key_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
+        session_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        time_budget_s: float | None = None,
     ) -> dict[str, Any]:
         # ``time_budget_s`` lets the caller (the task coordinator) hand down its
         # hard execution timeout so the loop stops *between* steps and returns

@@ -212,6 +212,27 @@ _AGENT_RUNTIME: tuple[ControlSpec, ...] = (
         risk=RISK_MEDIUM,
     ),
     _toggle(
+        "AGENT_DELEGATION_ENABLED",
+        "Agent-to-agent delegation",
+        "governance",
+        "false",
+        "Lets an executing agent hand work to a specialist through the task "
+        "store (delegate_to_specialist) and check back later (check_delegation). "
+        "Outward-facing work still parks for approval. When off both tools refuse "
+        "and are left out of the agent's tool prompt.",
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    _number(
+        "AGENT_DELEGATION_MAX_PER_SESSION",
+        "Max delegations per agent session",
+        "governance",
+        "5",
+        "How many tasks one parent agent session may delegate to specialists.",
+        live=True,
+        maximum=100,
+    ),
+    _toggle(
         "RUNTIME_EXTERNAL_DISABLED",
         "Register no external runtimes",
         "agent_runtime",

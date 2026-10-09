@@ -20,6 +20,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from agent.delegation import task_meta as delegation_task_meta
 from agent.loop import AgentRunner
 from packages.ai.router import ProviderConfig, _normalize_nvidia_base_url
 from runtimes.adapters.delivery import assess_delivery, clone_repo_workspace
@@ -525,6 +526,7 @@ class InternalAgentAdapter(RuntimeAdapter):
                 key_id=spec.context.get("key_id"),
                 session_id=spec.context.get("session_id"),
                 time_budget_s=_remaining_budget_s(spec.context),
+                delegation_context=delegation_task_meta(spec.context),
             )
         except Exception as exc:
             self._remove_worktree(base_workspace, worktree_path, _worktree_tmp)

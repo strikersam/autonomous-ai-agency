@@ -85,6 +85,11 @@ def classify(tool: str, args: dict[str, Any] | None = None) -> tuple[Surface, st
     name = (tool or "").strip()
     lowered = name.lower()
 
+    if lowered == "delegate_to_specialist":
+        # Handing work to another agent is judged as the AGENT-surface action
+        # `delegate_task`, not as an anonymous tool call.
+        return Surface.AGENT, "delegate_task"
+
     for patterns, surface, arg_keys in _TOOL_SURFACE_RULES:
         if not any(fnmatch.fnmatch(lowered, p) for p in patterns):
             continue

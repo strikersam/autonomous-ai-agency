@@ -26,6 +26,7 @@ import tempfile
 import time
 from typing import Any
 
+from agent.delegation import task_meta as delegation_task_meta
 from runtimes.base import (
     IntegrationMode,
     RuntimeAdapter,
@@ -250,6 +251,7 @@ class E2BAdapter(RuntimeAdapter):
                 department=(spec.context or {}).get("department"),
                 key_id=(spec.context or {}).get("key_id"),
                 session_id=(spec.context or {}).get("session_id"),
+                delegation_context=delegation_task_meta(spec.context),
             )
         except Exception as exc:
             raise RuntimeExecutionError(
@@ -285,6 +287,7 @@ class E2BAdapter(RuntimeAdapter):
                         department=(spec.context or {}).get("department"),
                         key_id=(spec.context or {}).get("key_id"),
                         session_id=(spec.context or {}).get("session_id"),
+                        delegation_context=delegation_task_meta(spec.context),
                     )
                     # Re-run pytest after the retry to confirm the fix.
                     test_output, test_passed = await self._run_in_sandbox_pytest(session)

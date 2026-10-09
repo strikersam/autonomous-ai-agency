@@ -410,6 +410,7 @@ def _register_builtin_tools(registry: ToolRegistry, workspace_root: str | None =
     _register_web_reach_tools(registry)
     _register_browser_tools(registry)
     _register_tool_output_tools(registry)
+    _register_delegation_tools(registry)
     _register_code_graph_tools(registry, ws.root)
 
     @registry.agent_tool(
@@ -767,3 +768,47 @@ def _register_code_graph_tools(registry: ToolRegistry, root: Any) -> None:
         base_branch: str | None = None, workspace_root: str | None = None,
     ) -> dict:
         return await run_query(graph_for(workspace_root).impact, base_branch)
+
+
+def _register_delegation_tools(registry: ToolRegistry) -> None:
+    """Register async delegation (agent/delegation.py). Owner, session and depth
+    come from the run's ``RunContext``, never from tool arguments: stray
+    model-supplied keys are swallowed by ``**_ignored``."""
+    from agent.delegation import check_delegation, delegate_to_specialist, delegation_enabled
+
+    @registry.agent_tool(
+        name="delegate_to_specialist",
+        description=(
+            "Hand a self-contained job to a specialist agent asynchronously via the task "
+            "store. Returns a task_id immediately; poll it with check_delegation. "
+            "A delegated job cannot delegate again."
+        ),
+        parameters={
+            "type": "object",
+            "properties": {
+                "instruction": {"type": "string", "description": "The complete job, self-contained"},
+                "specialist": {"type": "string", "description": "Optional specialist role, e.g. 'qa'"},
+                "reason": {"type": "string", "description": "Why this is being delegated"},
+            },
+            "required": ["instruction"],
+        },
+        capabilities=["delegate", "tasks"],
+        available=delegation_enabled,
+    )
+    async def _delegate_tool(instruction: str, specialist: str = "", reason: str = "",
+                             **_ignored: Any) -> dict:
+        return await delegate_to_specialist(instruction, specialist, reason)
+
+    @registry.agent_tool(
+        name="check_delegation",
+        description="Check a task created by delegate_to_specialist: its status and, when done, a short result summary.",
+        parameters={
+            "type": "object",
+            "properties": {"task_id": {"type": "string", "description": "task_id from delegate_to_specialist"}},
+            "required": ["task_id"],
+        },
+        capabilities=["delegate", "tasks", "read"],
+        available=delegation_enabled,
+    )
+    async def _check_delegation_tool(task_id: str, **_ignored: Any) -> dict:
+        return await check_delegation(task_id)
