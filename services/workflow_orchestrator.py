@@ -797,6 +797,8 @@ class WorkflowOrchestrator:
     def _is_retryable(exc: Exception) -> bool:
         """True when this error class is worth retrying (transient)."""
         name = type(exc).__name__
+        if name in ("UserTokenQuotaExceeded", "AgentBudgetExceeded"):
+            return False  # a spent daily allowance cannot recover by retrying
         msg = str(exc).lower()
         retryable = {
             "TimeoutError", "ConnectionError", "ConnectionRefusedError",
@@ -822,6 +824,7 @@ class WorkflowOrchestrator:
         failed run without starting any phase.
         """
         from packages.ai.agent_budget import agent_scope, current_agent
+        from packages.ai.user_token_quota import user_quota_refusal, user_scope
         from packages.config.autonomy_limits import kill_switch_engaged
 
         if kill_switch_engaged():
@@ -833,9 +836,19 @@ class WorkflowOrchestrator:
             run.error = "KillSwitchEngaged: AGENCY_KILL_SWITCH is on"
             log.warning("WorkflowOrchestrator: refused run — kill switch engaged")
             return run
+        # Per-user daily token cap (AGENT_USER_TOKENS_PER_DAY): refuse before any phase runs.
+        refusal = user_quota_refusal(req.user_id)
+        if refusal:
+            run = self._runs.get(resume_run_id or "") or WorkflowRun(
+                user_id=req.user_id, company_id=req.company_id
+            )
+            self._runs[run.run_id] = run
+            run.status = "failed"
+            run.error = f"UserTokenQuotaExceeded: {refusal}"
+            return run
         # Keep an agent the caller already bound (e.g. the dispatcher's task agent).
         agent = str(req.metadata.get("agent") or current_agent() or "orchestrator")
-        with agent_scope(agent):
+        with user_scope(req.user_id), agent_scope(agent):
             return await self._execute_golden_path(req, resume_run_id=resume_run_id)
 
     async def _execute_golden_path(

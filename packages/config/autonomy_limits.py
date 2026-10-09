@@ -5,6 +5,8 @@ Two controls an agent can read but never write:
 * ``AGENCY_KILL_SWITCH`` — one boolean that halts every autonomous action:
   scheduled jobs, workflow runs, cron ticks, agent commits and agent LLM calls.
   Human-initiated proxy traffic is untouched.
+* ``AGENT_USER_TOKENS_PER_DAY`` — a per-user daily ceiling on the tokens an
+  owner's agent runs may consume (``packages/ai/user_token_quota.py``).
 * ``AGENT_DAILY_KTOKENS_CAP`` (thousands of tokens) / ``AGENT_DAILY_USD_CAP`` —
   a per-agent, per-UTC-day ceiling enforced in the provider router. ``0`` means
   unlimited. (Not ``*_TOKEN*``: that suffix is reserved for secrets and the
@@ -59,6 +61,11 @@ def agent_daily_token_budget() -> int:
 def agent_daily_budget_usd() -> float:
     """Per-agent daily USD ceiling; ``0`` disables the cap."""
     return float(_non_negative("AGENT_DAILY_USD_CAP", float))
+
+
+def user_daily_token_cap() -> int:
+    """``AGENT_USER_TOKENS_PER_DAY`` — per-user daily agent token ceiling; ``0`` disables."""
+    return int(_non_negative("AGENT_USER_TOKENS_PER_DAY", int))
 
 
 # ── Canary credential ─────────────────────────────────────────────────────────

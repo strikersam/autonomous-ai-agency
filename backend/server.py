@@ -57,6 +57,8 @@ from agent.skills import SkillLibrary
 from agent.job_manager import AgentJobManager, make_isolated_workspace
 from agent.contract import AgentJobRequest, AgentJobSnapshot
 from agent.state import AgentSessionStore
+from packages.ai.agent_budget import AgentBudgetExceeded
+from packages.ai.user_token_quota import UserTokenQuotaExceeded
 from packages.ai.router import (
     CommercialFallbackRequiredError,
     ProviderConfig,
@@ -5177,6 +5179,8 @@ async def call_llm(
             except Exception as exc:
                 log.warning("Langfuse emit failed for hosted chat: %s", exc)
         return response_text
+    except (UserTokenQuotaExceeded, AgentBudgetExceeded):
+        raise  # a spent allowance is not a provider fault; keep its generic reason
     except CommercialFallbackRequiredError as exc:
         raise HTTPException(
             status_code=409,
@@ -11101,6 +11105,10 @@ import backend.platform_controls_router as platform_controls_module  # noqa: E40
 app.include_router(
     platform_controls_module.build_platform_controls_router(get_current_user)
 )
+
+# Read-only per-user agent token usage (own usage; admin sees everyone).
+import backend.usage_router as usage_router_module  # noqa: E402
+app.include_router(usage_router_module.build_usage_router(get_current_user))
 
 # Agent governance: identity, policy, approvals, audit trail, sandbox posture.
 # Admin-only and read-mostly (policy is a git-reviewed file, not an editable

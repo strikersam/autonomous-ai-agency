@@ -114,7 +114,7 @@ def test_no_secret_is_exposed_as_a_control():
     """Secrets stay environment-only per the repository constitution."""
     banned = ("_API_KEY", "_TOKEN", "_SECRET", "PASSWORD", "_KEY_ID")
     # Token *counts* (LLM tokens), not credentials — named allow-list, not a pattern.
-    token_counts = {"GATEWAY_TOKENS_PER_MINUTE", "GATEWAY_TOKENS_PER_DAY"}
+    token_counts = {"GATEWAY_TOKENS_PER_MINUTE", "GATEWAY_TOKENS_PER_DAY", "AGENT_USER_TOKENS_PER_DAY"}
     leaked = [
         c.key for c in all_controls()
         if c.key not in token_counts and any(c.key.endswith(b) or b in c.key for b in banned)
