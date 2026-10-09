@@ -11099,6 +11099,10 @@ app.include_router(
     platform_controls_module.build_platform_controls_router(get_current_user)
 )
 
+# Read-only per-user agent token usage (own usage; admin sees everyone).
+import backend.usage_router as usage_router_module  # noqa: E402
+app.include_router(usage_router_module.build_usage_router(get_current_user))
+
 # Agent governance: identity, policy, approvals, audit trail, sandbox posture.
 # Admin-only and read-mostly (policy is a git-reviewed file, not an editable
 # resource). Mounted defensively — a governance layer that can block startup

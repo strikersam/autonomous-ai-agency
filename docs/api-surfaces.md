@@ -68,6 +68,7 @@ The `backend/` app powers the separate React control plane and includes routes f
 - GitHub repo, branch, file, and PR flows
 - schedules and legacy scheduler compatibility routes
 - governance: posture, policy, approvals, audit, sandboxes, and session budgets (`/api/governance/*`, admin-only)
+- agent token usage per user for the current UTC day: `GET /api/usage/agent-tokens` (the caller's own usage; `401` unauthenticated) and `GET /api/admin/usage/agent-tokens` (every user, highest first; admin only, `403` otherwise). Both return `daily_cap` (`AGENT_USER_TOKENS_PER_DAY`, `0` = off), `tokens_used`, `remaining` (`null` when off) and `exceeded`. Counts are in-memory per process. Implemented in `backend/usage_router.py`
 - Telegram bot control-plane (`/api/telegram/*`)
 
 ### SAM (`/agent/sam/*`, authenticated)
