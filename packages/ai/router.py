@@ -16,6 +16,7 @@ from urllib.parse import urlparse
 import httpx
 from packages.ai.agent_budget import current_agent, ensure_agent_can_spend, record_agent_spend
 from packages.ai.model_policy import drop_denied
+from packages.ai.user_token_quota import ensure_user_within_quota, record_user_tokens
 from packages.ai.response_cache import get_cached, put_cached
 from packages.security.canary import ensure_payload_clean
 from packages.ai.rate_limiter import get_tracker as _get_rl_tracker
@@ -1379,6 +1380,7 @@ class ProviderRouter:
                                 tag=_tag,
                             )
                             from packages.ai.cost_tracker import cost_for_tokens as _cost_for
+                            record_user_tokens(_tokens_for_director)
                             record_agent_spend(
                                 _tokens_for_director,
                                 _cost_for(
@@ -1519,6 +1521,7 @@ class ProviderRouter:
         # Kill switch and per-agent daily cap. A no-op for calls with no bound
         # agent (human proxy traffic); see packages/ai/agent_budget.py.
         ensure_agent_can_spend()
+        ensure_user_within_quota()  # per-user daily cap; no-op without a bound user
         _agent = current_agent()
         if _agent is not None:
             ensure_payload_clean(payload, _agent)

@@ -632,6 +632,19 @@ _AUTONOMY: tuple[ControlSpec, ...] = (
         risk=RISK_MEDIUM,
     ),
     _number(
+        "AGENT_USER_TOKENS_PER_DAY",
+        "Per-user daily agent token cap",
+        "autonomy",
+        "0",
+        "Once one user's agent runs have used this many tokens today (UTC), their next "
+        "agent run is refused until midnight UTC. Counts every LLM call made on the "
+        "user's behalf, for all users including admins. 0 = unlimited. Counts are "
+        "per process and reset on restart.",
+        live=True,
+        maximum=1_000_000_000,
+        risk=RISK_MEDIUM,
+    ),
+    _number(
         "AGENT_DAILY_USD_CAP",
         "Per-agent daily spend cap (USD)",
         "autonomy",
