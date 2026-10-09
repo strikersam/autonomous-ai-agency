@@ -525,7 +525,7 @@ class InternalAgentAdapter(RuntimeAdapter):
                 key_id=spec.context.get("key_id"),
                 session_id=spec.context.get("session_id"),
                 time_budget_s=_remaining_budget_s(spec.context),
-                metadata=delegation_task_meta(spec.context),
+                delegation_context=delegation_task_meta(spec.context),
             )
         except Exception as exc:
             self._remove_worktree(base_workspace, worktree_path, _worktree_tmp)

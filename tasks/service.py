@@ -1262,6 +1262,7 @@ class TaskExecutionCoordinator:
             # for the delegation tools (agent/delegation.py). Additive: nothing else reads it.
             "delegation": {
                 "owner_id": task.owner_id,
+                "task_id": task.task_id,
                 "delegated": task.source == "agent-delegation" or "agent-delegated" in (task.tags or []),
             },
             "task": {

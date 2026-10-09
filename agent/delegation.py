@@ -21,7 +21,7 @@ import hashlib
 import logging
 import re
 from contextvars import ContextVar, Token
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 log = logging.getLogger("qwen-proxy")
@@ -54,27 +54,55 @@ class RunContext:
     session_id: str
     delegated: bool
     depth: int
+    identity: Any = field(default=None, compare=False)  # governance identity, for the hard policy check
 
 
 _RUN_CTX: ContextVar[RunContext | None] = ContextVar("agent_delegation_run", default=None)
 
 
+def _clean_meta(meta: Any) -> dict[str, Any]:
+    """Task facts from the runtime adapters; anything but a dict of the known keys is dropped."""
+    if not isinstance(meta, dict):
+        return {}
+    return {
+        "owner_id": meta["owner_id"] if isinstance(meta.get("owner_id"), str) else "",
+        "task_id": meta["task_id"] if isinstance(meta.get("task_id"), str) else "",
+        "delegated": meta.get("delegated") is True,
+    }
+
+
+def _identity_of(runner: Any) -> Any:
+    """The runner's governance identity, or None when governance is off or unreachable."""
+    try:
+        from packages.governance.enforcement import governance_enabled, resolve_identity_for_runner
+
+        return resolve_identity_for_runner(runner) if runner is not None and governance_enabled() else None
+    except Exception as exc:  # noqa: BLE001 - identity is best-effort
+        log.debug("delegation: governance identity unavailable: %s", exc)
+        return None
+
+
 def enter_run(*, owner_id: str | None, session_id: str | None, instruction: str,
-              depth: int, meta: dict[str, Any] | None = None) -> Token:
+              depth: int, meta: dict[str, Any] | None = None, runner: Any = None) -> Token:
     """Bind the delegation context for one ``AgentRunner.run``; pair with :func:`exit_run`.
 
-    ``meta`` is the runtime's task facts (``{"owner_id", "delegated"}``). Whatever a
-    parent run already bound is inherited: a child can add restrictions, never drop them.
+    ``meta`` is the task runtime's private task facts (``{"owner_id", "task_id", "delegated"}``),
+    never request metadata. Whatever a parent run already bound is inherited: a child can add
+    restrictions, never drop them. A task run with no session id is keyed by its stable task id,
+    so re-queued runs of one task share a cap and can see earlier delegations.
     """
-    parent, meta = _RUN_CTX.get(), meta or {}
-    owner = owner_id or str(meta.get("owner_id") or "") or (parent.owner_id if parent else "")
+    parent, meta = _RUN_CTX.get(), _clean_meta(meta)
+    owner = owner_id or meta.get("owner_id") or (parent.owner_id if parent else "")
     session = session_id or (parent.session_id if parent else "")
+    if not session and meta.get("task_id"):
+        session = "task:" + meta["task_id"]
     if not session:
         session = "run:" + hashlib.sha256((instruction or "").encode()).hexdigest()[:16]
     delegated = (bool(meta.get("delegated")) or bool(parent and parent.delegated)
                  or _COMPOSED_MARKER in (instruction or ""))
     depth = max(depth, parent.depth if parent else 0)
-    return _RUN_CTX.set(RunContext(owner, session, delegated, depth))
+    identity = (parent.identity if parent and parent.identity is not None else _identity_of(runner))
+    return _RUN_CTX.set(RunContext(owner, session, delegated, depth, identity))
 
 
 def exit_run(token: Token) -> None:
@@ -83,8 +111,9 @@ def exit_run(token: Token) -> None:
 
 
 def task_meta(context: dict[str, Any] | None) -> dict[str, Any]:
-    """The ``metadata`` a runtime adapter passes ``AgentRunner.run`` (from ``spec.context['delegation']``)."""
-    return {"delegation": (context or {}).get("delegation") or {}}
+    """The ``delegation_context`` a runtime adapter passes ``AgentRunner.run`` (from ``spec.context``)."""
+    value = (context or {}).get("delegation")
+    return value if isinstance(value, dict) else {}
 
 
 def delegation_enabled() -> bool:
@@ -143,7 +172,25 @@ def _resolve(owner_id: str | None, parent_session_id: str | None,
     return owner, session, barred
 
 
+def _policy_denies() -> bool:
+    """True when the governance policy's *decision* (not its mode-dependent effect) for
+    AGENT/delegate_task is DENY for the current agent: a hard stop even in observe mode."""
+    ctx = _RUN_CTX.get()
+    if ctx is None or ctx.identity is None:
+        return False
+    try:
+        from packages.governance.policy import Decision, Surface, get_policy_engine
+
+        verdict = get_policy_engine().evaluate(Surface.AGENT, "delegate_task", ctx.identity)
+        return verdict.decision is Decision.DENY
+    except Exception as exc:  # noqa: BLE001 - a broken policy read must not take agents down
+        log.debug("delegation: policy check unavailable: %s", exc)
+        return False
+
+
 def _validate(instruction: str, specialist: str, owner: str, barred: bool) -> str | None:
+    if _policy_denies():
+        return "delegation is denied by the governance policy for this agent"
     if barred:
         return "a delegated task or sub-agent cannot delegate further (max delegation depth is 1)"
     if not owner or owner == _SHARED_QUEUE_OWNER:

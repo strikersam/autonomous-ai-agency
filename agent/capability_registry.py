@@ -248,7 +248,7 @@ class ToolRegistry:
             tools = self.find_by_capabilities(capabilities)
         if names:
             tools = [t for t in tools if t.name in set(names)]
-        return [t.to_openai_tool() for t in tools]
+        return [t.to_openai_tool() for t in tools if t.is_available()]
 
     # ── Auto-discovery ───────────────────────────────────────────────────────
 
