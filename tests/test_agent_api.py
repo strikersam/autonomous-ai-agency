@@ -132,7 +132,9 @@ def test_agent_session_run_reuses_bearer_key_for_same_origin_provider(monkeypatc
             session_store=None,
             num_ctx=None,
             keep_alive=None,
+            owner=None,
         ) -> None:
+            captured["owner"] = owner
             captured["ollama_base"] = ollama_base
             captured["workspace_root"] = workspace_root
             captured["provider_headers"] = provider_headers
@@ -190,6 +192,8 @@ def test_agent_session_run_reuses_bearer_key_for_same_origin_provider(monkeypatc
     assert run.json()["result"]["summary"] == "ok"
     assert captured["ollama_base"] == "http://testserver/v1"
     assert captured["provider_headers"] == {"Authorization": "Bearer test-key"}
+    # The runner carries the authenticated principal as its governance owner.
+    assert captured["owner"]
 
     proxy.app.dependency_overrides.clear()
 
