@@ -5,4 +5,19 @@ Disallow: /v1/
 Disallow: /admin/
 Disallow: /v5/
 
+# AI search and answer-engine crawlers are welcome to read the public landing page.
+User-agent: GPTBot
+User-agent: OAI-SearchBot
+User-agent: ChatGPT-User
+User-agent: ClaudeBot
+User-agent: Claude-SearchBot
+User-agent: PerplexityBot
+User-agent: Google-Extended
+User-agent: Applebot-Extended
+Allow: /
+Disallow: /api/
+Disallow: /v1/
+Disallow: /admin/
+Disallow: /v5/
+
 Sitemap: https://autonomous-ai-agency.strikersam.workers.dev/sitemap.xml

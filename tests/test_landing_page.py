@@ -139,3 +139,31 @@ def test_crawler_files_point_at_the_landing_page():
     sitemap = (PUBLIC / "sitemap.xml").read_text(encoding="utf-8")
     assert f"<loc>{CANONICAL}</loc>" in sitemap
     assert CANONICAL in (PUBLIC / "llms.txt").read_text(encoding="utf-8")
+
+
+def test_faq_is_visible_and_mirrored_in_faqpage_schema(html, page):
+    graph = json.loads("".join(page.ld))["@graph"]
+    types = {n["@type"] for n in graph}
+    assert {"WebSite", "Organization", "FAQPage"} <= types
+    faq = next(n for n in graph if n["@type"] == "FAQPage")["mainEntity"]
+    assert len(faq) >= 5
+    for q in faq:
+        # Schema must match what a visitor can read; markup for hidden text is spam.
+        assert q["name"].replace("&", "&amp;") in html
+        assert q["acceptedAnswer"]["text"].replace("&", "&amp;") in html
+
+
+def test_aliases_of_the_landing_page_redirect_to_the_canonical_root():
+    redirects = [ln.split() for ln in (PUBLIC / "_redirects").read_text(encoding="utf-8").splitlines()]
+    for alias in ("/home", "/home/", "/home.html"):
+        assert [alias, "/", "301"] in redirects, alias
+    wrangler = (REPO / "wrangler.jsonc").read_text(encoding="utf-8")
+    first = json.loads(re.search(r'"run_worker_first":\s*(\[.*?\])', wrangler, re.S).group(1))
+    assert {"/home", "/home/", "/home.html"} <= set(first)
+
+
+def test_ai_crawlers_are_allowed_and_llms_txt_has_an_faq():
+    robots = (PUBLIC / "robots.txt").read_text(encoding="utf-8")
+    for bot in ("GPTBot", "ClaudeBot", "PerplexityBot", "Google-Extended"):
+        assert f"User-agent: {bot}" in robots, bot
+    assert "## FAQ" in (PUBLIC / "llms.txt").read_text(encoding="utf-8")

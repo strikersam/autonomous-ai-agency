@@ -87,4 +87,25 @@ describe('landing page at "/"', () => {
     expect(await (await call('/robots.txt', env)).text()).toBe('ROBOTS');
     expect(await (await call('/sitemap.xml', env)).text()).toBe('SITEMAP');
   });
+
+  test('/home, /home/ and /home.html permanently redirect to the canonical "/"', async () => {
+    const env = { ASSETS: assets({ '/home': 'LANDING', '/': 'APP_SHELL' }) };
+    for (const path of ['/home', '/home/', '/home.html']) {
+      const res = await call(path, env);
+      expect(res.status).toBe(301);
+      expect(res.headers.get('location')).toBe(ORIGIN + '/');
+    }
+  });
+
+  test('an asset redirect is passed through, not swallowed into the noindex app shell', async () => {
+    const env = {
+      ASSETS: {
+        fetch: async (req) => (new URL(req.url).pathname === '/docs/'
+          ? new Response(null, { status: 308, headers: { Location: '/docs' } })
+          : new Response('APP_SHELL', { status: 200 })),
+      },
+    };
+    const res = await call('/docs/', env);
+    expect(res.status).toBe(308);
+  });
 });

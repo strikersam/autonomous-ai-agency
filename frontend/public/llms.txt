@@ -16,3 +16,10 @@
 - Plan, execute, verify agent loop driving a CEO-coordinated fleet of specialist agents
 - Provider failover across NVIDIA NIM, Cerebras, Groq and Ollama
 - React admin dashboard for companies, specialists, tasks, governance and system health
+
+## FAQ
+
+- Does it merge or deploy on its own? No. Every change is a pull request that waits for human approval; deploys, deletes, payments and messages always ask first.
+- Is it free? Yes. MIT licensed and free to self-host (Python 3.11+, Node 20+, SQLite).
+- Which models? Free NVIDIA NIM first, with failover across Cerebras, Groq and local Ollama.
+- How to run it? `git clone https://github.com/strikersam/autonomous-ai-agency.git && cd autonomous-ai-agency && ./scripts/quickstart.sh`

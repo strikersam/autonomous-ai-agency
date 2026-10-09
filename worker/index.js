@@ -30,6 +30,8 @@ const BACKEND_ORIGIN = "https://local-llm-server.onrender.com";
 // while the "/admin" HTML portal path is left to normal asset/SPA handling.
 const PROXY_PREFIXES = ["/api", "/v1", "/v4", "/runtimes", "/admin/api", "/agent"];
 
+const LANDING_ALIASES = ["/home", "/home/", "/home.html"];
+
 function needsProxy(pathname) {
   return PROXY_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
@@ -55,6 +57,13 @@ export default {
       });
     }
 
+    // The landing page has one canonical URL, "/". Every alias of the asset
+    // (/home, /home/, /home.html) is a permanent redirect so crawlers never see
+    // a duplicate that canonicalises elsewhere.
+    if (LANDING_ALIASES.includes(url.pathname) && (request.method === "GET" || request.method === "HEAD")) {
+      return Response.redirect(new URL("/" + url.search, url.origin).toString(), 301);
+    }
+
     // "/" is the public landing page (frontend/public/home.html): static HTML that
     // crawlers can read without running the SPA. Every other path stays the SPA.
     // If the landing asset is ever missing, fall through to the SPA as before.
@@ -71,6 +80,12 @@ export default {
     // for SPA client-side routing — BUT only for non-API paths (API paths
     // are handled by needsProxy above and should NEVER reach here).
     if (assetResponse.status === 200) {
+      return assetResponse;
+    }
+    // Pass asset redirects (e.g. a trailing-slash 307/308) through. Treating them
+    // as "not found" served the noindex app shell, with no H1 and no links, at
+    // URLs that should have redirected to a real page.
+    if (assetResponse.status >= 300 && assetResponse.status < 400) {
       return assetResponse;
     }
     // SPA fallback: serve index.html for client-side routes like /login,

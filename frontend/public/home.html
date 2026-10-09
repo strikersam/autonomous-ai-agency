@@ -45,6 +45,32 @@
         "programmingLanguage": ["Python", "JavaScript"],
         "license": "https://opensource.org/licenses/MIT",
         "targetProduct": { "@id": "https://autonomous-ai-agency.strikersam.workers.dev/#app" }
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://autonomous-ai-agency.strikersam.workers.dev/#website",
+        "url": "https://autonomous-ai-agency.strikersam.workers.dev/",
+        "name": "Autonomous AI Agency",
+        "inLanguage": "en"
+      },
+      {
+        "@type": "Organization",
+        "@id": "https://autonomous-ai-agency.strikersam.workers.dev/#org",
+        "name": "Autonomous AI Agency",
+        "url": "https://autonomous-ai-agency.strikersam.workers.dev/",
+        "logo": "https://autonomous-ai-agency.strikersam.workers.dev/logo.svg",
+        "sameAs": ["https://github.com/strikersam/autonomous-ai-agency"]
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+      { "@type": "Question", "name": "What is Autonomous AI Agency?", "acceptedAnswer": { "@type": "Answer", "text": "A self-hosted, MIT-licensed, OpenAI-compatible AI proxy and multi-agent platform. A CEO agent coordinates specialist agents that plan, build, test and open pull requests for your approval." } },
+      { "@type": "Question", "name": "Does it merge or deploy code on its own?", "acceptedAnswer": { "@type": "Answer", "text": "No. Every change goes plan, execute, verify, then waits as a pull request for your review. Deploys, deletes, payments and messages always ask first." } },
+      { "@type": "Question", "name": "What does the website audit check?", "acceptedAnswer": { "@type": "Answer", "text": "A deterministic audit across SEO, GEO, AIO and security, with a 0-100 score and every finding priced. You can paste any website URL to run it." } },
+      { "@type": "Question", "name": "Which AI models does it use?", "acceptedAnswer": { "@type": "Answer", "text": "It defaults to free NVIDIA NIM models and fails over across Cerebras, Groq and local Ollama, so the agency keeps working when a provider is down." } },
+      { "@type": "Question", "name": "How do I run it myself?", "acceptedAnswer": { "@type": "Answer", "text": "Clone the repository and run ./scripts/quickstart.sh. It needs Python 3.11+ and Node 20+, uses SQLite storage, and needs no cloud account or Docker." } },
+      { "@type": "Question", "name": "Is it free?", "acceptedAnswer": { "@type": "Answer", "text": "Yes. It is open source under the MIT licence and free to self-host." } }
+        ]
       }
     ]
   }
@@ -106,6 +132,7 @@
       <nav class="primary" aria-label="Primary">
         <a href="#how-it-works">How it works</a>
         <a href="#proof">Proof</a>
+        <a href="#faq">FAQ</a>
         <a href="#self-host">Self-host</a>
         <a href="https://github.com/strikersam/autonomous-ai-agency">GitHub</a>
         <a class="btn" href="/login">Sign in</a>
@@ -192,6 +219,19 @@ cd autonomous-ai-agency
           <li>Organisations that care where their code, customer data and prompts go.</li>
         </ul>
         <p class="note">If you only want help writing code in one repository, a coding assistant such as Claude Code, Cursor or Aider is a better fit.</p>
+      </div>
+    </section>
+    <section id="faq" aria-labelledby="faq-title">
+      <div class="wrap">
+        <h2 id="faq-title">Frequently asked questions</h2>
+        <div class="grid" style="grid-template-columns:1fr">
+        <details class="card"><summary><h3 style="display:inline">What is Autonomous AI Agency?</h3></summary><p>A self-hosted, MIT-licensed, OpenAI-compatible AI proxy and multi-agent platform. A CEO agent coordinates specialist agents that plan, build, test and open pull requests for your approval.</p></details>
+        <details class="card"><summary><h3 style="display:inline">Does it merge or deploy code on its own?</h3></summary><p>No. Every change goes plan, execute, verify, then waits as a pull request for your review. Deploys, deletes, payments and messages always ask first.</p></details>
+        <details class="card"><summary><h3 style="display:inline">What does the website audit check?</h3></summary><p>A deterministic audit across SEO, GEO, AIO and security, with a 0-100 score and every finding priced. You can paste any website URL to run it.</p></details>
+        <details class="card"><summary><h3 style="display:inline">Which AI models does it use?</h3></summary><p>It defaults to free NVIDIA NIM models and fails over across Cerebras, Groq and local Ollama, so the agency keeps working when a provider is down.</p></details>
+        <details class="card"><summary><h3 style="display:inline">How do I run it myself?</h3></summary><p>Clone the repository and run ./scripts/quickstart.sh. It needs Python 3.11+ and Node 20+, uses SQLite storage, and needs no cloud account or Docker.</p></details>
+        <details class="card"><summary><h3 style="display:inline">Is it free?</h3></summary><p>Yes. It is open source under the MIT licence and free to self-host.</p></details>
+        </div>
       </div>
     </section>
   </main>
