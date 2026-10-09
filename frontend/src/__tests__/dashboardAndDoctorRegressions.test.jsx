@@ -10,12 +10,12 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react';
 
-jest.mock('../v5/hooks/useSafeData', () => ({
-  useSafeData: jest.fn(),
+vi.mock('../v5/hooks/useSafeData', () => ({
+  useSafeData: vi.fn(),
 }));
 
-jest.mock('../api', () => ({
-  API: { get: jest.fn() },
+vi.mock('../api', () => ({
+  API: { get: vi.fn() },
 }));
 
 import { useSafeData } from '../v5/hooks/useSafeData';
@@ -36,7 +36,7 @@ describe('DashboardScreen open tasks', () => {
     useSafeData.mockReturnValue([
       { tasks: { tasks } },
       new Proxy({}, { get: () => idle }),
-      jest.fn(),
+      vi.fn(),
     ]);
 
     render(<DashboardScreen />);
@@ -62,7 +62,7 @@ describe('DoctorScreen', () => {
         runtimes: { health: [] },
       },
       { report: idle, runtimes: idle },
-      jest.fn(),
+      vi.fn(),
     ]);
 
     render(<DoctorScreen onNavigate={() => {}} />);
@@ -77,7 +77,7 @@ describe('DashboardScreen spend-by-task-type widget', () => {
     useSafeData.mockReturnValue([
       { costByTag },
       new Proxy({}, { get: () => idle }),
-      jest.fn(),
+      vi.fn(),
     ]);
     render(<DashboardScreen />);
   };
@@ -115,7 +115,7 @@ describe('DashboardScreen request-volume trend', () => {
         usageTrend: { time_series: [{ requests: 2 }, { requests: 5 }, { requests: 2 }] },
       },
       new Proxy({}, { get: () => idle }),
-      jest.fn(),
+      vi.fn(),
     ]);
     render(<DashboardScreen />);
     expect(screen.getByText('3 buckets')).toBeInTheDocument();

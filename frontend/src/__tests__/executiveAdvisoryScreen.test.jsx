@@ -11,13 +11,13 @@
 import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
-jest.mock('../api', () => ({
-  listExecutives: jest.fn(),
-  consultExecutives: jest.fn(),
+vi.mock('../api', () => ({
+  listExecutives: vi.fn(),
+  consultExecutives: vi.fn(),
   fmtErr: (d) => (typeof d === 'string' ? d : ''),
 }));
 // Avoid loading the heavy CompanyScreen; we only need the shared key.
-jest.mock('../v5/screens/CompanyScreen', () => ({ COMPANY_ID_KEY: 'v5_company_id' }));
+vi.mock('../v5/screens/CompanyScreen', () => ({ COMPANY_ID_KEY: 'v5_company_id' }));
 
 import * as api from '../api';
 import ExecutiveAdvisoryScreen from '../v5/screens/ExecutiveAdvisoryScreen';
@@ -28,7 +28,7 @@ const EXECS = [
 ];
 
 beforeEach(() => {
-  jest.clearAllMocks();
+  vi.clearAllMocks();
   try { localStorage.clear(); } catch { /* ignore */ }
   api.listExecutives.mockResolvedValue({ data: { executives: EXECS } });
 });

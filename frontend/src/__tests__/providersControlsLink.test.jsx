@@ -13,31 +13,32 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 
-jest.mock('../v5/hooks/useSafeData', () => ({
-  useSafeData: () => [{ providers: [] }, { providers: 'ready' }, jest.fn()],
+vi.mock('../v5/hooks/useSafeData', () => ({
+  useSafeData: () => [{ providers: [] }, { providers: 'ready' }, vi.fn()],
 }));
 // The section is rendered by the providers tab; the child cards each fetch on
 // mount and are not what this test is about.
-jest.mock('../v5/components/BrainCard', () => () => <div>brain card</div>);
-jest.mock('../v5/components/LocalBrainToggleCard', () => () => <div>local brain</div>);
-jest.mock('../v5/components/ProviderHealthToggleCard', () => () => <div>provider health</div>);
-jest.mock('../v5/components/ProviderConsole', () => () => <div>console</div>);
-jest.mock('../v5/components/McpCard', () => () => <div>mcp card</div>);
-jest.mock('../api', () => ({
+vi.mock('../v5/components/BrainCard', () => ({ default: () => <div>brain card</div> }));
+vi.mock('../v5/components/LocalBrainToggleCard', () => ({ default: () => <div>local brain</div> }));
+vi.mock('../v5/components/ProviderHealthToggleCard', () => ({ default: () => <div>provider health</div> }));
+vi.mock('../v5/components/ProviderConsole', () => ({ default: () => <div>console</div> }));
+vi.mock('../v5/components/McpCard', () => ({ default: () => <div>mcp card</div> }));
+vi.mock('../api', () => ({
   fmtErr: (d) => (typeof d === 'string' ? d : ''),
-  getProviderPolicy: jest.fn(() => Promise.resolve({ data: {} })),
-  updateProviderPolicy: jest.fn(),
-  listModels: jest.fn(() => Promise.resolve({ data: {} })),
-  listMcpServers: jest.fn(() => Promise.resolve({ data: {} })),
-  createProvider: jest.fn(),
-  updateProvider: jest.fn(),
-  deleteProvider: jest.fn(),
-  testProvider: jest.fn(),
+  getProviderPolicy: vi.fn(() => Promise.resolve({ data: {} })),
+  updateProviderPolicy: vi.fn(),
+  listModels: vi.fn(() => Promise.resolve({ data: {} })),
+  listMcpServers: vi.fn(() => Promise.resolve({ data: {} })),
+  createProvider: vi.fn(),
+  updateProvider: vi.fn(),
+  deleteProvider: vi.fn(),
+  testProvider: vi.fn(),
+  syncProviderToRender: vi.fn(),
 }));
 
-const ProvidersScreen = require('../v5/screens/ProvidersScreen').default;
+import ProvidersScreen from '../v5/screens/ProvidersScreen';
 
-const api = require('../api');
+import * as api from '../api';
 
 beforeEach(() => { window.location.hash = ''; api.getProviderPolicy.mockClear(); });
 

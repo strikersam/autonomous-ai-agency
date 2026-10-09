@@ -8,7 +8,7 @@ Updates (the single set of files that may legitimately carry the version):
   - version.py                      (canonical Python source)
   - frontend/src/version.js         (canonical frontend source — CRA can't import package.json)
   - frontend/package.json           ("version")
-  - frontend/public/index.html      (title + description, static)
+  - frontend/index.html             (title + description, static)
   - README.md                       (version badge + release tag link)
 
 Run tests/test_version_consistency.py afterwards (or just `pytest -k version`) to confirm.
@@ -67,15 +67,15 @@ def main() -> int:
     print(f"updated: {pkg_path.relative_to(_ROOT)}")
 
     # index.html — update both <title> and <meta name="description"> independently.
-    html_path = _ROOT / "frontend/public/index.html"
+    html_path = _ROOT / "frontend/index.html"
     n_title = _replace(html_path, r"(<title>Autonomous AI Agency v)\d+\.\d+", f"\\g<1>{minor}", count=1)
     n_meta  = _replace(html_path, r'(content="Autonomous AI Agency v)\d+\.\d+', f'\\g<1>{minor}', count=1)
-    print(f"{'updated' if n_title else 'NO MATCH'}: frontend/public/index.html <title> ({n_title} refs)")
-    print(f"{'updated' if n_meta  else 'NO MATCH'}: frontend/public/index.html <meta description> ({n_meta} refs)")
+    print(f"{'updated' if n_title else 'NO MATCH'}: frontend/index.html <title> ({n_title} refs)")
+    print(f"{'updated' if n_meta  else 'NO MATCH'}: frontend/index.html <meta description> ({n_meta} refs)")
     if not n_title:
-        missing.append("frontend/public/index.html (<title>)")
+        missing.append("frontend/index.html (<title>)")
     if not n_meta:
-        missing.append("frontend/public/index.html (<meta description>)")
+        missing.append("frontend/index.html (<meta description>)")
 
     # README badge + release tag link — both patterns must match independently.
     readme = _ROOT / "README.md"

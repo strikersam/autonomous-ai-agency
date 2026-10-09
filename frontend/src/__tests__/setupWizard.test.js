@@ -10,20 +10,20 @@ import SetupWizardPage from '../pages/SetupWizardPage';
 
 // ─── Mocks ────────────────────────────────────────────────────────────────────
 
-jest.mock('../api', () => ({
-  getSetupState:          jest.fn(),
-  saveSetupStep:          jest.fn(),
-  completeSetup:          jest.fn(),
-  detectHardwareForSetup: jest.fn(),
-  detectModelsForSetup:   jest.fn(),
-  createSecret:           jest.fn(),
-  getAccessToken:         jest.fn(() => 'test-token'),
-  getBackendUrl:          jest.fn(),
-  setBackendUrl:          jest.fn(),
-  getPublicPath:          jest.fn((p) => p || '/'),
+vi.mock('../api', () => ({
+  getSetupState:          vi.fn(),
+  saveSetupStep:          vi.fn(),
+  completeSetup:          vi.fn(),
+  detectHardwareForSetup: vi.fn(),
+  detectModelsForSetup:   vi.fn(),
+  createSecret:           vi.fn(),
+  getAccessToken:         vi.fn(() => 'test-token'),
+  getBackendUrl:          vi.fn(),
+  setBackendUrl:          vi.fn(),
+  getPublicPath:          vi.fn((p) => p || '/'),
 }));
 
-const api = require('../api');
+import * as api from '../api';
 
 function mockSetupState(overrides = {}) {
   api.getSetupState.mockResolvedValue({
@@ -42,7 +42,7 @@ function mockSetupState(overrides = {}) {
 
 // Simulate a healthy backend connection
 function mockHealthyBackend() {
-  global.fetch = jest.fn(async (url) => {
+  global.fetch = vi.fn(async (url) => {
     if (url.includes('/api/health')) return { ok: true, status: 200 };
     return { ok: false, status: 404 };
   });
@@ -51,7 +51,7 @@ function mockHealthyBackend() {
 
 // Simulate no backend configured
 function mockNoBackend() {
-  global.fetch = jest.fn(async () => { throw new Error('Failed to fetch'); });
+  global.fetch = vi.fn(async () => { throw new Error('Failed to fetch'); });
   api.getBackendUrl.mockReturnValue('');
 }
 
@@ -67,7 +67,7 @@ beforeEach(() => {
 
 afterEach(() => {
   global.fetch = originalFetch;
-  jest.resetAllMocks();
+  vi.resetAllMocks();
 });
 
 function renderWizard(props = {}) {
@@ -245,7 +245,7 @@ describe('Prefill from saved wizard state', () => {
         step5_policy: { enable_langfuse: true, langfuse_host: 'https://telemetry.example.com' },
       },
     });
-    const onComplete = jest.fn();
+    const onComplete = vi.fn();
     renderWizard({ onComplete });
 
     expect(await screen.findByText(/saved setup loaded/i)).toBeInTheDocument();
@@ -266,7 +266,7 @@ describe('Prefill from saved wizard state', () => {
         step5_policy: { enable_langfuse: true },
       },
     });
-    global.fetch = jest.fn(async (url) => {
+    global.fetch = vi.fn(async (url) => {
       if (url.includes('/api/health')) return { ok: true, status: 200 };
       if (url.includes('/api/setup/detect/providers')) {
         return {
@@ -363,7 +363,7 @@ describe('Backend connection banner', () => {
 
     // Now mock a successful connection
     mockSetupState();
-    global.fetch = jest.fn(async (url) => {
+    global.fetch = vi.fn(async (url) => {
       if (url.includes('/api/health')) return { ok: true };
       return { ok: false };
     });

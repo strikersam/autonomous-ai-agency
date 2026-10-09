@@ -128,7 +128,7 @@ def test_hosts_serve_the_landing_page_at_root_and_hide_the_app_shell():
     wrangler = (REPO / "wrangler.jsonc").read_text(encoding="utf-8")
     first = json.loads(re.search(r'"run_worker_first":\s*(\[.*?\])', wrangler, re.S).group(1))
     assert "/" in first
-    shell = (PUBLIC / "index.html").read_text(encoding="utf-8")
+    shell = (REPO / "frontend" / "index.html").read_text(encoding="utf-8")
     assert '<meta name="robots" content="noindex" />' in shell
 
 

@@ -11,7 +11,6 @@
  * rather than full component rendering, matching this repo's existing convention
  * for these screens.
  */
-const { describe, test, expect } = require('@jest/globals');
 
 const fs = require('fs');
 const path = require('path');

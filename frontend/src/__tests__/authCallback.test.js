@@ -2,17 +2,17 @@ import React from 'react';
 import { render, waitFor } from '@testing-library/react';
 import AuthCallback from '../pages/AuthCallback';
 
-const mockNavigate = jest.fn();
-const mockCheckAuth = jest.fn(() => Promise.resolve());
+const mockNavigate = vi.fn();
+const mockCheckAuth = vi.fn(() => Promise.resolve());
 let mockSearch = '?token=social-jwt&provider=github';
 
-jest.mock('react-router-dom', () => ({
-  ...jest.requireActual('react-router-dom'),
+vi.mock('react-router-dom', async () => ({
+  ...(await vi.importActual('react-router-dom')),
   useNavigate: () => mockNavigate,
   useLocation: () => ({ search: mockSearch }),
 }));
 
-jest.mock('../AuthContext', () => ({
+vi.mock('../AuthContext', () => ({
   useAuth: () => ({ checkAuth: mockCheckAuth }),
 }));
 

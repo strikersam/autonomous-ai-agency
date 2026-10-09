@@ -622,6 +622,29 @@ models:
     priority: 61
     speed_tier: medium
 
+  # Mistral Large 4 ("Le Chonk"). Mistral's 1.05T-parameter MoE flagship,
+  # released 2026-10-06 as a public preview. 49B active parameters; multimodal;
+  # native function calling. Context: 131072 (API limit; model supports up to 1M).
+  # Preview API price: $1.36/$4.18 per MTok (list); 50 % launch discount in effect
+  # through approx. 2026-10-20. Not yet probed on this account; live health checks apply.
+  # Source: techcrunch.com/2026/10/06/mistrals-new-1t-model-aims-to-leapfrog,
+  # openrouter.ai/mistralai/mistral-large-4-0, 2026-10-06.
+  # Costs zero: this deployment's Mistral key is on the free tier (same as
+  # other Mistral entries). A billed key should restore list prices.
+  mistral-large-4-0:
+    provider: mistral
+    display_name: Mistral Large 4 (Le Chonk)
+    context_window: 131072
+    max_output_tokens: 4096
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
+    priority: 62
+    speed_tier: slow
+
   # Mistral Small 3 (latest checkpoint). Efficient model for classification,
   # extraction, and RAG. 128K context, native function calling.
   # $0.10/$0.30 per MTok (estimated; verify at mistral.ai/pricing).

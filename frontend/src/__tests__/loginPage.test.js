@@ -3,14 +3,14 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import LoginPage from '../pages/LoginPage';
 
-const mockLogin = jest.fn();
-const mockGetBackendUrl = jest.fn();
+const mockLogin = vi.fn();
+const mockGetBackendUrl = vi.fn();
 
-jest.mock('../AuthContext', () => ({
+vi.mock('../AuthContext', () => ({
   useAuth: () => ({ login: mockLogin }),
 }));
 
-jest.mock('../api', () => ({
+vi.mock('../api', () => ({
   fmtErr: (value) => value?.message || String(value),
   getBackendUrl: () => mockGetBackendUrl(),
 }));
@@ -24,7 +24,7 @@ function renderPage() {
 }
 
 afterEach(() => {
-  jest.clearAllMocks();
+  vi.clearAllMocks();
 });
 
 test('keeps GitHub and Google social login buttons wired to the configured backend', () => {

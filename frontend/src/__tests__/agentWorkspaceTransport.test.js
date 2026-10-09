@@ -4,21 +4,21 @@ import {
   fetchAgentWorkspaceSnapshot,
 } from '../utils/agentWorkspaceTransport';
 
-jest.mock('../api', () => ({
-  getAccessToken: jest.fn(() => 'token-123'),
-  getAuthHeaders: jest.fn(() => ({ Authorization: 'Bearer token-123' })),
-  getBackendUrl: jest.fn(() => 'https://api.example.com'),
+vi.mock('../api', () => ({
+  getAccessToken: vi.fn(() => 'token-123'),
+  getAuthHeaders: vi.fn(() => ({ Authorization: 'Bearer token-123' })),
+  getBackendUrl: vi.fn(() => 'https://api.example.com'),
 }));
 
-const { getAccessToken, getAuthHeaders, getBackendUrl } = require('../api');
+import { getAccessToken, getAuthHeaders, getBackendUrl } from '../api';
 
 describe('agent workspace transport', () => {
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     getAccessToken.mockReturnValue('token-123');
     getAuthHeaders.mockReturnValue({ Authorization: 'Bearer token-123' });
     getBackendUrl.mockReturnValue('https://api.example.com');
-    global.fetch = jest.fn();
+    global.fetch = vi.fn();
   });
 
   test('builds an authenticated stream URL for EventSource sessions', () => {

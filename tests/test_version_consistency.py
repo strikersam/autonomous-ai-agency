@@ -33,7 +33,7 @@ def test_readme_badge_matches() -> None:
 
 
 def test_index_html_has_no_stale_version() -> None:
-    text = (_ROOT / "frontend/public/index.html").read_text()
+    text = (_ROOT / "frontend/index.html").read_text()
     minor = ".".join(__version__.split(".")[:2])
     assert f"Autonomous AI Agency v{minor}" in text
     # The old brand/version must be gone.

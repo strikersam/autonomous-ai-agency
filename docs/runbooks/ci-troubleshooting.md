@@ -117,6 +117,8 @@ done
 
 ## Frontend tests fail in parallel / async timer leaks
 
+> **Historical (before 2026-10-08).** The frontend now builds with Vite and tests with Vitest; `react-scripts` is gone. Kept for anyone debugging an older checkout.
+
 **Symptom:** Tests pass individually (`npm test -- --testPathPattern=foo`) but
 fail when the full suite runs in parallel.
 

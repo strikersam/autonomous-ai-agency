@@ -3,27 +3,27 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import App from '../App';
 
-jest.mock('../pages/AuthCallback', () => () => <div>Auth callback</div>);
-jest.mock('../pages/SetupWizardPage', () => () => <div>Setup wizard</div>);
-jest.mock('../v5/V5App', () => () => <div>V5 shell</div>);
+vi.mock('../pages/AuthCallback', () => ({ default: () => <div>Auth callback</div> }));
+vi.mock('../pages/SetupWizardPage', () => ({ default: () => <div>Setup wizard</div> }));
+vi.mock('../v5/V5App', () => ({ default: () => <div>V5 shell</div> }));
 
-jest.mock('../AuthContext', () => ({
+vi.mock('../AuthContext', () => ({
   AuthProvider: ({ children }) => <>{children}</>,
   useAuth: () => ({
     user: false,
     loading: false,
-    login: jest.fn(),
-    logout: jest.fn(),
-    checkAuth: jest.fn(),
+    login: vi.fn(),
+    logout: vi.fn(),
+    checkAuth: vi.fn(),
   }),
 }));
 
-jest.mock('../api', () => {
-  const actual = jest.requireActual('../api');
+vi.mock('../api', async () => {
+  const actual = await vi.importActual('../api');
   return {
     ...actual,
-    getBackendUrl: jest.fn(() => ''),
-    getSetupState: jest.fn(() => Promise.resolve({ data: { completed: false } })),
+    getBackendUrl: vi.fn(() => ''),
+    getSetupState: vi.fn(() => Promise.resolve({ data: { completed: false } })),
   };
 });
 

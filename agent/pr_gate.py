@@ -40,7 +40,7 @@ PROTECTED_PATHS: tuple[str, ...] = (
     "agent/tools.py", "agent/pr_gate.py", "tests/test_agent_pr_gate.py",
     "key_store.py", "proxy.py", "handlers/v3_auth.py", "packages/auth/*",
     "frontend/src/App.js", "frontend/src/AuthContext.js", "frontend/src/index.js",
-    "frontend/public/index.html", "index.html",
+    "frontend/index.html", "index.html",
     ".github/workflows/*", ".claude/hooks/*", ".claude/settings.json",
     "wrangler.jsonc", "netlify.toml", "render.yaml", "Dockerfile*",
 )
@@ -289,8 +289,7 @@ def _check_frontend(ctx: _Ctx) -> None:
         return
     env = {**os.environ, "CI": "true"}
     rel = [f.removeprefix("frontend/") for f in src]
-    rc, out = _run(["npx", "react-scripts", "test", "--watchAll=false", "--passWithNoTests",
-                    "--findRelatedTests", *rel], frontend, env)
+    rc, out = _run(["npx", "vitest", "related", "--run", "--passWithNoTests", *rel], frontend, env)
     if rc != 0:
         ctx.report.blockers.append(f"Frontend tests fail:\n{out}")
         return

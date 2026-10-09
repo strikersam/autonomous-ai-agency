@@ -8,15 +8,15 @@ import React from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import IntelligenceScreen from '../v5/screens/IntelligenceScreen';
 
-jest.mock('../api', () => ({
+vi.mock('../api', () => ({
   fmtErr: (d) => (typeof d === 'string' ? d : ''),
-  chatSend: jest.fn(),
-  getCompany: jest.fn(),
-  updateCompany: jest.fn(),
+  chatSend: vi.fn(),
+  getCompany: vi.fn(),
+  updateCompany: vi.fn(),
 }));
-jest.mock('../v5/screens/CompanyScreen', () => ({ COMPANY_ID_KEY: 'company_id_test' }));
+vi.mock('../v5/screens/CompanyScreen', () => ({ COMPANY_ID_KEY: 'company_id_test' }));
 
-const api = require('../api');
+import * as api from '../api';
 
 beforeEach(() => {
   localStorage.clear();

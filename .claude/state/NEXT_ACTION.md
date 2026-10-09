@@ -1,6 +1,25 @@
 # NEXT_ACTION — updated 2026-10-08 (screen audit fixes)
 
 Branch `claude/project-thread-21yb6b`: fixes for the v5 screen vs backend audit (admin API gaps, QuickNotes, provider policy surfaces, Logs/Skills/GitHub shapes, voice STT containers, workflow route order, scheduler fail_count). Open PR, merge when CI is green. Not fixed on purpose: AgentsScreen per-agent counts (backend has no per-agent weekly stats, screen already falls back), Skills enable/disable still localStorage-only, MCP rows inert, no sprint start/complete UI, `/api/activation/settings` left readable by any signed-in user (documented design).
+# NEXT_ACTION — updated 2026-10-09
+
+**Updated:** 2026-10-09 (daily automation, branch `claude/intelligent-gates-rfkpo8`)
+
+Mistral Large 4 ("Le Chonk", `mistral-large-4-0`) added to model catalogue. PR [#1707](https://github.com/strikersam/autonomous-ai-agency/pull/1707) open, auto-merge armed (squash). 17 tests, all green; compileall clean; changelog parity OK; loop registry no drift.
+
+## Open items for next daily run
+
+1. **Check CI on PR #1707** — if green, should have auto-merged. If red, investigate.
+
+2. **Mistral Large 4 context window** — currently set to 131072 (conservative). Mistral docs may clarify whether 524K or 1M is the actual API limit; update `config/llm/models.yaml` when confirmed.
+
+3. **GPT model deprecations (Oct 23, 2026)**: `gpt-3.5-turbo-0125`, `gpt-4-0613`, `gpt-4-1106-preview` retiring on 2026-10-23. Check if these IDs are in routing candidates and add deprecation notes.
+
+4. **Groq Llama 4 Scout probe** (`meta-llama/llama-4-scout-17b-16e-instruct`) — move to active routing if probe passes (currently priority 99, explicit-only).
+
+5. **Mistral Large 4 live probe** — model not yet probed on this account. Once the PR merges, the router's health check cycle will test it. If the probe fails, it enters the dead-model list until next health-check cycle.
+
+---
 
 # NEXT_ACTION — updated 2026-10-07
 
