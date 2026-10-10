@@ -1,3 +1,19 @@
+# NEXT_ACTION — updated 2026-10-10 (daily automation, GPT-6.1 Sol)
+
+**Updated:** 2026-10-10 (daily automation, branch `claude/intelligent-gates-5hxtio`)
+
+GPT-6.1 Sol (`gpt-6.1-sol`, OpenAI, released 2026-09-29) added to the model catalogue. PR [#1715](https://github.com/strikersam/autonomous-ai-agency/pull/1715) open, CI pending. 18 tests pass; compileall clean; changelog parity OK. The Claude GitHub App is not installed on this repo so PR events won't wake this session — check CI status manually.
+
+## Open items for next daily run
+
+1. **Check CI on PR #1715** — if green, merge. If red, investigate.
+2. **GPT model deprecations (Oct 23, 2026)**: `gpt-3.5-turbo-0125`, `gpt-4-0613`, `gpt-4-1106-preview` retiring on 2026-10-23. Check if these IDs are in routing candidates and add deprecation notes.
+3. **Groq Llama 4 Scout probe** (`meta-llama/llama-4-scout-17b-16e-instruct`) — move to active routing if probe passes (currently explicit-only, priority 99).
+4. **Mistral Large 4 live probe** — not yet probed; router health checks will test once PR #1707 is merged.
+5. **GPT-6.1 Sol live probe** — priority 99 (explicit-only); lower after confirming the model answers on OpenRouter.
+
+---
+
 # NEXT_ACTION — updated 2026-10-08 (screen audit fixes)
 
 Branch `claude/project-thread-21yb6b`: fixes for the v5 screen vs backend audit (admin API gaps, QuickNotes, provider policy surfaces, Logs/Skills/GitHub shapes, voice STT containers, workflow route order, scheduler fail_count). Open PR, merge when CI is green. Not fixed on purpose: AgentsScreen per-agent counts (backend has no per-agent weekly stats, screen already falls back), Skills enable/disable still localStorage-only, MCP rows inert, no sprint start/complete UI, `/api/activation/settings` left readable by any signed-in user (documented design).
