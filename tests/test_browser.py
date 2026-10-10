@@ -5,6 +5,8 @@ import pytest
 
 from agent.browser import BrowserSession, PageState
 
+pytestmark = pytest.mark.usefixtures("hermetic_dns")
+
 
 def test_session_created():
     session = BrowserSession()
