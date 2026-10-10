@@ -16,6 +16,8 @@ from agent.web_reach import (
     unsafe_target_reason,
 )
 
+pytestmark = pytest.mark.usefixtures("hermetic_dns")
+
 
 # ---------------------------------------------------------------------------
 # SSRF guard
