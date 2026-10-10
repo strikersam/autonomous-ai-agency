@@ -80,3 +80,46 @@ def test_shared_proxy_runner_stays_generic():
 
     identity = resolve_identity_for_runner(proxy.AGENT_RUNNER)
     assert (identity.agent_id, identity.owner) == ("agent:unknown", "system")
+
+
+async def test_subagent_inherits_identity_but_not_the_parent_session(monkeypatch):
+    from agent.loop import AgentRunner
+
+    seen: dict[str, object] = {}
+
+    async def fake_run(self, **kwargs):
+        seen["identity"] = resolve_identity_for_runner(self)
+        return {"summary": "done"}
+
+    monkeypatch.setattr(AgentRunner, "run", fake_run)
+    parent = _runner(agent_name="coder", owner="sam@example.com")
+    parent_identity = resolve_identity_for_runner(parent)
+    await parent._spawn_subagent(instruction="write the tests", max_steps=1)
+    child = seen["identity"]
+    assert (child.agent_id, child.owner) == ("agent:coder", "sam@example.com")
+    # A grant on the parent's session must never cover the child's.
+    assert child.session_id != parent_identity.session_id
+
+
+async def test_swarm_runners_carry_the_requesting_owner(monkeypatch, tmp_path):
+    import agent.coordinator as coordinator_module
+    import services.workflow_orchestrator as wfo
+
+    built: list[dict[str, object]] = []
+
+    class FakeRunner:
+        def __init__(self, **kwargs):
+            built.append(kwargs)
+
+        async def run(self, **kwargs):
+            return {"summary": "ok", "steps": []}
+
+    monkeypatch.setattr(coordinator_module, "AgentRunner", FakeRunner)
+    monkeypatch.setattr(wfo, "is_legacy_mode", lambda: True)
+    swarm = coordinator_module.MultiAgentSwarm(ollama_base="http://x", workspace_root=str(tmp_path))
+    await swarm.run(
+        goal="g", agents=[], tasks=[coordinator_module.TaskSpec(task_id="t1", instruction="do it")],
+        max_concurrent=1, email="sam@example.com",
+    )
+    assert built and built[0]["owner"] == "sam@example.com"
+    assert built[0]["agent_name"] == "default-worker"

@@ -1,3 +1,15 @@
+# NEXT_ACTION — updated 2026-10-10 (Octop-inspired features)
+
+Shipped from the Octop (TencentCloud/Octop) review, all merged: #1710 pre-push hook no longer leaks GIT_DIR into tests; #1711 per-user daily agent token cap (`AGENT_USER_TOKENS_PER_DAY`, off by default); #1712 lossless tool-output offload (`read_tool_output`); #1713 async specialist delegation (`AGENT_DELEGATION_ENABLED`, off by default); #1714 sticky session approval grants + runner identity. Follow-up branch `chore/finish-octop-followups` wires owner into the remaining runners.
+
+## Open items
+
+1. Token cap and offload ledgers are in-memory per process: on a multi-worker deploy, caps can overshoot by ~worker count. Persist if that matters.
+2. Delegation and the token cap are off by default — turn on under Settings → Platform controls when wanted.
+3. Local `pytest -x` cannot pass in cloud sessions without DNS (`tests/test_web_reach.py`); CI is the gate there.
+
+---
+
 # NEXT_ACTION — updated 2026-10-10 (daily automation, GPT-6.1 Sol)
 
 **Updated:** 2026-10-10 (daily automation, branch `claude/intelligent-gates-5hxtio`)
