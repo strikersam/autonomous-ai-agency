@@ -824,7 +824,7 @@ class WorkflowOrchestrator:
         failed run without starting any phase.
         """
         from packages.ai.agent_budget import agent_scope, current_agent
-        from packages.ai.user_token_quota import user_quota_refusal, user_scope
+        from packages.ai.user_token_quota import user_quota_refusal_async, user_scope
         from packages.config.autonomy_limits import kill_switch_engaged
 
         if kill_switch_engaged():
@@ -837,7 +837,7 @@ class WorkflowOrchestrator:
             log.warning("WorkflowOrchestrator: refused run — kill switch engaged")
             return run
         # Per-user daily token cap (AGENT_USER_TOKENS_PER_DAY): refuse before any phase runs.
-        refusal = user_quota_refusal(req.user_id)
+        refusal = await user_quota_refusal_async(req.user_id)
         if refusal:
             run = self._runs.get(resume_run_id or "") or WorkflowRun(
                 user_id=req.user_id, company_id=req.company_id

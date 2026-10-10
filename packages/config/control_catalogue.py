@@ -1046,6 +1046,16 @@ _GOVERNANCE: tuple[ControlSpec, ...] = (
         risk=RISK_HIGH,
     ),
     _toggle(
+        "AGENCY_STATE_PERSISTENCE_ENABLED",
+        "Durable shared state",
+        "platform_ops",
+        "true",
+        "Persist the per-user daily token ledger, sticky approval grants and the "
+        "tool-output offload store in the database so they survive restarts and "
+        "hold across workers. Off: all three stay in process memory only.",
+        live=True,
+    ),
+    _toggle(
         "GOVERNANCE_SESSION_GRANTS_ENABLED",
         "Sticky approval grants",
         "governance",

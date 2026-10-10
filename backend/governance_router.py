@@ -474,7 +474,7 @@ def build_governance_router(get_current_user: Callable[..., Any]) -> APIRouter:
         _require_admin(user)
         from packages.governance.approvals import get_grant_store
 
-        grant = get_grant_store().revoke_grant(grant_id)
+        grant = await get_grant_store().revoke_grant_async(grant_id)
         if grant is None:
             raise HTTPException(status_code=404, detail="Grant not found")
         _audit_grant_event(

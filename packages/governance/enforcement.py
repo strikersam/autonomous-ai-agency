@@ -419,7 +419,7 @@ class GovernanceGate:
             log.info("Auto-approving %s (GOVERNANCE_AUTO_APPROVE=true)", decision.action)
             return "auto-approve", True
 
-        grant_id = self._find_grant(identity, decision, settings)
+        grant_id = await self._find_grant_async(identity, decision, settings)
         if grant_id:
             return f"grant:{grant_id}", True
 
@@ -431,30 +431,55 @@ class GovernanceGate:
         return request.approval_id, status is ApprovalStatus.APPROVED
 
     @staticmethod
+    def _grant_lookup_args(identity: Any, decision: PolicyDecision) -> tuple[str, ...]:
+        return (
+            str(getattr(identity, "session_id", "") or ""),
+            decision.surface.value, decision.action,
+            str(getattr(identity, "agent_id", "") or ""),
+            str(getattr(identity, "owner", "") or ""),
+        )
+
+    @staticmethod
+    def _grant_hit(grant: Any, decision: PolicyDecision) -> str | None:
+        if grant is None:
+            return None
+        log.info(
+            "Approval skipped for %s: covered by grant %s (scope=%s)",
+            decision.action, grant.grant_id, grant.scope,
+        )
+        return grant.grant_id
+
+    @staticmethod
     def _find_grant(identity: Any, decision: PolicyDecision, settings: Any) -> str | None:
         """Id of a live session grant covering this verdict, else ``None``.
 
         Grants only short-circuit REQUIRE_APPROVAL (the sole caller). Any
-        failure here means no grant: fail closed to asking a human.
+        failure here means no grant: fail closed to asking a human. This is the
+        in-process lookup; :meth:`_find_grant_async` also sees other workers.
         """
         try:
             if not settings.governance_session_grants_enabled:
                 return None
             from packages.governance.approvals import get_grant_store
 
-            grant = get_grant_store().has_grant(
-                str(getattr(identity, "session_id", "") or ""),
-                decision.surface.value, decision.action,
-                str(getattr(identity, "agent_id", "") or ""),
-                str(getattr(identity, "owner", "") or ""),
-            )
-            if grant is None:
+            grant = get_grant_store().has_grant(*GovernanceGate._grant_lookup_args(identity, decision))
+            return GovernanceGate._grant_hit(grant, decision)
+        except Exception as exc:  # noqa: BLE001 - fail closed
+            log.warning("Approval grant check failed, asking a human: %s", exc)
+            return None
+
+    @staticmethod
+    async def _find_grant_async(identity: Any, decision: PolicyDecision, settings: Any) -> str | None:
+        """Like :meth:`_find_grant`, but memory then DB (grants issued by another worker)."""
+        try:
+            if not settings.governance_session_grants_enabled:
                 return None
-            log.info(
-                "Approval skipped for %s: covered by grant %s (scope=%s)",
-                decision.action, grant.grant_id, grant.scope,
+            from packages.governance.approvals import get_grant_store
+
+            grant = await get_grant_store().has_grant_async(
+                *GovernanceGate._grant_lookup_args(identity, decision)
             )
-            return grant.grant_id
+            return GovernanceGate._grant_hit(grant, decision)
         except Exception as exc:  # noqa: BLE001 - fail closed
             log.warning("Approval grant check failed, asking a human: %s", exc)
             return None

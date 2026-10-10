@@ -602,7 +602,7 @@ def _register_tool_output_tools(registry: ToolRegistry) -> None:
         capabilities=["read", "context"],
         available=offload_enabled,
     )
-    def _read_tool_output_tool(
+    async def _read_tool_output_tool(
         ref: str,
         offset: int = 0,
         limit: int = DEFAULT_READ_LIMIT,
@@ -612,7 +612,7 @@ def _register_tool_output_tools(registry: ToolRegistry) -> None:
         # workspace_root); the model cannot choose it.
         if not offload_enabled():
             return {"ok": False, "error": "tool output offload is switched off"}
-        return get_tool_output_store().read(ref, offset=offset, limit=limit, owner=owner)
+        return await get_tool_output_store().read_async(ref, offset=offset, limit=limit, owner=owner)
 
 
 def _register_web_reach_tools(registry: ToolRegistry) -> None:

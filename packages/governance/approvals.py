@@ -35,11 +35,15 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Literal
 
+from packages.storage import state_persistence as _persist
+
 log = logging.getLogger("governance.approvals")
+
+GRANTS_COLLECTION = "governance_grants"
 
 
 class ApprovalStatus(str, Enum):
@@ -372,6 +376,50 @@ class SessionGrant:
             return True
         return self.scope == "action" and self.surface == surface and self.action == action
 
+    def matches(
+        self, session_id: str, surface: str, action: str, agent_id: str | None, owner: str | None
+    ) -> bool:
+        """Same session, covers the call, and any agent/owner binding agrees."""
+        if self.session_id != session_id or not self.covers(surface, action):
+            return False
+        if self.agent_id and self.agent_id != agent_id:
+            return False
+        return not (self.owner and self.owner != owner)
+
+    def to_doc(self) -> dict[str, Any]:
+        """The persisted form: wall-clock ``expires_at`` drives the TTL index."""
+        doc = {k: getattr(self, k) for k in (
+            "session_id", "scope", "surface", "action", "granted_by", "ttl_s",
+            "agent_id", "owner", "source_approval_id")}
+        doc.update(
+            _id=self.grant_id, created_iso=self.created_iso,
+            expires_at=datetime.now(timezone.utc) + timedelta(
+                seconds=max(0.0, self.ttl_s - (time.monotonic() - self.created_at))),
+        )
+        return doc
+
+    @classmethod
+    def from_doc(cls, doc: dict[str, Any]) -> SessionGrant | None:
+        """Rebuild a grant from its persisted form; ``None`` if expired or malformed."""
+        try:
+            expires = doc["expires_at"]
+            if expires.tzinfo is None:  # Motor returns naive UTC datetimes
+                expires = expires.replace(tzinfo=timezone.utc)
+            remaining = (expires - datetime.now(timezone.utc)).total_seconds()
+            if remaining <= 0:
+                return None
+            return cls(
+                grant_id=str(doc["_id"]), session_id=str(doc["session_id"]),
+                scope=str(doc["scope"]), surface=str(doc["surface"]), action=str(doc["action"]),
+                granted_by=str(doc["granted_by"]), ttl_s=remaining,
+                agent_id=str(doc.get("agent_id") or ""), owner=str(doc.get("owner") or ""),
+                source_approval_id=str(doc.get("source_approval_id") or ""),
+                created_iso=str(doc.get("created_iso") or ""),
+            )
+        except Exception as exc:  # noqa: BLE001 - a bad row is no grant
+            log.warning("Ignoring malformed persisted grant: %s", exc)
+            return None
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "grant_id": self.grant_id,
@@ -393,9 +441,11 @@ class GrantStore:
     """Bounded, in-process store of session approval grants.
 
     Grants only ever short-circuit a REQUIRE_APPROVAL verdict; the enforcement
-    gate never consults them for DENY. Like approvals they are in-process, so a
-    restart drops every grant, which is the fail-closed outcome. Every lookup
-    failure means "no grant".
+    gate never consults them for DENY. Memory is the hot-path cache; issue and
+    revoke are mirrored to the ``governance_grants`` collection (TTL on
+    ``expires_at``) when ``AGENCY_STATE_PERSISTENCE_ENABLED`` is on, and
+    :meth:`has_grant_async` also finds grants issued by another worker. Every
+    lookup failure, DB errors included, means "no grant".
     """
 
     def __init__(
@@ -408,6 +458,7 @@ class GrantStore:
         self._capacity = max(1, capacity)
         self._excluded = frozenset(excluded_surfaces)
         self._counter = 0
+        self._persisted: set[str] = set()  # grant ids whose DB write has landed
 
     def grant(
         self,
@@ -455,7 +506,103 @@ class GrantStore:
             "Approval grant %s issued from approval %s scope=%s session=%s surface=%s action=%s",
             grant_id, source_approval_id or "-", scope, session_id, surface, action,
         )
+        if _persist.persistence_enabled():
+            _persist.fire_and_forget(self._write_grant(grant))
         return grant
+
+    async def _write_grant(self, grant: SessionGrant) -> None:
+        """Mirror an issued grant to the DB. Never raises."""
+        col = _persist.collection(GRANTS_COLLECTION)
+        if col is None:
+            return
+        try:
+            await _persist.ensure_ttl_index(GRANTS_COLLECTION, col, "expires_at")
+            await _persist.ensure_index(GRANTS_COLLECTION, col, "session_id")
+            await col.replace_one({"_id": grant.grant_id}, grant.to_doc(), upsert=True)
+            self._persisted.add(grant.grant_id)
+        except Exception as exc:  # noqa: BLE001 - grant stays valid on this worker only
+            log.warning("Grant %s not persisted (this worker only): %s", grant.grant_id, exc)
+
+    async def has_grant_async(
+        self,
+        session_id: str,
+        surface: str,
+        action: str,
+        agent_id: str | None = None,
+        owner: str | None = None,
+    ) -> SessionGrant | None:
+        """Like :meth:`has_grant`, but also honours grants issued by another worker.
+
+        Memory is checked first; a memory hit whose DB copy has landed is
+        re-checked against the DB so a revoke on another worker takes effect.
+        Fail closed: any DB error yields ``None``. Expired rows are never honoured.
+        """
+        local = self.has_grant(session_id, surface, action, agent_id, owner)
+        col = _persist.collection(GRANTS_COLLECTION)
+        if col is None:
+            return local
+        try:
+            now = datetime.now(timezone.utc)
+            if local is not None:
+                if local.grant_id not in self._persisted:
+                    return local
+                doc = await col.find_one({"_id": local.grant_id, "expires_at": {"$gt": now}})
+                if doc is not None:
+                    return local
+                with self._lock:
+                    self._grants.pop(local.grant_id, None)
+                    self._persisted.discard(local.grant_id)
+                return None
+            return await self._remote_grant(col, now, session_id, surface, action, agent_id, owner)
+        except Exception as exc:  # noqa: BLE001 - fail closed: no grant
+            log.warning("Grant DB lookup failed, treating as no grant: %s", exc)
+            return None
+
+    async def _remote_grant(
+        self, col: Any, now: datetime, session_id: str, surface: str, action: str,
+        agent_id: str | None, owner: str | None,
+    ) -> SessionGrant | None:
+        session_id = str(session_id or "").strip()
+        if _is_anonymous(session_id) or str(surface) in self._excluded:
+            return None
+        rows = await col.find(
+            {"session_id": session_id, "expires_at": {"$gt": now}}
+        ).to_list(length=100)
+        for row in rows:
+            grant = SessionGrant.from_doc(row)
+            if grant is not None and grant.matches(session_id, str(surface), str(action), agent_id, owner):
+                return grant
+        return None
+
+    async def revoke_grant_async(self, grant_id: str) -> SessionGrant | None:
+        """Revoke here and in the DB so no worker honours the grant again.
+
+        Returns the grant (for auditing) or ``None`` when it is unknown or expired.
+        """
+        with self._lock:
+            removed = self._grants.pop(grant_id, None)
+            self._persisted.discard(grant_id)
+        col = _persist.collection(GRANTS_COLLECTION)
+        if col is not None:
+            try:
+                if removed is None:
+                    doc = await col.find_one({"_id": grant_id})
+                    removed = SessionGrant.from_doc(doc) if doc else None
+                await col.delete_one({"_id": grant_id})
+            except Exception as exc:  # noqa: BLE001 - other workers may still honour it
+                log.warning("Grant %s revoked locally but not in the DB: %s", grant_id, exc)
+        if removed is not None:
+            log.info("Approval grant %s revoked", grant_id)
+        return removed
+
+    async def _delete_grant(self, grant_id: str) -> None:
+        col = _persist.collection(GRANTS_COLLECTION)
+        if col is None:
+            return
+        try:
+            await col.delete_one({"_id": grant_id})
+        except Exception as exc:  # noqa: BLE001 - TTL still bounds it
+            log.warning("Grant %s revoked locally but not in the DB: %s", grant_id, exc)
 
     def has_grant(
         self,
@@ -477,13 +624,8 @@ class GrantStore:
             with self._lock:
                 self._prune_locked()
                 for grant in self._grants.values():
-                    if grant.session_id != session_id or not grant.covers(str(surface), str(action)):
-                        continue
-                    if grant.agent_id and grant.agent_id != agent_id:
-                        continue
-                    if grant.owner and grant.owner != owner:
-                        continue
-                    return grant
+                    if grant.matches(session_id, str(surface), str(action), agent_id, owner):
+                        return grant
         except Exception as exc:  # noqa: BLE001 - fail closed: no grant
             log.warning("Grant lookup failed, treating as no grant: %s", exc)
         return None
@@ -498,8 +640,11 @@ class GrantStore:
         """Remove and return the grant (so the caller can audit it), or ``None``."""
         with self._lock:
             removed = self._grants.pop(grant_id, None)
+            self._persisted.discard(grant_id)
         if removed is not None:
             log.info("Approval grant %s revoked", grant_id)
+            if _persist.persistence_enabled():
+                _persist.fire_and_forget(self._delete_grant(grant_id))
         return removed
 
     def revoke(self, grant_id: str) -> bool:
@@ -508,10 +653,12 @@ class GrantStore:
     def clear(self) -> None:
         with self._lock:
             self._grants.clear()
+            self._persisted.clear()
 
     def _prune_locked(self) -> None:
         for key in [k for k, g in self._grants.items() if g.expired]:
             self._grants.pop(key, None)
+            self._persisted.discard(key)
 
 
 def _set_event_threadsafe(event: asyncio.Event) -> None:
