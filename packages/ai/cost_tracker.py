@@ -167,6 +167,7 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "gpt-6-astra": (10.0, 50.0),           # Astra: frontier reasoning, $10/$50 per MTok (released Sept 4)
     "gpt-6-luna": (0.1, 0.5),              # Luna: fast/high-volume, $0.1/$0.5 per MTok (released Sept 22)
     "gpt-6.1-sol": (2.0, 10.0),            # gpt-6.1-sol: $2/$10 per MTok (released Sept 29)
+    "openai/gpt-6.1-sol": (2.0, 10.0),    # OpenRouter path — same pricing
     # --- xAI / Grok ---
     # Grok 4.7 released 2026-09-21. $2.00/$6.00 per MTok (<200K tier);
     # 500K context window. xAI's recommended model for coding and agents.
@@ -323,6 +324,10 @@ _CACHE_READ_FRACTIONS: tuple[tuple[str, float], ...] = (
     # Groq: qwen/ and meta-llama/ are paid models with 50 % implicit cache discount.
     ("qwen/", 0.50),
     ("meta-llama/", 0.50),
+    # OpenAI GPT-6.1 Sol: cache reads at $0.10/MTok = 5 % of $2.00/MTok input rate.
+    # Source: openrouter.ai/openai/gpt-6.1-sol, 2026-10-10.
+    ("gpt-6.1-sol", 0.05),
+    ("openai/gpt-6.1-sol", 0.05),
 )
 
 

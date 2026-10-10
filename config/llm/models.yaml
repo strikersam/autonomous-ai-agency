@@ -1440,6 +1440,31 @@ models:
     speed_tier: slow
 
   # ---------------------------------------------------------------------------
+  # OpenAI / GPT-6.1 Sol (added 2026-10-10)
+  # Released 2026-09-29. Positioned between GPT-6 Sol and GPT-6 Astra.
+  # 1,050,000-token context; 128K max output; accepts files, images and text.
+  # Pricing: $2.00/$10.00 per MTok (standard); cached input $0.10/MTok (5 %).
+  # Long-context tier (above 272K tokens): ~$4.00/$15.00 per MTok.
+  # priority: 99 — explicit-only; no direct OpenAI gateway provider wired.
+  # OpenRouter id: openai/gpt-6.1-sol (also openai/gpt-6.1-sol-20260929).
+  # Sources: openrouter.ai/openai/gpt-6.1-sol, aicybr.com/blog/openai-gpt-6-1-sol-pricing-benchmarks-api, 2026-10-10.
+  # ---------------------------------------------------------------------------
+  gpt-6.1-sol:
+    provider: openrouter
+    display_name: GPT-6.1 Sol (OpenAI via OpenRouter)
+    context_window: 1050000
+    max_output_tokens: 128000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    input_cost_per_1m: 2.0
+    output_cost_per_1m: 10.0
+    priority: 99
+    speed_tier: medium
+
+  # ---------------------------------------------------------------------------
   # xAI / Grok 4.7 (added 2026-10-06)
   # Released 2026-09-21. Recommended by xAI for coding and agents.
   # 500K-token context. Pricing: $2.00/$6.00 per MTok (<200K tier).
