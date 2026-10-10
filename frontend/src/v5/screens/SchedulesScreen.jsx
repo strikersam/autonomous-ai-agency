@@ -1,5 +1,6 @@
 /* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
 import React from 'react';
+import Glyph from '../components/ui/Glyph';
 import * as api from '../../api';
 import { useSafeData } from '../hooks/useSafeData';
 
@@ -75,14 +76,14 @@ const SMART_TEMPLATES = [
 ];
 
 const CAT_CONFIG = {
-  security: { color:'#ffbd66', label:'Security',    icon:'🔒', bg:'rgba(255,189,102,0.08)' },
-  quality:  { color:'#5da2ff', label:'Quality',     icon:'⚙', bg:'rgba(93,162,255,0.07)' },
-  seo:      { color:'#46d9a4', label:'SEO',         icon:'🔍', bg:'rgba(70,217,164,0.07)' },
-  perf:     { color:'#c4b5fd', label:'Performance', icon:'⚡', bg:'rgba(196,181,253,0.07)' },
-  release:  { color:'#7c9dff', label:'Release',     icon:'◉', bg:'rgba(124,157,255,0.07)' },
-  ops:      { color:'var(--text-muted)', label:'Ops', icon:'◎', bg:'rgba(255,255,255,0.03)' },
-  agency:   { color:'#c4b5fd', label:'Agency',      icon:'◎', bg:'rgba(196,181,253,0.07)' },
-  dev:      { color:'#5da2ff', label:'Dev',         icon:'⚙', bg:'rgba(93,162,255,0.07)' },
+  security: { color:'var(--warning)', label:'Security',    icon:'🔒', bg:'color-mix(in oklab, var(--warning) 8%, transparent)' },
+  quality:  { color:'var(--accent)', label:'Quality',     icon:'⚙', bg:'color-mix(in oklab, var(--accent) 7%, transparent)' },
+  seo:      { color:'var(--success)', label:'SEO',         icon:'🔍', bg:'color-mix(in oklab, var(--success) 7%, transparent)' },
+  perf:     { color:'var(--violet)', label:'Performance', icon:'⚡', bg:'color-mix(in oklab, var(--violet) 7%, transparent)' },
+  release:  { color:'var(--accent)', label:'Release',     icon:'◉', bg:'color-mix(in oklab, var(--accent) 7%, transparent)' },
+  ops:      { color:'var(--text-muted)', label:'Ops', icon:'◎', bg:'color-mix(in oklab, var(--ink) 3%, transparent)' },
+  agency:   { color:'var(--violet)', label:'Agency',      icon:'◎', bg:'color-mix(in oklab, var(--violet) 7%, transparent)' },
+  dev:      { color:'var(--accent)', label:'Dev',         icon:'⚙', bg:'color-mix(in oklab, var(--accent) 7%, transparent)' },
 };
 
 function ScheduleRow({ job, onToggle, onRunNow, busy, justRan }) {
@@ -92,33 +93,33 @@ function ScheduleRow({ job, onToggle, onRunNow, busy, justRan }) {
   const handleRun = () => { onRunNow && onRunNow(job.id); };
 
   return (
-    <div style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 16px', borderBottom:'1px solid rgba(255,255,255,0.05)', transition:'background 0.15s' }}
-    onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.02)'}
+    <div style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 16px', borderBottom:'1px solid color-mix(in oklab, var(--ink) 5%, transparent)', transition:'background 0.15s' }}
+    onMouseEnter={e=>e.currentTarget.style.background='color-mix(in oklab, var(--ink) 2%, transparent)'}
     onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-      <div style={{ width:28, height:28, borderRadius:9, flexShrink:0, background:cat.bg, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13 }}>{cat.icon}</div>
+      <div style={{ width:28, height:28, borderRadius:9, flexShrink:0, background:cat.bg, display:'flex', alignItems:'center', justifyContent:'center', fontSize:14 }}><Glyph g={cat.icon}/></div>
       <div style={{ flex:1, minWidth:0 }}>
         <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:1, flexWrap:'wrap' }}>
-          <span style={{ fontSize:12, fontWeight:600, color:isActive?'var(--text-primary)':'var(--text-muted)' }}>{job.name}</span>
-          {job.builtIn && <span style={{ fontSize:8, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', padding:'1px 5px', borderRadius:999, color:'var(--text-muted)', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.09)' }}>built-in</span>}
-          {job.approvalGate && <span style={{ fontSize:8, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', padding:'1px 5px', borderRadius:999, color:'#ffbd66', background:'rgba(255,189,102,0.08)', border:'1px solid rgba(255,189,102,0.20)' }}>approval</span>}
-          {job.tags.includes('run-once') && <span style={{ fontSize:8, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', padding:'1px 5px', borderRadius:999, color:'#c4b5fd', background:'rgba(196,181,253,0.08)', border:'1px solid rgba(196,181,253,0.20)' }}>run-once</span>}
-          {job.tags.includes('agency') && <span style={{ fontSize:8, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', padding:'1px 5px', borderRadius:999, color:'#5da2ff', background:'rgba(93,162,255,0.08)', border:'1px solid rgba(93,162,255,0.20)' }}>agency</span>}
-          {job.tags.includes('company-agency') && <span style={{ fontSize:8, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', padding:'1px 5px', borderRadius:999, color:'#46d9a4', background:'rgba(70,217,164,0.08)', border:'1px solid rgba(70,217,164,0.20)' }}>company</span>}
+          <span style={{ fontSize:13, fontWeight:600, color:isActive?'var(--text-primary)':'var(--text-muted)' }}>{job.name}</span>
+          {job.builtIn && <span style={{ fontSize:13, padding:'1px 5px', borderRadius:999, color:'var(--text-muted)', background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 9%, transparent)' }}>built-in</span>}
+          {job.approvalGate && <span style={{ fontSize:13, padding:'1px 5px', borderRadius:999, color:'var(--warning)', background:'color-mix(in oklab, var(--warning) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--warning) 20%, transparent)' }}>approval</span>}
+          {job.tags.includes('run-once') && <span style={{ fontSize:13, padding:'1px 5px', borderRadius:999, color:'var(--violet)', background:'color-mix(in oklab, var(--violet) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--violet) 20%, transparent)' }}>run-once</span>}
+          {job.tags.includes('agency') && <span style={{ fontSize:13, padding:'1px 5px', borderRadius:999, color:'var(--accent)', background:'color-mix(in oklab, var(--accent) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 20%, transparent)' }}>agency</span>}
+          {job.tags.includes('company-agency') && <span style={{ fontSize:13, padding:'1px 5px', borderRadius:999, color:'var(--success)', background:'color-mix(in oklab, var(--success) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--success) 20%, transparent)' }}>company</span>}
         </div>
         {job.description && (
-          <div style={{ fontSize:10, color:'var(--text-muted)', marginBottom:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'100%' }}>{job.description}</div>
+          <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:'100%' }}>{job.description}</div>
         )}
-        <div style={{ display:'flex', gap:7, fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', flexWrap:'wrap' }}>
+        <div style={{ display:'flex', gap:7, fontSize:13, fontFamily:'var(--font-mono)', color:'var(--text-muted)', flexWrap:'wrap' }}>
           <span>{job.cron}</span><span>·</span>
           <span>Last: <span style={{ color:'var(--text-muted)' }}>{job.lastRun}</span></span><span>·</span>
-          <span>{job.runs} runs · <span style={{ color:job.fails>0?'#ff6b7d':'var(--text-muted)' }}>{job.fails} fails</span></span>
+          <span>{job.runs} runs · <span style={{ color:job.fails>0?'var(--danger)':'var(--text-muted)' }}>{job.fails} fails</span></span>
         </div>
       </div>
-      <button onClick={()=>onToggle&&onToggle(job)} disabled={busy} style={{ width:34, height:20, borderRadius:999, padding:3, cursor:busy?'wait':'pointer', opacity:busy?0.6:1, background:isActive?'var(--accent)':'rgba(255,255,255,0.10)', border:`1px solid ${isActive?'rgba(93,162,255,0.5)':'rgba(255,255,255,0.15)'}`, transition:'all 0.2s', display:'flex', alignItems:'center', justifyContent:isActive?'flex-end':'flex-start', flexShrink:0 }}>
-        <div style={{ width:14, height:14, borderRadius:'50%', background:'#fff', boxShadow:'0 1px 3px rgba(0,0,0,0.3)' }}/>
+      <button onClick={()=>onToggle&&onToggle(job)} disabled={busy} style={{ width:34, height:20, borderRadius:999, padding:3, cursor:busy?'wait':'pointer', opacity:busy?0.6:1, background:isActive?'var(--accent)':'color-mix(in oklab, var(--ink) 10%, transparent)', border:`1px solid ${isActive?'color-mix(in oklab, var(--accent) 50%, transparent)':'color-mix(in oklab, var(--ink) 15%, transparent)'}`, transition:'all 0.2s', display:'flex', alignItems:'center', justifyContent:isActive?'flex-end':'flex-start', flexShrink:0 }}>
+        <div style={{ width:14, height:14, borderRadius:'50%', background:'#fff', boxShadow:'0 1px 3px color-mix(in oklab, var(--shade) 30%, transparent)' }}/>
       </button>
-      <button onClick={handleRun} disabled={running} style={{ padding:'4px 10px', borderRadius:8, fontSize:11, fontWeight:600, cursor:running?'wait':'pointer', background:running?'rgba(93,162,255,0.06)':'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.22)', color:running?'var(--text-muted)':'var(--accent)', transition:'all 0.15s', whiteSpace:'nowrap', flexShrink:0 }}>
-        {running ? <span style={{ display:'flex', alignItems:'center', gap:4 }}><div style={{ width:9,height:9,border:'2px solid rgba(93,162,255,0.2)',borderTopColor:'var(--accent)',borderRadius:'50%',animation:'spin 0.8s linear infinite' }}/>triggered</span> : '↺ Run'}
+      <button onClick={handleRun} disabled={running} style={{ padding:'4px 10px', borderRadius:8, fontSize:13, fontWeight:600, cursor:running?'wait':'pointer', background:running?'color-mix(in oklab, var(--accent) 6%, transparent)':'color-mix(in oklab, var(--accent) 10%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 22%, transparent)', color:running?'var(--text-muted)':'var(--accent)', transition:'all 0.15s', whiteSpace:'nowrap', flexShrink:0 }}>
+        {running ? <span style={{ display:'flex', alignItems:'center', gap:4 }}><div style={{ width:9,height:9,border:'2px solid color-mix(in oklab, var(--accent) 20%, transparent)',borderTopColor:'var(--accent)',borderRadius:'50%',animation:'spin 0.8s linear infinite' }}/>triggered</span> : '↺ Run'}
       </button>
     </div>
   );
@@ -127,26 +128,26 @@ function ScheduleRow({ job, onToggle, onRunNow, busy, justRan }) {
 function TemplateCard({ tmpl, onAdd, added }) {
   const cat = CAT_CONFIG[tmpl.cat] || CAT_CONFIG.ops;
   return (
-    <div style={{ borderRadius:14, border:`1px solid ${added?'rgba(70,217,164,0.22)':'rgba(255,255,255,0.08)'}`, background:added?'rgba(70,217,164,0.05)':'rgba(255,255,255,0.025)', padding:'12px 14px', transition:'all 0.2s ease' }}
-    onMouseEnter={e=>{ if(!added){e.currentTarget.style.borderColor='rgba(93,162,255,0.20)'; e.currentTarget.style.background='rgba(93,162,255,0.04)'; }}}
-    onMouseLeave={e=>{ if(!added){e.currentTarget.style.borderColor='rgba(255,255,255,0.08)'; e.currentTarget.style.background='rgba(255,255,255,0.025)'; }}}>
+    <div style={{ borderRadius:14, border:`1px solid ${added?'color-mix(in oklab, var(--success) 22%, transparent)':'color-mix(in oklab, var(--ink) 8%, transparent)'}`, background:added?'color-mix(in oklab, var(--success) 5%, transparent)':'color-mix(in oklab, var(--ink) 2.5%, transparent)', padding:'12px 14px', transition:'all 0.2s ease' }}
+    onMouseEnter={e=>{ if(!added){e.currentTarget.style.borderColor='color-mix(in oklab, var(--accent) 20%, transparent)'; e.currentTarget.style.background='color-mix(in oklab, var(--accent) 4%, transparent)'; }}}
+    onMouseLeave={e=>{ if(!added){e.currentTarget.style.borderColor='color-mix(in oklab, var(--ink) 8%, transparent)'; e.currentTarget.style.background='color-mix(in oklab, var(--ink) 2.5%, transparent)'; }}}>
       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8, marginBottom:6 }}>
         <div style={{ display:'flex', gap:8, alignItems:'flex-start' }}>
-          <span style={{ fontSize:16, flexShrink:0 }}>{tmpl.icon}</span>
+          <span style={{ fontSize:16, flexShrink:0 }}><Glyph g={tmpl.icon}/></span>
           <div>
-            <div style={{ fontSize:12, fontWeight:700, color:added?'#46d9a4':'var(--text-primary)', marginBottom:2 }}>{tmpl.name}</div>
-            <span style={{ fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', padding:'2px 6px', borderRadius:999, color:cat.color, background:`${cat.color}12`, border:`1px solid ${cat.color}22` }}>{cat.label}</span>
+            <div style={{ fontSize:13, fontWeight:700, color:added?'var(--success)':'var(--text-primary)', marginBottom:2 }}>{tmpl.name}</div>
+            <span style={{ fontSize:13, padding:'2px 6px', borderRadius:999, color:cat.color, background:`color-mix(in oklab, ${cat.color} 7%, transparent)`, border:`1px solid color-mix(in oklab, ${cat.color} 13%, transparent)` }}>{cat.label}</span>
           </div>
         </div>
         {added
-          ? <span style={{ fontSize:11, color:'#46d9a4', flexShrink:0 }}>✓ Added</span>
-          : <button onClick={()=>onAdd(tmpl)} style={{ padding:'4px 12px', borderRadius:8, fontSize:11, fontWeight:700, cursor:'pointer', background:'rgba(93,162,255,0.12)', border:'1px solid rgba(93,162,255,0.25)', color:'var(--accent)', flexShrink:0, whiteSpace:'nowrap', transition:'all 0.15s' }}>+ Add</button>
+          ? <span style={{ fontSize:13, color:'var(--success)', flexShrink:0 }}>✓ Added</span>
+          : <button onClick={()=>onAdd(tmpl)} style={{ padding:'4px 12px', borderRadius:8, fontSize:13, fontWeight:700, cursor:'pointer', background:'color-mix(in oklab, var(--accent) 12%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 25%, transparent)', color:'var(--accent)', flexShrink:0, whiteSpace:'nowrap', transition:'all 0.15s' }}>+ Add</button>
         }
       </div>
-      <div style={{ fontSize:11, color:'var(--text-muted)', lineHeight:1.5, marginBottom:5 }}>{tmpl.desc}</div>
+      <div style={{ fontSize:13, color:'var(--text-muted)', lineHeight:1.5, marginBottom:5 }}>{tmpl.desc}</div>
       <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-        <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>⏱ {tmpl.cron}</span>
-        {tmpl.gate && <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'1px 6px', borderRadius:999, color:'#ffbd66', background:'rgba(255,189,102,0.08)', border:'1px solid rgba(255,189,102,0.18)', textTransform:'uppercase', letterSpacing:'0.10em' }}>approval gate</span>}
+        <span style={{ fontSize:13, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}><Glyph g="⏱"/> {tmpl.cron}</span>
+        {tmpl.gate && <span style={{ fontSize:13, padding:'1px 6px', borderRadius:999, color:'var(--warning)', background:'color-mix(in oklab, var(--warning) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--warning) 18%, transparent)' }}>approval gate</span>}
       </div>
     </div>
   );
@@ -179,28 +180,28 @@ function NewJobForm({ onClose, onCreate }) {
     }
   };
   return (
-    <div style={{ padding:'14px', borderRadius:14, background:'rgba(93,162,255,0.05)', border:'1px solid rgba(93,162,255,0.18)', marginBottom:14, animation:'fadeSlideUp 0.25s ease-out' }}>
-      <div style={{ fontSize:12, fontWeight:700, color:'var(--text-secondary)', marginBottom:10 }}>Custom schedule</div>
+    <div style={{ padding:'14px', borderRadius:14, background:'color-mix(in oklab, var(--accent) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 18%, transparent)', marginBottom:14, animation:'fadeSlideUp 0.25s ease-out' }}>
+      <div style={{ fontSize:13, fontWeight:700, color:'var(--text-secondary)', marginBottom:10 }}>Custom schedule</div>
       <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
         <input value={name} onChange={e=>setName(e.target.value)} placeholder="Schedule name"
-          style={{ padding:'9px 12px', borderRadius:10, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-main)' }}
-          onFocus={e=>e.target.style.borderColor='rgba(93,162,255,0.45)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.10)'}/>
+          style={{ padding:'9px 12px', borderRadius:10, background:'color-mix(in oklab, var(--ink) 4%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-primary)', fontSize:14, outline:'none', fontFamily:'var(--font-main)' }}
+          onFocus={e=>e.target.style.borderColor='color-mix(in oklab, var(--accent) 45%, transparent)'} onBlur={e=>e.target.style.borderColor='color-mix(in oklab, var(--ink) 10%, transparent)'}/>
         <textarea value={inst} onChange={e=>setInst(e.target.value)} placeholder="What should the agent do? (plain English)" rows={2}
-          style={{ padding:'9px 12px', borderRadius:10, resize:'none', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-main)' }}
-          onFocus={e=>e.target.style.borderColor='rgba(93,162,255,0.45)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.10)'}/>
+          style={{ padding:'9px 12px', borderRadius:10, resize:'none', background:'color-mix(in oklab, var(--ink) 4%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-primary)', fontSize:14, outline:'none', fontFamily:'var(--font-main)' }}
+          onFocus={e=>e.target.style.borderColor='color-mix(in oklab, var(--accent) 45%, transparent)'} onBlur={e=>e.target.style.borderColor='color-mix(in oklab, var(--ink) 10%, transparent)'}/>
         <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
-          {presets.map(p => <button key={p.cron} onClick={()=>setCron(p.cron)} style={{ padding:'4px 10px', borderRadius:999, fontSize:11, cursor:'pointer', background:cron===p.cron?'rgba(93,162,255,0.15)':'rgba(255,255,255,0.04)', border:`1px solid ${cron===p.cron?'rgba(93,162,255,0.35)':'rgba(255,255,255,0.09)'}`, color:cron===p.cron?'#fff':'var(--text-muted)', transition:'all 0.15s' }}>{p.label}</button>)}
+          {presets.map(p => <button key={p.cron} onClick={()=>setCron(p.cron)} style={{ padding:'4px 10px', borderRadius:999, fontSize:13, cursor:'pointer', background:cron===p.cron?'color-mix(in oklab, var(--accent) 15%, transparent)':'color-mix(in oklab, var(--ink) 4%, transparent)', border:`1px solid ${cron===p.cron?'color-mix(in oklab, var(--accent) 35%, transparent)':'color-mix(in oklab, var(--ink) 9%, transparent)'}`, color:cron===p.cron?'var(--text-primary)':'var(--text-muted)', transition:'all 0.15s' }}>{p.label}</button>)}
         </div>
         <input value={cron} onChange={e=>setCron(e.target.value)} placeholder="cron expression (e.g. 0 9 * * *)"
-          style={{ padding:'8px 12px', borderRadius:10, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:12, fontFamily:'var(--font-mono)', outline:'none' }}/>
-        <label style={{ display:'flex', alignItems:'center', gap:7, fontSize:12, color:'var(--text-tertiary)', cursor:'pointer' }}>
+          style={{ padding:'8px 12px', borderRadius:10, background:'color-mix(in oklab, var(--ink) 4%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-primary)', fontSize:13, fontFamily:'var(--font-mono)', outline:'none' }}/>
+        <label style={{ display:'flex', alignItems:'center', gap:7, fontSize:13, color:'var(--text-tertiary)', cursor:'pointer' }}>
           <input type="checkbox" checked={gate} onChange={e=>setGate(e.target.checked)} style={{ accentColor:'var(--accent)' }}/>
           Require approval before execution
         </label>
-        {error && <div style={{ padding:'8px 12px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:12 }}>{error}</div>}
+        {error && <div style={{ padding:'8px 12px', borderRadius:10, background:'color-mix(in oklab, var(--danger) 10%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 25%, transparent)', color:'var(--danger)', fontSize:13 }}>{error}</div>}
         <div style={{ display:'flex', gap:8 }}>
-          <button onClick={submit} disabled={busy} style={{ flex:1, padding:'9px', borderRadius:10, background:'var(--accent)', color:'#06111f', fontSize:13, fontWeight:800, border:'none', cursor:busy?'wait':'pointer', opacity:busy?0.7:1 }}>{busy ? 'Creating…' : 'Create'}</button>
-          <button onClick={onClose} disabled={busy} style={{ padding:'9px 16px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)', fontSize:13, cursor:'pointer' }}>Cancel</button>
+          <button onClick={submit} disabled={busy} style={{ flex:1, padding:'9px', borderRadius:10, background:'var(--accent)', color:'var(--on-accent)', fontSize:14, fontWeight:700, border:'none', cursor:busy?'wait':'pointer', opacity:busy?0.7:1 }}>{busy ? 'Creating…' : 'Create'}</button>
+          <button onClick={onClose} disabled={busy} style={{ padding:'9px 16px', borderRadius:10, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-muted)', fontSize:14, cursor:'pointer' }}>Cancel</button>
         </div>
       </div>
     </div>
@@ -268,46 +269,45 @@ function SchedulesScreen() {
   const totalFails = jobs.reduce((s,j)=>s+j.fails,0);
 
   return (
-    <div style={{ padding:'20px 16px 48px', maxWidth:900, margin:'0 auto' }}>
-      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:6 }}>Automation</div>
+    <div style={{ padding:'20px 16px 48px', maxWidth:1200, margin:'0 auto' }}>
       <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', flexWrap:'wrap', gap:10, marginBottom:16 }}>
         <div>
-          <h1 style={{ fontSize:26, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1, marginBottom:4 }}>Schedules</h1>
+          <h1 style={{ fontSize:26, fontWeight:700, color:'var(--text-primary)', letterSpacing:'-0.04em', lineHeight:1.1, marginBottom:4 }}>Schedules</h1>
           <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.5, maxWidth:460 }}>
             Autopilot jobs that keep your codebase healthy. Add from the smart template library or write your own in plain English.
           </p>
         </div>
         <div style={{ display:'flex', gap:8 }}>
-          <button onClick={()=>setShowTmpl(o=>!o)} style={{ padding:'10px 18px', borderRadius:999, fontSize:13, fontWeight:700, cursor:'pointer', background:'rgba(70,217,164,0.12)', border:'1px solid rgba(70,217,164,0.28)', color:'#46d9a4' }}>
+          <button onClick={()=>setShowTmpl(o=>!o)} style={{ padding:'10px 18px', borderRadius:999, fontSize:14, fontWeight:700, cursor:'pointer', background:'color-mix(in oklab, var(--success) 12%, transparent)', border:'1px solid color-mix(in oklab, var(--success) 28%, transparent)', color:'var(--success)' }}>
             {showTemplates ? 'Hide templates' : '✦ Template library'}
           </button>
-          <button onClick={()=>setShowForm(true)} style={{ padding:'10px 18px', borderRadius:999, fontSize:13, fontWeight:800, cursor:'pointer', background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', border:'none', boxShadow:'0 6px 20px rgba(93,162,255,0.22)' }}>+ Custom</button>
+          <button onClick={()=>setShowForm(true)} style={{ padding:'10px 18px', borderRadius:999, fontSize:14, fontWeight:700, cursor:'pointer', background:'linear-gradient(135deg,var(--accent),var(--accent))', color:'var(--on-accent)', border:'none', boxShadow:'0 6px 20px color-mix(in oklab, var(--accent) 22%, transparent)' }}>+ Custom</button>
         </div>
       </div>
 
       {/* Stats */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))', gap:10, marginBottom:16 }}>
         {[
-          { label:'Active', value:jobs.filter(j=>j.status==='active').length, color:'#46d9a4' },
+          { label:'Active', value:jobs.filter(j=>j.status==='active').length, color:'var(--success)' },
           { label:'Total runs', value:jobs.reduce((s,j)=>s+j.runs,0).toLocaleString(), color:'var(--accent)' },
-          { label:'Failures', value:totalFails, color:totalFails>0?'#ff6b7d':'var(--text-muted)' },
+          { label:'Failures', value:totalFails, color:totalFails>0?'var(--danger)':'var(--text-muted)' },
         ].map(s => (
-          <div key={s.label} style={{ padding:'10px 14px', borderRadius:12, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)' }}>
-            <div style={{ fontSize:20, fontWeight:800, color:s.color, letterSpacing:'-0.03em' }}>{s.value}</div>
-            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.10em', marginTop:2 }}>{s.label}</div>
+          <div key={s.label} style={{ padding:'10px 14px', borderRadius:12, background:'color-mix(in oklab, var(--ink) 3%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 8%, transparent)' }}>
+            <div style={{ fontSize:20, fontWeight:700, color:s.color, letterSpacing:'-0.03em' }}>{s.value}</div>
+            <div style={{ fontSize:13, color:'var(--text-muted)', marginTop:2 }}>{s.label}</div>
           </div>
         ))}
       </div>
 
       {/* Template library */}
       {showTemplates && (
-        <div style={{ borderRadius:18, border:'1px solid rgba(70,217,164,0.18)', background:'rgba(70,217,164,0.03)', padding:'16px', marginBottom:16, animation:'fadeSlideUp 0.25s ease-out' }}>
-          <div style={{ fontSize:13, fontWeight:700, color:'#46d9a4', marginBottom:4 }}>✦ Smart Template Library</div>
-          <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12 }}>{SMART_TEMPLATES.length} pre-built schedules for security, quality, SEO, performance, ops, and release workflows.</div>
+        <div style={{ borderRadius:14, border:'1px solid color-mix(in oklab, var(--success) 18%, transparent)', background:'color-mix(in oklab, var(--success) 3%, transparent)', padding:'16px', marginBottom:16, animation:'fadeSlideUp 0.25s ease-out' }}>
+          <div style={{ fontSize:14, fontWeight:700, color:'var(--success)', marginBottom:4 }}><Glyph g="✦"/> Smart Template Library</div>
+          <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:12 }}>{SMART_TEMPLATES.length} pre-built schedules for security, quality, SEO, performance, ops, and release workflows.</div>
           <div style={{ display:'flex', gap:6, marginBottom:12, flexWrap:'wrap' }}>
             {['all','security','quality','seo','perf','release','ops'].map(c => {
               const cc = CAT_CONFIG[c];
-              return <button key={c} onClick={()=>setTmplCat(c)} style={{ padding:'4px 12px', borderRadius:999, fontSize:11, cursor:'pointer', background:tmplCat===c?'rgba(93,162,255,0.15)':'rgba(255,255,255,0.04)', border:`1px solid ${tmplCat===c?'rgba(93,162,255,0.32)':'rgba(255,255,255,0.09)'}`, color:tmplCat===c?'#fff':'var(--text-muted)', textTransform:'capitalize', transition:'all 0.15s' }}>{c==='all'?'All':cc?.label||c}</button>;
+              return <button key={c} onClick={()=>setTmplCat(c)} style={{ padding:'4px 12px', borderRadius:999, fontSize:13, cursor:'pointer', background:tmplCat===c?'color-mix(in oklab, var(--accent) 15%, transparent)':'color-mix(in oklab, var(--ink) 4%, transparent)', border:`1px solid ${tmplCat===c?'color-mix(in oklab, var(--accent) 32%, transparent)':'color-mix(in oklab, var(--ink) 9%, transparent)'}`, color:tmplCat===c?'var(--text-primary)':'var(--text-muted)', textTransform:'capitalize', transition:'all 0.15s' }}>{c==='all'?'All':cc?.label||c}</button>;
             })}
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))', gap:8 }}>
@@ -320,17 +320,17 @@ function SchedulesScreen() {
 
       {showForm && <NewJobForm onClose={()=>setShowForm(false)} onCreate={createSchedule}/>}
 
-      {actionErr && <div style={{ marginBottom:12, padding:'9px 13px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:12 }}>{actionErr}</div>}
+      {actionErr && <div style={{ marginBottom:12, padding:'9px 13px', borderRadius:10, background:'color-mix(in oklab, var(--danger) 10%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 25%, transparent)', color:'var(--danger)', fontSize:13 }}>{actionErr}</div>}
 
       {/* Active jobs */}
-      <div style={{ borderRadius:16, border:'1px solid rgba(255,255,255,0.09)', background:'rgba(255,255,255,0.025)', overflow:'hidden' }}>
-        <div style={{ padding:'10px 16px', borderBottom:'1px solid rgba(255,255,255,0.06)', fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase' }}>Scheduled jobs ({jobs.length})</div>
+      <div style={{ borderRadius:16, border:'1px solid color-mix(in oklab, var(--ink) 9%, transparent)', background:'color-mix(in oklab, var(--ink) 2.5%, transparent)', overflow:'hidden' }}>
+        <div style={{ padding:'10px 16px', borderBottom:'1px solid color-mix(in oklab, var(--ink) 6%, transparent)', fontSize:13, color:'var(--text-muted)' }}>Scheduled jobs ({jobs.length})</div>
         {states.schedules?.loading && jobs.length === 0 ? (
-          <div style={{ padding:'24px 16px', fontSize:13, color:'var(--text-muted)' }}>Loading schedules…</div>
+          <div style={{ padding:'24px 16px', fontSize:14, color:'var(--text-muted)' }}>Loading schedules…</div>
         ) : states.schedules?.error ? (
-          <div style={{ padding:'18px 16px', fontSize:13, color:'#ff6b7d' }}>Couldn't load schedules: {states.schedules.error}</div>
+          <div style={{ padding:'18px 16px', fontSize:14, color:'var(--danger)' }}>Couldn't load schedules: {states.schedules.error}</div>
         ) : jobs.length === 0 ? (
-          <div style={{ padding:'24px 16px', fontSize:13, color:'var(--text-muted)' }}>No schedules configured yet. Add one from the template library or create a custom job.</div>
+          <div style={{ padding:'24px 16px', fontSize:14, color:'var(--text-muted)' }}>No schedules configured yet. Add one from the template library or create a custom job.</div>
         ) : (
           jobs.map(job => <ScheduleRow key={job.id} job={job} onToggle={toggle} onRunNow={runNow} busy={busyId===job.id} justRan={justRan===job.id}/>)
         )}

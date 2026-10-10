@@ -1,5 +1,6 @@
 /* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
 import React from 'react';
+import Glyph from '../components/ui/Glyph';
 import * as api from '../../api';
 
 
@@ -21,23 +22,23 @@ function Explain({ term, children }) {
     <span style={{ position:'relative', display:'inline-flex', alignItems:'center', gap:4 }}>
       {term}
       <button onClick={()=>setShow(o=>!o)} style={{
-        width:15, height:15, borderRadius:'50%', fontSize:9, fontWeight:700,
-        background:show?'rgba(93,162,255,0.20)':'rgba(255,255,255,0.10)',
-        border:'1px solid rgba(255,255,255,0.20)', color:'var(--text-muted)',
+        width:15, height:15, borderRadius:'50%', fontSize:13, fontWeight:700,
+        background:show?'color-mix(in oklab, var(--accent) 20%, transparent)':'color-mix(in oklab, var(--ink) 10%, transparent)',
+        border:'1px solid color-mix(in oklab, var(--ink) 20%, transparent)', color:'var(--text-muted)',
         cursor:'pointer', display:'inline-flex', alignItems:'center', justifyContent:'center',
         transition:'all 0.15s', flexShrink:0,
       }}>?</button>
       {show && (
         <div style={{
           position:'absolute', bottom:'calc(100% + 6px)', left:0, zIndex:99,
-          background:'rgba(12,15,20,0.98)', border:'1px solid rgba(93,162,255,0.25)',
+          background:'color-mix(in oklab, var(--bg-surface) 98%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 25%, transparent)',
           borderRadius:12, padding:'10px 12px', minWidth:220, maxWidth:'min(280px, calc(100vw - 24px))',
-          fontSize:12, color:'var(--text-secondary)', lineHeight:1.6,
-          boxShadow:'0 12px 32px rgba(0,0,0,0.55)', animation:'fadeSlideUp 0.15s ease-out',
+          fontSize:13, color:'var(--text-secondary)', lineHeight:1.6,
+          boxShadow:'0 12px 32px color-mix(in oklab, var(--shade) 55%, transparent)', animation:'fadeSlideUp 0.15s ease-out',
         }}>
-          <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--accent)', marginBottom:4, letterSpacing:'0.10em', textTransform:'uppercase' }}>{term}</div>
+          <div style={{ fontSize:13, color:'var(--accent)', marginBottom:4 }}>{term}</div>
           {children}
-          <div style={{ position:'absolute', bottom:-5, left:14, width:8, height:8, background:'rgba(12,15,20,0.98)', border:'1px solid rgba(93,162,255,0.25)', borderTop:'none', borderLeft:'none', transform:'rotate(45deg)' }}/>
+          <div style={{ position:'absolute', bottom:-5, left:14, width:8, height:8, background:'color-mix(in oklab, var(--bg-surface) 98%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 25%, transparent)', borderTop:'none', borderLeft:'none', transform:'rotate(45deg)' }}/>
         </div>
       )}
     </span>
@@ -47,7 +48,7 @@ function Explain({ term, children }) {
 // ── Pre-built commerce skills ─────────────────────────────────────────────────
 const COMMERCE_SKILLS = [
   {
-    id:'abandoned-cart', category:'Revenue Recovery', icon:'🛒', color:'#ff6b7d',
+    id:'abandoned-cart', category:'Revenue Recovery', icon:'🛒', color:'var(--danger)',
     name:'Abandoned Cart Recovery',
     tagline:'Automatically win back customers who left without buying',
     what:'When a shopper adds items to their cart but doesn\'t complete checkout, this skill notices and sends a personalised reminder — with the right timing, tone, and offer.',
@@ -57,7 +58,7 @@ const COMMERCE_SKILLS = [
     config:{ waitHours:1, discountThreshold:50, discountPct:10 },
   },
   {
-    id:'dynamic-pricing', category:'Pricing', icon:'💰', color:'#ffbd66',
+    id:'dynamic-pricing', category:'Pricing', icon:'💰', color:'var(--warning)',
     name:'Dynamic Pricing Monitor',
     tagline:'Keep your prices competitive without checking manually every day',
     what:'Watches competitor prices for your key products and suggests (or automatically applies) price changes to stay competitive while protecting margin.',
@@ -67,7 +68,7 @@ const COMMERCE_SKILLS = [
     config:{ threshold:10, autoApply:false },
   },
   {
-    id:'seo-content', category:'SEO & Content', icon:'📝', color:'#5da2ff',
+    id:'seo-content', category:'SEO & Content', icon:'📝', color:'var(--accent)',
     name:'SEO Content Generator',
     tagline:'Publish SEO-optimised product descriptions automatically',
     what:'Takes your product catalogue and generates or improves product descriptions, meta titles, and alt text so your products rank higher in Google.',
@@ -77,7 +78,7 @@ const COMMERCE_SKILLS = [
     config:{ autoPublish:false, minWordCount:150 },
   },
   {
-    id:'stock-alert', category:'Inventory', icon:'📦', color:'#46d9a4',
+    id:'stock-alert', category:'Inventory', icon:'📦', color:'var(--success)',
     name:'Low Stock Alert & Reorder',
     tagline:'Never run out of your best sellers',
     what:'Watches your inventory levels and alerts you (or auto-drafts a purchase order) when a product is running low, based on your average daily sales velocity.',
@@ -87,7 +88,7 @@ const COMMERCE_SKILLS = [
     config:{ daysThreshold:14, autoCreatePO:false },
   },
   {
-    id:'review-response', category:'Customer Experience', icon:'⭐', color:'#c4b5fd',
+    id:'review-response', category:'Customer Experience', icon:'⭐', color:'var(--violet)',
     name:'Review Response Agent',
     tagline:'Respond to every review — especially negative ones — before they hurt your brand',
     what:'Monitors new customer reviews and drafts personalised responses. Escalates 1–2 star reviews immediately for human review.',
@@ -97,7 +98,7 @@ const COMMERCE_SKILLS = [
     config:{ escalateBelow:3, autoPost:false },
   },
   {
-    id:'campaign-perf', category:'Marketing', icon:'📊', color:'#7c9dff',
+    id:'campaign-perf', category:'Marketing', icon:'📊', color:'var(--accent)',
     name:'Campaign Performance Monitor',
     tagline:'Understand what\'s working before you waste budget',
     what:'Pulls your GA4 and campaign data daily, identifies which campaigns, channels, and products are driving revenue, and flags anything underperforming.',
@@ -107,7 +108,7 @@ const COMMERCE_SKILLS = [
     config:{ compareWeeks:4, threshold:20 },
   },
   {
-    id:'flash-sale', category:'Revenue Recovery', icon:'⚡', color:'#ff6b7d',
+    id:'flash-sale', category:'Revenue Recovery', icon:'⚡', color:'var(--danger)',
     name:'Flash Sale Orchestrator',
     tagline:'Plan and execute time-limited offers without the manual scramble',
     what:'Coordinates a flash sale end-to-end: sets up discount codes, sends the campaign email, monitors performance in real time, and cleans up automatically when it ends.',
@@ -117,7 +118,7 @@ const COMMERCE_SKILLS = [
     config:{ requireApproval:true },
   },
   {
-    id:'personalisation', category:'Conversion', icon:'🎯', color:'#46d9a4',
+    id:'personalisation', category:'Conversion', icon:'🎯', color:'var(--success)',
     name:'Personalised Recommendation Engine',
     tagline:'Show each customer the products they\'re most likely to buy',
     what:'Analyses purchase history and browsing behaviour to recommend relevant products in emails, on your homepage, and in post-purchase flows.',
@@ -129,25 +130,25 @@ const COMMERCE_SKILLS = [
 ];
 
 const WORKFLOW_STEPS = [
-  { id:'trigger',  label:'Trigger',  icon:'⚡', desc:'What starts this workflow', color:'#ffbd66' },
-  { id:'check',    label:'Check',    icon:'◎',  desc:'Condition that must be true', color:'#5da2ff' },
-  { id:'generate', label:'Generate', icon:'◈',  desc:'AI creates content or analysis', color:'#c4b5fd' },
-  { id:'approve',  label:'Review',   icon:'◉',  desc:'Human checks before action', color:'#ff9d66' },
-  { id:'act',      label:'Act',      icon:'⊕',  desc:'Send, post, update, or notify', color:'#46d9a4' },
+  { id:'trigger',  label:'Trigger',  icon:'⚡', desc:'What starts this workflow', color:'var(--warning)' },
+  { id:'check',    label:'Check',    icon:'◎',  desc:'Condition that must be true', color:'var(--accent)' },
+  { id:'generate', label:'Generate', icon:'◈',  desc:'AI creates content or analysis', color:'var(--violet)' },
+  { id:'approve',  label:'Review',   icon:'◉',  desc:'Human checks before action', color:'var(--warning)' },
+  { id:'act',      label:'Act',      icon:'⊕',  desc:'Send, post, update, or notify', color:'var(--success)' },
 ];
 
 const CATEGORY_COLORS = {
-  'Revenue Recovery': '#ff6b7d',
-  'Pricing': '#ffbd66',
-  'SEO & Content': '#5da2ff',
-  'Inventory': '#46d9a4',
-  'Customer Experience': '#c4b5fd',
-  'Marketing': '#7c9dff',
-  'Conversion': '#46d9a4',
+  'Revenue Recovery': 'var(--danger)',
+  'Pricing': 'var(--warning)',
+  'SEO & Content': 'var(--accent)',
+  'Inventory': 'var(--success)',
+  'Customer Experience': 'var(--violet)',
+  'Marketing': 'var(--accent)',
+  'Conversion': 'var(--success)',
 };
 
 const effortLabel = { low:'Easy to set up', medium:'Some config needed', high:'Requires setup time' };
-const effortColor = { low:'#46d9a4', medium:'#ffbd66', high:'#ff6b7d' };
+const effortColor = { low:'var(--success)', medium:'var(--warning)', high:'var(--danger)' };
 
 function SkillCard({ skill, onToggle, onConfigure }) {
   const [expanded, setExpanded] = React.useState(false);
@@ -155,53 +156,53 @@ function SkillCard({ skill, onToggle, onConfigure }) {
 
   return (
     <div style={{
-      borderRadius:18, border:`1px solid ${skill.enabled ? `${skill.color}28` : 'rgba(255,255,255,0.08)'}`,
-      background: skill.enabled ? `${skill.color}05` : 'rgba(255,255,255,0.025)',
+      borderRadius:14, border:`1px solid ${skill.enabled ? `color-mix(in oklab, ${skill.color} 16%, transparent)` : 'color-mix(in oklab, var(--ink) 8%, transparent)'}`,
+      background: skill.enabled ? `color-mix(in oklab, ${skill.color} 2%, transparent)` : 'color-mix(in oklab, var(--ink) 2.5%, transparent)',
       transition:'all 0.2s ease', overflow:'hidden',
     }}>
       <div style={{ padding:'14px 16px' }}>
         {/* Header */}
         <div style={{ display:'flex', alignItems:'flex-start', gap:10, marginBottom:10 }}>
-          <div style={{ width:38, height:38, borderRadius:12, flexShrink:0, background:`${skill.color}15`, border:`1px solid ${skill.color}28`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18 }}>{skill.icon}</div>
+          <div style={{ width:38, height:38, borderRadius:12, flexShrink:0, background:`color-mix(in oklab, ${skill.color} 8%, transparent)`, border:`1px solid color-mix(in oklab, ${skill.color} 16%, transparent)`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:18 }}><Glyph g={skill.icon}/></div>
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ display:'flex', alignItems:'center', gap:7, flexWrap:'wrap', marginBottom:2 }}>
-              <span style={{ fontSize:13, fontWeight:800, color:'#fff', letterSpacing:'-0.02em' }}>{skill.name}</span>
-              <span style={{ fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', padding:'2px 7px', borderRadius:999, color:catColor, background:`${catColor}12`, border:`1px solid ${catColor}22` }}>{skill.category}</span>
+              <span style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)', letterSpacing:'-0.02em' }}>{skill.name}</span>
+              <span style={{ fontSize:13, padding:'2px 7px', borderRadius:999, color:catColor, background:`color-mix(in oklab, ${catColor} 7%, transparent)`, border:`1px solid color-mix(in oklab, ${catColor} 13%, transparent)` }}>{skill.category}</span>
             </div>
-            <div style={{ fontSize:12, color:'var(--text-tertiary)', lineHeight:1.4, fontStyle:'italic' }}>{skill.tagline}</div>
+            <div style={{ fontSize:13, color:'var(--text-tertiary)', lineHeight:1.4, fontStyle:'italic' }}>{skill.tagline}</div>
           </div>
           {/* Toggle */}
-          <button onClick={()=>onToggle(skill.id)} style={{ width:40, height:22, borderRadius:999, padding:3, cursor:'pointer', background:skill.enabled?skill.color:'rgba(255,255,255,0.10)', border:`1px solid ${skill.enabled?skill.color+'80':'rgba(255,255,255,0.15)'}`, transition:'all 0.2s', display:'flex', alignItems:'center', justifyContent:skill.enabled?'flex-end':'flex-start', flexShrink:0 }}>
-            <div style={{ width:16, height:16, borderRadius:'50%', background:'#fff', boxShadow:'0 1px 4px rgba(0,0,0,0.3)' }}/>
+          <button onClick={()=>onToggle(skill.id)} style={{ width:40, height:22, borderRadius:999, padding:3, cursor:'pointer', background:skill.enabled?skill.color:'color-mix(in oklab, var(--ink) 10%, transparent)', border:`1px solid ${skill.enabled?`color-mix(in oklab, ${skill.color} 50%, transparent)`:'color-mix(in oklab, var(--ink) 15%, transparent)'}`, transition:'all 0.2s', display:'flex', alignItems:'center', justifyContent:skill.enabled?'flex-end':'flex-start', flexShrink:0 }}>
+            <div style={{ width:16, height:16, borderRadius:'50%', background:'#fff', boxShadow:'0 1px 4px color-mix(in oklab, var(--shade) 30%, transparent)' }}/>
           </button>
         </div>
 
         {/* What it does — plain English */}
-        <div style={{ fontSize:13, color:'var(--text-secondary)', lineHeight:1.65, marginBottom:10 }}>{skill.what}</div>
+        <div style={{ fontSize:14, color:'var(--text-secondary)', lineHeight:1.65, marginBottom:10 }}>{skill.what}</div>
 
         {/* Meta row */}
         <div style={{ display:'flex', gap:8, flexWrap:'wrap', alignItems:'center', marginBottom:10 }}>
-          <div style={{ display:'flex', alignItems:'center', gap:4, padding:'3px 9px', borderRadius:999, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.09)' }}>
-            <span style={{ fontSize:10 }}>🤖</span>
-            <span style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>{skill.agent}</span>
+          <div style={{ display:'flex', alignItems:'center', gap:4, padding:'3px 9px', borderRadius:999, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 9%, transparent)' }}>
+            <span style={{ fontSize:13 }}><Glyph g="🤖"/></span>
+            <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--text-muted)' }}>{skill.agent}</span>
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:4, padding:'3px 9px', borderRadius:999, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.09)' }}>
-            <span style={{ fontSize:10 }}>⚡</span>
-            <span style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>{skill.trigger}</span>
+          <div style={{ display:'flex', alignItems:'center', gap:4, padding:'3px 9px', borderRadius:999, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 9%, transparent)' }}>
+            <span style={{ fontSize:13 }}><Glyph g="⚡"/></span>
+            <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--text-muted)' }}>{skill.trigger}</span>
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:4, padding:'3px 9px', borderRadius:999, background:`${effortColor[skill.effort]}10`, border:`1px solid ${effortColor[skill.effort]}22` }}>
-            <span style={{ fontSize:11, color:effortColor[skill.effort] }}>{effortLabel[skill.effort]}</span>
+          <div style={{ display:'flex', alignItems:'center', gap:4, padding:'3px 9px', borderRadius:999, background:`color-mix(in oklab, ${effortColor[skill.effort]} 6%, transparent)`, border:`1px solid color-mix(in oklab, ${effortColor[skill.effort]} 13%, transparent)` }}>
+            <span style={{ fontSize:13, color:effortColor[skill.effort] }}>{effortLabel[skill.effort]}</span>
           </div>
         </div>
 
         {/* Impact */}
-        <div style={{ padding:'8px 12px', borderRadius:10, background:'rgba(70,217,164,0.06)', border:'1px solid rgba(70,217,164,0.14)', marginBottom:10 }}>
-          <span style={{ fontSize:11, color:'#46d9a4' }}>✦ Expected impact: </span>
-          <span style={{ fontSize:12, color:'var(--text-secondary)' }}>{skill.impact}</span>
+        <div style={{ padding:'8px 12px', borderRadius:10, background:'color-mix(in oklab, var(--success) 6%, transparent)', border:'1px solid color-mix(in oklab, var(--success) 14%, transparent)', marginBottom:10 }}>
+          <span style={{ fontSize:13, color:'var(--success)' }}><Glyph g="✦"/> Expected impact: </span>
+          <span style={{ fontSize:13, color:'var(--text-secondary)' }}>{skill.impact}</span>
         </div>
 
         {/* Expand button */}
-        <button onClick={()=>setExpanded(o=>!o)} style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', background:'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
+        <button onClick={()=>setExpanded(o=>!o)} style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--accent)', background:'none', border:'none', cursor:'pointer', display:'flex', alignItems:'center', gap:4 }}>
           {expanded ? '▲ Less detail' : '▼ How it works'}
         </button>
       </div>
@@ -209,20 +210,20 @@ function SkillCard({ skill, onToggle, onConfigure }) {
       {expanded && (
         <div style={{ padding:'0 16px 14px', animation:'fadeSlideUp 0.2s ease-out' }}>
           {/* Step by step */}
-          <div style={{ padding:'12px 14px', borderRadius:12, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)', marginBottom:10 }}>
-            <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.10em', textTransform:'uppercase', marginBottom:8 }}>Step-by-step</div>
-            <div style={{ fontSize:12, color:'var(--text-secondary)', lineHeight:1.8 }}>
+          <div style={{ padding:'12px 14px', borderRadius:12, background:'color-mix(in oklab, var(--ink) 3%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 8%, transparent)', marginBottom:10 }}>
+            <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:8 }}>Step-by-step</div>
+            <div style={{ fontSize:13, color:'var(--text-secondary)', lineHeight:1.8 }}>
               {skill.how.split(' → ').map((step, i, arr) => (
                 <div key={i} style={{ display:'flex', gap:8, alignItems:'flex-start' }}>
-                  <span style={{ fontSize:11, color:'var(--accent)', width:18, flexShrink:0, paddingTop:1 }}>{i+1}.</span>
+                  <span style={{ fontSize:13, color:'var(--accent)', width:18, flexShrink:0, paddingTop:1 }}>{i+1}.</span>
                   <span style={{ flex:1 }}>{step}{i < arr.length-1 ? '' : ''}</span>
                 </div>
               ))}
             </div>
           </div>
           <div style={{ display:'flex', gap:7 }}>
-            <button style={{ flex:1, padding:'8px', borderRadius:10, fontSize:12, fontWeight:700, cursor:'pointer', background:`${skill.color}15`, border:`1px solid ${skill.color}28`, color:skill.color, transition:'all 0.15s' }}>⚙ Configure</button>
-            <button style={{ padding:'8px 14px', borderRadius:10, fontSize:12, cursor:'pointer', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)' }}>View runs</button>
+            <button style={{ flex:1, padding:'8px', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', background:`color-mix(in oklab, ${skill.color} 8%, transparent)`, border:`1px solid color-mix(in oklab, ${skill.color} 16%, transparent)`, color:skill.color, transition:'all 0.15s' }}><Glyph g="⚙"/> Configure</button>
+            <button style={{ padding:'8px 14px', borderRadius:10, fontSize:13, cursor:'pointer', background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-muted)' }}>View runs</button>
           </div>
         </div>
       )}
@@ -233,30 +234,30 @@ function SkillCard({ skill, onToggle, onConfigure }) {
 function WorkflowVisual() {
   const [active, setActive] = React.useState('generate');
   return (
-    <div style={{ padding:'14px', borderRadius:16, background:'rgba(255,255,255,0.025)', border:'1px solid rgba(255,255,255,0.09)' }}>
-      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase', marginBottom:12 }}>How every skill works — the 5-step pattern</div>
+    <div style={{ padding:'14px', borderRadius:16, background:'color-mix(in oklab, var(--ink) 2.5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 9%, transparent)' }}>
+      <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:12 }}>How every skill works — the 5-step pattern</div>
       <div style={{ display:'flex', alignItems:'center', gap:0, overflowX:'auto' }} className="scrollbar-hide">
         {WORKFLOW_STEPS.map((step, i) => (
           <React.Fragment key={step.id}>
             <button onClick={()=>setActive(step.id)} style={{
               display:'flex', flexDirection:'column', alignItems:'center', gap:5,
               padding:'10px 14px', borderRadius:12, cursor:'pointer', flexShrink:0,
-              background:active===step.id?`${step.color}15`:'transparent',
-              border:`1px solid ${active===step.id?`${step.color}35`:'transparent'}`,
+              background:active===step.id?`color-mix(in oklab, ${step.color} 8%, transparent)`:'transparent',
+              border:`1px solid ${active===step.id?`color-mix(in oklab, ${step.color} 21%, transparent)`:'transparent'}`,
               transition:'all 0.2s',
             }}>
-              <div style={{ width:36, height:36, borderRadius:11, background:`${step.color}18`, border:`1px solid ${step.color}30`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:17 }}>{step.icon}</div>
-              <span style={{ fontSize:12, fontWeight:700, color:active===step.id?'#fff':'var(--text-muted)' }}>{step.label}</span>
-              <span style={{ fontSize:10, color:'var(--text-muted)', textAlign:'center', maxWidth:80, lineHeight:1.4 }}>{step.desc}</span>
+              <div style={{ width:36, height:36, borderRadius:11, background:`color-mix(in oklab, ${step.color} 9%, transparent)`, border:`1px solid color-mix(in oklab, ${step.color} 19%, transparent)`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:17 }}><Glyph g={step.icon}/></div>
+              <span style={{ fontSize:13, fontWeight:700, color:active===step.id?'var(--text-primary)':'var(--text-muted)' }}>{step.label}</span>
+              <span style={{ fontSize:13, color:'var(--text-muted)', textAlign:'center', maxWidth:80, lineHeight:1.4 }}>{step.desc}</span>
             </button>
             {i < WORKFLOW_STEPS.length-1 && (
-              <div style={{ width:24, height:2, background:'rgba(255,255,255,0.10)', flexShrink:0, margin:'0 -2px', marginBottom:30 }}/>
+              <div style={{ width:24, height:2, background:'color-mix(in oklab, var(--ink) 10%, transparent)', flexShrink:0, margin:'0 -2px', marginBottom:30 }}/>
             )}
           </React.Fragment>
         ))}
       </div>
       {active && (
-        <div style={{ marginTop:10, padding:'10px 12px', borderRadius:10, background:'rgba(93,162,255,0.06)', border:'1px solid rgba(93,162,255,0.14)', fontSize:12, color:'var(--text-secondary)', animation:'fadeSlideUp 0.2s ease-out' }}>
+        <div style={{ marginTop:10, padding:'10px 12px', borderRadius:10, background:'color-mix(in oklab, var(--accent) 6%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 14%, transparent)', fontSize:13, color:'var(--text-secondary)', animation:'fadeSlideUp 0.2s ease-out' }}>
           {active==='trigger' && 'A skill starts automatically — on a schedule, on a user action (like placing an order), or when a threshold is crossed (like stock going below 10 units).'}
           {active==='check' && 'Before doing anything, the agent checks a condition: "Is this cart worth recovering?" or "Has the price dropped by more than 10%?" This prevents noise and false alarms.'}
           {active==='generate' && 'The AI creates something: a personalised email, a repriced product list, a performance report, or a purchase order. Everything is human-readable before it goes anywhere.'}
@@ -374,27 +375,26 @@ function SkillsScreen() {
   const enabledCount = effectiveSkills.filter(s=>s.enabled).length;
 
   return (
-    <div style={{ padding:'20px 16px 48px', maxWidth:960, margin:'0 auto' }}>
+    <div style={{ padding:'20px 16px 48px', maxWidth:1200, margin:'0 auto' }}>
       {/* Header with plain-language intro */}
-      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:6 }}>Agentic Commerce · Preview</div>
       <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', flexWrap:'wrap', gap:10, marginBottom:14 }}>
         <div>
-          <h1 style={{ fontSize:26, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1, marginBottom:6 }}>
+          <h1 style={{ fontSize:26, fontWeight:700, color:'var(--text-primary)', letterSpacing:'-0.04em', lineHeight:1.1, marginBottom:6 }}>
             <Explain term="Skills & Workflows">A "skill" is a pre-built task that an AI agent runs automatically — like sending a cart recovery email or monitoring competitor prices. You turn them on and the agent does the rest.</Explain>
           </h1>
           <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.6, maxWidth:560 }}>
             These are ready-made automations for your Shopify store. Each one is a complete workflow — from the trigger that starts it, to the AI that handles the work, to the action it takes. <strong style={{ color:'var(--text-secondary)' }}>No code needed.</strong> Turn on what you need, leave off what you don't.
           </p>
         </div>
-        <div style={{ padding:'10px 16px', borderRadius:14, background:'rgba(70,217,164,0.06)', border:'1px solid rgba(70,217,164,0.15)', textAlign:'center' }}>
-          <div style={{ fontSize:22, fontWeight:800, color:'#46d9a4', letterSpacing:'-0.03em' }}>{enabledCount}</div>
-          <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.10em' }}>Toggled on</div>
+        <div style={{ padding:'10px 16px', borderRadius:14, background:'color-mix(in oklab, var(--success) 6%, transparent)', border:'1px solid color-mix(in oklab, var(--success) 15%, transparent)', textAlign:'center' }}>
+          <div style={{ fontSize:22, fontWeight:700, color:'var(--success)', letterSpacing:'-0.03em' }}>{enabledCount}</div>
+          <div style={{ fontSize:13, color:'var(--text-muted)' }}>Toggled on</div>
         </div>
       </div>
 
       {/* Honest preview notice — templates are illustrative; registry comes from the backend */}
       {tab === 'catalogue' && (
-        <div style={{ padding:'10px 14px', borderRadius:12, background:'rgba(93,162,255,0.06)', border:'1px solid rgba(93,162,255,0.18)', marginBottom:16, fontSize:12, color:'var(--text-secondary)', lineHeight:1.5 }}>
+        <div style={{ padding:'10px 14px', borderRadius:12, background:'color-mix(in oklab, var(--accent) 6%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 18%, transparent)', marginBottom:16, fontSize:13, color:'var(--text-secondary)', lineHeight:1.5 }}>
           <strong style={{ color:'var(--accent)' }}>Catalogue.</strong> The commerce skill templates are <strong>illustrative examples</strong> — toggling is session-only. The <strong>Recommended</strong> and <strong>Registry</strong> tabs call live backend APIs and reflect real specialist skill bindings.
         </div>
       )}
@@ -408,11 +408,11 @@ function SkillsScreen() {
           { id:'catalogue', label:'Catalogue (demo)' },
         ].map(t => (
           <button key={t.id} onClick={()=>{ userPickedTab.current = true; setTab(t.id); }} style={{
-            padding:'6px 14px', borderRadius:999, fontSize:12, fontWeight:600, cursor:'pointer',
-            fontFamily:'var(--font-mono)', letterSpacing:'0.04em',
-            background: tab===t.id ? 'rgba(93,162,255,0.14)' : 'rgba(255,255,255,0.04)',
-            border:`1px solid ${tab===t.id ? 'rgba(93,162,255,0.40)' : 'rgba(255,255,255,0.12)'}`,
-            color: tab===t.id ? '#fff' : 'var(--text-secondary)', transition:'all 0.15s',
+            padding:'6px 14px', borderRadius:999, fontSize:13, fontWeight:600, cursor:'pointer',
+            fontVariantNumeric:'tabular-nums',
+            background: tab===t.id ? 'color-mix(in oklab, var(--accent) 14%, transparent)' : 'color-mix(in oklab, var(--ink) 4%, transparent)',
+            border:`1px solid ${tab===t.id ? 'color-mix(in oklab, var(--accent) 40%, transparent)' : 'color-mix(in oklab, var(--ink) 12%, transparent)'}`,
+            color: tab===t.id ? 'var(--text-primary)' : 'var(--text-secondary)', transition:'all 0.15s',
           }}>{t.label}</button>
         ))}
       </div>
@@ -424,26 +424,26 @@ function SkillsScreen() {
       {tab === 'recommended' && (
         <div style={{ marginBottom:16 }}>
           {recommended.length === 0 ? (
-            <div style={{ padding:'32px', textAlign:'center', color:'var(--text-muted)', fontSize:13 }}>
+            <div style={{ padding:'32px', textAlign:'center', color:'var(--text-muted)', fontSize:14 }}>
               No scan data yet — run a website or repo scan in Company Graph to get personalised skill recommendations.
             </div>
           ) : (
             <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
               {recommended.map(skill => (
-                <div key={skill.skill_id} style={{ padding:'14px 16px', borderRadius:16, background:'rgba(93,162,255,0.04)', border:'1px solid rgba(93,162,255,0.15)' }}>
+                <div key={skill.skill_id} style={{ padding:'14px 16px', borderRadius:16, background:'color-mix(in oklab, var(--accent) 4%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 15%, transparent)' }}>
                   <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', gap:10 }}>
                     <div style={{ flex:1 }}>
-                      <div style={{ fontSize:14, fontWeight:700, color:'#fff', marginBottom:3 }}>{skill.name}</div>
-                      <div style={{ fontSize:12, color:'var(--text-secondary)', lineHeight:1.5, marginBottom:5 }}>{skill.description}</div>
+                      <div style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)', marginBottom:3 }}>{skill.name}</div>
+                      <div style={{ fontSize:13, color:'var(--text-secondary)', lineHeight:1.5, marginBottom:5 }}>{skill.description}</div>
                       <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
                         {(skill.reasons || []).map(r => (
-                          <span key={r} style={{ fontSize:10, padding:'2px 7px', borderRadius:999, background:'rgba(70,217,164,0.08)', border:'1px solid rgba(70,217,164,0.18)', color:'#46d9a4', fontFamily:'var(--font-mono)' }}>{r}</span>
+                          <span key={r} style={{ fontSize:13, padding:'2px 7px', borderRadius:999, background:'color-mix(in oklab, var(--success) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--success) 18%, transparent)', color:'var(--success)', fontVariantNumeric:'tabular-nums' }}>{r}</span>
                         ))}
-                        <span style={{ fontSize:10, padding:'2px 7px', borderRadius:999, background:'rgba(93,162,255,0.08)', border:'1px solid rgba(93,162,255,0.18)', color:'var(--accent)', fontFamily:'var(--font-mono)' }}>score: {skill.score}</span>
+                        <span style={{ fontSize:13, padding:'2px 7px', borderRadius:999, background:'color-mix(in oklab, var(--accent) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 18%, transparent)', color:'var(--accent)', fontVariantNumeric:'tabular-nums' }}>score: {skill.score}</span>
                       </div>
                     </div>
                     {skill.url && (
-                      <a href={skill.url} target="_blank" rel="noreferrer" style={{ padding:'6px 12px', borderRadius:10, background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.22)', color:'var(--accent)', fontSize:11, textDecoration:'none', whiteSpace:'nowrap' }}>View →</a>
+                      <a href={skill.url} target="_blank" rel="noreferrer" style={{ padding:'6px 12px', borderRadius:10, background:'color-mix(in oklab, var(--accent) 10%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 22%, transparent)', color:'var(--accent)', fontSize:13, textDecoration:'none', whiteSpace:'nowrap' }}>View →</a>
                     )}
                   </div>
                 </div>
@@ -457,54 +457,54 @@ function SkillsScreen() {
       {tab === 'registry' && (
         <div style={{ marginBottom:16 }}>
           <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
-            <span style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.10em', textTransform:'uppercase' }}>
+            <span style={{ fontSize:13, color:'var(--text-muted)' }}>
               {liveSkills ? `${liveSkills.length} bound · ` : ''}{remoteSkills ? `${remoteSkills.length} remote` : ''}
             </span>
             <button onClick={handleRefresh} disabled={refreshing} style={{
-              padding:'4px 12px', borderRadius:999, fontSize:11, fontWeight:600, cursor:'pointer',
-              background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.22)',
-              color:'var(--accent)', fontFamily:'var(--font-mono)', letterSpacing:'0.04em',
+              padding:'4px 12px', borderRadius:999, fontSize:13, fontWeight:600, cursor:'pointer',
+              background:'color-mix(in oklab, var(--accent) 10%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 22%, transparent)',
+              color:'var(--accent)', fontVariantNumeric:'tabular-nums',
             }}>{refreshing ? 'Refreshing…' : 'Refresh registry'}</button>
           </div>
-          {refreshError && <div role="alert" style={{ color:'#ff6b7d', fontSize:12, marginBottom:10 }}>{refreshError}</div>}
+          {refreshError && <div role="alert" style={{ color:'var(--danger)', fontSize:13, marginBottom:10 }}>{refreshError}</div>}
           {!liveSkills && !remoteSkills ? (
-            <div style={{ padding:'32px', textAlign:'center', color:'var(--text-muted)', fontSize:13 }}>Click "Refresh registry" to fetch skills from bound specialists and GitHub registries.</div>
+            <div style={{ padding:'32px', textAlign:'center', color:'var(--text-muted)', fontSize:14 }}>Click "Refresh registry" to fetch skills from bound specialists and GitHub registries.</div>
           ) : (
             <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
               {(liveSkills || []).map(skill => (
-                <div key={skill.skill_id} style={{ padding:'12px 14px', borderRadius:14, background:'rgba(255,255,255,0.025)', border:'1px solid rgba(255,255,255,0.08)' }}>
+                <div key={skill.skill_id} style={{ padding:'12px 14px', borderRadius:14, background:'color-mix(in oklab, var(--ink) 2.5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 8%, transparent)' }}>
                   <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8 }}>
                     <div style={{ flex:1 }}>
-                      <div style={{ fontSize:13, fontWeight:700, color:'#fff', marginBottom:2 }}>{skill.name}</div>
-                      <div style={{ fontSize:11, color:'var(--text-tertiary)', lineHeight:1.5, marginBottom:4 }}>{skill.description}</div>
+                      <div style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)', marginBottom:2 }}>{skill.name}</div>
+                      <div style={{ fontSize:13, color:'var(--text-tertiary)', lineHeight:1.5, marginBottom:4 }}>{skill.description}</div>
                       <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
-                        <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'1px 6px', borderRadius:4, background:'rgba(255,255,255,0.05)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.09em' }}>{skill.source || 'bound'}</span>
+                        <span style={{ fontSize:13, padding:'1px 6px', borderRadius:4, background:'color-mix(in oklab, var(--ink) 5%, transparent)', color:'var(--text-muted)' }}>{skill.source || 'bound'}</span>
                         {(skill.tech_relevance || []).slice(0,3).map(t => (
-                          <span key={t} style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'1px 6px', borderRadius:4, background:'rgba(93,162,255,0.06)', color:'var(--accent)', border:'1px solid rgba(93,162,255,0.15)' }}>{t}</span>
+                          <span key={t} style={{ fontSize:13, fontVariantNumeric:'tabular-nums', padding:'1px 6px', borderRadius:4, background:'color-mix(in oklab, var(--accent) 6%, transparent)', color:'var(--accent)', border:'1px solid color-mix(in oklab, var(--accent) 15%, transparent)' }}>{t}</span>
                         ))}
                         {skill.calls_last_24h != null && (
-                          <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'1px 6px', borderRadius:4, background:'rgba(70,217,164,0.06)', color:'#46d9a4', border:'1px solid rgba(70,217,164,0.15)' }}>{skill.calls_last_24h} calls/24h</span>
+                          <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', padding:'1px 6px', borderRadius:4, background:'color-mix(in oklab, var(--success) 6%, transparent)', color:'var(--success)', border:'1px solid color-mix(in oklab, var(--success) 15%, transparent)' }}>{skill.calls_last_24h} calls/24h</span>
                         )}
                       </div>
                     </div>
                     {skill.url && (
-                      <a href={skill.url} target="_blank" rel="noreferrer" style={{ fontSize:11, color:'var(--accent)', textDecoration:'none', flexShrink:0, paddingTop:2 }}>→</a>
+                      <a href={skill.url} target="_blank" rel="noreferrer" style={{ fontSize:13, color:'var(--accent)', textDecoration:'none', flexShrink:0, paddingTop:2 }}>→</a>
                     )}
                   </div>
                 </div>
               ))}
               {(remoteSkills || []).filter(rs => !(liveSkills || []).some(ls => ls.skill_id === rs.skill_id)).map(skill => (
-                <div key={skill.skill_id} style={{ padding:'12px 14px', borderRadius:14, background:'rgba(255,255,255,0.02)', border:'1px dashed rgba(255,255,255,0.06)' }}>
+                <div key={skill.skill_id} style={{ padding:'12px 14px', borderRadius:14, background:'color-mix(in oklab, var(--ink) 2%, transparent)', border:'1px dashed color-mix(in oklab, var(--ink) 6%, transparent)' }}>
                   <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:8 }}>
                     <div style={{ flex:1 }}>
-                      <div style={{ fontSize:13, fontWeight:700, color:'var(--text-secondary)', marginBottom:2 }}>{skill.name}</div>
-                      <div style={{ fontSize:11, color:'var(--text-tertiary)', lineHeight:1.5, marginBottom:4 }}>{skill.description}</div>
+                      <div style={{ fontSize:14, fontWeight:700, color:'var(--text-secondary)', marginBottom:2 }}>{skill.name}</div>
+                      <div style={{ fontSize:13, color:'var(--text-tertiary)', lineHeight:1.5, marginBottom:4 }}>{skill.description}</div>
                       <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
-                        <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'1px 6px', borderRadius:4, background:'rgba(255,255,255,0.04)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.09em' }}>remote · {skill.source || 'github'}</span>
+                        <span style={{ fontSize:13, padding:'1px 6px', borderRadius:4, background:'color-mix(in oklab, var(--ink) 4%, transparent)', color:'var(--text-muted)' }}>remote · {skill.source || 'github'}</span>
                       </div>
                     </div>
                     {skill.url && (
-                      <a href={skill.url} target="_blank" rel="noreferrer" style={{ fontSize:11, color:'var(--accent)', textDecoration:'none', flexShrink:0, paddingTop:2 }}>→</a>
+                      <a href={skill.url} target="_blank" rel="noreferrer" style={{ fontSize:13, color:'var(--accent)', textDecoration:'none', flexShrink:0, paddingTop:2 }}>→</a>
                     )}
                   </div>
                 </div>
@@ -522,17 +522,17 @@ function SkillsScreen() {
               const c = CATEGORY_COLORS[cat] || 'var(--text-muted)';
               return (
                 <button key={cat} onClick={()=>setFilter(cat)} style={{
-                  padding:'5px 13px', borderRadius:999, fontSize:11, fontWeight:600, cursor:'pointer',
-                  background:filter===cat?'rgba(93,162,255,0.12)':'rgba(255,255,255,0.04)',
-                  border:`1px solid ${filter===cat?'rgba(93,162,255,0.32)':'rgba(255,255,255,0.09)'}`,
-                  color:filter===cat?'#fff':'var(--text-muted)', textTransform:'capitalize', transition:'all 0.15s',
+                  padding:'5px 13px', borderRadius:999, fontSize:13, fontWeight:600, cursor:'pointer',
+                  background:filter===cat?'color-mix(in oklab, var(--accent) 12%, transparent)':'color-mix(in oklab, var(--ink) 4%, transparent)',
+                  border:`1px solid ${filter===cat?'color-mix(in oklab, var(--accent) 32%, transparent)':'color-mix(in oklab, var(--ink) 9%, transparent)'}`,
+                  color:filter===cat?'var(--text-primary)':'var(--text-muted)', textTransform:'capitalize', transition:'all 0.15s',
                 }}>{cat==='all'?'All skills':cat}</button>
               );
             })}
           </div>
           <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search skills…"
-            style={{ flex:1, minWidth:140, padding:'7px 12px', borderRadius:10, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-main)' }}
-            onFocus={e=>e.target.style.borderColor='rgba(93,162,255,0.45)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.10)'}/>
+            style={{ flex:1, minWidth:140, padding:'7px 12px', borderRadius:10, background:'color-mix(in oklab, var(--ink) 4%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-primary)', fontSize:14, outline:'none', fontFamily:'var(--font-main)' }}
+            onFocus={e=>e.target.style.borderColor='color-mix(in oklab, var(--accent) 45%, transparent)'} onBlur={e=>e.target.style.borderColor='color-mix(in oklab, var(--ink) 10%, transparent)'}/>
         </div>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(320px,1fr))', gap:14 }}>
           {filtered.map(skill => <SkillCard key={skill.id} skill={skill} onToggle={toggle} onConfigure={()=>{}}/>)}

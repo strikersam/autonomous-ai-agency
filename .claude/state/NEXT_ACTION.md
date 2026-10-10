@@ -1,3 +1,13 @@
+# NEXT_ACTION — updated 2026-10-10 (UI revamp + rule 49)
+
+Branch `claude/ui-revamp`: full dashboard and landing-page redesign (see `docs/design-system.md`) plus CLAUDE.md rule 49 (no "done" without an independent verifier's PASS, mirrored into every agent instruction file).
+
+1. **Rule 49 verdict for this branch: PASS+NOTES.** Open note: on a deep link (e.g. /v5/work) the first Tab in headless Chromium did not always land on the skip link; not reproduced as a regression yet.
+2. **Backend gate for rule 49 is not built.** Agency task completion is set in several places in `backend/server.py` (`task.status = "done"`); enforcing a verifier verdict there changes the task API and needs a human decision (rule 40).
+3. Screens still worth a bespoke pass: Onboarding wizard steps, Skills catalogue, Provider console table density on tablets.
+
+---
+
 # NEXT_ACTION — updated 2026-10-10 (daily automation, GPT-6.1 Sol)
 
 **Updated:** 2026-10-10 (daily automation, branch `claude/intelligent-gates-5hxtio`)

@@ -18,13 +18,13 @@ const REFRESH_MS = 15000;
 
 function StatusPill({ row }) {
   const [bg, fg, label] = row.online
-    ? ['rgba(16,185,129,.15)', '#10b981', 'ONLINE']
+    ? ['color-mix(in oklab, var(--success) 15%, transparent)', 'var(--success)', 'ONLINE']
     : !row.enabled
-      ? ['rgba(239,68,68,.15)', '#ef4444', 'OFF']
-      : ['rgba(245,158,11,.15)', '#f59e0b', 'COOLDOWN'];
+      ? ['color-mix(in oklab, var(--danger) 15%, transparent)', 'var(--danger)', 'OFF']
+      : ['color-mix(in oklab, var(--warning) 15%, transparent)', 'var(--warning)', 'COOLDOWN'];
   return (
     <span style={{
-      background: bg, color: fg, fontSize: 10, fontWeight: 700,
+      background: bg, color: fg, fontSize:13, fontWeight: 700,
       padding: '2px 8px', borderRadius: 999, letterSpacing: '.04em',
       whiteSpace: 'nowrap',
     }}>{label}</span>
@@ -80,11 +80,11 @@ export default function ProviderHealthToggleCard() {
     }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, flexWrap: 'wrap' }}>
         <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700 }}>Provider health</h3>
-        <span style={{ fontSize: 12, color: 'var(--text-muted, #8b8b9a)' }}>
+        <span style={{ fontSize:13, color: 'var(--text-muted, var(--text-muted))' }}>
           {loaded ? `${counts.online} of ${counts.total} online` : 'loading…'}
         </span>
       </div>
-      <p style={{ fontSize: 12, color: 'var(--text-muted, #8b8b9a)', margin: '6px 0 12px' }}>
+      <p style={{ fontSize:13, color: 'var(--text-muted, var(--text-muted))', margin: '6px 0 12px' }}>
         Providers with an invalid key, no credit, or no accessible model are switched
         off automatically and stay off until you turn them back on. Rate limits and
         server errors are not switched off — they recover on their own.
@@ -92,8 +92,8 @@ export default function ProviderHealthToggleCard() {
 
       {durable === false && !error && (
         <div style={{
-          fontSize: 12, color: '#f59e0b', background: 'rgba(245,158,11,.1)',
-          border: '1px solid rgba(245,158,11,.3)', borderRadius: 8,
+          fontSize:13, color: 'var(--warning)', background: 'color-mix(in oklab, var(--warning) 10%, transparent)',
+          border: '1px solid color-mix(in oklab, var(--warning) 30%, transparent)', borderRadius: 8,
           padding: '8px 10px', marginBottom: 12,
         }}>
           These switches are saved locally only, so they reset on the next deploy.
@@ -104,23 +104,23 @@ export default function ProviderHealthToggleCard() {
 
       {error && (
         <div style={{
-          fontSize: 12, color: '#ef4444', background: 'rgba(239,68,68,.1)',
-          border: '1px solid rgba(239,68,68,.3)', borderRadius: 8,
+          fontSize:13, color: 'var(--danger)', background: 'color-mix(in oklab, var(--danger) 10%, transparent)',
+          border: '1px solid color-mix(in oklab, var(--danger) 30%, transparent)', borderRadius: 8,
           padding: '8px 10px', marginBottom: 12,
         }}>{error}</div>
       )}
 
       {loaded && !error && rows.length === 0 && (
-        <div style={{ fontSize: 12, color: 'var(--text-muted, #8b8b9a)' }}>
+        <div style={{ fontSize:13, color: 'var(--text-muted, var(--text-muted))' }}>
           No providers configured — set at least one provider API key.
         </div>
       )}
 
       <div style={{ overflowX: 'auto' }}>
         {rows.length > 0 && (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize:13 }}>
             <thead>
-              <tr style={{ textAlign: 'left', color: 'var(--text-muted, #8b8b9a)' }}>
+              <tr style={{ textAlign: 'left', color: 'var(--text-muted, var(--text-muted))' }}>
                 <th style={{ padding: '6px 8px' }}>Provider</th>
                 <th style={{ padding: '6px 8px' }}>Status</th>
                 <th style={{ padding: '6px 8px' }}>Why</th>
@@ -133,7 +133,7 @@ export default function ProviderHealthToggleCard() {
                 <tr key={row.id} style={{ borderTop: '1px solid var(--border, #2a2a35)' }}>
                   <td style={{ padding: '8px' }}>
                     <div style={{ fontWeight: 600 }}>{row.name || row.id}</div>
-                    <div style={{ color: 'var(--text-muted, #8b8b9a)', fontSize: 11 }}>
+                    <div style={{ color: 'var(--text-muted, var(--text-muted))', fontSize:13 }}>
                       {row.tier} · {row.default_model}
                     </div>
                   </td>
@@ -143,11 +143,11 @@ export default function ProviderHealthToggleCard() {
                       second copy of it — it shows why a still-enabled provider is
                       in cooldown, which is a different question. */}
                   <td style={{ padding: '8px', maxWidth: 320 }}>
-                    <span style={{ color: 'var(--text-muted, #8b8b9a)' }}>
+                    <span style={{ color: 'var(--text-muted, var(--text-muted))' }}>
                       {row.last_error || '—'}
                     </span>
                     {!row.enabled && row.auto_disabled && (
-                      <span style={{ marginLeft: 6, fontSize: 10, color: '#f59e0b' }}>
+                      <span style={{ marginLeft: 6, fontSize:13, color: 'var(--warning)' }}>
                         (automatic)
                       </span>
                     )}
@@ -155,7 +155,7 @@ export default function ProviderHealthToggleCard() {
                   <td style={{ padding: '8px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                     {row.total_calls}
                     {row.total_failures > 0 && (
-                      <span style={{ color: '#ef4444' }}> / {row.total_failures} failed</span>
+                      <span style={{ color: 'var(--danger)' }}> / {row.total_failures} failed</span>
                     )}
                   </td>
                   <td style={{ padding: '8px', textAlign: 'right' }}>
@@ -170,14 +170,14 @@ export default function ProviderHealthToggleCard() {
                         <span
                           title={row.disabled_reason}
                           style={{
-                            fontSize: 11, textAlign: 'right', maxWidth: 260,
-                            color: 'var(--text-muted, #8b8b9a)',
+                            fontSize:13, textAlign: 'right', maxWidth: 260,
+                            color: 'var(--text-muted, var(--text-muted))',
                           }}
                         >
                           {row.disabled_code && (
                             <span style={{
                               fontFamily: 'ui-monospace, monospace', fontWeight: 700,
-                              color: row.auto_disabled ? '#f59e0b' : 'inherit',
+                              color: row.auto_disabled ? 'var(--warning)' : 'inherit',
                               marginRight: 5,
                             }}>{row.disabled_code}</span>
                           )}
@@ -196,10 +196,10 @@ export default function ProviderHealthToggleCard() {
                         aria-label={`${row.enabled ? 'Disable' : 'Enable'} ${row.name || row.id}`}
                         style={{
                           cursor: busy === row.id ? 'wait' : 'pointer',
-                          background: row.enabled ? 'rgba(16,185,129,.15)' : 'transparent',
-                          color: row.enabled ? '#10b981' : 'var(--text-muted, #8b8b9a)',
-                          border: `1px solid ${row.enabled ? '#10b981' : 'var(--border, #2a2a35)'}`,
-                          borderRadius: 999, padding: '4px 12px', fontSize: 11,
+                          background: row.enabled ? 'color-mix(in oklab, var(--success) 15%, transparent)' : 'transparent',
+                          color: row.enabled ? 'var(--success)' : 'var(--text-muted, var(--text-muted))',
+                          border: `1px solid ${row.enabled ? 'var(--success)' : 'var(--border, #2a2a35)'}`,
+                          borderRadius: 999, padding: '4px 12px', fontSize:13,
                           fontWeight: 700, minWidth: 56, flexShrink: 0,
                         }}
                       >

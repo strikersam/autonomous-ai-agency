@@ -2,6 +2,7 @@ import React from 'react';
 import { useReportSub } from '../screenContext';
 import HubTabs from '../components/ui/HubTabs';
 import Spinner from '../components/ui/Spinner';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 const CompanyScreen = React.lazy(() => import('./CompanyScreen'));
 const AgentsScreen = React.lazy(() => import('./AgentsScreen'));
@@ -31,6 +32,7 @@ export default function CompanyHub({ initialTab, onNavigate, isAdmin }) {
   return (
     <div>
       <HubTabs tabs={TABS} active={tab} onChange={setTab} />
+      <ErrorBoundary resetKey={tab}>
       <React.Suspense fallback={<Spinner center />}>
         {tab === 'overview' && <CompanyScreen />}
         {tab === 'team' && (
@@ -43,6 +45,7 @@ export default function CompanyHub({ initialTab, onNavigate, isAdmin }) {
         {tab === 'knowledge' && <KnowledgeScreen />}
         {tab === 'setup' && <OnboardingScreen onComplete={() => setTab('overview')} isAdmin={isAdmin} />}
       </React.Suspense>
+      </ErrorBoundary>
     </div>
   );
 }

@@ -90,7 +90,7 @@ describe('DashboardScreen spend-by-task-type widget', () => {
       },
       totals: { calls: 12, estimated_cost_usd: 0 },
     });
-    expect(screen.getByText('Calls by Task Type')).toBeInTheDocument();
+    expect(screen.getByText('Calls by task type')).toBeInTheDocument();
     expect(screen.getByText(/free tier/)).toBeInTheDocument();
     // the biggest bucket is charted at its call count, not at a $0 minimum sliver
     expect(screen.getByTitle('code generation: 9')).toBeInTheDocument();
@@ -101,7 +101,7 @@ describe('DashboardScreen spend-by-task-type widget', () => {
       by_tag: { reasoning: { calls: 2, total_tokens: 500, estimated_cost_usd: 0.0123 } },
       totals: { calls: 2, estimated_cost_usd: 0.0123 },
     });
-    expect(screen.getByText('Spend by Task Type')).toBeInTheDocument();
+    expect(screen.getByText('Spend by task type')).toBeInTheDocument();
     expect(screen.getByText(/\$0\.0123 est\. spend/)).toBeInTheDocument();
   });
 });

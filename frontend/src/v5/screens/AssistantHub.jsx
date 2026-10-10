@@ -20,16 +20,16 @@ export default function AssistantHub({ initialMode = 'chat' }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 16px 0' }}>
-        <div style={{ display: 'inline-flex', gap: 2, padding: 3, borderRadius: 999, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+        <div style={{ display: 'inline-flex', gap: 2, padding: 3, borderRadius: 999, background: 'color-mix(in oklab, var(--ink) 4%, transparent)', border: '1px solid color-mix(in oklab, var(--ink) 8%, transparent)' }}>
           {[['chat', 'Type'], ['voice', 'Speak']].map(([id, label]) => (
             <button
               key={id}
               onClick={() => setMode(id)}
               style={{
-                padding: '5px 14px', borderRadius: 999, fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                padding: '5px 14px', borderRadius: 999, fontSize:13, fontWeight: 700, cursor: 'pointer',
                 border: 'none', fontFamily: 'var(--font-main)', transition: 'all 0.15s',
-                background: mode === id ? 'rgba(93,162,255,0.18)' : 'transparent',
-                color: mode === id ? '#fff' : 'var(--text-muted)',
+                background: mode === id ? 'color-mix(in oklab, var(--accent) 18%, transparent)' : 'transparent',
+                color: mode === id ? 'var(--text-primary)' : 'var(--text-muted)',
               }}
             >
               {label}

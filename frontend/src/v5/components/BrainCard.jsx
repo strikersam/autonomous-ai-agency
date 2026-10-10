@@ -20,6 +20,7 @@
 // with a probe report — we surface the failure inline rather than
 // persisting a dead model.
 import React from 'react';
+import Glyph from '../components/ui/Glyph';
 import * as api from '../../api';
 
 const ROLE_LABELS = {
@@ -217,16 +218,16 @@ export default function BrainCard() {
     return (
       <div style={styles.card}>
         <div style={styles.header}>Brain</div>
-        <div style={{ padding: 16, fontSize: 13, color: 'var(--text-muted)' }}>Loading brain config…</div>
+        <div style={{ padding: 16, fontSize:14, color: 'var(--text-muted)' }}>Loading brain config…</div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div style={{ ...styles.card, borderColor: 'rgba(255,107,125,0.30)' }}>
+      <div style={{ ...styles.card, borderColor: 'color-mix(in oklab, var(--danger) 30%, transparent)' }}>
         <div style={styles.header}>Brain</div>
-        <div style={{ padding: 16, fontSize: 13, color: '#ff6b7d' }}>{error}</div>
+        <div style={{ padding: 16, fontSize:14, color: 'var(--danger)' }}>{error}</div>
       </div>
     );
   }
@@ -235,7 +236,7 @@ export default function BrainCard() {
     <div style={styles.card}>
       <div style={styles.header}>
         <span>Brain</span>
-        <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', letterSpacing: '0.10em' }}>
+        <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)' }}>
           {config?.updated_at ? `last applied ${config.updated_at} by ${config.updated_by || 'unknown'}` : 'never applied — using safe default'}
         </span>
       </div>
@@ -262,8 +263,8 @@ export default function BrainCard() {
             })}
           </select>
           {keyMissing && (
-            <div style={{ marginTop: 6, fontSize: 11, color: '#ffbd66', fontFamily: 'var(--font-mono)' }}>
-              ⚠ {selectedProvider.toUpperCase()}_API_KEY is not set on the server. Apply will be rejected until the key is configured.
+            <div style={{ marginTop: 6, fontSize:13, color: 'var(--warning)', fontVariantNumeric:'tabular-nums' }}>
+              <Glyph g="⚠"/> {selectedProvider.toUpperCase()}_API_KEY is not set on the server. Apply will be rejected until the key is configured.
             </div>
           )}
           {selectedProvider === 'ollama' && (
@@ -276,7 +277,7 @@ export default function BrainCard() {
                 placeholder="https://your-tunnel.trycloudflare.com  (blank = OLLAMA_BASE env / localhost)"
                 style={styles.select}
               />
-              <div style={{ marginTop: 6, fontSize: 11, color: '#8fb6ff', fontFamily: 'var(--font-mono)', lineHeight: 1.5 }}>
+              <div style={{ marginTop: 6, fontSize:13, color: 'var(--accent)', fontFamily: 'var(--font-mono)', lineHeight: 1.5 }}>
                 ℹ Point the brain at your own machine — run <b>ollama serve</b>, expose it with a tunnel
                 (a named Cloudflare Tunnel is best; ngrok's free URL rotates), and paste the URL here. No
                 Render/env edit needed — it's saved in the DB. Test probes this URL and checks the model is
@@ -285,7 +286,7 @@ export default function BrainCard() {
               </div>
             </div>
           )}
-          <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
+          <div style={{ marginTop: 6, fontSize:13, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
             base URL: {providerMeta.base_url || '—'}
           </div>
         </div>
@@ -366,15 +367,15 @@ export default function BrainCard() {
             {applyBusy ? 'Applying…' : 'Apply'}
           </button>
           {applyError && (
-            <span style={{ fontSize: 12, color: '#ff6b7d', fontFamily: 'var(--font-mono)' }}>{applyError}</span>
+            <span style={{ fontSize:13, color: 'var(--danger)', fontVariantNumeric:'tabular-nums' }}>{applyError}</span>
           )}
           {applyResult?.ok && (
-            <span style={{ fontSize: 12, color: '#46d9a4', fontFamily: 'var(--font-mono)' }}>
+            <span style={{ fontSize:13, color: 'var(--success)', fontVariantNumeric:'tabular-nums' }}>
               ✓ Applied — {applyResult.probe_report.length} model(s) probed live
             </span>
           )}
           {applyResult && !applyResult.ok && Array.isArray(applyResult.failures) && applyResult.failures.length > 0 && (
-            <span style={{ fontSize: 12, color: '#ff6b7d', fontFamily: 'var(--font-mono)' }}>
+            <span style={{ fontSize:13, color: 'var(--danger)', fontVariantNumeric:'tabular-nums' }}>
               ✗ Rejected — {applyResult.failures.length} model(s) failed liveness probe (config unchanged)
             </span>
           )}
@@ -382,12 +383,12 @@ export default function BrainCard() {
 
         {/* Probe report (only shown after an Apply attempt) */}
         {applyResult && Array.isArray(applyResult.probe_report) && applyResult.probe_report.length > 0 && (
-          <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
-            <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: 6 }}>
+          <div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: 'color-mix(in oklab, var(--ink) 3%, transparent)', border: '1px solid color-mix(in oklab, var(--ink) 6%, transparent)' }}>
+            <div style={{ fontSize:13, color: 'var(--text-muted)', marginBottom: 6 }}>
               Probe report
             </div>
             {applyResult.probe_report.map((p, i) => (
-              <div key={i} style={{ display: 'flex', gap: 8, fontSize: 11, fontFamily: 'var(--font-mono)', marginBottom: 3, color: p.live ? '#46d9a4' : '#ff6b7d' }}>
+              <div key={i} style={{ display: 'flex', gap: 8, fontSize:13, fontVariantNumeric:'tabular-nums', marginBottom: 3, color: p.live ? 'var(--success)' : 'var(--danger)' }}>
                 <span style={{ minWidth: 70 }}>{p.role}</span>
                 <span style={{ minWidth: 200, color: 'var(--text-secondary)' }}>{p.model}</span>
                 <span>{p.live ? '✓ live' : `✗ ${p.reason || 'failed'}`}</span>
@@ -405,7 +406,7 @@ function TestBadge({ result }) {
   if (!result) return <span style={{ minWidth: 80 }} />;
   if (result.live) {
     return (
-      <span style={{ minWidth: 80, fontSize: 11, color: '#46d9a4', fontFamily: 'var(--font-mono)' }}>
+      <span style={{ minWidth: 80, fontSize:13, color: 'var(--success)', fontVariantNumeric:'tabular-nums' }}>
         ✓ live{result.elapsed_ms != null ? ` · ${result.elapsed_ms}ms` : ''}
       </span>
     );
@@ -413,7 +414,7 @@ function TestBadge({ result }) {
   return (
     <span
       title={result.reason || 'failed'}
-      style={{ minWidth: 80, fontSize: 11, color: '#ff6b7d', fontFamily: 'var(--font-mono)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+      style={{ minWidth: 80, fontSize:13, color: 'var(--danger)', fontVariantNumeric:'tabular-nums', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
     >
       ✗ {result.reason ? result.reason.slice(0, 30) : 'failed'}
     </span>
@@ -423,8 +424,8 @@ function TestBadge({ result }) {
 const styles = {
   card: {
     borderRadius: 16,
-    border: '1px solid rgba(93,162,255,0.18)',
-    background: 'rgba(93,162,255,0.04)',
+    border: '1px solid color-mix(in oklab, var(--accent) 18%, transparent)',
+    background: 'color-mix(in oklab, var(--accent) 4%, transparent)',
     marginBottom: 14,
     overflow: 'hidden',
   },
@@ -433,10 +434,10 @@ const styles = {
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: '12px 16px',
-    borderBottom: '1px solid rgba(255,255,255,0.06)',
-    fontSize: 13,
+    borderBottom: '1px solid color-mix(in oklab, var(--ink) 6%, transparent)',
+    fontSize:14,
     fontWeight: 800,
-    color: '#fff',
+    color: 'var(--text-primary)',
     letterSpacing: '-0.02em',
   },
   body: {
@@ -444,22 +445,20 @@ const styles = {
   },
   label: {
     display: 'block',
-    fontSize: 10,
-    fontFamily: 'var(--font-mono)',
+    fontSize:13,
+    fontVariantNumeric:'tabular-nums',
     color: 'var(--text-muted)',
-    textTransform: 'uppercase',
-    letterSpacing: '0.10em',
     marginBottom: 6,
   },
   select: {
     width: '100%',
     padding: '8px 10px',
     borderRadius: 8,
-    background: 'rgba(255,255,255,0.05)',
-    border: '1px solid rgba(255,255,255,0.10)',
-    color: '#fff',
-    fontSize: 13,
-    fontFamily: 'var(--font-mono)',
+    background: 'color-mix(in oklab, var(--ink) 5%, transparent)',
+    border: '1px solid color-mix(in oklab, var(--ink) 10%, transparent)',
+    color: 'var(--text-primary)',
+    fontSize:14,
+    fontVariantNumeric:'tabular-nums',
     outline: 'none',
     cursor: 'pointer',
   },
@@ -469,11 +468,11 @@ const styles = {
     gap: 8,
     padding: '6px 8px',
     borderRadius: 8,
-    background: 'rgba(255,255,255,0.02)',
-    border: '1px solid rgba(255,255,255,0.04)',
+    background: 'color-mix(in oklab, var(--ink) 2%, transparent)',
+    border: '1px solid color-mix(in oklab, var(--ink) 4%, transparent)',
   },
   roleLabel: {
-    fontSize: 11,
+    fontSize:13,
     fontWeight: 700,
     color: 'var(--text-secondary)',
     letterSpacing: '-0.01em',
@@ -482,21 +481,21 @@ const styles = {
     flex: 1,
     padding: '6px 10px',
     borderRadius: 6,
-    background: 'rgba(255,255,255,0.05)',
-    border: '1px solid rgba(255,255,255,0.10)',
-    color: '#fff',
-    fontSize: 12,
-    fontFamily: 'var(--font-mono)',
+    background: 'color-mix(in oklab, var(--ink) 5%, transparent)',
+    border: '1px solid color-mix(in oklab, var(--ink) 10%, transparent)',
+    color: 'var(--text-primary)',
+    fontSize:13,
+    fontVariantNumeric:'tabular-nums',
     outline: 'none',
     minWidth: 0,
   },
   testBtn: {
     padding: '6px 12px',
     borderRadius: 6,
-    background: 'rgba(93,162,255,0.10)',
-    border: '1px solid rgba(93,162,255,0.30)',
+    background: 'color-mix(in oklab, var(--accent) 10%, transparent)',
+    border: '1px solid color-mix(in oklab, var(--accent) 30%, transparent)',
     color: 'var(--accent)',
-    fontSize: 11,
+    fontSize:13,
     fontWeight: 700,
     cursor: 'pointer',
     minWidth: 56,
@@ -504,9 +503,9 @@ const styles = {
   applyBtn: {
     padding: '9px 22px',
     borderRadius: 10,
-    background: 'linear-gradient(135deg, #5da2ff, #2ecc71)',
-    color: '#06111f',
-    fontSize: 13,
+    background: 'linear-gradient(135deg, var(--accent), var(--success))',
+    color: 'var(--on-accent)',
+    fontSize:14,
     fontWeight: 800,
     border: 'none',
     letterSpacing: '-0.02em',

@@ -161,7 +161,9 @@ def _get_defaults() -> dict[str, str]:
 STANDING_INSTRUCTIONS_NOTICE = (
     "You are bound by the mandatory Standing Instructions in CLAUDE.md §2 "
     "(verification, epistemic marking, completeness, self-attack, refusing "
-    "to guess) — apply them to every response in this role."
+    "to guess) — apply them to every response in this role. Rule 49: never "
+    "report a task done until a verifier that did not write the work has "
+    "exercised the real artifact and returned PASS or PASS+NOTES."
 )
 
 SCOUT_SYSTEM = """\

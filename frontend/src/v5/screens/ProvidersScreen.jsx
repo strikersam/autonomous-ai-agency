@@ -1,5 +1,6 @@
 /* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
 import React from 'react';
+import Glyph from '../components/ui/Glyph';
 import { Link } from 'react-router-dom';
 import { useSafeData } from '../hooks/useSafeData';
 import * as api from '../../api';
@@ -17,26 +18,26 @@ import ProviderConsole from '../components/ProviderConsole';
 // backend (GET /api/providers). The catalogue doubles as quick-fill templates.
 const ALL_PROVIDERS = [
   { id:'nvidia-nim',   name:'NVIDIA NIM',      tier:'free',       icon:'⬡', color:'#76b900', defaultPriority:0, defaultModel:'nvidia/nemotron-3-super-120b-a12b', models:['nvidia/nemotron-3-super-120b-a12b','nvidia/llama-3.1-nemotron-70b-instruct','nvidia/mistral-nemo-12b-instruct'], keyEnv:'NVIDIA_API_KEY', keyHint:'nvapi-…', free:true, desc:'Free hosted inference. No GPU needed. Priority 0 — tried first.', capabilities:['chat','code','reasoning'] },
-  { id:'ollama',       name:'Local Ollama',     tier:'local',      icon:'◎', color:'#5da2ff', defaultPriority:1, defaultModel:'qwen3-coder:30b', models:['qwen3-coder:7b','qwen3-coder:30b','qwen3-coder:235b','qwen3.6:35b','deepseek-r1:32b','deepseek-r1:671b','deepseek-v3:685b','gemma4:9b','gemma4:27b','llama4-scout:17b','llama4-maverick:17b'], keyEnv:null, free:true, desc:'Fully local, private, on-device. Manage models from the Ollama tab.', capabilities:['chat','code','reasoning','vision'] },
-  { id:'colibri',      name:'Local Colibri',    tier:'local',      icon:'⌘', color:'#10b981', defaultPriority:2, defaultModel:'glm-5.2', models:['glm-5.2'], keyEnv:null, free:true, desc:'Local GLM-5.2 744B MoE served via JustVugg/colibri. Starts on port 8081.', capabilities:['chat','code','reasoning'] },
-  { id:'groq',         name:'Groq',             tier:'free-cloud', icon:'⚡', color:'#f97316', defaultPriority:3, defaultModel:'llama-3.3-70b-versatile', models:['llama-3.3-70b-versatile','llama-3.1-8b-instant','mixtral-8x7b-32768','gemma2-9b-it'], keyEnv:'GROQ_API_KEY', keyHint:'gsk_…', free:true, desc:'Ultra-fast inference. Free tier available.', capabilities:['chat','code'] },
-  { id:'deepseek',     name:'DeepSeek API',     tier:'free-cloud', icon:'◈', color:'#6366f1', defaultPriority:3, defaultModel:'deepseek-chat', models:['deepseek-chat','deepseek-reasoner','deepseek-coder'], keyEnv:'DEEPSEEK_API_KEY', keyHint:'sk-…', free:true, desc:'Excellent coder + reasoner. Very competitive pricing.', capabilities:['chat','code','reasoning'] },
+  { id:'ollama',       name:'Local Ollama',     tier:'local',      icon:'◎', color:'var(--accent)', defaultPriority:1, defaultModel:'qwen3-coder:30b', models:['qwen3-coder:7b','qwen3-coder:30b','qwen3-coder:235b','qwen3.6:35b','deepseek-r1:32b','deepseek-r1:671b','deepseek-v3:685b','gemma4:9b','gemma4:27b','llama4-scout:17b','llama4-maverick:17b'], keyEnv:null, free:true, desc:'Fully local, private, on-device. Manage models from the Ollama tab.', capabilities:['chat','code','reasoning','vision'] },
+  { id:'colibri',      name:'Local Colibri',    tier:'local',      icon:'⌘', color:'var(--success)', defaultPriority:2, defaultModel:'glm-5.2', models:['glm-5.2'], keyEnv:null, free:true, desc:'Local GLM-5.2 744B MoE served via JustVugg/colibri. Starts on port 8081.', capabilities:['chat','code','reasoning'] },
+  { id:'groq',         name:'Groq',             tier:'free-cloud', icon:'⚡', color:'var(--warning)', defaultPriority:3, defaultModel:'llama-3.3-70b-versatile', models:['llama-3.3-70b-versatile','llama-3.1-8b-instant','mixtral-8x7b-32768','gemma2-9b-it'], keyEnv:'GROQ_API_KEY', keyHint:'gsk_…', free:true, desc:'Ultra-fast inference. Free tier available.', capabilities:['chat','code'] },
+  { id:'deepseek',     name:'DeepSeek API',     tier:'free-cloud', icon:'◈', color:'var(--accent)', defaultPriority:3, defaultModel:'deepseek-chat', models:['deepseek-chat','deepseek-reasoner','deepseek-coder'], keyEnv:'DEEPSEEK_API_KEY', keyHint:'sk-…', free:true, desc:'Excellent coder + reasoner. Very competitive pricing.', capabilities:['chat','code','reasoning'] },
   { id:'gemini',       name:'Google Gemini',    tier:'free-cloud', icon:'✦', color:'#4285f4', defaultPriority:3, defaultModel:'gemini-2.0-flash', models:['gemini-2.0-flash','gemini-1.5-pro','gemini-1.5-flash','gemini-2.0-flash-thinking-exp'], keyEnv:'GOOGLE_API_KEY', keyHint:'AIza…', free:true, desc:'Generous free tier with vision support.', capabilities:['chat','code','vision','reasoning'] },
-  { id:'cerebras',     name:'Cerebras',         tier:'free-cloud', icon:'◉', color:'#ef4444', defaultPriority:3, defaultModel:'llama-3.3-70b', models:['llama-3.3-70b','llama-3.1-8b','llama-3.1-70b'], keyEnv:'CEREBRAS_API_KEY', keyHint:'csk-…', free:true, desc:'Fastest inference. Purpose-built wafer-scale chip.', capabilities:['chat','code'] },
+  { id:'cerebras',     name:'Cerebras',         tier:'free-cloud', icon:'◉', color:'var(--danger)', defaultPriority:3, defaultModel:'llama-3.3-70b', models:['llama-3.3-70b','llama-3.1-8b','llama-3.1-70b'], keyEnv:'CEREBRAS_API_KEY', keyHint:'csk-…', free:true, desc:'Fastest inference. Purpose-built wafer-scale chip.', capabilities:['chat','code'] },
   { id:'sambanova',    name:'SambaNova',        tier:'free-cloud', icon:'◇', color:'#8b5cf6', defaultPriority:3, defaultModel:'Meta-Llama-3.3-70B-Instruct', models:['Meta-Llama-3.3-70B-Instruct','Meta-Llama-3.1-405B-Instruct'], keyEnv:'SAMBANOVA_API_KEY', keyHint:'snova-…', free:true, desc:'Large context streaming-focused inference.', capabilities:['chat','code'] },
   { id:'together',     name:'Together AI',      tier:'free-cloud', icon:'⊕', color:'#06b6d4', defaultPriority:3, defaultModel:'Llama-3.3-70B-Instruct-Turbo-Free', models:['Llama-3.3-70B-Instruct-Turbo-Free','Mixtral-8x7B-Instruct-v0.1-Free'], keyEnv:'TOGETHER_API_KEY', keyHint:'together-…', free:true, desc:'Wide model catalogue, many free options.', capabilities:['chat','code','reasoning'] },
-  { id:'mistral',      name:'Mistral',          tier:'free-cloud', icon:'≋', color:'#f59e0b', defaultPriority:3, defaultModel:'mistral-small-latest', models:['mistral-small-latest','mistral-large-latest','codestral-latest','mistral-nemo'], keyEnv:'MISTRAL_API_KEY', keyHint:'mis-…', free:false, desc:'Strong multilingual and code. European provider.', capabilities:['chat','code'] },
-  { id:'huggingface',  name:'Hugging Face',     tier:'free-cloud', icon:'🤗', color:'#fbbf24', defaultPriority:3, defaultModel:'serverless', models:['serverless'], keyEnv:'HF_TOKEN', keyHint:'hf_…', free:true, desc:'Serverless inference on thousands of open models.', capabilities:['chat','code'] },
-  { id:'cloudflare',   name:'Cloudflare AI',    tier:'free-cloud', icon:'☁', color:'#f97316', defaultPriority:3, defaultModel:'@cf/meta/llama-3.3-70b-instruct-fp8-fast', models:['@cf/meta/llama-3.3-70b-instruct-fp8-fast','@cf/mistral/mistral-7b-instruct-v0.2-lora'], keyEnv:'CLOUDFLARE_API_TOKEN', keyHint:'cf_…', free:true, desc:'Edge-deployed inference. Pair with CLOUDFLARE_ACCOUNT_ID.', capabilities:['chat'] },
-  { id:'dashscope',    name:'Qwen DashScope',   tier:'free-cloud', icon:'◎', color:'#10b981', defaultPriority:3, defaultModel:'qwen-plus', models:['qwen-plus','qwen-max','qwen-turbo','qwen-coder-plus'], keyEnv:'DASHSCOPE_API_KEY', keyHint:'sk-…', free:false, desc:'Alibaba Qwen family — strong multilingual + code.', capabilities:['chat','code'] },
+  { id:'mistral',      name:'Mistral',          tier:'free-cloud', icon:'≋', color:'var(--warning)', defaultPriority:3, defaultModel:'mistral-small-latest', models:['mistral-small-latest','mistral-large-latest','codestral-latest','mistral-nemo'], keyEnv:'MISTRAL_API_KEY', keyHint:'mis-…', free:false, desc:'Strong multilingual and code. European provider.', capabilities:['chat','code'] },
+  { id:'huggingface',  name:'Hugging Face',     tier:'free-cloud', icon:'🤗', color:'var(--warning)', defaultPriority:3, defaultModel:'serverless', models:['serverless'], keyEnv:'HF_TOKEN', keyHint:'hf_…', free:true, desc:'Serverless inference on thousands of open models.', capabilities:['chat','code'] },
+  { id:'cloudflare',   name:'Cloudflare AI',    tier:'free-cloud', icon:'☁', color:'var(--warning)', defaultPriority:3, defaultModel:'@cf/meta/llama-3.3-70b-instruct-fp8-fast', models:['@cf/meta/llama-3.3-70b-instruct-fp8-fast','@cf/mistral/mistral-7b-instruct-v0.2-lora'], keyEnv:'CLOUDFLARE_API_TOKEN', keyHint:'cf_…', free:true, desc:'Edge-deployed inference. Pair with CLOUDFLARE_ACCOUNT_ID.', capabilities:['chat'] },
+  { id:'dashscope',    name:'Qwen DashScope',   tier:'free-cloud', icon:'◎', color:'var(--success)', defaultPriority:3, defaultModel:'qwen-plus', models:['qwen-plus','qwen-max','qwen-turbo','qwen-coder-plus'], keyEnv:'DASHSCOPE_API_KEY', keyHint:'sk-…', free:false, desc:'Alibaba Qwen family — strong multilingual + code.', capabilities:['chat','code'] },
   { id:'minimax',      name:'MiniMax',          tier:'free-cloud', icon:'⊡', color:'#7c3aed', defaultPriority:3, defaultModel:'MiniMax-Text-01', models:['MiniMax-Text-01','abab6.5s-chat'], keyEnv:'MINIMAX_API_KEY', keyHint:'eyJ…', free:false, desc:'Long context (1M+) Chinese AI provider.', capabilities:['chat'] },
   { id:'zhipu',        name:'ZhipuAI',          tier:'free-cloud', icon:'◬', color:'#14b8a6', defaultPriority:3, defaultModel:'glm-4-flash', models:['glm-4-flash','glm-4','glm-4-air'], keyEnv:'ZHIPU_API_KEY', keyHint:'zhipu-…', free:true, desc:'GLM-4 family from Zhipu AI. Free flash model.', capabilities:['chat','code'] },
   { id:'zai',          name:'Z.ai (GLM)',       tier:'free-cloud', icon:'◆', color:'#3b82f6', defaultPriority:3, defaultModel:'glm-5.2', models:['glm-5.2','glm-5.1','glm-4-flash','glm-4','glm-4-air'], keyEnv:'ZAI_API_KEY', keyHint:'zai-…', free:true, desc:'GLM-5.2 international endpoint. Free, high-quality, fast.', capabilities:['chat','code','reasoning'] },
-  { id:'moonshot',     name:'Moonshot (Kimi)',  tier:'free-cloud', icon:'☽', color:'#fbbf24', defaultPriority:3, defaultModel:'moonshot-v1-8k', models:['moonshot-v1-8k','moonshot-v1-32k','moonshot-v1-128k'], keyEnv:'MOONSHOT_API_KEY', keyHint:'sk-…', free:true, desc:'Long context (128k) Chinese AI provider.', capabilities:['chat','code'] },
+  { id:'moonshot',     name:'Moonshot (Kimi)',  tier:'free-cloud', icon:'☽', color:'var(--warning)', defaultPriority:3, defaultModel:'moonshot-v1-8k', models:['moonshot-v1-8k','moonshot-v1-32k','moonshot-v1-128k'], keyEnv:'MOONSHOT_API_KEY', keyHint:'sk-…', free:true, desc:'Long context (128k) Chinese AI provider.', capabilities:['chat','code'] },
   { id:'aerolink',     name:'Aerolink (Claude)',tier:'commercial', icon:'✈', color:'#0ea5e9', defaultPriority:4, defaultModel:'claude-sonnet-4-6', models:['claude-opus-4-8','claude-opus-4-7','claude-fable-5','claude-sonnet-5','claude-sonnet-4-6','claude-opus-4-6','claude-haiku-4-5-20251001'], keyEnv:'AEROLINK_API_KEY', keyHint:'aero-…', free:false, desc:'Claude gateway with $10/week budget. Reliable paid fallback when free providers are rate-limited.', capabilities:['chat','code','reasoning'] },
   { id:'anthropic',    name:'Anthropic',        tier:'commercial', icon:'◬', color:'#d97757', defaultPriority:4, defaultModel:'claude-opus-4-5', models:['claude-opus-4-5','claude-sonnet-4-5','claude-haiku-4-5','claude-3-5-sonnet-20241022'], keyEnv:'ANTHROPIC_API_KEY', keyHint:'sk-ant-…', free:false, desc:'Claude family. Commercial fallback — tried last.', capabilities:['chat','code','reasoning','vision'] },
-  { id:'openrouter',   name:'OpenRouter',       tier:'commercial', icon:'⇄', color:'#6366f1', defaultPriority:4, defaultModel:'configurable', models:['configurable'], keyEnv:'OPENROUTER_API_KEY', keyHint:'sk-or-…', free:false, desc:'Unified gateway to 200+ models. Pay-per-use.', capabilities:['chat','code','reasoning'] },
-  { id:'bedrock',      name:'AWS Bedrock',      tier:'commercial', icon:'▲', color:'#ff9900', defaultPriority:4, defaultModel:'us.anthropic.claude-opus-4-7', models:['us.anthropic.claude-opus-4-7','us.anthropic.claude-sonnet-4-5','amazon.nova-pro-v1:0'], keyEnv:'AWS_ACCESS_KEY_ID', keyHint:'AKIA…', free:false, desc:'AWS-hosted Claude + Amazon Nova via Converse API.', capabilities:['chat','code','reasoning'] },
+  { id:'openrouter',   name:'OpenRouter',       tier:'commercial', icon:'⇄', color:'var(--accent)', defaultPriority:4, defaultModel:'configurable', models:['configurable'], keyEnv:'OPENROUTER_API_KEY', keyHint:'sk-or-…', free:false, desc:'Unified gateway to 200+ models. Pay-per-use.', capabilities:['chat','code','reasoning'] },
+  { id:'bedrock',      name:'AWS Bedrock',      tier:'commercial', icon:'▲', color:'var(--warning)', defaultPriority:4, defaultModel:'us.anthropic.claude-opus-4-7', models:['us.anthropic.claude-opus-4-7','us.anthropic.claude-sonnet-4-5','amazon.nova-pro-v1:0'], keyEnv:'AWS_ACCESS_KEY_ID', keyHint:'AKIA…', free:false, desc:'AWS-hosted Claude + Amazon Nova via Converse API.', capabilities:['chat','code','reasoning'] },
   // E2B is a sandbox execution runtime (not an LLM provider) — listed here
   // because this is the catalogue users browse for env-configured
   // integrations. The live enabled/health badge is driven by the /runtimes
@@ -46,10 +47,10 @@ const ALL_PROVIDERS = [
 ];
 
 const TIER_CONFIG = {
-  local:       { label:'Local',       color:'#5da2ff', bg:'rgba(93,162,255,0.08)',   order:0 },
-  free:        { label:'Free Hosted', color:'#76b900', bg:'rgba(118,185,0,0.08)',    order:1 },
-  'free-cloud':{ label:'Free Cloud',  color:'#46d9a4', bg:'rgba(70,217,164,0.06)',   order:2 },
-  commercial:  { label:'Commercial',  color:'#ffbd66', bg:'rgba(255,189,102,0.06)',  order:3 },
+  local:       { label:'Local',       color:'var(--accent)', bg:'color-mix(in oklab, var(--accent) 8%, transparent)',   order:0 },
+  free:        { label:'Free Hosted', color:'#76b900', bg:'color-mix(in oklab, var(--success) 8%, transparent)',    order:1 },
+  'free-cloud':{ label:'Free Cloud',  color:'var(--success)', bg:'color-mix(in oklab, var(--success) 6%, transparent)',   order:2 },
+  commercial:  { label:'Commercial',  color:'var(--warning)', bg:'color-mix(in oklab, var(--warning) 6%, transparent)',  order:3 },
 };
 
 // Ollama local models
@@ -81,8 +82,8 @@ function errText(e, fallback) {
 }
 
 function CapBadge({ cap }) {
-  const colors = { chat:'#5da2ff', code:'#46d9a4', reasoning:'#c4b5fd', vision:'#ffbd66' };
-  return <span style={{ fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'0.08em', textTransform:'uppercase', padding:'2px 7px', borderRadius:999, color:colors[cap]||'var(--text-muted)', background:`${colors[cap]||'#fff'}12`, border:`1px solid ${colors[cap]||'#fff'}22` }}>{cap}</span>;
+  const colors = { chat:'var(--accent)', code:'var(--success)', reasoning:'var(--violet)', vision:'var(--warning)' };
+  return <span style={{ fontSize:13, padding:'2px 7px', borderRadius:999, color:colors[cap]||'var(--text-muted)', background:`color-mix(in oklab, ${colors[cap]||'var(--text-muted)'} 7%, transparent)`, border:`1px solid color-mix(in oklab, ${colors[cap]||'var(--text-muted)'} 13%, transparent)` }}>{cap}</span>;
 }
 
 // A real, persisted provider record from GET /api/providers.
@@ -91,7 +92,7 @@ function BackendProviderCard({ provider, onTest, onSetDefault, onDelete, onEdit,
   const [testMsg, setTestMsg]     = React.useState('');
   const isDefault = !!provider.is_default;
   const status    = provider.status || 'configured';
-  const statusColor = status === 'online' ? '#46d9a4' : status === 'error' ? '#ff6b7d' : 'var(--text-muted)';
+  const statusColor = status === 'online' ? 'var(--success)' : status === 'error' ? 'var(--danger)' : 'var(--text-muted)';
 
   const test = async () => {
     setTestState('testing'); setTestMsg('');
@@ -105,43 +106,43 @@ function BackendProviderCard({ provider, onTest, onSetDefault, onDelete, onEdit,
   };
 
   return (
-    <div style={{ borderRadius:18, border:`1px solid ${provider.is_brain?'rgba(245,166,35,0.35)':isDefault?'rgba(70,217,164,0.30)':'rgba(255,255,255,0.10)'}`, background:provider.is_brain?'rgba(245,166,35,0.04)':isDefault?'rgba(70,217,164,0.05)':'rgba(255,255,255,0.03)', padding:'14px' }}>
+    <div style={{ borderRadius:14, border:`1px solid ${provider.is_brain?'color-mix(in oklab, var(--warning) 35%, transparent)':isDefault?'color-mix(in oklab, var(--success) 30%, transparent)':'color-mix(in oklab, var(--ink) 10%, transparent)'}`, background:provider.is_brain?'color-mix(in oklab, var(--warning) 4%, transparent)':isDefault?'color-mix(in oklab, var(--success) 5%, transparent)':'color-mix(in oklab, var(--ink) 3%, transparent)', padding:'14px' }}>
       <div style={{ display:'flex', alignItems:'flex-start', gap:9, marginBottom:9 }}>
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap', marginBottom:2 }}>
-            <span style={{ fontSize:14, fontWeight:800, color:'#fff', letterSpacing:'-0.02em' }}>{provider.name || provider.provider_id}</span>
-            {isDefault && <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 6px', borderRadius:999, color:'#46d9a4', background:'rgba(70,217,164,0.10)', border:'1px solid rgba(70,217,164,0.22)' }}>★ default</span>}
-            {provider.is_brain && <span title={provider.role_reason || 'Used as the brain for agent execution'} style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 6px', borderRadius:999, color:'#f5a623', background:'rgba(245,166,35,0.12)', border:'1px solid rgba(245,166,35,0.30)', fontWeight:700, letterSpacing:'0.04em' }}>🧠 BRAIN</span>}
-            {provider.role === 'fallback' && <span title={provider.role_reason || 'Paid fallback — only used when no free provider is configured'} style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 6px', borderRadius:999, color:'#ffbd66', background:'rgba(255,189,102,0.10)', border:'1px solid rgba(255,189,102,0.22)' }}>fallback</span>}
-            {provider.role === 'sub-agent' && <span title={provider.role_reason || 'Reachable backup used by failover'} style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 6px', borderRadius:999, color:'#c4b5fd', background:'rgba(196,181,253,0.08)', border:'1px solid rgba(196,181,253,0.20)' }}>sub-agent</span>}
-            {provider.role === 'unconfigured' && <span title={provider.role_reason || 'Missing base URL or API key'} style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 6px', borderRadius:999, color:'#ff6b7d', background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.20)' }}>unconfigured</span>}
-            <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 6px', borderRadius:999, color:'var(--text-muted)', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', textTransform:'uppercase', letterSpacing:'0.08em' }}>{provider.type || 'openai-compatible'}</span>
+            <span style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)', letterSpacing:'-0.02em' }}>{provider.name || provider.provider_id}</span>
+            {isDefault && <span style={{ fontSize:13, fontFamily:'var(--font-mono)', padding:'2px 6px', borderRadius:999, color:'var(--success)', background:'color-mix(in oklab, var(--success) 10%, transparent)', border:'1px solid color-mix(in oklab, var(--success) 22%, transparent)' }}><Glyph g="★"/> default</span>}
+            {provider.is_brain && <span title={provider.role_reason || 'Used as the brain for agent execution'} style={{ fontSize:13, fontVariantNumeric:'tabular-nums', padding:'2px 6px', borderRadius:999, color:'#f5a623', background:'color-mix(in oklab, var(--warning) 12%, transparent)', border:'1px solid color-mix(in oklab, var(--warning) 30%, transparent)', fontWeight:700 }}><Glyph g="🧠"/> BRAIN</span>}
+            {provider.role === 'fallback' && <span title={provider.role_reason || 'Paid fallback — only used when no free provider is configured'} style={{ fontSize:13, fontFamily:'var(--font-mono)', padding:'2px 6px', borderRadius:999, color:'var(--warning)', background:'color-mix(in oklab, var(--warning) 10%, transparent)', border:'1px solid color-mix(in oklab, var(--warning) 22%, transparent)' }}>fallback</span>}
+            {provider.role === 'sub-agent' && <span title={provider.role_reason || 'Reachable backup used by failover'} style={{ fontSize:13, fontFamily:'var(--font-mono)', padding:'2px 6px', borderRadius:999, color:'var(--violet)', background:'color-mix(in oklab, var(--violet) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--violet) 20%, transparent)' }}>sub-agent</span>}
+            {provider.role === 'unconfigured' && <span title={provider.role_reason || 'Missing base URL or API key'} style={{ fontSize:13, fontFamily:'var(--font-mono)', padding:'2px 6px', borderRadius:999, color:'var(--danger)', background:'color-mix(in oklab, var(--danger) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 20%, transparent)' }}>unconfigured</span>}
+            <span style={{ fontSize:13, padding:'2px 6px', borderRadius:999, color:'var(--text-muted)', background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)' }}>{provider.type || 'openai-compatible'}</span>
           </div>
-          <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{provider.base_url || '—'}</div>
+          <div style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{provider.base_url || '—'}</div>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:5, flexShrink:0 }}>
           <span style={{ width:7, height:7, borderRadius:'50%', background:statusColor }}/>
-          <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:statusColor, textTransform:'uppercase', letterSpacing:'0.08em' }}>{status}</span>
+          <span style={{ fontSize:13, color:statusColor }}>{status}</span>
         </div>
       </div>
 
-      <div style={{ display:'flex', gap:10, fontSize:11, color:'var(--text-muted)', marginBottom:10, flexWrap:'wrap' }}>
-        <span>Model: <span style={{ color:'var(--text-secondary)', fontFamily:'var(--font-mono)' }}>{provider.default_model || '—'}</span></span>
-        {provider.api_key_masked ? <span>Key: <span style={{ color:'var(--text-secondary)', fontFamily:'var(--font-mono)' }}>{provider.api_key_masked}</span></span> : <span style={{ color:'#46d9a4' }}>no key</span>}
-        <span title="Higher number = tried first. Negative values allowed.">Priority: <span style={{ color:'var(--text-secondary)', fontFamily:'var(--font-mono)' }}>{provider.priority ?? '—'}</span></span>
+      <div style={{ display:'flex', gap:10, fontSize:13, color:'var(--text-muted)', marginBottom:10, flexWrap:'wrap' }}>
+        <span>Model: <span style={{ color:'var(--text-secondary)', fontVariantNumeric:'tabular-nums' }}>{provider.default_model || '—'}</span></span>
+        {provider.api_key_masked ? <span>Key: <span style={{ color:'var(--text-secondary)', fontVariantNumeric:'tabular-nums' }}>{provider.api_key_masked}</span></span> : <span style={{ color:'var(--success)' }}>no key</span>}
+        <span title="Higher number = tried first. Negative values allowed.">Priority: <span style={{ color:'var(--text-secondary)', fontVariantNumeric:'tabular-nums' }}>{provider.priority ?? '—'}</span></span>
       </div>
 
       {testState && (
-        <div style={{ fontSize:11, marginBottom:9, color: testState==='ok'?'#46d9a4':testState==='error'?'#ff6b7d':'var(--text-muted)', fontFamily:'var(--font-mono)' }}>
+        <div style={{ fontSize:13, marginBottom:9, color: testState==='ok'?'var(--success)':testState==='error'?'var(--danger)':'var(--text-muted)', fontVariantNumeric:'tabular-nums' }}>
           {testState==='testing' ? 'Testing…' : testMsg}
         </div>
       )}
 
       <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
-        <button onClick={test} disabled={testState==='testing'} style={{ padding:'6px 12px', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.25)', color:'var(--accent)' }}>Test</button>
-        <button onClick={()=>onEdit(provider)} disabled={busy} style={{ padding:'6px 12px', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', background:'rgba(196,181,253,0.10)', border:'1px solid rgba(196,181,253,0.25)', color:'#c4b5fd' }}>Edit</button>
-        {!isDefault &&        <button onClick={()=>onSetDefault(provider.provider_id)} disabled={busy} title="Fallback provider when no routing rule matches" style={{ padding:'6px 12px', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', background:'rgba(70,217,164,0.08)', border:'1px solid rgba(70,217,164,0.22)', color:'#46d9a4' }}>Set default</button>}
-        <button onClick={()=>onDelete(provider)} disabled={busy} style={{ padding:'6px 12px', borderRadius:9, fontSize:12, fontWeight:600, cursor:'pointer', background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.20)', color:'#ff6b7d', marginLeft:'auto' }}>Delete</button>
+        <button onClick={test} disabled={testState==='testing'} style={{ padding:'6px 12px', borderRadius:9, fontSize:13, fontWeight:600, cursor:'pointer', background:'color-mix(in oklab, var(--accent) 10%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 25%, transparent)', color:'var(--accent)' }}>Test</button>
+        <button onClick={()=>onEdit(provider)} disabled={busy} style={{ padding:'6px 12px', borderRadius:9, fontSize:13, fontWeight:600, cursor:'pointer', background:'color-mix(in oklab, var(--violet) 10%, transparent)', border:'1px solid color-mix(in oklab, var(--violet) 25%, transparent)', color:'var(--violet)' }}>Edit</button>
+        {!isDefault &&        <button onClick={()=>onSetDefault(provider.provider_id)} disabled={busy} title="Fallback provider when no routing rule matches" style={{ padding:'6px 12px', borderRadius:9, fontSize:13, fontWeight:600, cursor:'pointer', background:'color-mix(in oklab, var(--success) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--success) 22%, transparent)', color:'var(--success)' }}>Set default</button>}
+        <button onClick={()=>onDelete(provider)} disabled={busy} style={{ padding:'6px 12px', borderRadius:9, fontSize:13, fontWeight:600, cursor:'pointer', background:'color-mix(in oklab, var(--danger) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 20%, transparent)', color:'var(--danger)', marginLeft:'auto' }}>Delete</button>
       </div>
     </div>
   );
@@ -185,14 +186,14 @@ function AddProviderForm({ onCreate, onClose }) {
     }
   };
 
-  const fld = { width:'100%', padding:'9px 12px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-main)' };
+  const fld = { width:'100%', padding:'9px 12px', borderRadius:10, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-primary)', fontSize:14, outline:'none', fontFamily:'var(--font-main)' };
   return (
-    <div style={{ borderRadius:18, border:'1px solid rgba(93,162,255,0.20)', background:'rgba(93,162,255,0.04)', padding:'16px', marginBottom:14 }}>
-      <div style={{ fontSize:13, fontWeight:800, color:'#fff', marginBottom:12 }}>Add provider</div>
-      <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.10em', marginBottom:6 }}>Quick-fill from catalogue</div>
+    <div style={{ borderRadius:14, border:'1px solid color-mix(in oklab, var(--accent) 20%, transparent)', background:'color-mix(in oklab, var(--accent) 4%, transparent)', padding:'16px', marginBottom:14 }}>
+      <div style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)', marginBottom:12 }}>Add provider</div>
+      <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:6 }}>Quick-fill from catalogue</div>
       <div style={{ display:'flex', gap:5, flexWrap:'wrap', marginBottom:12 }}>
         {ALL_PROVIDERS.slice(0,8).map(p => (
-          <button key={p.id} onClick={()=>applyTemplate(p)} style={{ padding:'4px 10px', borderRadius:999, fontSize:11, cursor:'pointer', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)' }}>{p.icon} {p.name}</button>
+          <button key={p.id} onClick={()=>applyTemplate(p)} style={{ padding:'4px 10px', borderRadius:999, fontSize:13, cursor:'pointer', background:'color-mix(in oklab, var(--ink) 4%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-muted)' }}>{p.icon} {p.name}</button>
         ))}
       </div>
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10 }}>
@@ -201,18 +202,18 @@ function AddProviderForm({ onCreate, onClose }) {
       </div>
       <div style={{ display:'flex', gap:8, marginBottom:10 }}>
         {['openai-compatible','ollama'].map(t => (
-          <button key={t} onClick={()=>setType(t)} style={{ padding:'7px 14px', borderRadius:999, fontSize:12, fontWeight:600, cursor:'pointer', background:type===t?'rgba(93,162,255,0.15)':'rgba(255,255,255,0.04)', border:`1px solid ${type===t?'rgba(93,162,255,0.35)':'rgba(255,255,255,0.09)'}`, color:type===t?'#fff':'var(--text-muted)' }}>{t}</button>
+          <button key={t} onClick={()=>setType(t)} style={{ padding:'7px 14px', borderRadius:999, fontSize:13, fontWeight:600, cursor:'pointer', background:type===t?'color-mix(in oklab, var(--accent) 15%, transparent)':'color-mix(in oklab, var(--ink) 4%, transparent)', border:`1px solid ${type===t?'color-mix(in oklab, var(--accent) 35%, transparent)':'color-mix(in oklab, var(--ink) 9%, transparent)'}`, color:type===t?'var(--text-primary)':'var(--text-muted)' }}>{t}</button>
         ))}
       </div>
       <input value={baseUrl} onChange={e=>setBaseUrl(e.target.value)} placeholder={type==='ollama'?'Ollama base URL (optional)':'Base URL (https://api.example.com/v1)'} style={{ ...fld, fontFamily:'var(--font-mono)', marginBottom:10 }}/>
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12 }}>
-        <input type="password" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="API key (optional)" style={{ ...fld, fontFamily:'var(--font-mono)' }}/>
-        <input value={model} onChange={e=>setModel(e.target.value)} placeholder="Default model" style={{ ...fld, fontFamily:'var(--font-mono)' }}/>
+        <input type="password" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder="API key (optional)" style={{ ...fld, fontVariantNumeric:'tabular-nums' }}/>
+        <input value={model} onChange={e=>setModel(e.target.value)} placeholder="Default model" style={{ ...fld, fontVariantNumeric:'tabular-nums' }}/>
       </div>
-      {error && <div style={{ marginBottom:10, padding:'8px 12px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:12 }}>{error}</div>}
+      {error && <div style={{ marginBottom:10, padding:'8px 12px', borderRadius:10, background:'color-mix(in oklab, var(--danger) 10%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 25%, transparent)', color:'var(--danger)', fontSize:13 }}>{error}</div>}
       <div style={{ display:'flex', gap:8 }}>
-        <button onClick={submit} disabled={busy} style={{ flex:1, padding:'10px', borderRadius:12, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:13, fontWeight:800, border:'none', cursor:busy?'wait':'pointer', opacity:busy?0.7:1 }}>{busy ? 'Saving…' : '+ Add provider'}</button>
-        <button onClick={onClose} disabled={busy} style={{ padding:'10px 18px', borderRadius:12, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)', fontSize:13, cursor:'pointer' }}>Cancel</button>
+        <button onClick={submit} disabled={busy} style={{ flex:1, padding:'10px', borderRadius:12, background:'linear-gradient(135deg,var(--accent),var(--accent))', color:'var(--on-accent)', fontSize:14, fontWeight:700, border:'none', cursor:busy?'wait':'pointer', opacity:busy?0.7:1 }}>{busy ? 'Saving…' : '+ Add provider'}</button>
+        <button onClick={onClose} disabled={busy} style={{ padding:'10px 18px', borderRadius:12, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-muted)', fontSize:14, cursor:'pointer' }}>Cancel</button>
       </div>
     </div>
   );
@@ -277,32 +278,32 @@ function EditProviderForm({ provider, onUpdate, onClose }) {
     onClose();
   };
 
-  const fld = { width:'100%', padding:'9px 12px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-main)' };
+  const fld = { width:'100%', padding:'9px 12px', borderRadius:10, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-primary)', fontSize:14, outline:'none', fontFamily:'var(--font-main)' };
   return (
-    <div style={{ borderRadius:18, border:'1px solid rgba(196,181,253,0.25)', background:'rgba(196,181,253,0.05)', padding:'16px', marginBottom:14 }}>
-      <div style={{ fontSize:13, fontWeight:800, color:'#fff', marginBottom:2 }}>Edit provider</div>
-      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', marginBottom:12 }}>{provider.provider_id}</div>
+    <div style={{ borderRadius:14, border:'1px solid color-mix(in oklab, var(--violet) 25%, transparent)', background:'color-mix(in oklab, var(--violet) 5%, transparent)', padding:'16px', marginBottom:14 }}>
+      <div style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)', marginBottom:2 }}>Edit provider</div>
+      <div style={{ fontSize:13, fontFamily:'var(--font-mono)', color:'var(--text-muted)', marginBottom:12 }}>{provider.provider_id}</div>
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:10, marginBottom:10 }}>
         <input value={name} onChange={e=>setName(e.target.value)} placeholder="Display name" style={fld}/>
         <input value={priority} onChange={e=>setPriority(e.target.value)} placeholder="Priority (lower = first)" inputMode="numeric" style={{ ...fld, fontFamily:'var(--font-mono)' }}/>
       </div>
       <input value={baseUrl} onChange={e=>setBaseUrl(e.target.value)} placeholder="Base URL (https://api.example.com/v1)" style={{ ...fld, fontFamily:'var(--font-mono)', marginBottom:10 }}/>
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(160px, 1fr))', gap:10, marginBottom:12 }}>
-        <input type="password" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder={provider.api_key_masked ? `Leave blank to keep (${provider.api_key_masked})` : 'API key (optional)'} style={{ ...fld, fontFamily:'var(--font-mono)' }}/>
-        <input value={model} onChange={e=>setModel(e.target.value)} placeholder="Default model" style={{ ...fld, fontFamily:'var(--font-mono)' }}/>
+        <input type="password" value={apiKey} onChange={e=>setApiKey(e.target.value)} placeholder={provider.api_key_masked ? `Leave blank to keep (${provider.api_key_masked})` : 'API key (optional)'} style={{ ...fld, fontVariantNumeric:'tabular-nums' }}/>
+        <input value={model} onChange={e=>setModel(e.target.value)} placeholder="Default model" style={{ ...fld, fontVariantNumeric:'tabular-nums' }}/>
       </div>
       {/* Runtime persistence: the brain reads provider keys from Render env, not
           Mongo, so this pushes the key/base_url there. Off by default — it's a
           production env write and requires RENDER_MCP_ALLOW_WRITES on the backend. */}
-      <label style={{ display:'flex', alignItems:'flex-start', gap:8, marginBottom:12, cursor:'pointer', fontSize:12, color:'var(--text-secondary)', lineHeight:1.45 }}>
+      <label style={{ display:'flex', alignItems:'flex-start', gap:8, marginBottom:12, cursor:'pointer', fontSize:13, color:'var(--text-secondary)', lineHeight:1.45 }}>
         <input type="checkbox" checked={pushRender} onChange={e=>setPushRender(e.target.checked)} style={{ marginTop:2 }}/>
         <span>Also save the key / base URL to <strong>Render</strong> (runtime). The live brain reads keys from the environment — without this, the edit only updates the dashboard record. Takes effect on the next deploy.</span>
       </label>
-      {renderNote && <div style={{ marginBottom:10, padding:'8px 12px', borderRadius:10, background:'rgba(70,217,164,0.10)', border:'1px solid rgba(70,217,164,0.25)', color:'#46d9a4', fontSize:12 }}>{renderNote}</div>}
-      {error && <div style={{ marginBottom:10, padding:'8px 12px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:12 }}>{error}</div>}
+      {renderNote && <div style={{ marginBottom:10, padding:'8px 12px', borderRadius:10, background:'color-mix(in oklab, var(--success) 10%, transparent)', border:'1px solid color-mix(in oklab, var(--success) 25%, transparent)', color:'var(--success)', fontSize:13 }}>{renderNote}</div>}
+      {error && <div style={{ marginBottom:10, padding:'8px 12px', borderRadius:10, background:'color-mix(in oklab, var(--danger) 10%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 25%, transparent)', color:'var(--danger)', fontSize:13 }}>{error}</div>}
       <div style={{ display:'flex', gap:8 }}>
-        <button onClick={submit} disabled={busy} style={{ flex:1, padding:'10px', borderRadius:12, background:'linear-gradient(135deg,#c4b5fd,#a78bfa)', color:'#06111f', fontSize:13, fontWeight:800, border:'none', cursor:busy?'wait':'pointer', opacity:busy?0.7:1 }}>{busy ? 'Saving…' : 'Save changes'}</button>
-        <button onClick={onClose} disabled={busy} style={{ padding:'10px 18px', borderRadius:12, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)', fontSize:13, cursor:'pointer' }}>Cancel</button>
+        <button onClick={submit} disabled={busy} style={{ flex:1, padding:'10px', borderRadius:12, background:'linear-gradient(135deg,var(--violet),#a78bfa)', color:'var(--on-accent)', fontSize:14, fontWeight:700, border:'none', cursor:busy?'wait':'pointer', opacity:busy?0.7:1 }}>{busy ? 'Saving…' : 'Save changes'}</button>
+        <button onClick={onClose} disabled={busy} style={{ padding:'10px 18px', borderRadius:12, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-muted)', fontSize:14, cursor:'pointer' }}>Cancel</button>
       </div>
     </div>
   );
@@ -312,16 +313,16 @@ function EditProviderForm({ provider, onUpdate, onClose }) {
 function CatalogCard({ provider }) {
   const tier = TIER_CONFIG[provider.tier] || TIER_CONFIG.commercial;
   return (
-    <div style={{ borderRadius:16, border:'1px solid rgba(255,255,255,0.08)', background:'rgba(255,255,255,0.025)', padding:'12px' }}>
+    <div style={{ borderRadius:16, border:'1px solid color-mix(in oklab, var(--ink) 8%, transparent)', background:'color-mix(in oklab, var(--ink) 2.5%, transparent)', padding:'12px' }}>
       <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:6 }}>
-        <div style={{ width:30, height:30, borderRadius:9, flexShrink:0, background:`${provider.color}15`, border:`1px solid ${provider.color}28`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:14 }}>{provider.icon}</div>
+        <div style={{ width:30, height:30, borderRadius:9, flexShrink:0, background:`color-mix(in oklab, ${provider.color} 8%, transparent)`, border:`1px solid color-mix(in oklab, ${provider.color} 16%, transparent)`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:14 }}><Glyph g={provider.icon}/></div>
         <div style={{ flex:1, minWidth:0 }}>
-          <div style={{ fontSize:12, fontWeight:700, color:'#fff' }}>{provider.name}</div>
-          <div style={{ fontSize:9, fontFamily:'var(--font-mono)', color:tier.color, textTransform:'uppercase', letterSpacing:'0.10em' }}>{tier.label}</div>
+          <div style={{ fontSize:13, fontWeight:700, color:'var(--text-primary)' }}>{provider.name}</div>
+          <div style={{ fontSize:13, color:tier.color }}>{tier.label}</div>
         </div>
       </div>
-      <div style={{ fontSize:11, color:'var(--text-muted)', lineHeight:1.4, marginBottom:6 }}>{provider.desc}</div>
-      {provider.keyEnv && <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-tertiary)' }}>env: {provider.keyEnv}</div>}
+      <div style={{ fontSize:13, color:'var(--text-muted)', lineHeight:1.4, marginBottom:6 }}>{provider.desc}</div>
+      {provider.keyEnv && <div style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--text-tertiary)' }}>env: {provider.keyEnv}</div>}
     </div>
   );
 }
@@ -384,31 +385,31 @@ function OllamaTab() {
     }
   };
 
-  const typeColor = { coder:'#5da2ff', reasoning:'#c4b5fd', general:'#46d9a4' };
+  const typeColor = { coder:'var(--accent)', reasoning:'var(--violet)', general:'var(--success)' };
 
   return (
     <div>
-      <div style={{ padding:'10px 14px', borderRadius:14, background:'rgba(93,162,255,0.05)', border:'1px solid rgba(93,162,255,0.15)', marginBottom:16, fontSize:12, color:'var(--text-secondary)', lineHeight:1.6 }}>
+      <div style={{ padding:'10px 14px', borderRadius:14, background:'color-mix(in oklab, var(--accent) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 15%, transparent)', marginBottom:16, fontSize:13, color:'var(--text-secondary)', lineHeight:1.6 }}>
         <strong style={{ color:'var(--accent)' }}>Local Ollama</strong> — Models run entirely on your hardware. No API key, no data leaves your machine. Add any model by name using the form below, or pull from the list.
       </div>
 
       {/* Custom pull */}
       <div style={{ display:'flex', gap:8, marginBottom:14 }}>
         <input value={customModel} onChange={e=>setCustomModel(e.target.value)} placeholder="e.g. phi4:latest or llava:13b"
-          style={{ flex:1, padding:'9px 12px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.12)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-mono)', transition:'border-color 0.2s' }}
-          onFocus={e=>e.target.style.borderColor='rgba(93,162,255,0.45)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.12)'}/>
-        <button onClick={()=>{ if(customModel.trim()){ pull(customModel.trim()); setCustomModel(''); }}} style={{ padding:'9px 16px', borderRadius:10, background:'rgba(93,162,255,0.15)', border:'1px solid rgba(93,162,255,0.30)', color:'var(--accent)', fontSize:12, fontWeight:700, cursor:'pointer' }}>Pull model</button>
-        <a href="https://ollama.com/library" target="_blank" rel="noreferrer" style={{ padding:'9px 12px', borderRadius:10, background:'transparent', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)', fontSize:12, textDecoration:'none', display:'inline-flex', alignItems:'center', whiteSpace:'nowrap' }}>Browse library →</a>
+          style={{ flex:1, padding:'9px 12px', borderRadius:10, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 12%, transparent)', color:'var(--text-primary)', fontSize:14, outline:'none', fontVariantNumeric:'tabular-nums', transition:'border-color 0.2s' }}
+          onFocus={e=>e.target.style.borderColor='color-mix(in oklab, var(--accent) 45%, transparent)'} onBlur={e=>e.target.style.borderColor='color-mix(in oklab, var(--ink) 12%, transparent)'}/>
+        <button onClick={()=>{ if(customModel.trim()){ pull(customModel.trim()); setCustomModel(''); }}} style={{ padding:'9px 16px', borderRadius:10, background:'color-mix(in oklab, var(--accent) 15%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 30%, transparent)', color:'var(--accent)', fontSize:13, fontWeight:700, cursor:'pointer' }}>Pull model</button>
+        <a href="https://ollama.com/library" target="_blank" rel="noreferrer" style={{ padding:'9px 12px', borderRadius:10, background:'transparent', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-muted)', fontSize:13, textDecoration:'none', display:'inline-flex', alignItems:'center', whiteSpace:'nowrap' }}>Browse library →</a>
       </div>
 
       {(loadErr || pullErr) && (
-        <div style={{ padding:'8px 12px', borderRadius:10, background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.20)', color:'#ff6b7d', fontSize:12, marginBottom:10 }}>
+        <div style={{ padding:'8px 12px', borderRadius:10, background:'color-mix(in oklab, var(--danger) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 20%, transparent)', color:'var(--danger)', fontSize:13, marginBottom:10 }}>
           {loadErr || pullErr}
         </div>
       )}
 
       {liveModels === null && !loadErr && (
-        <div style={{ padding:'18px 0', fontSize:13, color:'var(--text-muted)', textAlign:'center' }}>Loading models from Ollama…</div>
+        <div style={{ padding:'18px 0', fontSize:14, color:'var(--text-muted)', textAlign:'center' }}>Loading models from Ollama…</div>
       )}
 
       <div style={{ display:'flex', flexDirection:'column', gap:7 }}>
@@ -417,23 +418,23 @@ function OllamaTab() {
           const isRunning = pulling === m.name;
           const tc = typeColor[m.type] || 'var(--text-muted)';
           return (
-            <div key={m.name} style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 14px', borderRadius:13, border:`1px solid ${isPulled?'rgba(70,217,164,0.18)':'rgba(255,255,255,0.08)'}`, background:isPulled?'rgba(70,217,164,0.04)':'rgba(255,255,255,0.025)' }}>
+            <div key={m.name} style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 14px', borderRadius:13, border:`1px solid ${isPulled?'color-mix(in oklab, var(--success) 18%, transparent)':'color-mix(in oklab, var(--ink) 8%, transparent)'}`, background:isPulled?'color-mix(in oklab, var(--success) 4%, transparent)':'color-mix(in oklab, var(--ink) 2.5%, transparent)' }}>
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:2, flexWrap:'wrap' }}>
-                  <span style={{ fontSize:13, fontWeight:600, color:isPulled?'#fff':'var(--text-tertiary)', fontFamily:'var(--font-mono)' }}>{m.name}</span>
-                  <span style={{ fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', padding:'1px 6px', borderRadius:999, color:tc, background:`${tc}12`, border:`1px solid ${tc}22` }}>{m.type}</span>
-                  {isPulled && <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'1px 6px', borderRadius:999, color:'#46d9a4', background:'rgba(70,217,164,0.10)', border:'1px solid rgba(70,217,164,0.20)', textTransform:'uppercase', letterSpacing:'0.10em' }}>on device</span>}
+                  <span style={{ fontSize:14, fontWeight:600, color:isPulled?'var(--text-primary)':'var(--text-tertiary)', fontVariantNumeric:'tabular-nums' }}>{m.name}</span>
+                  <span style={{ fontSize:13, padding:'1px 6px', borderRadius:999, color:tc, background:`color-mix(in oklab, ${tc} 7%, transparent)`, border:`1px solid color-mix(in oklab, ${tc} 13%, transparent)` }}>{m.type}</span>
+                  {isPulled && <span style={{ fontSize:13, padding:'1px 6px', borderRadius:999, color:'var(--success)', background:'color-mix(in oklab, var(--success) 10%, transparent)', border:'1px solid color-mix(in oklab, var(--success) 20%, transparent)' }}>on device</span>}
                 </div>
-                <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>{m.size} · {m.ctx} context</div>
+                <div style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--text-muted)' }}>{m.size} · {m.ctx} context</div>
               </div>
               {isRunning ? (
-                <div style={{ display:'flex', alignItems:'center', gap:7, fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)' }}>
-                  <div style={{ width:12, height:12, border:'2px solid rgba(93,162,255,0.2)', borderTopColor:'var(--accent)', borderRadius:'50%', animation:'spin 0.8s linear infinite' }}/>Pulling…
+                <div style={{ display:'flex', alignItems:'center', gap:7, fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--accent)' }}>
+                  <div style={{ width:12, height:12, border:'2px solid color-mix(in oklab, var(--accent) 20%, transparent)', borderTopColor:'var(--accent)', borderRadius:'50%', animation:'spin 0.8s linear infinite' }}/>Pulling…
                 </div>
               ) : isPulled ? (
-                <button onClick={()=>removeModel(m.name)} style={{ padding:'5px 12px', borderRadius:8, fontSize:11, cursor:'pointer', background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.20)', color:'#ff6b7d' }}>Remove</button>
+                <button onClick={()=>removeModel(m.name)} style={{ padding:'5px 12px', borderRadius:8, fontSize:13, cursor:'pointer', background:'color-mix(in oklab, var(--danger) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 20%, transparent)', color:'var(--danger)' }}>Remove</button>
               ) : (
-                <button onClick={()=>pull(m.name)} style={{ padding:'5px 12px', borderRadius:8, fontSize:11, fontWeight:600, cursor:'pointer', background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.22)', color:'var(--accent)' }}>↓ Pull</button>
+                <button onClick={()=>pull(m.name)} style={{ padding:'5px 12px', borderRadius:8, fontSize:13, fontWeight:600, cursor:'pointer', background:'color-mix(in oklab, var(--accent) 10%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 22%, transparent)', color:'var(--accent)' }}>↓ Pull</button>
               )}
             </div>
           );
@@ -460,8 +461,8 @@ function MCPTab() {
   // fault. 'unavailable' stays muted for the same not-a-fault reason. Colouring
   // either red sends people hunting for a break that isn't there.
   const statusColor = {
-    connected:'#46d9a4', available:'#46d9a4', error:'#ff6b7d',
-    unconfigured:'#ffbd66', unavailable:'var(--text-muted)',
+    connected:'var(--success)', available:'var(--success)', error:'var(--danger)',
+    unconfigured:'var(--warning)', unavailable:'var(--text-muted)',
     idle:'var(--text-muted)',
   };
 
@@ -521,36 +522,36 @@ function MCPTab() {
     <div>
       <McpCard/>
 
-      <div style={{ padding:'10px 14px', borderRadius:14, background:'rgba(196,181,253,0.05)', border:'1px solid rgba(196,181,253,0.15)', marginBottom:16, fontSize:12, color:'var(--text-secondary)', lineHeight:1.6 }}>
-        <strong style={{ color:'#c4b5fd' }}>Model Context Protocol</strong> — MCP servers expose tools, resources, and prompts to agents. Connect any MCP-compatible server to give agents new capabilities (filesystem, databases, search, APIs).
+      <div style={{ padding:'10px 14px', borderRadius:14, background:'color-mix(in oklab, var(--violet) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--violet) 15%, transparent)', marginBottom:16, fontSize:13, color:'var(--text-secondary)', lineHeight:1.6 }}>
+        <strong style={{ color:'var(--violet)' }}>Model Context Protocol</strong> — MCP servers expose tools, resources, and prompts to agents. Connect any MCP-compatible server to give agents new capabilities (filesystem, databases, search, APIs).
       </div>
 
       <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:12 }}>
-        <button onClick={()=>setShowAdd(o=>!o)} style={{ padding:'8px 16px', borderRadius:10, fontSize:12, fontWeight:700, cursor:'pointer', background:'rgba(196,181,253,0.12)', border:'1px solid rgba(196,181,253,0.25)', color:'#c4b5fd' }}>+ Add MCP server</button>
+        <button onClick={()=>setShowAdd(o=>!o)} style={{ padding:'8px 16px', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', background:'color-mix(in oklab, var(--violet) 12%, transparent)', border:'1px solid color-mix(in oklab, var(--violet) 25%, transparent)', color:'var(--violet)' }}>+ Add MCP server</button>
       </div>
 
       {showAdd && (
-        <div style={{ padding:'14px', borderRadius:14, background:'rgba(196,181,253,0.05)', border:'1px solid rgba(196,181,253,0.18)', marginBottom:12, animation:'fadeSlideUp 0.2s ease-out' }}>
+        <div style={{ padding:'14px', borderRadius:14, background:'color-mix(in oklab, var(--violet) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--violet) 18%, transparent)', marginBottom:12, animation:'fadeSlideUp 0.2s ease-out' }}>
           <div style={{ display:'flex', flexDirection:'column', gap:9 }}>
             <input value={newName} onChange={e=>setNewName(e.target.value)} placeholder="Server name (e.g. my-database)"
-              style={{ padding:'9px 12px', borderRadius:10, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-mono)', transition:'border-color 0.2s' }}
-              onFocus={e=>e.target.style.borderColor='rgba(196,181,253,0.45)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.10)'}/>
+              style={{ padding:'9px 12px', borderRadius:10, background:'color-mix(in oklab, var(--ink) 4%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-primary)', fontSize:14, outline:'none', fontFamily:'var(--font-mono)', transition:'border-color 0.2s' }}
+              onFocus={e=>e.target.style.borderColor='color-mix(in oklab, var(--violet) 45%, transparent)'} onBlur={e=>e.target.style.borderColor='color-mix(in oklab, var(--ink) 10%, transparent)'}/>
             <input value={newCmd} onChange={e=>setNewCmd(e.target.value)} placeholder="Start command (e.g. npx @modelcontextprotocol/server-postgres $DB_URL)"
-              style={{ padding:'9px 12px', borderRadius:10, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-mono)', transition:'border-color 0.2s' }}
-              onFocus={e=>e.target.style.borderColor='rgba(196,181,253,0.45)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.10)'}/>
+              style={{ padding:'9px 12px', borderRadius:10, background:'color-mix(in oklab, var(--ink) 4%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-primary)', fontSize:14, outline:'none', fontFamily:'var(--font-mono)', transition:'border-color 0.2s' }}
+              onFocus={e=>e.target.style.borderColor='color-mix(in oklab, var(--violet) 45%, transparent)'} onBlur={e=>e.target.style.borderColor='color-mix(in oklab, var(--ink) 10%, transparent)'}/>
             <input value={newDesc} onChange={e=>setNewDesc(e.target.value)} placeholder="Description (optional)"
-              style={{ padding:'9px 12px', borderRadius:10, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-main)', transition:'border-color 0.2s' }}
-              onFocus={e=>e.target.style.borderColor='rgba(196,181,253,0.45)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.10)'}/>
+              style={{ padding:'9px 12px', borderRadius:10, background:'color-mix(in oklab, var(--ink) 4%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-primary)', fontSize:14, outline:'none', fontFamily:'var(--font-main)', transition:'border-color 0.2s' }}
+              onFocus={e=>e.target.style.borderColor='color-mix(in oklab, var(--violet) 45%, transparent)'} onBlur={e=>e.target.style.borderColor='color-mix(in oklab, var(--ink) 10%, transparent)'}/>
             <div style={{ display:'flex', gap:8 }}>
-              <button onClick={addServer} disabled={saving} style={{ flex:1, padding:'9px', borderRadius:10, background:saving?'rgba(196,181,253,0.07)':'rgba(196,181,253,0.15)', border:'1px solid rgba(196,181,253,0.30)', color:'#c4b5fd', fontSize:13, fontWeight:800, cursor:saving?'not-allowed':'pointer' }}>{saving ? 'Adding…' : 'Add server'}</button>
-              <button onClick={()=>setShowAdd(false)} style={{ padding:'9px 14px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)', fontSize:13, cursor:'pointer' }}>Cancel</button>
+              <button onClick={addServer} disabled={saving} style={{ flex:1, padding:'9px', borderRadius:10, background:saving?'color-mix(in oklab, var(--violet) 7%, transparent)':'color-mix(in oklab, var(--violet) 15%, transparent)', border:'1px solid color-mix(in oklab, var(--violet) 30%, transparent)', color:'var(--violet)', fontSize:14, fontWeight:700, cursor:saving?'not-allowed':'pointer' }}>{saving ? 'Adding…' : 'Add server'}</button>
+              <button onClick={()=>setShowAdd(false)} style={{ padding:'9px 14px', borderRadius:10, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-muted)', fontSize:14, cursor:'pointer' }}>Cancel</button>
             </div>
           </div>
         </div>
       )}
 
-      {loadErr && <div style={{ padding:'8px 12px', borderRadius:10, background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.20)', color:'#ff6b7d', fontSize:12, marginBottom:10 }}>{loadErr}</div>}
-      {servers === null && !loadErr && <div style={{ padding:'18px 0', fontSize:13, color:'var(--text-muted)', textAlign:'center' }}>Loading MCP servers…</div>}
+      {loadErr && <div style={{ padding:'8px 12px', borderRadius:10, background:'color-mix(in oklab, var(--danger) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 20%, transparent)', color:'var(--danger)', fontSize:13, marginBottom:10 }}>{loadErr}</div>}
+      {servers === null && !loadErr && <div style={{ padding:'18px 0', fontSize:14, color:'var(--text-muted)', textAlign:'center' }}>Loading MCP servers…</div>}
 
       <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
         {(servers || []).map(srv => {
@@ -559,36 +560,36 @@ function MCPTab() {
           // elsewhere), so it gets the same green card treatment as 'connected'.
           const healthy = srv.status === 'connected' || srv.status === 'available';
           return (
-            <div key={srv.id} style={{ padding:'12px 14px', borderRadius:14, border:`1px solid ${healthy?'rgba(70,217,164,0.18)':srv.status==='error'?'rgba(255,107,125,0.18)':'rgba(255,255,255,0.08)'}`, background:healthy?'rgba(70,217,164,0.04)':srv.status==='error'?'rgba(255,107,125,0.04)':'rgba(255,255,255,0.025)' }}>
+            <div key={srv.id} style={{ padding:'12px 14px', borderRadius:14, border:`1px solid ${healthy?'color-mix(in oklab, var(--success) 18%, transparent)':srv.status==='error'?'color-mix(in oklab, var(--danger) 18%, transparent)':'color-mix(in oklab, var(--ink) 8%, transparent)'}`, background:healthy?'color-mix(in oklab, var(--success) 4%, transparent)':srv.status==='error'?'color-mix(in oklab, var(--danger) 4%, transparent)':'color-mix(in oklab, var(--ink) 2.5%, transparent)' }}>
               <div style={{ display:'flex', alignItems:'flex-start', gap:9, marginBottom:5 }}>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:3, flexWrap:'wrap' }}>
-                    <span style={{ fontSize:13, fontWeight:700, color:'#fff', fontFamily:'var(--font-mono)' }}>{srv.name}</span>
+                    <span style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)', fontVariantNumeric:'tabular-nums' }}>{srv.name}</span>
                     <div style={{ display:'flex', alignItems:'center', gap:4 }}>
                       <span style={{ width:6, height:6, borderRadius:'50%', background:sc, animation:srv.status==='connected'?'pulse 2s infinite':'none' }}/>
-                      <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:sc, letterSpacing:'0.10em', textTransform:'uppercase' }}>{srv.status}</span>
+                      <span style={{ fontSize:13, color:sc }}>{srv.status}</span>
                     </div>
-                    {srv.tools > 0 && <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', padding:'1px 6px', borderRadius:5, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.09)' }}>{srv.tools} tools</span>}
-                    {srv.managed && <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'#5da2ff', padding:'1px 6px', borderRadius:5, background:'rgba(93,162,255,0.08)', border:'1px solid rgba(93,162,255,0.18)' }} title="Declared by this deployment; status is measured live">platform</span>}
+                    {srv.tools > 0 && <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--text-muted)', padding:'1px 6px', borderRadius:5, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 9%, transparent)' }}>{srv.tools} tools</span>}
+                    {srv.managed && <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--accent)', padding:'1px 6px', borderRadius:5, background:'color-mix(in oklab, var(--accent) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 18%, transparent)' }} title="Declared by this deployment; status is measured live">platform</span>}
                   </div>
-                  <div style={{ fontSize:11, color:'var(--text-muted)', lineHeight:1.5, marginBottom:4 }}>{srv.desc}</div>
+                  <div style={{ fontSize:13, color:'var(--text-muted)', lineHeight:1.5, marginBottom:4 }}>{srv.desc}</div>
                   {/* Why a server is not connected is the actionable part — an
                       "unconfigured" badge with no reason just relocates the question. */}
                   {srv.reason && srv.status !== 'connected' && (
-                    <div style={{ fontSize:10, color:sc, lineHeight:1.5, marginBottom:4 }}>{srv.reason}</div>
+                    <div style={{ fontSize:13, color:sc, lineHeight:1.5, marginBottom:4 }}>{srv.reason}</div>
                   )}
-                  <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'rgba(255,255,255,0.35)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{srv.cmd}</div>
+                  <div style={{ fontSize:13, fontFamily:'var(--font-mono)', color:'color-mix(in oklab, var(--ink) 35%, transparent)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{srv.cmd}</div>
                 </div>
                 {/* Platform-managed servers come from configuration, so there is
                     nothing to delete and no client-side connect to toggle. */}
                 {srv.managed ? (
                   <div style={{ display:'flex', gap:5, flexShrink:0 }}>
-                    <button onClick={loadServers} style={{ padding:'4px 10px', borderRadius:8, fontSize:11, cursor:'pointer', background:'rgba(93,162,255,0.08)', border:'1px solid rgba(93,162,255,0.20)', color:'#5da2ff' }} title="Re-probe this server">Re-check</button>
+                    <button onClick={loadServers} style={{ padding:'4px 10px', borderRadius:8, fontSize:13, cursor:'pointer', background:'color-mix(in oklab, var(--accent) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 20%, transparent)', color:'var(--accent)' }} title="Re-probe this server">Re-check</button>
                   </div>
                 ) : (
                 <div style={{ display:'flex', gap:5, flexShrink:0 }}>
-                  <button onClick={()=>removeServer(srv)} style={{ padding:'4px 8px', borderRadius:8, fontSize:10, cursor:'pointer', background:'rgba(255,107,125,0.06)', border:'1px solid rgba(255,107,125,0.15)', color:'rgba(255,107,125,0.6)' }} title="Remove">✕</button>
-                  <button onClick={()=>toggleConnect(srv)} style={{ padding:'4px 10px', borderRadius:8, fontSize:11, cursor:'pointer', background:srv.status==='connected'?'rgba(255,107,125,0.08)':'rgba(70,217,164,0.10)', border:`1px solid ${srv.status==='connected'?'rgba(255,107,125,0.20)':'rgba(70,217,164,0.22)'}`, color:srv.status==='connected'?'#ff6b7d':'#46d9a4' }}>
+                  <button onClick={()=>removeServer(srv)} style={{ padding:'4px 8px', borderRadius:8, fontSize:13, cursor:'pointer', background:'color-mix(in oklab, var(--danger) 6%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 15%, transparent)', color:'color-mix(in oklab, var(--danger) 60%, transparent)' }} title="Remove">✕</button>
+                  <button onClick={()=>toggleConnect(srv)} style={{ padding:'4px 10px', borderRadius:8, fontSize:13, cursor:'pointer', background:srv.status==='connected'?'color-mix(in oklab, var(--danger) 8%, transparent)':'color-mix(in oklab, var(--success) 10%, transparent)', border:`1px solid ${srv.status==='connected'?'color-mix(in oklab, var(--danger) 20%, transparent)':'color-mix(in oklab, var(--success) 22%, transparent)'}`, color:srv.status==='connected'?'var(--danger)':'var(--success)' }}>
                     {srv.status==='connected'?'Disconnect':'Connect'}
                   </button>
                 </div>
@@ -729,17 +730,17 @@ function ProvidersScreen() {
     refreshStored: refetch,
   };
 
-  const errBox = { marginTop: 10, padding: '8px 12px', borderRadius: 10, background: 'rgba(255,107,125,0.10)', border: '1px solid rgba(255,107,125,0.25)', color: '#ff6b7d', fontSize: 12 };
-  const section = { borderRadius: 16, border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.025)', padding: '14px 16px' };
-  const sectionTitle = { fontSize: 13, fontWeight: 800, color: '#fff', marginBottom: 4 };
-  const sectionHint = { fontSize: 11.5, color: 'var(--text-tertiary)', lineHeight: 1.5, marginBottom: 11 };
+  const errBox = { marginTop: 10, padding: '8px 12px', borderRadius: 10, background: 'color-mix(in oklab, var(--danger) 10%, transparent)', border: '1px solid color-mix(in oklab, var(--danger) 25%, transparent)', color: 'var(--danger)', fontSize:13 };
+  const section = { borderRadius: 16, border: '1px solid color-mix(in oklab, var(--ink) 8%, transparent)', background: 'color-mix(in oklab, var(--ink) 2.5%, transparent)', padding: '14px 16px' };
+  const sectionTitle = { fontSize:14, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4 };
+  const sectionHint = { fontSize:13, color: 'var(--text-tertiary)', lineHeight: 1.5, marginBottom: 11 };
 
   return (
-    <div style={{ padding:'16px 16px 48px', maxWidth:1000, margin:'0 auto' }}>
+    <div style={{ padding:'16px 16px 48px', maxWidth:1200, margin:'0 auto' }}>
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:10, marginBottom:12 }}>
-        <h1 style={{ fontSize:24, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1 }}>Providers & Models</h1>
+        <h1 style={{ fontSize:24, fontWeight:700, color:'var(--text-primary)', letterSpacing:'-0.04em', lineHeight:1.1 }}>Providers & models</h1>
         {tab === 'providers' && (
-          <button onClick={() => { setShowAdd(o => !o); setEditingId(null); }} style={{ padding: '9px 16px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', background: 'rgba(93,162,255,0.12)', border: '1px solid rgba(93,162,255,0.30)', color: 'var(--accent)' }}>
+          <button onClick={() => { setShowAdd(o => !o); setEditingId(null); }} style={{ padding: '9px 16px', borderRadius: 10, fontSize:14, fontWeight: 700, cursor: 'pointer', background: 'color-mix(in oklab, var(--accent) 12%, transparent)', border: '1px solid color-mix(in oklab, var(--accent) 30%, transparent)', color: 'var(--accent)' }}>
             {showAdd ? 'Cancel' : '+ Add provider'}
           </button>
         )}
@@ -748,7 +749,7 @@ function ProvidersScreen() {
       {/* Tabs — scroll sideways on a phone rather than wrapping into two rows. */}
       <div role="tablist" style={{ display:'flex', gap:6, marginBottom:14, overflowX:'auto', WebkitOverflowScrolling:'touch', paddingBottom:2 }}>
         {TABS.map(t => (
-          <button key={t.id} role="tab" aria-selected={tab===t.id} onClick={()=>setTab(t.id)} style={{ flex:'0 0 auto', padding:'9px 16px', borderRadius:999, fontSize:13, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', background:tab===t.id?'rgba(93,162,255,0.15)':'rgba(255,255,255,0.04)', border:`1px solid ${tab===t.id?'rgba(93,162,255,0.35)':'rgba(255,255,255,0.08)'}`, color:tab===t.id?'#fff':'var(--text-muted)' }}>
+          <button key={t.id} role="tab" aria-selected={tab===t.id} onClick={()=>setTab(t.id)} style={{ flex:'0 0 auto', padding:'9px 16px', borderRadius:999, fontSize:14, fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', background:tab===t.id?'color-mix(in oklab, var(--accent) 15%, transparent)':'color-mix(in oklab, var(--ink) 4%, transparent)', border:`1px solid ${tab===t.id?'color-mix(in oklab, var(--accent) 35%, transparent)':'color-mix(in oklab, var(--ink) 8%, transparent)'}`, color:tab===t.id?'var(--text-primary)':'var(--text-muted)' }}>
             {t.label}
           </button>
         ))}
@@ -760,7 +761,7 @@ function ProvidersScreen() {
           <ProviderConsole {...consoleProps} section="providers" />
           {actionErr && <div style={errBox}>{actionErr}</div>}
           {states.providers?.error && (
-            <div style={{ marginTop: 10, fontSize: 12, color: '#ffbd66' }}>
+            <div style={{ marginTop: 10, fontSize:13, color: 'var(--warning)' }}>
               Couldn't load saved providers: {states.providers.error}
             </div>
           )}
@@ -781,13 +782,13 @@ function ProvidersScreen() {
               <div style={sectionHint}>Pin a surface to one provider, or leave it on Auto to follow the routing strategy.</div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: 7 }}>
                 {Object.entries(surfaces).map(([surface, providerId]) => (
-                  <label key={surface} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 9px', borderRadius: 9, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'capitalize', minWidth: 56 }}>{surface}</span>
+                  <label key={surface} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 9px', borderRadius: 9, background: 'color-mix(in oklab, var(--ink) 3%, transparent)', border: '1px solid color-mix(in oklab, var(--ink) 7%, transparent)' }}>
+                    <span style={{ fontSize:13, fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'capitalize', minWidth: 56 }}>{surface}</span>
                     <select
                       value={providerId || 'auto'}
                       onChange={(e) => saveSurface(surface, e.target.value)}
                       disabled={surfaceBusy === surface}
-                      style={{ flex: 1, minWidth: 0, padding: '6px 6px', borderRadius: 6, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)', color: '#fff', fontSize: 12, outline: 'none', cursor: 'pointer', opacity: surfaceBusy === surface ? 0.5 : 1 }}
+                      style={{ flex: 1, minWidth: 0, padding: '6px 6px', borderRadius: 6, background: 'color-mix(in oklab, var(--ink) 5%, transparent)', border: '1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-primary)', fontSize:13, outline: 'none', cursor: 'pointer', opacity: surfaceBusy === surface ? 0.5 : 1 }}
                     >
                       <option value="auto">Auto (strategy)</option>
                       {providers.map(p => (
@@ -801,7 +802,7 @@ function ProvidersScreen() {
           )}
 
           <ProviderHealthToggleCard />
-          <p style={{ fontSize: 11.5, lineHeight: 1.6, color: 'var(--text-tertiary)' }}>
+          <p style={{ fontSize:13, lineHeight: 1.6, color: 'var(--text-tertiary)' }}>
             Global brain policy (preferred brain, local fallback) lives in{' '}
             <Link to="/v5/controls" style={{ color: 'var(--accent)' }}>Controls → Brain &amp; Model Routing</Link>.
           </p>

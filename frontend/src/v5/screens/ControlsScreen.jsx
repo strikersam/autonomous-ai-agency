@@ -15,6 +15,7 @@
  * Backend: packages/config/control_registry.py + control_overrides.py.
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import Glyph from '../components/ui/Glyph';
 import {
   fmtErr,
   getPlatformControls,
@@ -29,30 +30,30 @@ const SOURCE_LABEL = {
 };
 
 const SOURCE_STYLE = {
-  override: { border: '1px solid rgba(93,162,255,0.40)', background: 'rgba(93,162,255,0.10)', color: '#7ab1ff' },
-  environment: { border: '1px solid rgba(255,189,102,0.30)', background: 'rgba(255,189,102,0.10)', color: '#ffbd66' },
-  default: { border: '1px solid rgba(255,255,255,0.10)', background: 'rgba(255,255,255,0.04)', color: 'var(--text-muted)' },
+  override: { border: '1px solid color-mix(in oklab, var(--accent) 40%, transparent)', background: 'color-mix(in oklab, var(--accent) 10%, transparent)', color: '#7ab1ff' },
+  environment: { border: '1px solid color-mix(in oklab, var(--warning) 30%, transparent)', background: 'color-mix(in oklab, var(--warning) 10%, transparent)', color: 'var(--warning)' },
+  default: { border: '1px solid color-mix(in oklab, var(--ink) 10%, transparent)', background: 'color-mix(in oklab, var(--ink) 4%, transparent)', color: 'var(--text-muted)' },
 };
 
 const RISK_STYLE = {
-  high: { border: '1px solid rgba(255,107,125,0.30)', background: 'rgba(255,107,125,0.10)', color: '#ff6b7d' },
-  medium: { border: '1px solid rgba(255,189,102,0.30)', background: 'rgba(255,189,102,0.10)', color: '#ffbd66' },
+  high: { border: '1px solid color-mix(in oklab, var(--danger) 30%, transparent)', background: 'color-mix(in oklab, var(--danger) 10%, transparent)', color: 'var(--danger)' },
+  medium: { border: '1px solid color-mix(in oklab, var(--warning) 30%, transparent)', background: 'color-mix(in oklab, var(--warning) 10%, transparent)', color: 'var(--warning)' },
 };
 
 const PILL = {
-  borderRadius: 6, padding: '2px 6px', fontSize: 10, fontWeight: 600,
-  fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap',
+  borderRadius: 6, padding: '2px 6px', fontSize:13, fontWeight: 600,
+  fontVariantNumeric:'tabular-nums', whiteSpace: 'nowrap',
 };
 
 const FIELD = {
-  borderRadius: 10, padding: '7px 10px', fontSize: 12, outline: 'none',
-  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)',
+  borderRadius: 10, padding: '7px 10px', fontSize:13, outline: 'none',
+  background: 'color-mix(in oklab, var(--ink) 4%, transparent)', border: '1px solid color-mix(in oklab, var(--ink) 10%, transparent)',
   color: 'var(--text-primary)', fontFamily: 'var(--font-main)',
 };
 
 const BANNER = (tone) => ({
   display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 14,
-  padding: '9px 12px', borderRadius: 10, fontSize: 12, lineHeight: 1.55,
+  padding: '9px 12px', borderRadius: 10, fontSize:13, lineHeight: 1.55,
   background: `rgba(${tone},0.08)`, border: `1px solid rgba(${tone},0.22)`,
 });
 
@@ -74,8 +75,8 @@ function Toggle({ checked, disabled, onChange, label }) {
         position: 'relative', height: 24, width: 44, flexShrink: 0, borderRadius: 999,
         cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1,
         transition: 'background 0.15s, border-color 0.15s',
-        background: checked ? 'var(--accent)' : 'rgba(255,255,255,0.10)',
-        border: `1px solid ${checked ? 'var(--accent)' : 'rgba(255,255,255,0.15)'}`,
+        background: checked ? 'var(--accent)' : 'color-mix(in oklab, var(--ink) 10%, transparent)',
+        border: `1px solid ${checked ? 'var(--accent)' : 'color-mix(in oklab, var(--ink) 15%, transparent)'}`,
       }}
     >
       <span style={{
@@ -99,12 +100,12 @@ function ControlRow({ control, pending, onChange, onReset, busy }) {
       style={{
         display: 'flex', flexWrap: 'wrap', alignItems: 'flex-start', gap: 14,
         padding: '13px 15px', borderTop: '1px solid var(--border)',
-        background: dirty ? 'rgba(93,162,255,0.05)' : 'transparent',
+        background: dirty ? 'color-mix(in oklab, var(--accent) 5%, transparent)' : 'transparent',
       }}
     >
       <div style={{ flex: '1 1 260px', minWidth: 0 }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 7 }}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)' }}>{control.label}</span>
+          <span style={{ fontSize:14, fontWeight: 600, color: 'var(--text-primary)' }}>{control.label}</span>
           <span style={{ ...PILL, ...(SOURCE_STYLE[control.source] || SOURCE_STYLE.default) }}>
             {SOURCE_LABEL[control.source] || control.source}
           </span>
@@ -123,17 +124,17 @@ function ControlRow({ control, pending, onChange, onReset, busy }) {
           )}
         </div>
         {control.help && (
-          <p style={{ marginTop: 4, fontSize: 12, lineHeight: 1.55, color: 'var(--text-tertiary)' }}>
+          <p style={{ marginTop: 4, fontSize:13, lineHeight: 1.55, color: 'var(--text-tertiary)' }}>
             {control.help}
           </p>
         )}
         <div style={{ marginTop: 5, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '3px 12px' }}>
-          <code style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+          <code style={{ fontSize:13, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
             {control.key}
           </code>
           {missing.length > 0 && (
-            <span style={{ fontSize: 10, color: 'var(--warning)' }}>
-              ⚠ Inactive until {missing.join(', ')} is set
+            <span style={{ fontSize:13, color: 'var(--warning)' }}>
+              <Glyph g="⚠"/> Inactive until {missing.join(', ')} is set
             </span>
           )}
         </div>
@@ -172,7 +173,7 @@ function ControlRow({ control, pending, onChange, onReset, busy }) {
             min={control.minimum ?? undefined}
             max={control.maximum ?? undefined}
             onChange={(e) => onChange(control.key, e.target.value)}
-            style={{ ...FIELD, width: 104, fontFamily: 'var(--font-mono)' }}
+            style={{ ...FIELD, width: 104, fontVariantNumeric:'tabular-nums' }}
           />
         )}
         {control.kind === 'text' && (
@@ -184,7 +185,7 @@ function ControlRow({ control, pending, onChange, onReset, busy }) {
             placeholder="comma-separated"
             spellCheck={false}
             onChange={(e) => onChange(control.key, e.target.value)}
-            style={{ ...FIELD, width: 240, fontFamily: 'var(--font-mono)' }}
+            style={{ ...FIELD, width: 240, fontVariantNumeric:'tabular-nums' }}
           />
         )}
         <button
@@ -193,7 +194,7 @@ function ControlRow({ control, pending, onChange, onReset, busy }) {
           disabled={busy || control.source !== 'override'}
           title="Drop the dashboard override and follow the Render environment again"
           style={{
-            borderRadius: 9, padding: '6px 9px', fontSize: 12, lineHeight: 1,
+            borderRadius: 9, padding: '6px 9px', fontSize:13, lineHeight: 1,
             border: '1px solid var(--border)', background: 'transparent',
             color: 'var(--text-secondary)',
             cursor: busy || control.source !== 'override' ? 'not-allowed' : 'pointer',
@@ -229,11 +230,11 @@ function ControlGroup({ group, pending, onChange, onReset, busy, defaultOpen, fo
           background: 'transparent', border: 'none', color: 'inherit',
         }}
       >
-        <span style={{ marginTop: 1, fontSize: 11, color: 'var(--text-muted)' }}>{open ? '▾' : '▸'}</span>
+        <span style={{ marginTop: 1, fontSize:13, color: 'var(--text-muted)' }}>{open ? '▾' : '▸'}</span>
         <span style={{ flex: 1, minWidth: 0 }}>
           <span style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
-            <h2 style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{group.label}</h2>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+            <h2 style={{ fontSize:14, fontWeight: 700, color: 'var(--text-primary)' }}>{group.label}</h2>
+            <span style={{ fontSize:13, color: 'var(--text-muted)' }}>
               {group.controls.length} setting{group.controls.length === 1 ? '' : 's'}
             </span>
             {overrides > 0 && (
@@ -241,7 +242,7 @@ function ControlGroup({ group, pending, onChange, onReset, busy, defaultOpen, fo
             )}
           </span>
           {group.help && (
-            <p style={{ marginTop: 4, fontSize: 12, lineHeight: 1.55, color: 'var(--text-tertiary)' }}>
+            <p style={{ marginTop: 4, fontSize:13, lineHeight: 1.55, color: 'var(--text-tertiary)' }}>
               {group.help}
             </p>
           )}
@@ -353,7 +354,7 @@ export default function ControlsScreen() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '60vh' }}>
         <div style={{
           width: 22, height: 22, borderRadius: '50%',
-          border: '2px solid rgba(255,255,255,0.15)', borderTopColor: 'var(--accent)',
+          border: '2px solid color-mix(in oklab, var(--ink) 15%, transparent)', borderTopColor: 'var(--accent)',
           animation: 'spin 0.8s linear infinite',
         }}/>
       </div>
@@ -361,14 +362,14 @@ export default function ControlsScreen() {
   }
 
   return (
-    <div style={{ maxWidth: 1000, margin: '0 auto', padding: '22px 16px 120px' }}>
+    <div style={{ maxWidth: 1200, margin: '0 auto', padding: '22px 16px 120px' }}>
       <header style={{ marginBottom: 18 }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
           <div>
-            <h1 style={{ fontSize: 19, fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
+            <h1 style={{ fontSize: 19, fontWeight:700, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
               Platform Controls
             </h1>
-            <p style={{ marginTop: 3, fontSize: 12, color: 'var(--text-tertiary)' }}>
+            <p style={{ marginTop: 3, fontSize:13, color: 'var(--text-tertiary)' }}>
               {data?.control_count ?? 0} settings · {data?.override_count ?? 0} set from this dashboard
             </p>
           </div>
@@ -377,15 +378,15 @@ export default function ControlsScreen() {
             onClick={load}
             disabled={saving}
             style={{
-              borderRadius: 10, padding: '7px 13px', fontSize: 12, cursor: saving ? 'not-allowed' : 'pointer',
-              border: '1px solid var(--border)', background: 'rgba(255,255,255,0.04)',
+              borderRadius: 10, padding: '7px 13px', fontSize:13, cursor: saving ? 'not-allowed' : 'pointer',
+              border: '1px solid var(--border)', background: 'color-mix(in oklab, var(--ink) 4%, transparent)',
               color: 'var(--text-secondary)', opacity: saving ? 0.5 : 1,
             }}
           >
             Refresh
           </button>
         </div>
-        <p style={{ marginTop: 11, fontSize: 12, lineHeight: 1.6, color: 'var(--text-tertiary)' }}>
+        <p style={{ marginTop: 11, fontSize:13, lineHeight: 1.6, color: 'var(--text-tertiary)' }}>
           Values set here are stored in the database and re-applied on every boot, taking
           precedence over the Render environment. Reset a control to hand it back to Render.
           Secrets and connection URLs are deliberately not editable here.
@@ -399,11 +400,11 @@ export default function ControlsScreen() {
         style={{ ...FIELD, width: '100%', marginBottom: 14, padding: '9px 12px' }}
       />
 
-      {error && <div style={BANNER('255,107,125')}><span style={{ color: '#ff6b7d' }}>{error}</span></div>}
-      {notice && !error && <div style={BANNER('70,217,164')}><span style={{ color: '#46d9a4' }}>{notice}</span></div>}
+      {error && <div style={BANNER('255,107,125')}><span style={{ color: 'var(--danger)' }}>{error}</span></div>}
+      {notice && !error && <div style={BANNER('70,217,164')}><span style={{ color: 'var(--success)' }}>{notice}</span></div>}
       {restartKeys.length > 0 && (
         <div style={BANNER('255,189,102')}>
-          <span style={{ color: '#ffbd66' }}>
+          <span style={{ color: 'var(--warning)' }}>
             Saved, but the running process already read {restartKeys.length === 1 ? 'this value' : 'these values'} at
             startup — restart the backend to pick {restartKeys.length === 1 ? 'it' : 'them'} up:{' '}
             <code style={{ fontFamily: 'var(--font-mono)' }}>{restartKeys.join(', ')}</code>
@@ -425,7 +426,7 @@ export default function ControlsScreen() {
           />
         ))}
         {groups.length === 0 && (
-          <p style={{ padding: '40px 0', textAlign: 'center', fontSize: 12, color: 'var(--text-muted)' }}>
+          <p style={{ padding: '40px 0', textAlign: 'center', fontSize:13, color: 'var(--text-muted)' }}>
             No settings match “{query}”.
           </p>
         )}
@@ -448,10 +449,10 @@ export default function ControlsScreen() {
             @media (min-width: 1024px) { .pc-savebar { bottom: 0; } }
           `}</style>
           <div style={{
-            maxWidth: 1000, margin: '0 auto', display: 'flex', alignItems: 'center',
+            maxWidth: 1200, margin: '0 auto', display: 'flex', alignItems: 'center',
             justifyContent: 'space-between', gap: 12,
           }}>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+            <span style={{ fontSize:13, color: 'var(--text-secondary)' }}>
               {pendingCount} unsaved change{pendingCount === 1 ? '' : 's'}
             </span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -460,7 +461,7 @@ export default function ControlsScreen() {
                 onClick={() => setPending({})}
                 disabled={saving}
                 style={{
-                  borderRadius: 10, padding: '7px 13px', fontSize: 12,
+                  borderRadius: 10, padding: '7px 13px', fontSize:13,
                   border: '1px solid var(--border)', background: 'transparent',
                   color: 'var(--text-secondary)', cursor: saving ? 'not-allowed' : 'pointer',
                   opacity: saving ? 0.5 : 1,
@@ -473,7 +474,7 @@ export default function ControlsScreen() {
                 onClick={handleSave}
                 disabled={saving}
                 style={{
-                  borderRadius: 10, padding: '7px 17px', fontSize: 12, fontWeight: 700,
+                  borderRadius: 10, padding: '7px 17px', fontSize:13, fontWeight: 700,
                   border: '1px solid var(--accent)', background: 'var(--accent)', color: '#04121f',
                   cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.5 : 1,
                 }}

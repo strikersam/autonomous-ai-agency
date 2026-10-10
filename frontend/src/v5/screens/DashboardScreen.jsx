@@ -1,8 +1,10 @@
 /* eslint-disable jsx-a11y/anchor-is-valid -- nav links wired later */
 import React from 'react';
+import Glyph from '../components/ui/Glyph';
 import { useSafeData } from '../hooks/useSafeData';
 import { ErrorBoundary } from '../components/ErrorBoundary';
 import { Sparkline, Donut, BarChart } from '../components/Charts';
+import { Icon } from '../AppShell';
 
 // dashboard.jsx — Resilient Dashboard wired to the real backend
 // Each widget fetches independently via useSafeData (Promise.allSettled) so a
@@ -30,89 +32,37 @@ function fmtTokens(n) {
 
 // Widget wrapper with per-widget loading/error states
 function Widget({ title, action, actionLabel, loading, error, errorSeverity = 'warning', onRetry, children, span = 1 }) {
-  const ref = React.useRef(null);
-  const onMove = React.useCallback((e) => {
-    const el = ref.current;
-    if (!el || window.matchMedia('(hover: none)').matches) return;
-    const r = el.getBoundingClientRect();
-    const px = (e.clientX - r.left) / r.width;
-    const py = (e.clientY - r.top) / r.height;
-    el.style.setProperty('--ry', `${(px - 0.5) * 4}deg`);
-    el.style.setProperty('--rx', `${(0.5 - py) * 4}deg`);
-    el.style.setProperty('--mx', `${px * 100}%`);
-    el.style.setProperty('--my', `${py * 100}%`);
-  }, []);
-  const onLeave = React.useCallback(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.style.setProperty('--rx', '0deg');
-    el.style.setProperty('--ry', '0deg');
-  }, []);
   return (
-    <div ref={ref} onMouseMove={onMove} onMouseLeave={onLeave} className="card-3d glass fx-rise" style={{
-      borderRadius: 18, border: '1px solid var(--border)',
-      background: 'rgba(10,12,15,0.80)',
-      overflow: 'hidden', gridColumn: `span ${span}`,
-    }}>
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '14px 18px 0',
-      }}>
-        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: '-0.01em' }}>{title}</span>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+    <section className="dash-widget" style={{ gridColumn: `span ${span}` }} aria-label={title}>
+      <div className="dash-widget-head">
+        <h3 className="dash-widget-title">{title}</h3>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
           {onRetry && error && (
-            <button onClick={onRetry} style={{
-              fontSize: 10, fontFamily: 'var(--font-mono)', letterSpacing: '0.15em', textTransform: 'uppercase',
-              color: 'var(--accent)', background: 'rgba(93,162,255,0.10)', border: '1px solid rgba(93,162,255,0.20)',
-              borderRadius: 6, cursor: 'pointer', padding: '2px 8px',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(93,162,255,0.18)'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'rgba(93,162,255,0.10)'; }}>
-              Retry
-            </button>
+            <button type="button" className="dash-link" onClick={onRetry}>Retry</button>
           )}
           {action && (
-            <button onClick={action} style={{
-              fontSize: 10, fontFamily: 'var(--font-mono)', letterSpacing: '0.15em', textTransform: 'uppercase',
-              color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer',
-            }}
-            onMouseEnter={e => e.currentTarget.style.color = 'var(--accent)'}
-            onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}>
-              {actionLabel || 'View all →'}
-            </button>
+            <button type="button" className="dash-link" onClick={action}>{actionLabel || 'View all'}</button>
           )}
         </div>
       </div>
-      <div style={{ padding: '12px 18px 16px' }}>
+      <div className="dash-widget-body">
         {error && (
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10,
-            padding: '7px 10px', borderRadius: 8,
-            background: errorSeverity === 'warning' ? 'rgba(255,189,102,0.08)' : 'rgba(255,107,125,0.08)',
-            border: `1px solid ${errorSeverity === 'warning' ? 'rgba(255,189,102,0.20)' : 'rgba(255,107,125,0.20)'}`,
-            fontSize: 11, color: errorSeverity === 'warning' ? '#ffbd66' : '#ff6b7d',
-          }}>
-            <span>⚠</span><span>{error}</span>
+          <div role="alert" className={`dash-note ${errorSeverity === 'warning' ? 'is-warn' : 'is-bad'}`}>
+            <Icon name="AlertCircle" size={16} style={{ flexShrink: 0, marginTop: 2 }}/><span>{error}</span>
           </div>
         )}
         {loading ? <SkeletonBlock/> : children}
       </div>
-    </div>
+    </section>
   );
 }
 
 function SkeletonBlock() {
-  const shimmer = {
-    background: 'linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%)',
-    backgroundSize: '200% 100%',
-    animation: 'shimmer 1.6s infinite',
-    borderRadius: 8,
-  };
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ height: 16, width: '65%', ...shimmer }}/>
-      <div style={{ height: 12, width: '85%', ...shimmer }}/>
-      <div style={{ height: 12, width: '50%', ...shimmer }}/>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }} aria-hidden="true">
+      <div className="skeleton" style={{ height: 16, width: '65%' }}/>
+      <div className="skeleton" style={{ height: 12, width: '85%' }}/>
+      <div className="skeleton" style={{ height: 12, width: '50%' }}/>
     </div>
   );
 }
@@ -121,19 +71,19 @@ function StatusDot({ ok, pulse }) {
   return (
     <span style={{
       display: 'inline-block', width: 7, height: 7, borderRadius: '50%',
-      background: ok ? '#46d9a4' : ok === false ? '#ff6b7d' : '#ffbd66',
+      background: ok ? 'var(--success)' : ok === false ? 'var(--danger)' : 'var(--warning)',
       flexShrink: 0,
       animation: pulse && ok ? 'pulse 2s ease-in-out infinite' : 'none',
     }}/>
   );
 }
 
-function Pill({ label, color = 'var(--text-muted)', bg = 'rgba(255,255,255,0.06)', border = 'rgba(255,255,255,0.10)' }) {
+function Pill({ label, color = 'var(--text-muted)', bg = 'color-mix(in oklab, var(--ink) 6%, transparent)', border = 'color-mix(in oklab, var(--ink) 10%, transparent)' }) {
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      padding: '2px 8px', borderRadius: 999, fontSize: 9,
-      fontFamily: 'var(--font-mono)', letterSpacing: '0.12em', textTransform: 'uppercase',
+      padding: '2px 7px', borderRadius: 6, fontSize:13, fontWeight: 500,
+      fontVariantNumeric:'tabular-nums', textTransform: 'capitalize',
       color, background: bg, border: `1px solid ${border}`, whiteSpace: 'nowrap',
     }}>{label}</span>
   );
@@ -141,34 +91,34 @@ function Pill({ label, color = 'var(--text-muted)', bg = 'rgba(255,255,255,0.06)
 
 function ProviderHealthWidget({ data, loading, error, onRetry }) {
   return (
-    <Widget title="Provider & Runtime" loading={loading} error={error} errorSeverity="warning" onRetry={onRetry}>
+    <Widget title="AI provider and runtime" loading={loading} error={error} errorSeverity="warning" onRetry={onRetry}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {/* Provider */}
-        <div style={{ padding: '12px 14px', borderRadius: 12, background: 'rgba(93,162,255,0.05)', border: '1px solid rgba(93,162,255,0.12)' }}>
+        <div style={{ padding: '12px 14px', borderRadius: 12, background: 'color-mix(in oklab, var(--accent) 5%, transparent)', border: '1px solid color-mix(in oklab, var(--accent) 12%, transparent)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
               <StatusDot ok={true} pulse/>
-              <span style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>{data.provider.name}</span>
-              <Pill label="Priority 0" color="#7c9dff" bg="rgba(124,157,255,0.10)" border="rgba(124,157,255,0.20)"/>
+              <span style={{ fontSize:14, fontWeight: 700, color:'var(--text-primary)' }}>{data.provider.name}</span>
+              <Pill label="Priority 0" color="#7c9dff" bg="color-mix(in oklab, var(--accent) 10%, transparent)" border="color-mix(in oklab, var(--accent) 20%, transparent)"/>
             </div>
-            {data.provider.latency != null && <span style={{ fontSize: 11, color: '#46d9a4', fontFamily: 'var(--font-mono)' }}>{data.provider.latency}ms</span>}
+            {data.provider.latency != null && <span style={{ fontSize:13, color: 'var(--success)', fontVariantNumeric:'tabular-nums' }}>{data.provider.latency}ms</span>}
           </div>
-          <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{data.provider.model || '—'}</div>
+          <div style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)' }}>{data.provider.model || '—'}</div>
           <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
             <Pill label="Queue 0" color="var(--text-muted)"/>
-            <Pill label="Healthy" color="#46d9a4" bg="rgba(70,217,164,0.08)" border="rgba(70,217,164,0.18)"/>
+            <Pill label="Healthy" color="#46d9a4" bg="color-mix(in oklab, var(--success) 8%, transparent)" border="color-mix(in oklab, var(--success) 18%, transparent)"/>
           </div>
         </div>
         {/* Runtime */}
-        <div style={{ padding: '10px 14px', borderRadius: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+        <div style={{ padding: '10px 14px', borderRadius: 12, background: 'color-mix(in oklab, var(--ink) 3%, transparent)', border: '1px solid color-mix(in oklab, var(--ink) 8%, transparent)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
               <StatusDot ok={true} pulse/>
-              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-secondary)' }}>{data.runtime.name}</span>
+              <span style={{ fontSize:13, fontWeight: 600, color: 'var(--text-secondary)' }}>{data.runtime.name}</span>
             </div>
             <Pill label={`${data.runtime.jobs} jobs`} color="var(--text-tertiary)"/>
           </div>
-          {data.runtime.uptime && <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>Up {data.runtime.uptime}</div>}
+          {data.runtime.uptime && <div style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)' }}>Up {data.runtime.uptime}</div>}
         </div>
       </div>
     </Widget>
@@ -177,74 +127,52 @@ function ProviderHealthWidget({ data, loading, error, onRetry }) {
 
 function RecentJobsWidget({ jobs, loading, error, onRetry }) {
   const statusConfig = {
-    completed: { color: '#46d9a4', label: 'Done', bg: 'rgba(70,217,164,0.08)' },
-    running:   { color: '#5da2ff', label: 'Running', bg: 'rgba(93,162,255,0.08)' },
-    queued:    { color: 'var(--text-muted)', label: 'Queued', bg: 'rgba(255,255,255,0.04)' },
-    failed:    { color: '#ff6b7d', label: 'Failed', bg: 'rgba(255,107,125,0.08)' },
+    completed: { color: 'var(--success)', label: 'Done', bg: 'color-mix(in oklab, var(--success) 8%, transparent)' },
+    running:   { color: 'var(--accent)', label: 'Running', bg: 'color-mix(in oklab, var(--accent) 8%, transparent)' },
+    queued:    { color: 'var(--text-muted)', label: 'Queued', bg: 'color-mix(in oklab, var(--ink) 4%, transparent)' },
+    failed:    { color: 'var(--danger)', label: 'Failed', bg: 'color-mix(in oklab, var(--danger) 8%, transparent)' },
   };
   return (
-    <Widget title="Recent Activity" loading={loading} error={error} onRetry={onRetry}>
+    <Widget title="Recent activity" loading={loading} error={error} onRetry={onRetry}>
       {(!jobs || jobs.length === 0) && !loading && (
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>No activity yet.</div>
+        <p style={{ color: 'var(--text-muted)' }}>Nothing yet. When your team starts working, each step shows up here.</p>
       )}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <ul className="dash-mini">
         {(jobs || []).map(job => {
           const sc = statusConfig[job.status] || statusConfig.queued;
           return (
-            <div key={job.id} style={{
-              display: 'flex', alignItems: 'flex-start', gap: 10,
-              padding: '10px 12px', borderRadius: 12,
-              background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.07)',
-              cursor: 'pointer', transition: 'background 0.15s',
-            }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.045)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.025)'}>
-              <div style={{ marginTop: 2 }}><StatusDot ok={job.status === 'completed' ? true : job.status === 'failed' ? false : null} pulse={job.status === 'running'}/></div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>{job.title}</span>
-                  {job.pr && <Pill label={job.pr} color="var(--accent)" bg="rgba(93,162,255,0.08)" border="rgba(93,162,255,0.20)"/>}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
-                  <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{job.agent}</span>
-                  <span style={{ color: 'rgba(255,255,255,0.15)' }}>·</span>
-                  <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{job.ago}</span>
-                </div>
-              </div>
-              <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', letterSpacing: '0.10em', textTransform: 'uppercase', color: sc.color, padding: '2px 8px', borderRadius: 6, background: sc.bg, flexShrink: 0 }}>{sc.label}</span>
-            </div>
+            <li key={job.id}>
+              <StatusDot ok={job.status === 'completed' ? true : job.status === 'failed' ? false : null} pulse={job.status === 'running'}/>
+              <span className="dash-mini-main">
+                <span className="dash-mini-title">{job.title}</span>
+                <span className="dash-mini-sub">{job.agent} · {job.ago}{job.pr ? ` · ${job.pr}` : ''}</span>
+              </span>
+              {job.status !== 'completed' && <span style={{ fontSize:14, color: sc.color, flexShrink: 0 }}>{sc.label}</span>}
+            </li>
           );
         })}
-      </div>
+      </ul>
     </Widget>
   );
 }
 
-function TasksWidget({ tasks, loading, error, onRetry, title = 'Open Tasks' }) {
-  const priorityColor = { urgent: '#ff6b7d', high: '#ffbd66', medium: 'var(--text-muted)' };
-  const statusColor = { in_progress: '#5da2ff', todo: 'var(--text-muted)', in_review: '#ffbd66', blocked: '#ff6b7d' };
+function TasksWidget({ tasks, loading, error, onRetry, title = 'Open tasks' }) {
+  const priorityColor = { urgent: 'var(--danger)', high: 'var(--warning)', medium: 'var(--text-muted)' };
+  const statusColor = { in_progress: 'var(--accent)', todo: 'var(--text-muted)', in_review: 'var(--warning)', blocked: 'var(--danger)' };
   return (
     <Widget title={title} loading={loading} error={error} onRetry={onRetry}>
       {(!tasks || tasks.length === 0) && !loading && !error && (
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', lineHeight: 1.6 }}>
-          No tasks. Use the Tasks screen to manage background jobs.
-        </div>
+        <p style={{ color: 'var(--text-muted)' }}>No open tasks. New work you or your agents create shows up here.</p>
       )}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+      <ul className="dash-mini">
         {(tasks || []).map(t => (
-          <div key={t.id} style={{
-            display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px',
-            borderRadius: 11, background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.07)',
-            cursor: 'pointer', transition: 'background 0.15s',
-          }}
-          onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.045)'}
-          onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.025)'}>
-            <span style={{ width: 6, height: 6, borderRadius: '50%', background: statusColor[t.status] || 'var(--text-muted)', flexShrink: 0 }}/>
-            <span style={{ flex: 1, fontSize: 12, fontWeight: 500, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.title}</span>
-            <Pill label={t.priority} color={priorityColor[t.priority]}/>
-          </div>
+          <li key={t.id}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: statusColor[t.status] || 'var(--text-muted)', flexShrink: 0 }} aria-hidden="true"/>
+            <span className="dash-mini-main"><span className="dash-mini-title">{t.title}</span></span>
+            {t.priority && <Pill label={t.priority} color={priorityColor[t.priority]}/>}
+          </li>
         ))}
-      </div>
+      </ul>
     </Widget>
   );
 }
@@ -255,27 +183,27 @@ function CostWidget({ data, loading, error, onRetry }) {
   const trend = data.trend || [];
   const hasTrend = trend.length >= 2;
   return (
-    <Widget title="Cost & Usage" loading={loading} error={error} onRetry={onRetry}>
+    <Widget title="Cost and usage" loading={loading} error={error} onRetry={onRetry}>
       {/* Request-volume trend sparkline — real time-series from observability metrics */}
       {hasTrend && (
         <div style={{ marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
-            <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Request volume</span>
-            <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-tertiary)' }}>{trend.length} buckets</span>
+            <span style={{ fontSize:13, color: 'var(--text-muted)' }}>Request volume</span>
+            <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-tertiary)' }}>{trend.length} buckets</span>
           </div>
           <Sparkline values={trend} height={48} />
         </div>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: hasRatio ? 12 : 0 }}>
         {[
-          { label: 'Cost saved (24h)', value: data.saved, color: '#46d9a4' },
+          { label: 'Cost saved (24h)', value: data.saved, color: 'var(--success)' },
           { label: 'Requests (24h)', value: (data.requests || 0).toLocaleString(), color: 'var(--accent)' },
-          { label: 'Tokens (24h)', value: data.tokens, color: '#c4b5fd' },
+          { label: 'Tokens (24h)', value: data.tokens, color: 'var(--violet)' },
           { label: 'Avg tokens/req', value: data.avgTokens, color: 'var(--text-primary)' },
         ].map(m => (
-          <div key={m.label} style={{ padding: '10px 12px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-            <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 4 }}>{m.label}</div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: m.color, letterSpacing: '-0.03em' }}>{m.value}</div>
+          <div key={m.label} style={{ padding: '10px 12px', borderRadius: 10, background: 'color-mix(in oklab, var(--ink) 3%, transparent)', border: '1px solid color-mix(in oklab, var(--ink) 7%, transparent)' }}>
+            <div style={{ fontSize:13, color: 'var(--text-muted)', marginBottom: 4 }}>{m.label}</div>
+            <div style={{ fontSize: 18, fontWeight:700, color: m.color, letterSpacing: '-0.03em' }}>{m.value}</div>
           </div>
         ))}
       </div>
@@ -283,11 +211,11 @@ function CostWidget({ data, loading, error, onRetry }) {
       {hasRatio && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
-            <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Local / free ratio</span>
-            <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: '#46d9a4', fontWeight: 700 }}>{barW}</span>
+            <span style={{ fontSize:13, color: 'var(--text-muted)' }}>Local / free ratio</span>
+            <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--success)', fontWeight: 700 }}>{barW}</span>
           </div>
-          <div style={{ height: 6, borderRadius: 999, background: 'rgba(255,255,255,0.08)' }}>
-            <div style={{ height: '100%', borderRadius: 999, width: barW, background: 'linear-gradient(90deg, #46d9a4, #5da2ff)', transition: 'width 0.8s ease' }}/>
+          <div style={{ height: 6, borderRadius: 999, background: 'color-mix(in oklab, var(--ink) 8%, transparent)' }}>
+            <div style={{ height: '100%', borderRadius: 999, width: barW, background: 'linear-gradient(90deg, var(--success), var(--accent))', transition: 'width 0.8s ease' }}/>
           </div>
         </div>
       )}
@@ -302,14 +230,14 @@ function MonitoringWidget({ signals, loading, error, onRetry }) {
         {signals.map(s => (
           <div key={s.label} style={{
             padding: '10px 12px', borderRadius: 11,
-            background: s.ok ? 'rgba(70,217,164,0.05)' : 'rgba(255,189,102,0.06)',
-            border: `1px solid ${s.ok ? 'rgba(70,217,164,0.14)' : 'rgba(255,189,102,0.18)'}`,
+            background: s.ok ? 'color-mix(in oklab, var(--success) 5%, transparent)' : 'color-mix(in oklab, var(--warning) 6%, transparent)',
+            border: `1px solid ${s.ok ? 'color-mix(in oklab, var(--success) 14%, transparent)' : 'color-mix(in oklab, var(--warning) 18%, transparent)'}`,
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
               <StatusDot ok={s.ok ? true : false}/>
-              <span style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', letterSpacing: '0.10em', textTransform: 'uppercase' }}>{s.label}</span>
+              <span style={{ fontSize:13, color: 'var(--text-muted)' }}>{s.label}</span>
             </div>
-            <div style={{ fontSize: 15, fontWeight: 800, color: s.ok ? 'var(--text-primary)' : '#ffbd66', letterSpacing: '-0.02em' }}>{s.value}</div>
+            <div style={{ fontSize: 15, fontWeight:700, color: s.ok ? 'var(--text-primary)' : 'var(--warning)', letterSpacing: '-0.02em' }}>{s.value}</div>
           </div>
         ))}
       </div>
@@ -319,9 +247,9 @@ function MonitoringWidget({ signals, loading, error, onRetry }) {
 
 function TaskDistributionWidget({ breakdown, total, loading, error, onRetry }) {
   return (
-    <Widget title="Task Distribution" loading={loading} error={error} onRetry={onRetry}>
+    <Widget title="Tasks by status" loading={loading} error={error} onRetry={onRetry}>
       {total === 0 && !loading && !error ? (
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', lineHeight: 1.6 }}>
+        <div style={{ fontSize:13, color: 'var(--text-muted)', fontVariantNumeric:'tabular-nums', lineHeight: 1.6 }}>
           No tasks tracked yet — create one from the Tasks screen to see the breakdown.
         </div>
       ) : (
@@ -338,24 +266,24 @@ function SystemHealthWidget({ health, loading, error, onRetry }) {
     { label: 'Langfuse', ok: health.langfuse ?? null },
   ].filter(s => !s.skip);
   return (
-    <Widget title="System Health" loading={loading} error={error} errorSeverity="warning" onRetry={onRetry}>
+    <Widget title="System health" loading={loading} error={error} errorSeverity="warning" onRetry={onRetry}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
         {services.map(s => (
           <div key={s.label} style={{
             display: 'flex', alignItems: 'center', gap: 6,
             padding: '6px 12px', borderRadius: 999,
-            background: s.ok === true ? 'rgba(70,217,164,0.07)' : s.ok === false ? 'rgba(255,189,102,0.07)' : 'rgba(255,255,255,0.04)',
-            border: `1px solid ${s.ok === true ? 'rgba(70,217,164,0.18)' : s.ok === false ? 'rgba(255,189,102,0.22)' : 'rgba(255,255,255,0.10)'}`,
+            background: s.ok === true ? 'color-mix(in oklab, var(--success) 7%, transparent)' : s.ok === false ? 'color-mix(in oklab, var(--warning) 7%, transparent)' : 'color-mix(in oklab, var(--ink) 4%, transparent)',
+            border: `1px solid ${s.ok === true ? 'color-mix(in oklab, var(--success) 18%, transparent)' : s.ok === false ? 'color-mix(in oklab, var(--warning) 22%, transparent)' : 'color-mix(in oklab, var(--ink) 10%, transparent)'}`,
           }}>
             <StatusDot ok={s.ok}/>
-            <span style={{ fontSize: 12, color: s.ok === true ? 'var(--text-secondary)' : s.ok === false ? '#ffbd66' : 'var(--text-muted)' }}>{s.label}</span>
+            <span style={{ fontSize:13, color: s.ok === true ? 'var(--text-secondary)' : s.ok === false ? 'var(--warning)' : 'var(--text-muted)' }}>{s.label}</span>
           </div>
         ))}
       </div>
       {health.langfuse === false && (
-        <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 10, background: 'rgba(255,189,102,0.05)', border: '1px solid rgba(255,189,102,0.12)' }}>
-          <div style={{ fontSize: 11, color: '#ffbd66', lineHeight: 1.5 }}>
-            ⚠ Langfuse not configured — observability traces unavailable. Set <code>LANGFUSE_SECRET_KEY</code> / <code>LANGFUSE_PUBLIC_KEY</code> on the backend.
+        <div style={{ marginTop: 10, padding: '8px 12px', borderRadius: 10, background: 'color-mix(in oklab, var(--warning) 5%, transparent)', border: '1px solid color-mix(in oklab, var(--warning) 12%, transparent)' }}>
+          <div style={{ fontSize:13, color: 'var(--warning)', lineHeight: 1.5 }}>
+            <Glyph g="⚠"/> Langfuse not configured — observability traces unavailable. Set <code>LANGFUSE_SECRET_KEY</code> / <code>LANGFUSE_PUBLIC_KEY</code> on the backend.
           </div>
         </div>
       )}
@@ -366,9 +294,9 @@ function SystemHealthWidget({ health, loading, error, onRetry }) {
 function RateLimiterWidget({ providers, loading, error, onRetry }) {
   const entries = Object.entries(providers || {});
   return (
-    <Widget title="Rate-Limit Pacing" loading={loading} error={error} errorSeverity="warning" onRetry={onRetry}>
+    <Widget title="Rate-limit pacing" loading={loading} error={error} errorSeverity="warning" onRetry={onRetry}>
       {entries.length === 0 && !loading && !error && (
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', lineHeight: 1.6 }}>
+        <div style={{ fontSize:13, color: 'var(--text-muted)', fontVariantNumeric:'tabular-nums', lineHeight: 1.6 }}>
           No provider has reported rate-limit headers yet. Proactive pacing engages automatically the moment one does.
         </div>
       )}
@@ -377,19 +305,19 @@ function RateLimiterWidget({ providers, loading, error, onRetry }) {
           const pct = q.limit_requests ? Math.round(((q.remaining_requests ?? q.limit_requests) / q.limit_requests) * 100) : null;
           const low = pct != null && pct <= 15;
           return (
-            <div key={id} style={{ padding: '9px 12px', borderRadius: 11, background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.07)' }}>
+            <div key={id} style={{ padding: '9px 12px', borderRadius: 11, background: 'color-mix(in oklab, var(--ink) 2.5%, transparent)', border: '1px solid color-mix(in oklab, var(--ink) 7%, transparent)' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: pct != null ? 5 : 0 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text-primary)', textTransform: 'capitalize' }}>{id}</span>
+                <span style={{ fontSize:13, fontWeight: 700, color: 'var(--text-primary)', textTransform: 'capitalize' }}>{id}</span>
                 {pct != null
-                  ? <Pill label={`${pct}% left`} color={low ? '#ff6b7d' : '#46d9a4'} bg={low ? 'rgba(255,107,125,0.08)' : 'rgba(70,217,164,0.08)'} border={low ? 'rgba(255,107,125,0.20)' : 'rgba(70,217,164,0.18)'} />
+                  ? <Pill label={`${pct}% left`} color={low ? 'var(--danger)' : 'var(--success)'} bg={low ? 'color-mix(in oklab, var(--danger) 8%, transparent)' : 'color-mix(in oklab, var(--success) 8%, transparent)'} border={low ? 'color-mix(in oklab, var(--danger) 20%, transparent)' : 'color-mix(in oklab, var(--success) 18%, transparent)'} />
                   : <Pill label="tracking" />}
               </div>
               {pct != null && (
-                <div style={{ height: 5, borderRadius: 999, background: 'rgba(255,255,255,0.08)' }}>
-                  <div style={{ height: '100%', borderRadius: 999, width: `${pct}%`, background: low ? '#ff6b7d' : 'linear-gradient(90deg,#46d9a4,#5da2ff)', transition: 'width 0.8s ease' }} />
+                <div style={{ height: 5, borderRadius: 999, background: 'color-mix(in oklab, var(--ink) 8%, transparent)' }}>
+                  <div style={{ height: '100%', borderRadius: 999, width: `${pct}%`, background: low ? 'var(--danger)' : 'linear-gradient(90deg,var(--success),var(--accent))', transition: 'width 0.8s ease' }} />
                 </div>
               )}
-              <div style={{ display: 'flex', gap: 10, marginTop: 5, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+              <div style={{ display: 'flex', gap: 10, marginTop: 5, fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)' }}>
                 {q.reset_requests_in_s != null && <span>reset in {q.reset_requests_in_s}s</span>}
                 <span>updated {q.updated_s_ago}s ago</span>
               </div>
@@ -403,36 +331,36 @@ function RateLimiterWidget({ providers, loading, error, onRetry }) {
 
 function SelfHealWidget({ data, loading, error, onRetry }) {
   const stateColor = {
-    detected: '#ffbd66', fixing: '#5da2ff', verifying: '#c4b5fd',
-    resolved: '#46d9a4', regressed: '#ff9f43', awaiting_human: '#ff6b7d',
+    detected: 'var(--warning)', fixing: 'var(--accent)', verifying: 'var(--violet)',
+    resolved: 'var(--success)', regressed: 'var(--warning)', awaiting_human: 'var(--danger)',
   };
   const events = data.events || [];
   return (
-    <Widget title="Self-Healing" loading={loading} error={error} errorSeverity="warning" onRetry={onRetry}>
+    <Widget title="Self-healing" loading={loading} error={error} errorSeverity="warning" onRetry={onRetry}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, marginBottom: 12 }}>
         {[
-          { label: 'Active', value: data.active_count ?? 0, color: '#5da2ff' },
-          { label: 'Resolved', value: data.resolved_count ?? 0, color: '#46d9a4' },
-          { label: 'Awaiting human', value: data.awaiting_human_count ?? 0, color: '#ff6b7d' },
-          { label: 'Fix tasks', value: data.log_monitor?.tasks_created ?? 0, color: '#c4b5fd' },
+          { label: 'Active', value: data.active_count ?? 0, color: 'var(--accent)' },
+          { label: 'Resolved', value: data.resolved_count ?? 0, color: 'var(--success)' },
+          { label: 'Awaiting human', value: data.awaiting_human_count ?? 0, color: 'var(--danger)' },
+          { label: 'Fix tasks', value: data.log_monitor?.tasks_created ?? 0, color: 'var(--violet)' },
         ].map(m => (
-          <div key={m.label} style={{ padding: '8px 10px', borderRadius: 10, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: m.color }}>{m.value}</div>
-            <div style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{m.label}</div>
+          <div key={m.label} style={{ padding: '8px 10px', borderRadius: 10, background: 'color-mix(in oklab, var(--ink) 3%, transparent)', border: '1px solid color-mix(in oklab, var(--ink) 7%, transparent)' }}>
+            <div style={{ fontSize: 16, fontWeight:700, color: m.color }}>{m.value}</div>
+            <div style={{ fontSize:13, color: 'var(--text-muted)' }}>{m.label}</div>
           </div>
         ))}
       </div>
       {events.length === 0 && !loading && !error && (
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', lineHeight: 1.6 }}>
+        <div style={{ fontSize:13, color: 'var(--text-muted)', fontVariantNumeric:'tabular-nums', lineHeight: 1.6 }}>
           No errors captured yet — the log monitor is watching in real time.
         </div>
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {events.slice(0, 5).map(e => (
-          <div key={e.event_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 9, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
+          <div key={e.event_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 9, background: 'color-mix(in oklab, var(--ink) 2%, transparent)', border: '1px solid color-mix(in oklab, var(--ink) 6%, transparent)' }}>
             <span style={{ width: 6, height: 6, borderRadius: '50%', background: stateColor[e.state] || 'var(--text-muted)', flexShrink: 0 }} />
-            <span style={{ flex: 1, fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.title}</span>
-            <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: stateColor[e.state] || 'var(--text-muted)', textTransform: 'uppercase', flexShrink: 0 }}>{e.state}</span>
+            <span style={{ flex: 1, fontSize:13, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.title}</span>
+            <span style={{ fontSize:13, color: stateColor[e.state] || 'var(--text-muted)', flexShrink: 0 }}>{e.state}</span>
           </div>
         ))}
       </div>
@@ -441,7 +369,7 @@ function SelfHealWidget({ data, loading, error, onRetry }) {
 }
 
 function CostBreakdownWidget({ data, loading, error, onRetry }) {
-  const tagColors = ['#5da2ff', '#46d9a4', '#c4b5fd', '#ffbd66', '#ff9d66', '#ff6b7d', '#7c9dff'];
+  const tagColors = ['var(--accent)', 'var(--success)', 'var(--violet)', 'var(--warning)', 'var(--warning)', 'var(--danger)', 'var(--accent)'];
   const tagged = Object.entries(data.by_tag || {}).filter(([, v]) => (v.calls || 0) > 0);
   // Free-tier models cost $0, which would flatten every bar to the chart's
   // minimum height and make the widget look empty. Chart call volume instead.
@@ -457,15 +385,15 @@ function CostBreakdownWidget({ data, loading, error, onRetry }) {
     }));
   const total = data.totals || {};
   return (
-    <Widget title={hasSpend || rows.length === 0 ? 'Spend by Task Type' : 'Calls by Task Type'} loading={loading} error={error} onRetry={onRetry}>
+    <Widget title={hasSpend || rows.length === 0 ? 'Spend by task type' : 'Calls by task type'} loading={loading} error={error} onRetry={onRetry}>
       {rows.length === 0 && !loading && !error && (
-        <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', lineHeight: 1.6 }}>
+        <div style={{ fontSize:13, color: 'var(--text-muted)', fontVariantNumeric:'tabular-nums', lineHeight: 1.6 }}>
           No tagged LLM calls recorded yet since the last restart.
         </div>
       )}
       {rows.length > 0 && <BarChart data={rows} height={100} />}
       {rows.length > 0 && (
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 10, fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)' }}>
           <span>{total.calls ?? 0} calls tracked</span>
           <span>{hasSpend ? `$${(total.estimated_cost_usd ?? 0).toFixed(4)} est. spend` : 'free tier · $0.00 spend'}</span>
         </div>
@@ -476,8 +404,15 @@ function CostBreakdownWidget({ data, loading, error, onRetry }) {
 
 // Mirrors the terminal members of TaskStatus in tasks/models.py.
 const TERMINAL_TASK_STATUSES = new Set(['done', 'failed', 'wont_do']);
+const NEEDS_HUMAN = new Set(['in_review', 'review', 'needs_clarification', 'blocked', 'awaiting_approval']);
+const NEEDS_LABEL = { in_review: 'Ready for review', review: 'Ready for review', needs_clarification: 'Has a question', blocked: 'Stuck', awaiting_approval: 'Needs approval' };
 
-function DashboardScreen() {
+function greeting() {
+  const h = new Date().getHours();
+  return h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+}
+
+function DashboardScreen({ onNavigate } = {}) {
   const [data, states, fetchAll] = useSafeData(null, {
     health:    '/api/health',
     stats:     '/api/stats',
@@ -496,7 +431,8 @@ function DashboardScreen() {
   const openTasks = React.useMemo(() => {
     const all = data.tasks?.tasks || [];
     return all
-      .filter(t => !TERMINAL_TASK_STATUSES.has(t.status))
+      // Tasks waiting on a person are listed under "Needs you" instead.
+      .filter(t => !TERMINAL_TASK_STATUSES.has(t.status) && !NEEDS_HUMAN.has(t.status) && !t.requires_approval)
       .slice(0, 6)
       .map(t => ({ id: t.task_id || t.id, title: t.title, status: t.status, priority: t.priority }));
   }, [data.tasks]);
@@ -538,7 +474,7 @@ function DashboardScreen() {
       status: 'completed',
       phase: 'done',
       ago: relTime(log.created_at || log.timestamp),
-      agent: log.event_type ? log.event_type.replace(/_/g, ' ') : 'System',
+      agent: log.event_type ? log.event_type.replace(/_event$/, '').replace(/_/g, ' ').replace(/^./, c => c.toUpperCase()) : 'System',
       pr: null,
     }));
   }, [data.activity]);
@@ -571,14 +507,14 @@ function DashboardScreen() {
   const taskBreakdown = React.useMemo(() => {
     const all = data.tasks?.tasks || [];
     const buckets = {
-      in_progress: { label: 'In progress', value: 0, color: '#5da2ff' },
-      todo: { label: 'To do', value: 0, color: '#6e7786' },
-      in_review: { label: 'In review', value: 0, color: '#ffbd66' },
-      done: { label: 'Done', value: 0, color: '#46d9a4' },
-      blocked: { label: 'Blocked', value: 0, color: '#ff6b7d' },
-      needs_clarification: { label: 'Needs input', value: 0, color: '#c792ea' },
-      failed: { label: 'Failed', value: 0, color: '#ff6b7d' },
-      wont_do: { label: "Won't do", value: 0, color: '#4a5160' },
+      in_progress: { label: 'In progress', value: 0, color: 'var(--accent)' },
+      todo: { label: 'To do', value: 0, color: 'var(--text-muted)' },
+      in_review: { label: 'In review', value: 0, color: 'var(--warning)' },
+      done: { label: 'Done', value: 0, color: 'var(--success)' },
+      blocked: { label: 'Blocked', value: 0, color: 'var(--danger)' },
+      needs_clarification: { label: 'Needs input', value: 0, color: 'var(--violet)' },
+      failed: { label: 'Failed', value: 0, color: 'var(--danger)' },
+      wont_do: { label: "Won't do", value: 0, color: 'var(--text-muted)' },
     };
     all.forEach((t) => {
       const b = buckets[t.status] || buckets.todo;
@@ -602,45 +538,75 @@ function DashboardScreen() {
 
   const systemOk = data.health?.status === 'ok';
   const anyLoading = states.health?.loading || states.stats?.loading;
-  const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+
+  // Tasks waiting on a person come first: they are the reason to open Home.
+  const needsYou = React.useMemo(() => {
+    const all = data.tasks?.tasks || [];
+    return all
+      .filter(t => NEEDS_HUMAN.has(t.status) || t.requires_approval)
+      .slice(0, 5)
+      .map(t => ({ id: t.task_id || t.id, title: t.title, status: t.status }));
+  }, [data.tasks]);
+
+  const [detailsOpen, setDetailsOpen] = React.useState(() => {
+    try { return localStorage.getItem('home_details_open') === '1'; } catch { return false; }
+  });
+  const onToggleDetails = (e) => {
+    const open = e.currentTarget.open;
+    setDetailsOpen(open);
+    try { localStorage.setItem('home_details_open', open ? '1' : '0'); } catch { /* storage blocked */ }
+  };
+
+  const statusLine = anyLoading
+    ? 'Checking on your team…'
+    : !systemOk
+      ? 'Some systems are not responding. Your team may be slower than usual.'
+      : needsYou.length
+        ? `Everything is running. ${needsYou.length === 1 ? 'One thing needs' : `${needsYou.length} things need`} your decision.`
+        : 'Everything is running. Nothing needs you right now.';
 
   return (
-    <div style={{ padding: '20px 16px 32px', maxWidth: 1200, margin: '0 auto' }}>
-      {/* Page header */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-          <span style={{
-            display: 'inline-flex', alignItems: 'center', gap: 5,
-            padding: '3px 10px', borderRadius: 999, fontSize: 10,
-            fontFamily: 'var(--font-mono)', letterSpacing: '0.12em', textTransform: 'uppercase',
-            background: systemOk ? 'rgba(70,217,164,0.10)' : 'rgba(255,189,102,0.10)',
-            border: `1px solid ${systemOk ? 'rgba(70,217,164,0.20)' : 'rgba(255,189,102,0.25)'}`,
-            color: systemOk ? '#46d9a4' : '#ffbd66',
-          }}>
-            <span style={{ width: 5, height: 5, borderRadius: '50%', background: systemOk ? '#46d9a4' : '#ffbd66', animation: 'pulse 2s infinite' }}/>
-            {anyLoading ? 'Loading…' : systemOk ? 'System healthy' : 'Degraded'}
-          </span>
-          <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{today}</span>
-        </div>
-        <h1 style={{ fontSize: 'clamp(22px,4vw,32px)', fontWeight: 800, color: '#fff', letterSpacing: '-0.04em', lineHeight: 1.1, marginBottom: 6 }}>Dashboard</h1>
-        <p style={{ fontSize: 14, color: 'var(--text-tertiary)', maxWidth: 520, lineHeight: 1.6 }}>
-          {data.stats
-            ? `${data.stats.chat_sessions || 0} chat sessions · ${data.stats.wiki_pages || 0} wiki pages · ${data.stats.providers || 0} provider${(data.stats.providers || 0) === 1 ? '' : 's'} configured`
-            : 'Loading platform stats…'}
+    <div className="dash">
+      <header className="dash-hero">
+        <p className="dash-date">{today}</p>
+        <h1 className="dash-title">{greeting()}</h1>
+        <p className="dash-status" role="status">
+          <span className={`dash-status-dot ${anyLoading ? '' : systemOk ? 'is-ok' : 'is-warn'}`} aria-hidden="true"/>
+          {statusLine}
         </p>
-      </div>
+      </header>
 
-      {/* Widget grid */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-        gap: 14,
-      }}>
-        <ErrorBoundary onRetry={fetchAll} resetKey={String(states.health?.error || states.providers?.error || '')}>
-          <ProviderHealthWidget
-            data={providerData}
-            loading={states.health?.loading || states.providers?.loading}
-            error={states.health?.error || states.providers?.error}
+      <section className="dash-section" aria-labelledby="needs-you">
+        <h2 id="needs-you" className="dash-h2">Needs you</h2>
+        {needsYou.length === 0 ? (
+          <p className="dash-empty">
+            <Icon name="Check" size={18} style={{ color: 'var(--success)', flexShrink: 0 }}/>
+            You are all caught up. Approvals and questions from your team will appear here.
+          </p>
+        ) : (
+          <ul className="dash-list">
+            {needsYou.map(t => (
+              <li key={t.id}>
+                <button type="button" className="dash-row" onClick={() => onNavigate && onNavigate('tasks')}>
+                  <span className="dash-row-mark is-warn" aria-hidden="true"/>
+                  <span className="dash-row-text">{t.title}</span>
+                  <span className="dash-row-meta">{NEEDS_LABEL[t.status] || 'Needs approval'}</span>
+                  <Icon name="ChevronRight" size={18} style={{ color: 'var(--text-muted)', flexShrink: 0 }}/>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <div className="dash-pair">
+        <ErrorBoundary onRetry={fetchAll} resetKey={String(states.tasks?.error || '')}>
+          <TasksWidget
+            title="In progress"
+            tasks={openTasks}
+            loading={states.tasks?.loading}
+            error={states.tasks?.error}
             onRetry={fetchAll}
           />
         </ErrorBoundary>
@@ -652,11 +618,26 @@ function DashboardScreen() {
             onRetry={fetchAll}
           />
         </ErrorBoundary>
-        <ErrorBoundary onRetry={fetchAll} resetKey={String(states.tasks?.error || '')}>
-          <TasksWidget
-            tasks={openTasks}
-            loading={states.tasks?.loading}
-            error={states.tasks?.error}
+      </div>
+
+      <details className="dash-details" open={detailsOpen} onToggle={onToggleDetails}>
+        <summary>
+          <span>
+            <span className="dash-h2">System details</span>
+            <span className="dash-summary-sub">
+              {data.stats
+                ? `${data.stats.chat_sessions || 0} conversations · ${data.stats.wiki_pages || 0} knowledge pages · ${data.stats.providers || 0} AI provider${(data.stats.providers || 0) === 1 ? '' : 's'}`
+                : 'Providers, costs, health and self-repair'}
+            </span>
+          </span>
+          <Icon name="ChevronRight" size={18} style={{ color: 'var(--text-muted)' }}/>
+        </summary>
+      <div className="dash-grid">
+        <ErrorBoundary onRetry={fetchAll} resetKey={String(states.health?.error || states.providers?.error || '')}>
+          <ProviderHealthWidget
+            data={providerData}
+            loading={states.health?.loading || states.providers?.loading}
+            error={states.health?.error || states.providers?.error}
             onRetry={fetchAll}
           />
         </ErrorBoundary>
@@ -720,6 +701,7 @@ function DashboardScreen() {
           />
         </ErrorBoundary>
       </div>
+      </details>
     </div>
   );
 }

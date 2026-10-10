@@ -1,3 +1,4 @@
+import Glyph from '../components/ui/Glyph';
 import React from 'react';
 import * as api from '../../api';
 import { COMPANY_ID_KEY } from './CompanyScreen';
@@ -12,15 +13,15 @@ const MONO = 'var(--font-mono)';
 function SectionHeader({ label, icon }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 10 }}>
-      {icon && <span style={{ fontSize: 14 }}>{icon}</span>}
-      <span style={{ fontSize: 11, fontFamily: MONO, color: 'var(--text-muted)', letterSpacing: '0.15em', textTransform: 'uppercase' }}>{label}</span>
+      {icon && <span style={{ fontSize: 14 }}><Glyph g={icon}/></span>}
+      <span style={{ fontSize:13, fontFamily: MONO, color: 'var(--text-muted)' }}>{label}</span>
     </div>
   );
 }
 
 function Card({ children, style = {} }) {
   return (
-    <div style={{ borderRadius: 16, border: '1px solid rgba(255,255,255,0.09)', background: 'rgba(255,255,255,0.03)', padding: '14px 16px', ...style }}>
+    <div style={{ borderRadius: 16, border: '1px solid color-mix(in oklab, var(--ink) 9%, transparent)', background: 'color-mix(in oklab, var(--ink) 3%, transparent)', padding: '14px 16px', ...style }}>
       {children}
     </div>
   );
@@ -70,10 +71,10 @@ export default function ExecutiveAdvisoryScreen({ isAdmin }) {
   }, [question, ground, remember, companyId, roles, loading]);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 900 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 1200, margin: '0 auto', padding: '20px 16px 32px' }}>
       <div>
-        <h2 style={{ fontSize: 18, fontWeight: 600, margin: 0 }}>C-Suite Advisory</h2>
-        <p style={{ fontSize: 13, color: 'var(--text-muted)', margin: '4px 0 0' }}>
+        <h2 style={{ fontSize: 18, fontWeight: 600, margin: 0 }}>C-Suite advisory</h2>
+        <p style={{ fontSize:14, color: 'var(--text-muted)', margin: '4px 0 0' }}>
           Ask your executive team a business question. Answers are grounded in live web research and prior advice
           {companyId ? ', with this company’s profile as context' : ''}.
         </p>
@@ -83,7 +84,7 @@ export default function ExecutiveAdvisoryScreen({ isAdmin }) {
       <Card>
         <SectionHeader label="The C-Suite" icon="🏛️" />
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-          {execs.length === 0 && <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>Loading executives…</span>}
+          {execs.length === 0 && <span style={{ fontSize:13, color: 'var(--text-muted)' }}>Loading executives…</span>}
           {execs.map((e) => {
             const on = roles.includes(e.role);
             return (
@@ -93,8 +94,8 @@ export default function ExecutiveAdvisoryScreen({ isAdmin }) {
                 onClick={() => toggleRole(e.role)}
                 title={e.focus}
                 style={{
-                  fontSize: 12, padding: '6px 10px', borderRadius: 10, cursor: 'pointer',
-                  border: `1px solid ${on ? 'var(--accent)' : 'rgba(255,255,255,0.14)'}`,
+                  fontSize:13, padding: '6px 10px', borderRadius: 10, cursor: 'pointer',
+                  border: `1px solid ${on ? 'var(--accent)' : 'color-mix(in oklab, var(--ink) 14%, transparent)'}`,
                   background: on ? 'var(--accent)' : 'transparent',
                   color: on ? '#0b0b0f' : 'var(--text)',
                 }}
@@ -104,7 +105,7 @@ export default function ExecutiveAdvisoryScreen({ isAdmin }) {
             );
           })}
         </div>
-        <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '8px 0 0' }}>
+        <p style={{ fontSize:13, color: 'var(--text-muted)', margin: '8px 0 0' }}>
           {roles.length ? `Consulting ${roles.length} selected.` : 'None selected — the question is auto-routed to the relevant executives.'}
         </p>
       </Card>
@@ -119,15 +120,15 @@ export default function ExecutiveAdvisoryScreen({ isAdmin }) {
           rows={3}
           style={{
             width: '100%', resize: 'vertical', borderRadius: 12, padding: '10px 12px',
-            border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(0,0,0,0.25)',
+            border: '1px solid color-mix(in oklab, var(--ink) 14%, transparent)', background: 'color-mix(in oklab, var(--shade) 25%, transparent)',
             color: 'var(--text)', fontSize: 14, fontFamily: 'inherit',
           }}
         />
         <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 14, marginTop: 10 }}>
-          <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+          <label style={{ fontSize:13, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
             <input type="checkbox" checked={ground} onChange={(e) => setGround(e.target.checked)} /> Web research
           </label>
-          <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+          <label style={{ fontSize:13, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
             <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /> Use memory
           </label>
           <div style={{ flex: 1 }} />
@@ -136,9 +137,9 @@ export default function ExecutiveAdvisoryScreen({ isAdmin }) {
             onClick={consult}
             disabled={!isAdmin || loading || !question.trim()}
             style={{
-              fontSize: 13, fontWeight: 600, padding: '8px 16px', borderRadius: 10,
+              fontSize:14, fontWeight: 600, padding: '8px 16px', borderRadius: 10,
               border: 'none', cursor: (!isAdmin || loading || !question.trim()) ? 'not-allowed' : 'pointer',
-              background: (!isAdmin || loading || !question.trim()) ? 'rgba(255,255,255,0.12)' : 'var(--accent)',
+              background: (!isAdmin || loading || !question.trim()) ? 'color-mix(in oklab, var(--ink) 12%, transparent)' : 'var(--accent)',
               color: (!isAdmin || loading || !question.trim()) ? 'var(--text-muted)' : '#0b0b0f',
             }}
           >
@@ -146,12 +147,12 @@ export default function ExecutiveAdvisoryScreen({ isAdmin }) {
           </button>
         </div>
         {!isAdmin && (
-          <p style={{ fontSize: 11, color: 'var(--text-muted)', margin: '8px 0 0' }}>
+          <p style={{ fontSize:13, color: 'var(--text-muted)', margin: '8px 0 0' }}>
             Consulting requires an admin account — it starts real provider work.
           </p>
         )}
         {error && (
-          <p style={{ fontSize: 12, color: '#ff8080', margin: '8px 0 0' }}>{error}</p>
+          <p style={{ fontSize:13, color: 'var(--danger)', margin: '8px 0 0' }}>{error}</p>
         )}
       </Card>
 
@@ -169,11 +170,11 @@ export default function ExecutiveAdvisoryScreen({ isAdmin }) {
             <SectionHeader label={`Executive views (${result.opinions?.length || 0})`} icon="🧑‍💼" />
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {(result.opinions || []).map((o) => (
-                <div key={o.role} style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 10 }}>
-                  <div style={{ fontSize: 12, fontFamily: MONO, color: 'var(--text-muted)', letterSpacing: '0.08em', marginBottom: 4 }}>{o.title}</div>
+                <div key={o.role} style={{ borderTop: '1px solid color-mix(in oklab, var(--ink) 7%, transparent)', paddingTop: 10 }}>
+                  <div style={{ fontSize:13, fontFamily: MONO, color: 'var(--text-muted)', marginBottom: 4 }}>{o.title}</div>
                   {o.error
-                    ? <div style={{ fontSize: 12, color: '#ff8080' }}>Unavailable: {o.error}</div>
-                    : <div style={{ fontSize: 13, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{o.text}</div>}
+                    ? <div style={{ fontSize:13, color: 'var(--danger)' }}>Unavailable: {o.error}</div>
+                    : <div style={{ fontSize:14, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{o.text}</div>}
                 </div>
               ))}
             </div>
@@ -182,7 +183,7 @@ export default function ExecutiveAdvisoryScreen({ isAdmin }) {
           {result.grounding?.sources?.length > 0 && (
             <Card>
               <SectionHeader label="Research sources" icon="🔎" />
-              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, lineHeight: 1.7 }}>
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize:13, lineHeight: 1.7 }}>
                 {result.grounding.sources.map((u, i) => (
                   <li key={i}>
                     <a href={u} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>{u}</a>

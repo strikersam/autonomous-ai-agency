@@ -26,12 +26,11 @@ module.exports = {
         'role-user': 'var(--role-user)',
       },
       fontFamily: {
-        // Must match the faces the app actually loads (index.css @import).
-        // These previously named Outfit / JetBrains Mono, which were never
-        // loaded — font-heading/body/mono utilities silently fell back.
-        heading: ['Manrope', '"SF Pro Display"', '"Segoe UI"', 'sans-serif'],
-        mono: ['"IBM Plex Mono"', 'SFMono-Regular', 'monospace'],
-        body: ['Manrope', '"SF Pro Display"', '"Segoe UI"', 'sans-serif'],
+        // Must match the faces index.html loads; a name that is never
+        // loaded makes font-heading/body/mono silently fall back.
+        heading: ['"Instrument Sans"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+        body: ['"Instrument Sans"', 'ui-sans-serif', 'system-ui', 'sans-serif'],
       },
       keyframes: {
         fadeIn: {
@@ -65,9 +64,9 @@ module.exports = {
         xs: '480px',
       },
       boxShadow: {
-        card: '0 1px 3px 0 rgba(0,0,0,0.4), 0 1px 2px -1px rgba(0,0,0,0.4)',
-        'card-hover': '0 4px 12px 0 rgba(0,0,0,0.5)',
-        sidebar: '4px 0 24px rgba(0,0,0,0.4)',
+        card: 'var(--shadow-soft)',
+        'card-hover': 'var(--shadow-panel)',
+        sidebar: 'var(--shadow-panel)',
       },
     },
   },

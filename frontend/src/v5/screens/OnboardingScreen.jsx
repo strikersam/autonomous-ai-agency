@@ -1,5 +1,6 @@
 /* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
 import React from 'react';
+import Glyph from '../components/ui/Glyph';
 import * as api from '../../api';
 import { COMPANY_ID_KEY } from './CompanyScreen';
 
@@ -87,12 +88,12 @@ function StepIndicator({ current, onStepClick }) {
               style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:4, flexShrink:0, background:'none', border:'none', cursor:clickable?'pointer':'default', padding:0, font:'inherit', opacity: clickable ? 1 : 0.7 }}
               title={clickable ? `Go back to ${step.label}` : (active ? `Current: ${step.label}` : '')}
             >
-              <div style={{ width:26, height:26, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', background:done?'#46d9a4':active?'var(--accent)':'rgba(255,255,255,0.07)', border:`2px solid ${done?'#46d9a4':active?'var(--accent)':'rgba(255,255,255,0.14)'}`, fontSize:11, fontWeight:700, color:done||active?'#06111f':'var(--text-muted)', transition:'all 0.3s' }}>
+              <div style={{ width:26, height:26, borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', background:done?'var(--success)':active?'var(--accent)':'color-mix(in oklab, var(--ink) 7%, transparent)', border:`2px solid ${done?'var(--success)':active?'var(--accent)':'color-mix(in oklab, var(--ink) 14%, transparent)'}`, fontSize:13, fontWeight:700, color:done||active?'var(--on-accent)':'var(--text-muted)', transition:'all 0.3s' }}>
                 {done?'✓':i+1}
               </div>
-              <div style={{ fontSize:10, fontWeight:600, color:active?'#fff':done?'var(--text-tertiary)':'var(--text-muted)', whiteSpace:'nowrap' }}>{step.label}</div>
+              <div style={{ fontSize:13, fontWeight:600, color:active?'var(--text-primary)':done?'var(--text-tertiary)':'var(--text-muted)', whiteSpace:'nowrap' }}>{step.label}</div>
             </button>
-            {i<STEPS.length-1 && <div style={{ flex:1, minWidth:12, height:2, margin:'0 4px', marginBottom:16, background:i<idx?'#46d9a4':'rgba(255,255,255,0.10)', transition:'background 0.4s' }}/>}
+            {i<STEPS.length-1 && <div style={{ flex:1, minWidth:12, height:2, margin:'0 4px', marginBottom:16, background:i<idx?'var(--success)':'color-mix(in oklab, var(--ink) 10%, transparent)', transition:'background 0.4s' }}/>}
           </React.Fragment>
         );
       })}
@@ -119,12 +120,12 @@ function NonAdminGate() {
 
   if (sent) return (
     <div style={{ textAlign:'center', padding:'40px 20px', animation:'fadeSlideUp 0.35s ease-out' }}>
-      <div style={{ fontSize:40, marginBottom:14 }}>✉️</div>
-      <h2 style={{ fontSize:22, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', marginBottom:8 }}>Request sent!</h2>
+      <div style={{ fontSize:40, marginBottom:14 }}><Glyph g="✉️"/></div>
+      <h2 style={{ fontSize:22, fontWeight:700, color:'var(--text-primary)', letterSpacing:'-0.04em', marginBottom:8 }}>Request sent</h2>
       <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.7, maxWidth:380, margin:'0 auto 20px' }}>
         Your request has been sent to the administrator. You will receive confirmation once your company is provisioned — usually within 24 hours.
       </p>
-      <div style={{ padding:'12px 16px', borderRadius:14, background:'rgba(70,217,164,0.06)', border:'1px solid rgba(70,217,164,0.15)', display:'inline-block', fontSize:13, color:'#46d9a4' }}>
+      <div style={{ padding:'12px 16px', borderRadius:14, background:'color-mix(in oklab, var(--success) 6%, transparent)', border:'1px solid color-mix(in oklab, var(--success) 15%, transparent)', display:'inline-block', fontSize:14, color:'var(--success)' }}>
         Sent to: strikersam@gmail.com
       </div>
     </div>
@@ -132,36 +133,36 @@ function NonAdminGate() {
 
   return (
     <div style={{ animation:'fadeSlideUp 0.35s ease-out' }}>
-      <div style={{ padding:'12px 14px', borderRadius:14, background:'rgba(255,189,102,0.07)', border:'1px solid rgba(255,189,102,0.20)', marginBottom:22, display:'flex', alignItems:'flex-start', gap:10 }}>
+      <div style={{ padding:'12px 14px', borderRadius:14, background:'color-mix(in oklab, var(--warning) 7%, transparent)', border:'1px solid color-mix(in oklab, var(--warning) 20%, transparent)', marginBottom:22, display:'flex', alignItems:'flex-start', gap:10 }}>
         <span style={{ fontSize:16, flexShrink:0, marginTop:1 }}>ℹ️</span>
         <div>
-          <div style={{ fontSize:13, fontWeight:700, color:'#ffbd66', marginBottom:3 }}>Admin setup required</div>
-          <div style={{ fontSize:13, color:'var(--text-tertiary)', lineHeight:1.6 }}>
+          <div style={{ fontSize:14, fontWeight:700, color:'var(--warning)', marginBottom:3 }}>Admin setup required</div>
+          <div style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.6 }}>
             Company onboarding requires admin access. Send a request below — the admin will configure your company and let you know when it is ready.
           </div>
         </div>
       </div>
-      <h2 style={{ fontSize:22, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', marginBottom:6 }}>Request company setup</h2>
+      <h2 style={{ fontSize:22, fontWeight:700, color:'var(--text-primary)', letterSpacing:'-0.04em', marginBottom:6 }}>Request company setup</h2>
       <p style={{ fontSize:14, color: 'var(--text-tertiary)', lineHeight:1.6, marginBottom:20, maxWidth:440 }}>Describe what you need. The admin will set up your company, connect your systems, and let you know when it is ready.</p>
       <div style={{ display:'flex', flexDirection:'column', gap:11 }}>
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
           {[{v:name,s:setName,ph:'Your name',t:'text'},{v:email,s:setEmail,ph:'Your email',t:'email'}].map((f,i)=>(
             <input key={i} value={f.v} onChange={e=>f.s(e.target.value)} placeholder={f.ph} type={f.t}
-              style={{ padding:'11px 14px', borderRadius:12, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.12)', color:'#fff', fontSize:13, fontFamily:'var(--font-main)', outline:'none', transition:'border-color 0.2s' }}
-              onFocus={e=>e.target.style.borderColor='rgba(93,162,255,0.5)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.12)'}/>
+              style={{ padding:'11px 14px', borderRadius:12, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 12%, transparent)', color:'var(--text-primary)', fontSize:14, fontFamily:'var(--font-main)', outline:'none', transition:'border-color 0.2s' }}
+              onFocus={e=>e.target.style.borderColor='color-mix(in oklab, var(--accent) 50%, transparent)'} onBlur={e=>e.target.style.borderColor='color-mix(in oklab, var(--ink) 12%, transparent)'}/>
           ))}
         </div>
         <div>
-          <label style={{ display:'block', fontSize:12, fontWeight:600, color:'var(--text-tertiary)', marginBottom:7 }}>What do you need? *</label>
+          <label style={{ display:'block', fontSize:13, fontWeight:600, color:'var(--text-tertiary)', marginBottom:7 }}>What do you need? *</label>
           <textarea value={query} onChange={e=>setQuery(e.target.value)} rows={5}
             placeholder="Describe your company, what you would like to automate, your website URL, and any systems you use (e.g. Shopify, WordPress, Salesforce)..."
-            style={{ width:'100%', padding:'12px 14px', borderRadius:14, resize:'vertical', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.12)', color:'#fff', fontSize:13, fontFamily:'var(--font-main)', outline:'none', lineHeight:1.6, transition:'border-color 0.2s' }}
-            onFocus={e=>e.target.style.borderColor='rgba(93,162,255,0.5)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.12)'}/>
+            style={{ width:'100%', padding:'12px 14px', borderRadius:14, resize:'vertical', background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 12%, transparent)', color:'var(--text-primary)', fontSize:14, fontFamily:'var(--font-main)', outline:'none', lineHeight:1.6, transition:'border-color 0.2s' }}
+            onFocus={e=>e.target.style.borderColor='color-mix(in oklab, var(--accent) 50%, transparent)'} onBlur={e=>e.target.style.borderColor='color-mix(in oklab, var(--ink) 12%, transparent)'}/>
         </div>
-        <button onClick={handleSend} disabled={!query.trim()} style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:14, fontWeight:800, border:'none', cursor:'pointer', boxShadow:'0 8px 24px rgba(93,162,255,0.25)', opacity:!query.trim()?0.5:1, transition:'all 0.2s' }}>
-          ✉️ Send request to admin
+        <button onClick={handleSend} disabled={!query.trim()} style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,var(--accent),var(--accent))', color:'var(--on-accent)', fontSize:14, fontWeight:700, border:'none', cursor:'pointer', boxShadow:'0 8px 24px color-mix(in oklab, var(--accent) 25%, transparent)', opacity:!query.trim()?0.5:1, transition:'all 0.2s' }}>
+          <Glyph g="✉️"/> Send request to admin
         </button>
-        <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>Opens your email client with a pre-filled message to the LLM Relay admin.</div>
+        <div style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--text-muted)' }}>Opens your email client with a pre-filled message to the LLM Relay admin.</div>
       </div>
     </div>
   );
@@ -329,33 +330,33 @@ function DiscoveryStep({ onNext, onCompanyCreated }) {
 
   return (
     <div style={{ animation:'fadeSlideUp 0.35s ease-out' }}>
-      <h2 style={{ fontSize:22, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', marginBottom:6 }}>What company are you setting up?</h2>
+      <h2 style={{ fontSize:22, fontWeight:700, color:'var(--text-primary)', letterSpacing:'-0.04em', marginBottom:6 }}>What company are you setting up?</h2>
       <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.6, marginBottom:22, maxWidth:440 }}>
         Enter your production URL. LLM Relay V5.0 will inspect the site, infer your stack, and provision specialists that understand your industry automatically.
       </p>
       <div style={{ marginBottom:14 }}>
-        <label style={{ display:'block', fontSize:12, fontWeight:600, color:'var(--text-secondary)', marginBottom:7 }}>Production website URL *</label>
+        <label style={{ display:'block', fontSize:13, fontWeight:600, color:'var(--text-secondary)', marginBottom:7 }}>Production website URL *</label>
         <input value={url} onChange={e=>setUrl(e.target.value)} placeholder="https://your-company.com"
-          style={{ width:'100%', padding:'12px 16px', borderRadius:14, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.12)', color:'#fff', fontSize:14, fontFamily:'var(--font-main)', outline:'none', transition:'border-color 0.2s' }}
-          onFocus={e=>e.target.style.borderColor='rgba(93,162,255,0.5)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.12)'}/>
+          style={{ width:'100%', padding:'12px 16px', borderRadius:14, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 12%, transparent)', color:'var(--text-primary)', fontSize:14, fontFamily:'var(--font-main)', outline:'none', transition:'border-color 0.2s' }}
+          onFocus={e=>e.target.style.borderColor='color-mix(in oklab, var(--accent) 50%, transparent)'} onBlur={e=>e.target.style.borderColor='color-mix(in oklab, var(--ink) 12%, transparent)'}/>
       </div>
       {errorText && (
-        <div style={{ color:'var(--danger)', fontSize:12, marginBottom:10 }}>{errorText}</div>
+        <div style={{ color:'var(--danger)', fontSize:13, marginBottom:10 }}>{errorText}</div>
       )}
       {scanning && (
-        <div style={{ marginBottom:18, padding:'14px 16px', borderRadius:14, background:'rgba(93,162,255,0.06)', border:'1px solid rgba(93,162,255,0.15)' }}>
+        <div style={{ marginBottom:18, padding:'14px 16px', borderRadius:14, background:'color-mix(in oklab, var(--accent) 6%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 15%, transparent)' }}>
           <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:9 }}>
             <span style={{ width:8, height:8, borderRadius:'50%', background:'var(--accent)', animation:'pulse 1s infinite', flexShrink:0 }}/>
-            <span style={{ fontSize:12, color:'var(--text-secondary)' }}>{msgs[msgIdx]}</span>
-            <span style={{ marginLeft:'auto', fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>{progress}%</span>
+            <span style={{ fontSize:13, color:'var(--text-secondary)' }}>{msgs[msgIdx]}</span>
+            <span style={{ marginLeft:'auto', fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--text-muted)' }}>{progress}%</span>
           </div>
-          <div style={{ height:4, borderRadius:999, background:'rgba(255,255,255,0.10)' }}>
+          <div style={{ height:4, borderRadius:999, background:'color-mix(in oklab, var(--ink) 10%, transparent)' }}>
             <div style={{ height:'100%', borderRadius:999, background:'var(--accent)', width:`${progress}%`, transition:'width 0.2s ease' }}/>
           </div>
         </div>
       )}
-      <button onClick={handleScan} disabled={scanning||!url.trim()} style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:14, fontWeight:800, border:'none', cursor:'pointer', boxShadow:'0 8px 24px rgba(93,162,255,0.25)', opacity:scanning||!url.trim()?0.6:1, transition:'all 0.2s' }}>
-        {scanning ? <><div style={{ width:14,height:14,border:'2px solid rgba(0,0,0,0.2)',borderTopColor:'#06111f',borderRadius:'50%',animation:'spin 0.8s linear infinite' }}/>Scanning...</> : '→ Inspect & discover'}
+      <button onClick={handleScan} disabled={scanning||!url.trim()} style={{ display:'inline-flex', alignItems:'center', gap:8, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,var(--accent),var(--accent))', color:'var(--on-accent)', fontSize:14, fontWeight:700, border:'none', cursor:'pointer', boxShadow:'0 8px 24px color-mix(in oklab, var(--accent) 25%, transparent)', opacity:scanning||!url.trim()?0.6:1, transition:'all 0.2s' }}>
+        {scanning ? <><div style={{ width:14,height:14,border:'2px solid color-mix(in oklab, var(--shade) 20%, transparent)',borderTopColor:'var(--on-accent)',borderRadius:'50%',animation:'spin 0.8s linear infinite' }}/>Scanning...</> : '→ Inspect & discover'}
       </button>
     </div>
   );
@@ -369,7 +370,7 @@ function SystemsStep({ onNext, onBack, onSystemsChange, detectedSystems = [] }) 
 
   return (
     <div style={{ animation:'fadeSlideUp 0.35s ease-out' }}>
-      <h2 style={{ fontSize:22, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', marginBottom:6 }}>
+      <h2 style={{ fontSize:22, fontWeight:700, color:'var(--text-primary)', letterSpacing:'-0.04em', marginBottom:6 }}>
         {systemsToUse.length > 0 ? `I found ${systemsToUse.length} system${systemsToUse.length === 1 ? '' : 's'}` : 'No systems detected — try scanning with a different URL or check that the site is accessible'}
       </h2>
       <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.6, marginBottom:18, maxWidth:440 }}>
@@ -381,26 +382,26 @@ function SystemsStep({ onNext, onBack, onSystemsChange, detectedSystems = [] }) 
         {systemsToUse.map(sys=>{
           const on=selected.includes(sys.id);
           return (
-            <button key={sys.id} onClick={()=>toggle(sys.id)} style={{ display:'flex', alignItems:'flex-start', gap:11, padding:'11px 14px', borderRadius:13, border:`1px solid ${on?'rgba(93,162,255,0.25)':'rgba(255,255,255,0.08)'}`, background:on?'rgba(93,162,255,0.05)':'rgba(255,255,255,0.025)', cursor:'pointer', textAlign:'left', transition:'all 0.2s' }}>
-              <span style={{ fontSize:20, flexShrink:0, lineHeight:1, marginTop:2 }}>{sys.icon || '⚙'}</span>
+            <button key={sys.id} onClick={()=>toggle(sys.id)} style={{ display:'flex', alignItems:'flex-start', gap:11, padding:'11px 14px', borderRadius:13, border:`1px solid ${on?'color-mix(in oklab, var(--accent) 25%, transparent)':'color-mix(in oklab, var(--ink) 8%, transparent)'}`, background:on?'color-mix(in oklab, var(--accent) 5%, transparent)':'color-mix(in oklab, var(--ink) 2.5%, transparent)', cursor:'pointer', textAlign:'left', transition:'all 0.2s' }}>
+              <span style={{ fontSize:20, flexShrink:0, lineHeight:1, marginTop:2 }}><Glyph g={sys.icon || '⚙'}/></span>
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ display:'flex', alignItems:'center', gap:7, flexWrap:'wrap', marginBottom:2 }}>
-                  <span style={{ fontSize:13, fontWeight:700, color:on?'#fff':'var(--text-secondary)' }}>{sys.label}</span>
-                  <span style={{ fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'0.12em', textTransform:'uppercase', padding:'2px 6px', borderRadius:999, background:'rgba(255,255,255,0.06)', color:'var(--text-muted)', border:'1px solid rgba(255,255,255,0.10)' }}>{sys.category}</span>
-                  <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:on?'#46d9a4':'var(--text-muted)', marginLeft:'auto' }}>{Math.round((sys.confidence || 0.9) * 100)}%</span>
+                  <span style={{ fontSize:14, fontWeight:700, color:on?'var(--text-primary)':'var(--text-secondary)' }}>{sys.label}</span>
+                  <span style={{ fontSize:13, padding:'2px 6px', borderRadius:999, background:'color-mix(in oklab, var(--ink) 6%, transparent)', color:'var(--text-muted)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)' }}>{sys.category}</span>
+                  <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:on?'var(--success)':'var(--text-muted)', marginLeft:'auto' }}>{Math.round((sys.confidence || 0.9) * 100)}%</span>
                 </div>
-                <div style={{ fontSize:11, color:'var(--text-muted)', lineHeight:1.5 }}>{sys.desc}</div>
+                <div style={{ fontSize:13, color:'var(--text-muted)', lineHeight:1.5 }}>{sys.desc}</div>
               </div>
-              <div style={{ width:18, height:18, borderRadius:5, flexShrink:0, border:`2px solid ${on?'var(--accent)':'rgba(255,255,255,0.20)'}`, background:on?'var(--accent)':'transparent', display:'flex', alignItems:'center', justifyContent:'center', marginTop:2, transition:'all 0.2s' }}>
-                {on && <span style={{ color:'#06111f', fontSize:10, fontWeight:900 }}>✓</span>}
+              <div style={{ width:18, height:18, borderRadius:5, flexShrink:0, border:`2px solid ${on?'var(--accent)':'color-mix(in oklab, var(--ink) 20%, transparent)'}`, background:on?'var(--accent)':'transparent', display:'flex', alignItems:'center', justifyContent:'center', marginTop:2, transition:'all 0.2s' }}>
+                {on && <span style={{ color:'var(--on-accent)', fontSize:13, fontWeight:700 }}>✓</span>}
               </div>
             </button>
           );
         })}
       </div>
       <div style={{ display:'flex', gap:10 }}>
-        <button onClick={onBack} style={{ padding:'12px 22px', borderRadius:999, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.12)', color:'var(--text-secondary)', fontSize:14, fontWeight:700, cursor:'pointer' }}>← Back</button>
-        <button onClick={()=>onNext(systemsToUse.filter(s=>selected.includes(s.id)))} style={{ flex:1, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:14, fontWeight:800, border:'none', cursor:'pointer', boxShadow:'0 8px 24px rgba(93,162,255,0.25)' }}>
+        <button onClick={onBack} style={{ padding:'12px 22px', borderRadius:999, background:'color-mix(in oklab, var(--ink) 6%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 12%, transparent)', color:'var(--text-secondary)', fontSize:14, fontWeight:700, cursor:'pointer' }}>← Back</button>
+        <button onClick={()=>onNext(systemsToUse.filter(s=>selected.includes(s.id)))} style={{ flex:1, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,var(--accent),var(--accent))', color:'var(--on-accent)', fontSize:14, fontWeight:700, border:'none', cursor:'pointer', boxShadow:'0 8px 24px color-mix(in oklab, var(--accent) 25%, transparent)' }}>
           Confirm {selected.length} systems → Continue
         </button>
       </div>
@@ -483,67 +484,67 @@ function DetailsStep({ onNext, onBack, companyId }) {
     onNext();
   };
 
-  const inputStyle = (extra={}) => ({ padding:'9px 12px', borderRadius:10, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, fontFamily:'var(--font-main)', outline:'none', transition:'border-color 0.2s', ...extra });
-  const onFocus = e => e.target.style.borderColor='rgba(93,162,255,0.45)';
-  const onBlur  = e => e.target.style.borderColor='rgba(255,255,255,0.10)';
-  const SLabel = ({children}) => <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase', marginBottom:7, marginTop:16 }}>{children}</div>;
+  const inputStyle = (extra={}) => ({ padding:'9px 12px', borderRadius:10, background:'color-mix(in oklab, var(--ink) 4%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-primary)', fontSize:14, fontFamily:'var(--font-main)', outline:'none', transition:'border-color 0.2s', ...extra });
+  const onFocus = e => e.target.style.borderColor='color-mix(in oklab, var(--accent) 45%, transparent)';
+  const onBlur  = e => e.target.style.borderColor='color-mix(in oklab, var(--ink) 10%, transparent)';
+  const SLabel = ({children}) => <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:7, marginTop:16 }}>{children}</div>;
 
   return (
     <div style={{ animation:'fadeSlideUp 0.35s ease-out' }}>
-      <h2 style={{ fontSize:22, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', marginBottom:6 }}>Connect your resources</h2>
+      <h2 style={{ fontSize:22, fontWeight:700, color:'var(--text-primary)', letterSpacing:'-0.04em', marginBottom:6 }}>Connect your resources</h2>
       <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.6, marginBottom:4, maxWidth:440 }}>All optional — you can add more later from the Company screen.</p>
 
       <SLabel>GitHub access token</SLabel>
       <div style={{ display:'flex', gap:8, alignItems:'center', marginBottom:4 }}>
-        <input value={ghToken} onChange={e=>setGhToken(e.target.value)} placeholder="ghp_... (repo + PR scope)" style={{ ...inputStyle(), flex:1, fontFamily:'var(--font-mono)' }} onFocus={onFocus} onBlur={onBlur}/>
-        <a href="https://github.com/settings/tokens/new" target="_blank" rel="noreferrer" style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', whiteSpace:'nowrap', textDecoration:'none', flexShrink:0 }}>Create →</a>
+        <input value={ghToken} onChange={e=>setGhToken(e.target.value)} placeholder="ghp_... (repo + PR scope)" style={{ ...inputStyle(), flex:1, fontVariantNumeric:'tabular-nums' }} onFocus={onFocus} onBlur={onBlur}/>
+        <a href="https://github.com/settings/tokens/new" target="_blank" rel="noreferrer" style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--accent)', whiteSpace:'nowrap', textDecoration:'none', flexShrink:0 }}>Create →</a>
       </div>
-      <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>Stored encrypted · never logged · gives agents read/write access to repos</div>
+      <div style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--text-muted)' }}>Stored encrypted · never logged · gives agents read/write access to repos</div>
 
       <SLabel>GitHub repositories</SLabel>
       {repos.map((r,i)=>(
         <div key={i} style={{ display:'flex', gap:7, marginBottom:7 }}>
           <input value={r.url} onChange={e=>setRepos(p=>p.map((x,j)=>j===i?{...x,url:e.target.value}:x))} placeholder="github.com/org/repo" style={{ ...inputStyle(), flex:1, fontFamily:'var(--font-mono)' }} onFocus={onFocus} onBlur={onBlur}/>
           <input value={r.branch} onChange={e=>setRepos(p=>p.map((x,j)=>j===i?{...x,branch:e.target.value}:x))} placeholder="branch" style={{ ...inputStyle({ width:90, fontFamily:'var(--font-mono)', flexShrink:0 }) }} onFocus={onFocus} onBlur={onBlur}/>
-          {i>0 && <button onClick={()=>setRepos(p=>p.filter((_,j)=>j!==i))} style={{ padding:'0 10px', borderRadius:10, background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.18)', color:'#ff6b7d', cursor:'pointer', flexShrink:0 }}>✕</button>}
+          {i>0 && <button onClick={()=>setRepos(p=>p.filter((_,j)=>j!==i))} style={{ padding:'0 10px', borderRadius:10, background:'color-mix(in oklab, var(--danger) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 18%, transparent)', color:'var(--danger)', cursor:'pointer', flexShrink:0 }}>✕</button>}
         </div>
       ))}
-      <button onClick={()=>setRepos(p=>[...p,{url:'',branch:'main'}])} style={{ fontSize:12, color:'var(--accent)', background:'none', border:'none', cursor:'pointer', fontFamily:'var(--font-mono)', marginBottom:4 }}>+ Add repo</button>
+      <button onClick={()=>setRepos(p=>[...p,{url:'',branch:'main'}])} style={{ fontSize:13, color:'var(--accent)', background:'none', border:'none', cursor:'pointer', fontFamily:'var(--font-mono)', marginBottom:4 }}>+ Add repo</button>
 
       <SLabel>Documentation URLs</SLabel>
       {docs.map((d,i)=>(
         <div key={i} style={{ display:'flex', gap:7, marginBottom:7 }}>
           <input value={d.url} onChange={e=>setDocs(p=>p.map((x,j)=>j===i?{...x,url:e.target.value}:x))} placeholder="https://docs.example.com" style={{ ...inputStyle(), flex:1, fontFamily:'var(--font-mono)' }} onFocus={onFocus} onBlur={onBlur}/>
           <input value={d.label} onChange={e=>setDocs(p=>p.map((x,j)=>j===i?{...x,label:e.target.value}:x))} placeholder="Label" style={{ ...inputStyle({ width:120 }) }} onFocus={onFocus} onBlur={onBlur}/>
-          {i>0 && <button onClick={()=>setDocs(p=>p.filter((_,j)=>j!==i))} style={{ padding:'0 10px', borderRadius:10, background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.18)', color:'#ff6b7d', cursor:'pointer', flexShrink:0 }}>✕</button>}
+          {i>0 && <button onClick={()=>setDocs(p=>p.filter((_,j)=>j!==i))} style={{ padding:'0 10px', borderRadius:10, background:'color-mix(in oklab, var(--danger) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 18%, transparent)', color:'var(--danger)', cursor:'pointer', flexShrink:0 }}>✕</button>}
         </div>
       ))}
-      <button onClick={()=>setDocs(p=>[...p,{url:'',label:''}])} style={{ fontSize:12, color:'var(--accent)', background:'none', border:'none', cursor:'pointer', fontFamily:'var(--font-mono)' }}>+ Add doc URL</button>
+      <button onClick={()=>setDocs(p=>[...p,{url:'',label:''}])} style={{ fontSize:13, color:'var(--accent)', background:'none', border:'none', cursor:'pointer', fontFamily:'var(--font-mono)' }}>+ Add doc URL</button>
 
       <SLabel>Goals & priorities</SLabel>
       {goals.map((g,i)=>(
         <div key={i} style={{ display:'flex', gap:7, marginBottom:7 }}>
           <input value={g} onChange={e=>setGoals(p=>p.map((x,j)=>j===i?e.target.value:x))} placeholder={`Priority ${i+1}: e.g. Improve checkout conversion`} style={{ ...inputStyle(), flex:1 }} onFocus={onFocus} onBlur={onBlur}/>
-          {i>0 && <button onClick={()=>setGoals(p=>p.filter((_,j)=>j!==i))} style={{ padding:'0 10px', borderRadius:10, background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.18)', color:'#ff6b7d', cursor:'pointer', flexShrink:0 }}>✕</button>}
+          {i>0 && <button onClick={()=>setGoals(p=>p.filter((_,j)=>j!==i))} style={{ padding:'0 10px', borderRadius:10, background:'color-mix(in oklab, var(--danger) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 18%, transparent)', color:'var(--danger)', cursor:'pointer', flexShrink:0 }}>✕</button>}
         </div>
       ))}
-      <button onClick={()=>setGoals(p=>[...p,''])} style={{ fontSize:12, color:'var(--accent)', background:'none', border:'none', cursor:'pointer', fontFamily:'var(--font-mono)' }}>+ Add goal</button>
+      <button onClick={()=>setGoals(p=>[...p,''])} style={{ fontSize:13, color:'var(--accent)', background:'none', border:'none', cursor:'pointer', fontVariantNumeric:'tabular-nums' }}>+ Add goal</button>
 
       <SLabel>Service API credentials (optional, encrypted)</SLabel>
-      <div style={{ fontSize:11, color:'var(--text-muted)', marginBottom:8 }}>These allow agents to take actions on your behalf — e.g. updating Shopify prices or sending Klaviyo emails.</div>
+      <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:8 }}>These allow agents to take actions on your behalf — e.g. updating Shopify prices or sending Klaviyo emails.</div>
       {creds.map((c,i)=>(
         <div key={i} style={{ display:'flex', gap:7, marginBottom:7, alignItems:'center' }}>
           <input value={c.service} onChange={e=>setCreds(p=>p.map((x,j)=>j===i?{...x,service:e.target.value}:x))} placeholder="Service name" style={{ ...inputStyle({ width:110, flexShrink:0 }) }} onFocus={onFocus} onBlur={onBlur}/>
-          <input type="password" value={c.key} onChange={e=>setCreds(p=>p.map((x,j)=>j===i?{...x,key:e.target.value}:x))} placeholder="API key or token" style={{ ...inputStyle(), flex:1, fontFamily:'var(--font-mono)' }} onFocus={onFocus} onBlur={onBlur}/>
-          <button onClick={()=>setCreds(p=>p.filter((_,j)=>j!==i))} style={{ padding:'0 10px', borderRadius:10, background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.18)', color:'#ff6b7d', cursor:'pointer', flexShrink:0, height:38 }}>✕</button>
+          <input type="password" value={c.key} onChange={e=>setCreds(p=>p.map((x,j)=>j===i?{...x,key:e.target.value}:x))} placeholder="API key or token" style={{ ...inputStyle(), flex:1, fontVariantNumeric:'tabular-nums' }} onFocus={onFocus} onBlur={onBlur}/>
+          <button onClick={()=>setCreds(p=>p.filter((_,j)=>j!==i))} style={{ padding:'0 10px', borderRadius:10, background:'color-mix(in oklab, var(--danger) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 18%, transparent)', color:'var(--danger)', cursor:'pointer', flexShrink:0, height:38 }}>✕</button>
         </div>
       ))}
-      <button onClick={()=>setCreds(p=>[...p,{service:'',key:''}])} style={{ fontSize:12, color:'var(--accent)', background:'rgba(93,162,255,0.08)', border:'1px solid rgba(93,162,255,0.20)', borderRadius:9, padding:'6px 14px', cursor:'pointer', fontFamily:'var(--font-mono)', marginBottom:4 }}>+ Add credential</button>
+      <button onClick={()=>setCreds(p=>[...p,{service:'',key:''}])} style={{ fontSize:13, color:'var(--accent)', background:'color-mix(in oklab, var(--accent) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 20%, transparent)', borderRadius:9, padding:'6px 14px', cursor:'pointer', fontVariantNumeric:'tabular-nums', marginBottom:4 }}>+ Add credential</button>
 
-      {saveError && <div style={{ marginTop:16, padding:'10px 14px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:12 }}>{saveError}</div>}
+      {saveError && <div style={{ marginTop:16, padding:'10px 14px', borderRadius:10, background:'color-mix(in oklab, var(--danger) 10%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 25%, transparent)', color:'var(--danger)', fontSize:13 }}>{saveError}</div>}
       <div style={{ display:'flex', gap:10, marginTop:20 }}>
-        <button onClick={onBack} disabled={saving} style={{ padding:'12px 22px', borderRadius:999, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.12)', color:'var(--text-secondary)', fontSize:14, fontWeight:700, cursor:'pointer' }}>← Back</button>
-        <button onClick={handleDetailsSubmit} disabled={saving} style={{ flex:1, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:14, fontWeight:800, border:'none', cursor:saving?'wait':'pointer', opacity:saving?0.7:1, boxShadow:'0 8px 24px rgba(93,162,255,0.25)' }}>{saving ? 'Saving...' : 'Continue →'}</button>
+        <button onClick={onBack} disabled={saving} style={{ padding:'12px 22px', borderRadius:999, background:'color-mix(in oklab, var(--ink) 6%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 12%, transparent)', color:'var(--text-secondary)', fontSize:14, fontWeight:700, cursor:'pointer' }}>← Back</button>
+        <button onClick={handleDetailsSubmit} disabled={saving} style={{ flex:1, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,var(--accent),var(--accent))', color:'var(--on-accent)', fontSize:14, fontWeight:700, border:'none', cursor:saving?'wait':'pointer', opacity:saving?0.7:1, boxShadow:'0 8px 24px color-mix(in oklab, var(--accent) 25%, transparent)' }}>{saving ? 'Saving...' : 'Continue →'}</button>
       </div>
     </div>
   );
@@ -575,10 +576,10 @@ function QuestionsStep({ onNext, onBack, siteType, companyId, detectedSystems = 
 
   return (
     <div style={{ animation:'fadeSlideUp 0.35s ease-out' }}>
-      <h2 style={{ fontSize:22, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', marginBottom:6 }}>A few tailored questions</h2>
-      <div style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'5px 12px', borderRadius:999, background:'rgba(70,217,164,0.08)', border:'1px solid rgba(70,217,164,0.18)', marginBottom:14 }}>
-        <span style={{ width:6, height:6, borderRadius:'50%', background:'#46d9a4' }}/>
-        <span style={{ fontSize:12, fontFamily:'var(--font-mono)', color:'#46d9a4' }}>Detected: {typeLabel[siteType] || 'web project'}</span>
+      <h2 style={{ fontSize:22, fontWeight:700, color:'var(--text-primary)', letterSpacing:'-0.04em', marginBottom:6 }}>A few tailored questions</h2>
+      <div style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'5px 12px', borderRadius:999, background:'color-mix(in oklab, var(--success) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--success) 18%, transparent)', marginBottom:14 }}>
+        <span style={{ width:6, height:6, borderRadius:'50%', background:'var(--success)' }}/>
+        <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--success)' }}>Detected: {typeLabel[siteType] || 'web project'}</span>
       </div>
       <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.6, marginBottom:22, maxWidth:440 }}>
         These questions are specific to your stack. Your answers help provision the right specialists and suggest the most relevant skills.
@@ -586,18 +587,18 @@ function QuestionsStep({ onNext, onBack, siteType, companyId, detectedSystems = 
       <div style={{ display:'flex', flexDirection:'column', gap:18, marginBottom:26 }}>
         {questions.map(q => (
           <div key={q.id}>
-            <div style={{ fontSize:13, fontWeight:600, color:'var(--text-secondary)', marginBottom:8, lineHeight:1.5 }}>{q.label}</div>
+            <div style={{ fontSize:14, fontWeight:600, color:'var(--text-secondary)', marginBottom:8, lineHeight:1.5 }}>{q.label}</div>
             {q.type==='yesno' && (
               <div style={{ display:'flex', gap:8 }}>
                 {['Yes','No'].map(opt=>(
-                  <button key={opt} onClick={()=>set(q.id,opt)} style={{ padding:'8px 22px', borderRadius:999, fontSize:13, fontWeight:600, cursor:'pointer', background:answers[q.id]===opt?'rgba(93,162,255,0.15)':'rgba(255,255,255,0.04)', border:`1px solid ${answers[q.id]===opt?'rgba(93,162,255,0.40)':'rgba(255,255,255,0.10)'}`, color:answers[q.id]===opt?'#fff':'var(--text-tertiary)', transition:'all 0.2s' }}>{opt}</button>
+                  <button key={opt} onClick={()=>set(q.id,opt)} style={{ padding:'8px 22px', borderRadius:999, fontSize:14, fontWeight:600, cursor:'pointer', background:answers[q.id]===opt?'color-mix(in oklab, var(--accent) 15%, transparent)':'color-mix(in oklab, var(--ink) 4%, transparent)', border:`1px solid ${answers[q.id]===opt?'color-mix(in oklab, var(--accent) 40%, transparent)':'color-mix(in oklab, var(--ink) 10%, transparent)'}`, color:answers[q.id]===opt?'var(--text-primary)':'var(--text-tertiary)', transition:'all 0.2s' }}>{opt}</button>
                 ))}
               </div>
             )}
             {q.type==='select' && (
               <div style={{ display:'flex', flexWrap:'wrap', gap:7 }}>
                 {q.options.map(opt=>(
-                  <button key={opt} onClick={()=>set(q.id,opt)} style={{ padding:'6px 13px', borderRadius:999, fontSize:12, cursor:'pointer', background:answers[q.id]===opt?'rgba(93,162,255,0.12)':'rgba(255,255,255,0.04)', border:`1px solid ${answers[q.id]===opt?'rgba(93,162,255,0.35)':'rgba(255,255,255,0.08)'}`, color:answers[q.id]===opt?'#fff':'var(--text-tertiary)', transition:'all 0.15s' }}>{opt}</button>
+                  <button key={opt} onClick={()=>set(q.id,opt)} style={{ padding:'6px 13px', borderRadius:999, fontSize:13, cursor:'pointer', background:answers[q.id]===opt?'color-mix(in oklab, var(--accent) 12%, transparent)':'color-mix(in oklab, var(--ink) 4%, transparent)', border:`1px solid ${answers[q.id]===opt?'color-mix(in oklab, var(--accent) 35%, transparent)':'color-mix(in oklab, var(--ink) 8%, transparent)'}`, color:answers[q.id]===opt?'var(--text-primary)':'var(--text-tertiary)', transition:'all 0.15s' }}>{opt}</button>
                 ))}
               </div>
             )}
@@ -605,20 +606,20 @@ function QuestionsStep({ onNext, onBack, siteType, companyId, detectedSystems = 
               <div style={{ display:'flex', flexWrap:'wrap', gap:7 }}>
                 {q.options.map(opt=>{
                   const sel=(answers[q.id]||[]).includes(opt);
-                  return <button key={opt} onClick={()=>set(q.id,sel?(answers[q.id]||[]).filter(x=>x!==opt):[...(answers[q.id]||[]),opt])} style={{ padding:'6px 13px', borderRadius:999, fontSize:12, cursor:'pointer', background:sel?'rgba(93,162,255,0.12)':'rgba(255,255,255,0.04)', border:`1px solid ${sel?'rgba(93,162,255,0.35)':'rgba(255,255,255,0.08)'}`, color:sel?'#fff':'var(--text-tertiary)', transition:'all 0.15s' }}>{opt}</button>;
+                  return <button key={opt} onClick={()=>set(q.id,sel?(answers[q.id]||[]).filter(x=>x!==opt):[...(answers[q.id]||[]),opt])} style={{ padding:'6px 13px', borderRadius:999, fontSize:13, cursor:'pointer', background:sel?'color-mix(in oklab, var(--accent) 12%, transparent)':'color-mix(in oklab, var(--ink) 4%, transparent)', border:`1px solid ${sel?'color-mix(in oklab, var(--accent) 35%, transparent)':'color-mix(in oklab, var(--ink) 8%, transparent)'}`, color:sel?'var(--text-primary)':'var(--text-tertiary)', transition:'all 0.15s' }}>{opt}</button>;
                 })}
               </div>
             )}
             {q.type==='freeform' && (
               <input value={answers[q.id]||''} onChange={e=>set(q.id,e.target.value)} placeholder={q.placeholder}
-                style={{ width:'100%', padding:'10px 14px', borderRadius:12, border:'1px solid rgba(255,255,255,0.10)', background:'rgba(255,255,255,0.04)', color:'#fff', fontSize:13, fontFamily:'var(--font-main)', outline:'none', transition:'border-color 0.2s' }}
-                onFocus={e=>e.target.style.borderColor='rgba(93,162,255,0.45)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.10)'}/>
+                style={{ width:'100%', padding:'10px 14px', borderRadius:12, border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', background:'color-mix(in oklab, var(--ink) 4%, transparent)', color:'var(--text-primary)', fontSize:14, fontFamily:'var(--font-main)', outline:'none', transition:'border-color 0.2s' }}
+                onFocus={e=>e.target.style.borderColor='color-mix(in oklab, var(--accent) 45%, transparent)'} onBlur={e=>e.target.style.borderColor='color-mix(in oklab, var(--ink) 10%, transparent)'}/>
             )}
           </div>
         ))}
       </div>
       <div style={{ display:'flex', gap:10 }}>
-        <button onClick={onBack} style={{ padding:'12px 22px', borderRadius:999, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.12)', color:'var(--text-secondary)', fontSize:14, fontWeight:700, cursor:'pointer' }}>← Back</button>
+        <button onClick={onBack} style={{ padding:'12px 22px', borderRadius:999, background:'color-mix(in oklab, var(--ink) 6%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 12%, transparent)', color:'var(--text-secondary)', fontSize:14, fontWeight:700, cursor:'pointer' }}>← Back</button>
         <button onClick={() => {
           // Submit the tailored Q&A so the backend can derive company
           // priorities and remediation tasks from it (fire-and-forget —
@@ -631,7 +632,7 @@ function QuestionsStep({ onNext, onBack, siteType, companyId, detectedSystems = 
             }).catch(() => {});
           }
           onNext();
-        }} style={{ flex:1, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:14, fontWeight:800, border:'none', cursor:'pointer', boxShadow:'0 8px 24px rgba(93,162,255,0.25)' }}>→ Provision specialists</button>
+        }} style={{ flex:1, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,var(--accent),var(--accent))', color:'var(--on-accent)', fontSize:14, fontWeight:700, border:'none', cursor:'pointer', boxShadow:'0 8px 24px color-mix(in oklab, var(--accent) 25%, transparent)' }}>→ Provision specialists</button>
       </div>
     </div>
   );
@@ -704,10 +705,10 @@ function DoneStep({ onFinish, onRestart, onBack, companyId, companyName }) {
   return (
     <div style={{ animation:'fadeSlideUp 0.35s ease-out' }}>
       <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12 }}>
-        <div style={{ width:40, height:40, borderRadius:14, background:'rgba(70,217,164,0.15)', border:'1px solid rgba(70,217,164,0.25)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20 }}>✓</div>
+        <div style={{ width:40, height:40, borderRadius:14, background:'color-mix(in oklab, var(--success) 15%, transparent)', border:'1px solid color-mix(in oklab, var(--success) 25%, transparent)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:20 }}>✓</div>
         <div>
-          <h2 style={{ fontSize:22, fontWeight:800, color:'#fff', letterSpacing:'-0.04em' }}>Company provisioned</h2>
-          <p style={{ fontSize:13, color:'#46d9a4' }}>
+          <h2 style={{ fontSize:22, fontWeight:700, color:'var(--text-primary)', letterSpacing:'-0.04em' }}>Company provisioned</h2>
+          <p style={{ fontSize:14, color:'var(--success)' }}>
             {companyName || 'Your company'} · {specialists === null ? 'Loading specialists...' : `${specialists.length} specialist${specialists.length === 1 ? '' : 's'} ready`} · monitoring starts now
           </p>
         </div>
@@ -718,26 +719,26 @@ function DoneStep({ onFinish, onRestart, onBack, companyId, companyName }) {
           : 'Your company is set up. Specialists will appear in the Agent Roster once provisioned.'}
       </p>
       {specsError && (
-        <div style={{ marginBottom:14, padding:'10px 14px', borderRadius:12, background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.22)', fontSize:12, color:'#ff9aa6' }}>
+        <div style={{ marginBottom:14, padding:'10px 14px', borderRadius:12, background:'color-mix(in oklab, var(--danger) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 22%, transparent)', fontSize:13, color:'var(--danger)' }}>
           Could not load specialists: {specsError}
         </div>
       )}
       {specialists === null && (
-        <div style={{ fontSize:12, fontFamily:'var(--font-mono)', color:'var(--text-muted)', marginBottom:18 }}>Loading specialists...</div>
+        <div style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--text-muted)', marginBottom:18 }}>Loading specialists...</div>
       )}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))', gap:8, marginBottom:22 }}>
         {(specialists || []).map((sp,i)=>(
-          <div key={sp.name} style={{ padding:'12px 14px', borderRadius:14, background:'rgba(70,217,164,0.04)', border:'1px solid rgba(70,217,164,0.12)', animation:`fadeSlideUp 0.4s ease-out ${i*0.07}s both` }}>
-            <div style={{ fontSize:18, marginBottom:5 }}>{sp.icon}</div>
-            <div style={{ fontSize:12, fontWeight:700, color:'#fff', marginBottom:2 }}>{sp.name}</div>
-            <div style={{ fontSize:11, color:'var(--text-muted)', lineHeight:1.5 }}>{sp.desc}</div>
+          <div key={sp.name} style={{ padding:'12px 14px', borderRadius:14, background:'color-mix(in oklab, var(--success) 4%, transparent)', border:'1px solid color-mix(in oklab, var(--success) 12%, transparent)', animation:`fadeSlideUp 0.4s ease-out ${i*0.07}s both` }}>
+            <div style={{ fontSize:18, marginBottom:5 }}><Glyph g={sp.icon}/></div>
+            <div style={{ fontSize:13, fontWeight:700, color:'var(--text-primary)', marginBottom:2 }}>{sp.name}</div>
+            <div style={{ fontSize:13, color:'var(--text-muted)', lineHeight:1.5 }}>{sp.desc}</div>
           </div>
         ))}
       </div>
       <div style={{ display:'flex', gap:10 }}>
-        <button onClick={onBack} style={{ padding:'12px 22px', borderRadius:999, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.12)', color:'var(--text-secondary)', fontSize:14, fontWeight:700, cursor:'pointer' }}>← Back</button>
-        <button onClick={onRestart} style={{ padding:'12px 22px', borderRadius:999, background:'rgba(255,189,102,0.08)', border:'1px solid rgba(255,189,102,0.22)', color:'#ffbd66', fontSize:13, fontWeight:700, cursor:'pointer' }}>↺ Restart</button>
-        <button onClick={onFinish} style={{ flex:1, display:'inline-flex', alignItems:'center', justifyContent:'center', gap:8, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:14, fontWeight:800, border:'none', cursor:'pointer', boxShadow:'0 8px 24px rgba(93,162,255,0.25)' }}>
+        <button onClick={onBack} style={{ padding:'12px 22px', borderRadius:999, background:'color-mix(in oklab, var(--ink) 6%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 12%, transparent)', color:'var(--text-secondary)', fontSize:14, fontWeight:700, cursor:'pointer' }}>← Back</button>
+        <button onClick={onRestart} style={{ padding:'12px 22px', borderRadius:999, background:'color-mix(in oklab, var(--warning) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--warning) 22%, transparent)', color:'var(--warning)', fontSize:14, fontWeight:700, cursor:'pointer' }}>↺ Restart</button>
+        <button onClick={onFinish} style={{ flex:1, display:'inline-flex', alignItems:'center', justifyContent:'center', gap:8, padding:'13px 28px', borderRadius:999, background:'linear-gradient(135deg,var(--accent),var(--accent))', color:'var(--on-accent)', fontSize:14, fontWeight:700, border:'none', cursor:'pointer', boxShadow:'0 8px 24px color-mix(in oklab, var(--accent) 25%, transparent)' }}>
           → Go to Company Graph
         </button>
       </div>
@@ -817,21 +818,21 @@ function OnboardingScreen({ onComplete, isAdmin }) {
 
   if (!isAdmin && checkingAccess) return (
     <div style={{ padding:'24px 16px 48px', maxWidth:640, margin:'0 auto', textAlign:'center' }}>
-      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:8 }}>Company Onboarding · LLM Relay V5.0</div>
+      <div style={{ fontSize:14, color:'var(--text-muted)', marginBottom:8 }}>Company setup</div>
       <div style={{ padding:'40px 0', color:'var(--text-muted)', fontSize:14 }}>Checking onboarding access...</div>
     </div>
   );
 
   if (!isAdmin && !onboardingAllowed) return (
     <div style={{ padding:'24px 16px 48px', maxWidth:580, margin:'0 auto' }}>
-      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:8 }}>Company Onboarding · LLM Relay V5.0</div>
+      <div style={{ fontSize:14, color:'var(--text-muted)', marginBottom:8 }}>Company setup</div>
       <NonAdminGate/>
     </div>
   );
 
   if (checkingProgress) return (
     <div style={{ padding:'24px 16px 48px', maxWidth:640, margin:'0 auto', textAlign:'center' }}>
-      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:8 }}>Company Onboarding · LLM Relay V5.0</div>
+      <div style={{ fontSize:14, color:'var(--text-muted)', marginBottom:8 }}>Company setup</div>
       <div style={{ padding:'40px 0', color:'var(--text-muted)', fontSize:14 }}>Checking onboarding status...</div>
     </div>
   );
@@ -879,7 +880,7 @@ function OnboardingScreen({ onComplete, isAdmin }) {
 
   return (
     <div style={{ padding:'24px 16px 48px', maxWidth:640, margin:'0 auto' }}>
-      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:8 }}>Company Onboarding · LLM Relay V5.0</div>
+      <div style={{ fontSize:14, color:'var(--text-muted)', marginBottom:8 }}>Company setup</div>
       <StepIndicator current={step} onStepClick={(s) => {
         // When jumping back to URL step via breadcrumb, reset company state
         // so the old company doesn't linger and cause duplicate creation.

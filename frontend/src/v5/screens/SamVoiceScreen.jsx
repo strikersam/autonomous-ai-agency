@@ -67,7 +67,7 @@ function AudioVisualizer({ active, analyser }) {
   return (
     <canvas ref={canvasRef} width={280} height={64}
       style={{ display: 'block', margin: '12px auto', borderRadius: 12,
-        background: 'rgba(93,162,255,0.03)', opacity: active ? 1 : 0.3,
+        background: 'color-mix(in oklab, var(--accent) 3%, transparent)', opacity: active ? 1 : 0.3,
         transition: 'opacity 0.3s' }} />
   );
 }
@@ -76,11 +76,11 @@ function AudioVisualizer({ active, analyser }) {
 
 function SamRing({ state }) {
   const colors = {
-    idle: 'rgba(93,162,255,0.15)',
-    listening: 'rgba(93,162,255,0.8)',
-    thinking: 'rgba(255,189,102,0.8)',
-    speaking: 'rgba(70,217,164,0.8)',
-    error: 'rgba(255,107,125,0.8)',
+    idle: 'color-mix(in oklab, var(--accent) 15%, transparent)',
+    listening: 'color-mix(in oklab, var(--accent) 80%, transparent)',
+    thinking: 'color-mix(in oklab, var(--warning) 80%, transparent)',
+    speaking: 'color-mix(in oklab, var(--success) 80%, transparent)',
+    error: 'color-mix(in oklab, var(--danger) 80%, transparent)',
   };
   const scale = state === 'listening' ? 1.08 : state === 'thinking' ? 1.04 : 1;
   const pulseAnim = state === 'listening' ? 'samPulse 1.5s ease-in-out infinite' :
@@ -97,14 +97,14 @@ function SamRing({ state }) {
         width: 96, height: 96, borderRadius: '50%',
         background: 'radial-gradient(circle at 30% 30%, #1a2a4a, #0a1224)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        border: '2px solid rgba(93,162,255,0.3)',
+        border: '2px solid color-mix(in oklab, var(--accent) 30%, transparent)',
       }}>
-        <span style={{ fontSize: 28, fontWeight: 900, color: '#5da2ff',
-          fontFamily: 'var(--font-mono)', letterSpacing: '0.08em' }}>SAM</span>
+        <span style={{ fontSize: 28, fontWeight: 900, color: 'var(--accent)',
+          fontVariantNumeric:'tabular-nums' }}>SAM</span>
       </div>
       {state === 'listening' && (
         <div style={{ position: 'absolute', inset: -4, borderRadius: '50%',
-          border: '2px solid rgba(93,162,255,0.5)', animation: 'samRing 1.5s ease-out infinite' }} />
+          border: '2px solid color-mix(in oklab, var(--accent) 50%, transparent)', animation: 'samRing 1.5s ease-out infinite' }} />
       )}
     </div>
   );
@@ -579,8 +579,8 @@ export default function SamVoiceScreen() {
          className="scrollbar-hide">
       <style>{`
         @keyframes samPulse {
-          0%,100% { box-shadow: 0 0 0 0 rgba(93,162,255,0.3); }
-          50% { box-shadow: 0 0 0 16px rgba(93,162,255,0); }
+          0%,100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--accent) 30%, transparent); }
+          50% { box-shadow: 0 0 0 16px color-mix(in oklab, var(--accent) 0%, transparent); }
         }
         @keyframes samRing {
           0% { transform: scale(1); opacity: 0.8; }
@@ -588,14 +588,14 @@ export default function SamVoiceScreen() {
         }
       `}</style>
 
-      <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--accent)',
-        letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 6 }}>
+      <div style={{ fontSize:13, fontFamily: 'var(--font-mono)', color: 'var(--accent)',
+marginBottom: 6 }}>
         Voice Command
       </div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         flexWrap: 'wrap', gap: 10, marginBottom: 24 }}>
         <div>
-          <h1 style={{ fontSize: 26, fontWeight: 800, color: '#fff',
+          <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--text-primary)',
             letterSpacing: '-0.04em', lineHeight: 1.1, marginBottom: 4 }}>SAM</h1>
           <p style={{ fontSize: 14, color: 'var(--text-tertiary)', lineHeight: 1.5, maxWidth: 400 }}>
             System Autonomy Manager — voice command and control of your agency.
@@ -619,13 +619,13 @@ export default function SamVoiceScreen() {
           style={{
             width: 64, height: 64, borderRadius: '50%', border: 'none', cursor: 'pointer',
             background: state === 'listening'
-              ? 'linear-gradient(135deg, #ff6b7d, #e05567)'
+              ? 'linear-gradient(135deg, var(--danger), #e05567)'
               : state === 'thinking'
-              ? 'linear-gradient(135deg, #ffbd66, #e0a050)'
-              : 'linear-gradient(135deg, #5da2ff, #4a8ae0)',
+              ? 'linear-gradient(135deg, var(--warning), #e0a050)'
+              : 'linear-gradient(135deg, var(--accent), #4a8ae0)',
             boxShadow: state === 'listening'
-              ? '0 0 24px rgba(255,107,125,0.5)'
-              : '0 4px 20px rgba(93,162,255,0.3)',
+              ? '0 0 24px color-mix(in oklab, var(--danger) 50%, transparent)'
+              : '0 4px 20px color-mix(in oklab, var(--accent) 30%, transparent)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             transition: 'all 0.3s ease', margin: '0 auto',
           }}>
@@ -633,8 +633,8 @@ export default function SamVoiceScreen() {
             <svg width={28} height={28} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={2.5}
               strokeLinecap="round"><rect x={6} y={6} width={12} height={12} rx={1} /></svg>
           ) : state === 'thinking' ? (
-            <div style={{ width: 20, height: 20, border: '2px solid rgba(255,255,255,0.3)',
-              borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+            <div style={{ width: 20, height: 20, border: '2px solid color-mix(in oklab, var(--ink) 30%, transparent)',
+              borderTopColor:'currentColor', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
           ) : (
             <svg width={28} height={28} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth={2.5}
               strokeLinecap="round" strokeLinejoin="round">
@@ -645,7 +645,7 @@ export default function SamVoiceScreen() {
             </svg>
           )}
         </button>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 8, fontFamily: 'var(--font-mono)' }}>
+        <div style={{ fontSize:13, color: 'var(--text-muted)', marginTop: 8, fontVariantNumeric:'tabular-nums' }}>
           {liveState === 'live' && (state === 'speaking' ? 'SAM is speaking...' :
             state === 'listening' ? 'Listening...' : 'Live — just talk')}
           {liveState === 'connecting' && 'Connecting live session...'}
@@ -666,12 +666,11 @@ export default function SamVoiceScreen() {
             style={{
               marginTop: 14, padding: '10px 18px', borderRadius: 999, cursor: 'pointer',
               border: liveState === 'live'
-                ? '1px solid rgba(255,107,125,0.4)' : '1px solid rgba(70,217,164,0.35)',
+                ? '1px solid color-mix(in oklab, var(--danger) 40%, transparent)' : '1px solid color-mix(in oklab, var(--success) 35%, transparent)',
               background: liveState === 'live'
-                ? 'rgba(255,107,125,0.12)' : 'rgba(70,217,164,0.08)',
-              color: liveState === 'live' ? '#ff6b7d' : '#46d9a4',
-              fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)',
-              letterSpacing: '0.06em', transition: 'all 0.3s ease',
+                ? 'color-mix(in oklab, var(--danger) 12%, transparent)' : 'color-mix(in oklab, var(--success) 8%, transparent)',
+              color: liveState === 'live' ? 'var(--danger)' : 'var(--success)',
+              fontSize:13, fontWeight: 700, fontVariantNumeric:'tabular-nums', transition: 'all 0.3s ease',
               opacity: liveState === 'connecting' ? 0.6 : 1,
             }}>
             {liveState === 'off' && '● Start live conversation'}
@@ -684,16 +683,16 @@ export default function SamVoiceScreen() {
       {/* Error */}
       {error && (
         <div style={{ padding: '10px 14px', borderRadius: 10, marginBottom: 14,
-          background: 'rgba(255,107,125,0.08)', border: '1px solid rgba(255,107,125,0.25)',
-          color: '#ff6b7d', fontSize: 12 }}>{error}</div>
+          background: 'color-mix(in oklab, var(--danger) 8%, transparent)', border: '1px solid color-mix(in oklab, var(--danger) 25%, transparent)',
+          color: 'var(--danger)', fontSize:13 }}>{error}</div>
       )}
 
       {/* Current transcript */}
       {transcript && (
         <div style={{ padding: '10px 14px', borderRadius: 10, marginBottom: 8,
-          background: 'rgba(93,162,255,0.05)', border: '1px solid rgba(93,162,255,0.15)' }}>
-          <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)',
-            textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>You said</div>
+          background: 'color-mix(in oklab, var(--accent) 5%, transparent)', border: '1px solid color-mix(in oklab, var(--accent) 15%, transparent)' }}>
+          <div style={{ fontSize:13, color: 'var(--text-muted)', fontVariantNumeric:'tabular-nums',
+marginBottom: 4 }}>You said</div>
           <div style={{ fontSize: 14, color: 'var(--text-primary)' }}>{transcript}</div>
         </div>
       )}
@@ -701,29 +700,29 @@ export default function SamVoiceScreen() {
       {/* SAM response */}
       {response && (
         <div style={{ padding: '10px 14px', borderRadius: 10, marginBottom: 14,
-          background: 'rgba(70,217,164,0.05)', border: '1px solid rgba(70,217,164,0.15)' }}>
-          <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)',
-            textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 4 }}>SAM</div>
-          <div style={{ fontSize: 14, color: '#46d9a4' }}>{response}</div>
+          background: 'color-mix(in oklab, var(--success) 5%, transparent)', border: '1px solid color-mix(in oklab, var(--success) 15%, transparent)' }}>
+          <div style={{ fontSize:13, color: 'var(--text-muted)', fontVariantNumeric:'tabular-nums',
+marginBottom: 4 }}>SAM</div>
+          <div style={{ fontSize: 14, color: 'var(--success)' }}>{response}</div>
         </div>
       )}
 
       {/* Conversation history */}
       {history.length > 0 && (
         <div style={{ marginTop: 8 }}>
-          <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)',
-            textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>
+          <div style={{ fontSize:13, color: 'var(--text-muted)', fontVariantNumeric:'tabular-nums',
+marginBottom: 8 }}>
             Recent conversation
           </div>
           {history.slice(-6).map((item, i) => (
-            <div key={i} style={{ padding: '6px 10px', marginBottom: 4, borderRadius: 8, fontSize: 12,
-              background: item.type === 'user' ? 'rgba(93,162,255,0.03)' : 'rgba(70,217,164,0.03)',
-              borderLeft: `3px solid ${item.type === 'user' ? '#5da2ff' : '#46d9a4'}` }}>
-              <span style={{ color: 'var(--text-muted)', fontFamily: 'var(--font-mono)',
-                fontSize: 9, marginRight: 6 }}>
+            <div key={i} style={{ padding: '6px 10px', marginBottom: 4, borderRadius: 8, fontSize:13,
+              background: item.type === 'user' ? 'color-mix(in oklab, var(--accent) 3%, transparent)' : 'color-mix(in oklab, var(--success) 3%, transparent)',
+              borderLeft: `3px solid ${item.type === 'user' ? 'var(--accent)' : 'var(--success)'}` }}>
+              <span style={{ color: 'var(--text-muted)', fontVariantNumeric:'tabular-nums',
+                fontSize:13, marginRight: 6 }}>
                 {item.type === 'user' ? 'YOU' : 'SAM'}
               </span>
-              <span style={{ color: item.type === 'user' ? 'var(--text-secondary)' : '#46d9a4' }}>
+              <span style={{ color: item.type === 'user' ? 'var(--text-secondary)' : 'var(--success)' }}>
                 {item.text}
               </span>
             </div>

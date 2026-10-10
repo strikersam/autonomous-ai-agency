@@ -10,6 +10,9 @@
 > hold reference material and point back to this section rather than restating it.
 > If you find a rule duplicated somewhere, delete the copy — duplicated rules drift,
 > and this repo has the scars to prove it (`.claude/rules-archive/CONFLICTS.md`).
+> The one deliberate exception is rule 49 (independent verification): the operator asked
+> for it in every agent's instruction file, so it is mirrored verbatim and a parity check
+> (`scripts/check_verification_rule.py`) keeps the copies identical.
 
 **Before opening a source file, query the knowledge graph** — it costs a fraction of
 a `Read`/`Grep` pass:
@@ -192,7 +195,7 @@ legislated. See `.claude/rules-archive/` for the audit that produced this list a
 
 ## 2. Standing Instructions — agent discipline
 
-Four rules, extracted verbatim into two production prompt paths:
+Five rules, extracted verbatim into two production prompt paths:
 `.github/scripts/generate_context.py` feeds this section to the autonomous
 issue-context agent, and `agents/profiles.py` binds all five CRISPY roles to it.
 
@@ -219,6 +222,19 @@ effort placement. What survives is the part that changes an output.
     available to you.
 48. **Answer the whole request.** If you deliberately leave a part undone, say which
     part and why. Silent partial delivery reads as completion.
+<!-- pstack-verification:start -->
+49. **No "done" without an independent verifier (pstack).** Before any task is reported
+    done, by a coding agent or by an agency agent, a verifier that did not write the
+    change exercises the real artifact (runs the feature, the tests, the built page; not
+    "it compiles", not the author's own report) and returns `PASS`, `PASS+NOTES`, or
+    `FAIL` with the evidence it observed. `FAIL` sends the work back. Only `PASS` or
+    `PASS+NOTES` permits a done claim, and the report quotes that verdict. Work in small
+    units that each end in a check, and verify each before starting the next. Source:
+    pstack's `principle-prove-it-works` and its independent per-PR verdict
+    (github.com/cursor/plugins/tree/main/pstack, github.com/michael-denyer/pstack-claude).
+    This rule is mirrored byte-for-byte in every agent instruction file;
+    `python scripts/check_verification_rule.py` fails if a copy drifts.
+<!-- pstack-verification:end -->
 
 ---
 

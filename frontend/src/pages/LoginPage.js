@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../AuthContext';
 import { fmtErr, getBackendUrl } from '../api';
-import { Lock, AlertCircle, GitFork as Github, CheckCircle, Bot, Database, ChevronDown, ShieldCheck } from 'lucide-react';
+import { AlertCircle, GitFork as Github, CheckCircle, Bot, Database, ChevronDown, ShieldCheck } from 'lucide-react';
 
 const GoogleIcon = () => (
-  <svg viewBox="0 0 24 24" width="15" height="15" fill="none">
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" aria-hidden="true">
     <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
     <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
     <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
@@ -13,25 +13,27 @@ const GoogleIcon = () => (
   </svg>
 );
 
-function FieldGroup({ label, children }) {
+function FieldGroup({ label, htmlFor, children }) {
   return (
-    <div>
-      <label className="block text-[0.85rem] font-semibold tracking-widest uppercase text-[var(--text-muted)] mb-2">{label}</label>
+    <div className="login-field">
+      <label htmlFor={htmlFor}>{label}</label>
       {children}
     </div>
   );
 }
 
-function TextInput({ type, value, onChange, placeholder, required, testId }) {
+function TextInput({ id, type, value, onChange, placeholder, required, testId, autoComplete }) {
   return (
     <input
+      id={id}
       type={type}
       value={value}
       onChange={onChange}
       placeholder={placeholder}
       required={required}
+      autoComplete={autoComplete}
       data-testid={testId}
-      className="app-input w-full px-4 py-3 text-[0.95rem] text-[var(--text-primary)] placeholder-[var(--text-muted)] min-h-[3.25rem]"
+      className="app-input"
     />
   );
 }
@@ -109,253 +111,130 @@ export default function LoginPage() {
     }
   };
 
+  const socialButton = (provider, href, icon, label) => (
+    <a
+      href={href}
+      aria-disabled={!hasBackendConfig || !!socialLoading}
+      onClick={() => handleSocialClick(provider)}
+      className="app-button-secondary login-social"
+      style={{
+        opacity: hasBackendConfig ? (socialLoading && socialLoading !== provider ? 0.5 : 1) : 0.6,
+        pointerEvents: socialLoading ? 'none' : 'auto',
+      }}
+    >
+      {socialLoading === provider ? (<><span className="login-spin" aria-hidden="true" /><span>Redirecting…</span></>) : (<>{icon}<span>{label}</span></>)}
+    </a>
+  );
+
   return (
-    <main className="app-shell min-h-[100dvh] w-full flex flex-col lg:flex-row relative overflow-hidden" data-testid="login-page">
-      {/* Background gradient */}
-      <div className="absolute inset-0 pointer-events-none">
-        <div className="absolute top-[-20%] left-[-10%] h-[32rem] w-[32rem] rounded-full blur-[130px]" style={{ background: 'rgba(93,162,255,0.16)' }} />
-        <div className="absolute bottom-[-10%] right-[-5%] h-[24rem] w-[24rem] rounded-full blur-[120px]" style={{ background: 'rgba(93,162,255,0.1)' }} />
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,rgba(93,162,255,0.08),transparent_56%)]" />
-        <div
-          className="absolute inset-0 opacity-[0.02]"
-          style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg width='32' height='32' viewBox='0 0 32 32' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0h1v1H0V0zm16 16h1v1h-1v-1z' fill='%23ffffff' fill-opacity='1'/%3E%3C/svg%3E")`,
-            backgroundSize: '32px 32px',
-          }}
-        />
-      </div>
-
-      {/* Left — branding panel (desktop only) */}
-      <section className="hidden lg:flex flex-col justify-between w-5/12 xl:w-1/2 p-8 xl:p-10 relative z-10">
-        <div className="animate-fade-in">
-          <div className="flex items-center gap-3 mb-8">
-            <div className="w-11 h-11 rounded-2xl flex items-center justify-center"
-              style={{ background: 'linear-gradient(180deg, #6CB0FF 0%, #4F93FF 100%)', boxShadow: '0 12px 28px rgba(93,162,255,0.22)' }}>
-              <Lock size={20} className="text-white" />
-            </div>
-            <div>
-              <div className="text-[1.35rem] font-extrabold text-[var(--text-primary)] tracking-[-0.04em]"
-                style={{ fontFamily: 'var(--font-main)' }}>Autonomous AI Agency</div>
-              <div className="text-[0.8rem] text-[var(--text-muted)] font-mono leading-none mt-1 tracking-[0.16em] uppercase">Your AI-powered workforce</div>
-            </div>
-          </div>
-
-          {/* Features */}
-          <div className="app-panel-elevated p-8 space-y-5">
-            <div className="app-kicker">Your AI-powered workforce</div>
-            <div className="space-y-4">
-            <div className="flex items-center gap-3">
-              <Bot size={16} className="flex-shrink-0 text-[var(--accent)]" />
-              <div className="flex-1">
-                <h3 className="text-[1rem] font-semibold text-[var(--text-primary)] mb-1">Multi-agent task execution with provider failover</h3>
-                <p className="text-[0.92rem] text-[var(--text-tertiary)]">A CEO agent plans, dispatches specialists, and verifies the work — automatically routing across providers so a single outage never stops delivery.</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <CheckCircle size={16} className="flex-shrink-0 text-[var(--success)]" />
-              <div className="flex-1">
-                <h3 className="text-[1rem] font-semibold text-[var(--text-primary)] mb-1">Technology intelligence across 1,000+ platforms</h3>
-                <p className="text-[0.92rem] text-[var(--text-tertiary)]">Detects your stack, frameworks, and tooling, then provisions specialists that understand your industry out of the box.</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <Database size={16} className="flex-shrink-0 text-[var(--role-power-user)]" />
-              <div className="flex-1">
-                <h3 className="text-[1rem] font-semibold text-[var(--text-primary)] mb-1">Connect any repo, any team, any tool</h3>
-                <p className="text-[0.92rem] text-[var(--text-tertiary)]">Point the Agency at your codebases and workflows — all on your own hardware, with no data leaving your network.</p>
-              </div>
-            </div>
-            </div>
-          </div>
+    <main className="login" data-testid="login-page">
+      <section className="login-story" aria-label="About the Agency">
+        <div className="login-brand">
+          <img src={`${process.env.PUBLIC_URL || ""}/logo.svg`} alt="" width="32" height="32" />
+          <span>Autonomous AI Agency</span>
         </div>
-
-        {/* Footer hint */}
-        <div className="app-panel px-6 py-4">
-          <p className="text-[0.8rem] text-[var(--text-muted)] font-mono">
-            Default: <span className="text-[var(--text-tertiary)]">admin@llmrelay.local</span>
-          </p>
+        <div className="login-story-body">
+          <h2 className="login-pitch">A small AI team that works for your business, on your own hardware.</h2>
+          <ul className="login-points">
+            <li>
+              <Bot size={20} aria-hidden="true" />
+              <span><strong>Hand off real work.</strong> A lead agent plans each job, gives the pieces to specialists and checks the result before it reaches you.</span>
+            </li>
+            <li>
+              <CheckCircle size={20} aria-hidden="true" />
+              <span><strong>Stay in charge.</strong> Anything that matters waits for your approval. You see every step they take.</span>
+            </li>
+            <li>
+              <Database size={20} aria-hidden="true" />
+              <span><strong>Keep your data.</strong> It runs on your own machines. If one AI provider goes down, work moves to the next.</span>
+            </li>
+          </ul>
         </div>
       </section>
 
-      {/* Right — form panel */}
-      <section className="flex-1 w-full lg:w-7/12 xl:w-1/2 px-4 sm:px-6 xl:px-8 py-[max(env(safe-area-inset-top,0px),1rem)] sm:py-10 lg:py-12 relative z-10 flex items-center">
-        <div className="w-full max-w-md mx-auto space-y-6">
-          <div className="lg:hidden flex items-center gap-3 pb-2">
-            <div className="w-10 h-10 rounded-2xl flex items-center justify-center"
-              style={{ background: 'linear-gradient(180deg, #6CB0FF 0%, #4F93FF 100%)', boxShadow: '0 12px 28px rgba(93,162,255,0.22)' }}>
-              <Lock size={18} className="text-white" />
-            </div>
-            <div>
-              <div className="text-[1.1rem] font-extrabold tracking-[-0.04em] text-[var(--text-primary)]">Autonomous AI Agency</div>
-              <div className="text-[0.72rem] font-mono uppercase tracking-[0.16em] text-[var(--text-muted)]">Your AI-powered workforce</div>
-            </div>
+      <section className="login-form-wrap">
+        <div className="login-card">
+          <div className="login-brand login-brand--mobile">
+            <img src={`${process.env.PUBLIC_URL || ""}/logo.svg`} alt="" width="28" height="28" />
+            <span>Autonomous AI Agency</span>
+          </div>
+          <div className="login-head">
+            <h1>Sign in</h1>
+            <p>Use your GitHub or Google account. Email and password are only for admins and people an admin added.</p>
           </div>
 
-          <div className="app-panel-elevated p-5 sm:p-7 space-y-6">
-            <div className="space-y-3">
-              <div className="app-kicker">Sign in</div>
-              <h1 className="app-title text-[var(--text-primary)]">Autonomous AI Agency</h1>
-              <p className="app-subtitle">
-                Continue with GitHub or Google to access your agency. Email &amp; password sign-in is reserved for admins and accounts an admin has created for you.
-              </p>
+          {oauthError && (
+            <div role="alert" className="login-alert">
+              <AlertCircle size={18} aria-hidden="true" />
+              <p>{oauthError}</p>
             </div>
+          )}
 
-            <div className="space-y-4">
-              {oauthError && (
-                <div role="alert" className="rounded-[18px] border p-4" style={{ background: 'rgba(255,107,125,0.1)', borderColor: 'rgba(255,107,125,0.22)' }}>
-                  <AlertCircle size={16} className="mb-2 text-[var(--danger)]" />
-                  <p className="text-[0.92rem] text-[var(--text-primary)]">{oauthError}</p>
-                </div>
-              )}
-              <div className="grid grid-cols-1 xs:grid-cols-2 gap-3">
-                <a
-                  href={githubHref}
-                  aria-disabled={!hasBackendConfig || !!socialLoading}
-                  onClick={() => handleSocialClick('github')}
-                  className="app-button-secondary rounded-[18px] normal-case tracking-normal text-[0.92rem] relative overflow-hidden"
-                  style={{
-                    opacity: hasBackendConfig ? (socialLoading && socialLoading !== 'github' ? 0.5 : 1) : 0.6,
-                    pointerEvents: socialLoading ? 'none' : 'auto',
-                    transition: 'opacity 0.2s ease',
-                  }}
-                >
-                  {socialLoading === 'github' ? (
-                    <>
-                      <span style={{
-                        width: 14, height: 14, borderRadius: '50%',
-                        border: '2px solid rgba(93,162,255,0.2)',
-                        borderTopColor: 'var(--accent)',
-                        animation: 'spin 0.7s linear infinite',
-                        display: 'inline-block',
-                      }} />
-                      <span>Redirecting…</span>
-                    </>
-                  ) : (
-                    <>
-                      <Github size={16} />
-                      <span>GitHub</span>
-                    </>
-                  )}
-                </a>
-                <a
-                  href={googleHref}
-                  aria-disabled={!hasBackendConfig || !!socialLoading}
-                  onClick={() => handleSocialClick('google')}
-                  className="app-button-secondary rounded-[18px] normal-case tracking-normal text-[0.92rem] relative overflow-hidden"
-                  style={{
-                    opacity: hasBackendConfig ? (socialLoading && socialLoading !== 'google' ? 0.5 : 1) : 0.6,
-                    pointerEvents: socialLoading ? 'none' : 'auto',
-                    transition: 'opacity 0.2s ease',
-                  }}
-                >
-                  {socialLoading === 'google' ? (
-                    <>
-                      <span style={{
-                        width: 14, height: 14, borderRadius: '50%',
-                        border: '2px solid rgba(93,162,255,0.2)',
-                        borderTopColor: 'var(--accent)',
-                        animation: 'spin 0.7s linear infinite',
-                        display: 'inline-block',
-                      }} />
-                      <span>Redirecting…</span>
-                    </>
-                  ) : (
-                    <>
-                      <GoogleIcon />
-                      <span>Google</span>
-                    </>
-                  )}
-                </a>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="relative">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-[var(--border)]" />
-                </div>
-                <div className="relative flex justify-center">
-                  <span className="bg-[var(--bg-surface)] px-3 text-[0.7rem] font-mono uppercase tracking-[0.18em] text-[var(--text-muted)]">or</span>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setShowAdminLogin((v) => !v)}
-                aria-expanded={showAdminLogin}
-                data-testid="toggle-admin-login"
-                className="w-full flex items-center justify-center gap-2 py-1 text-[0.78rem] font-semibold uppercase tracking-widest text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors"
-              >
-                <ShieldCheck size={14} />
-                <span>Admin sign-in</span>
-                <ChevronDown size={14} style={{ transform: showAdminLogin ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }} />
-              </button>
-
-              {showAdminLogin && (
-                <div className="space-y-4 animate-fade-in" data-testid="admin-login-form">
-                  <p className="text-[0.82rem] text-[var(--text-muted)] leading-relaxed">
-                    For the admin account and users an admin has created directly. Not an admin? Use GitHub or Google above instead.
-                  </p>
-                  <form onSubmit={handleSubmit} className="space-y-4">
-                    <FieldGroup label="Email">
-                      <TextInput
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="admin@llmrelay.local"
-                        required
-                        testId="email-input"
-                      />
-                    </FieldGroup>
-                    <FieldGroup label="Password">
-                      <TextInput
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        placeholder="••••••••"
-                        required
-                        testId="password-input"
-                      />
-                    </FieldGroup>
-
-                    {error && (
-                      <div className="rounded-[18px] border p-4" style={{ background: 'rgba(255,107,125,0.1)', borderColor: 'rgba(255,107,125,0.22)' }}>
-                        <AlertCircle size={16} className="mb-2 text-[var(--danger)]" />
-                        <p className="text-[0.92rem] text-[var(--text-primary)]">{error}</p>
-                      </div>
-                    )}
-
-                    <button
-                      type="submit"
-                      disabled={loading}
-                      className="app-button-primary w-full rounded-[18px] text-[0.82rem]"
-                    >
-                      {loading ? (
-                        <>
-                          <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin"
-                            style={{ borderColor: '#06111f' }} />
-                          <span>Signing in…</span>
-                        </>
-                      ) : (
-                        <>
-                          <Lock size={18} />
-                          <span>Sign in</span>
-                        </>
-                      )}
-                    </button>
-                  </form>
-                </div>
-              )}
-            </div>
+          <div className="login-social-row">
+            {socialButton('github', githubHref, <Github size={18} aria-hidden="true" />, 'GitHub')}
+            {socialButton('google', googleHref, <GoogleIcon />, 'Google')}
           </div>
+
+          <div className="login-divider"><span>or</span></div>
+
+          <button
+            type="button"
+            onClick={() => setShowAdminLogin((v) => !v)}
+            aria-expanded={showAdminLogin}
+            aria-controls="admin-login-form"
+            data-testid="toggle-admin-login"
+            className="login-toggle"
+          >
+            <ShieldCheck size={16} aria-hidden="true" />
+            <span>Admin sign-in</span>
+            <ChevronDown size={16} aria-hidden="true" style={{ transform: showAdminLogin ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }} />
+          </button>
+
+          {showAdminLogin && (
+            <div className="login-admin animate-fade-in" id="admin-login-form" data-testid="admin-login-form">
+              <form onSubmit={handleSubmit} className="login-fields" noValidate={false}>
+                <FieldGroup label="Email" htmlFor="login-email">
+                  <TextInput
+                    id="login-email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="admin@llmrelay.local"
+                    autoComplete="username"
+                    required
+                    testId="email-input"
+                  />
+                </FieldGroup>
+                <FieldGroup label="Password" htmlFor="login-password">
+                  <TextInput
+                    id="login-password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoComplete="current-password"
+                    required
+                    testId="password-input"
+                  />
+                </FieldGroup>
+
+                {error && (
+                  <div role="alert" className="login-alert">
+                    <AlertCircle size={18} aria-hidden="true" />
+                    <p>{error}</p>
+                  </div>
+                )}
+
+                <button type="submit" disabled={loading} className="app-button-primary" style={{ width: '100%' }}>
+                  {loading ? (<><span className="login-spin" aria-hidden="true" /><span>Signing in…</span></>) : (<span>Sign in</span>)}
+                </button>
+              </form>
+            </div>
+          )}
 
           {!hasBackendConfig && (
-            <p className="text-[0.9rem] text-[var(--text-tertiary)] leading-relaxed text-center">
+            <p className="login-foot">
               Need to connect a backend first?{' '}
-              <Link to="/bootstrap" className="text-[var(--accent)] hover:text-[var(--accent-hover)] underline underline-offset-2 transition-colors duration-200">
-                Open the setup wizard
-              </Link>
-              .
+              <Link to="/bootstrap">Open the setup wizard</Link>.
             </p>
           )}
         </div>

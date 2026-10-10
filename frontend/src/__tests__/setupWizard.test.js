@@ -155,7 +155,7 @@ describe('SetupWizardPage rendering', () => {
     renderWizard();
     // Loading spinner should appear (it's shown while loadingState=true)
     // The sidebar is immediately visible
-    expect(screen.getAllByText('🧠 Setup Wizard').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Setup Wizard').length).toBeGreaterThan(0);
   });
 });
 
@@ -177,7 +177,7 @@ describe('Prefill from saved wizard state', () => {
     // Wait for state to load and key-saved indicator to appear
     await screen.findByText('✓ API key saved securely');
 
-    const anthropicLabel = screen.getByText('🔮 Anthropic').closest('label');
+    const anthropicLabel = screen.getByText('Anthropic').closest('label');
     const checkbox = anthropicLabel.querySelector('input[type="checkbox"]');
     expect(checkbox.checked).toBe(true);
   });
@@ -328,7 +328,7 @@ describe('localStorage draft fallback', () => {
     await screen.findByText(/connect to your autonomous ai agency/i);
     // localStorage was applied (draft loaded but user still needs to connect for step 4)
     // The draft is loaded internally; no visible assertion needed beyond "not crashing"
-    expect(screen.getAllByText('🧠 Setup Wizard').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Setup Wizard').length).toBeGreaterThan(0);
   });
 });
 
