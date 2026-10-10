@@ -25,7 +25,9 @@ _head "Running test suite before push..."
 # Find python/pytest — prefer venv, then python3 -m pytest (avoids isolated
 # tool envs like uv/pipx that lack project deps), then bare pytest binary.
 PYTEST=""
-if [ -f ".venv/bin/pytest" ]; then
+if [ -n "$VIRTUAL_ENV" ] && [ -x "$VIRTUAL_ENV/bin/python" ]; then
+    PYTEST="$VIRTUAL_ENV/bin/python -m pytest"
+elif [ -f ".venv/bin/pytest" ]; then
     PYTEST=".venv/bin/pytest"
 elif python3 -m pytest --version >/dev/null 2>&1; then
     PYTEST="python3 -m pytest"
@@ -42,8 +44,27 @@ fi
 # them and rewrite the repo being pushed (seen: branch moved, core.bare=true).
 unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_PREFIX GIT_OBJECT_DIRECTORY GIT_COMMON_DIR
 
+# No MongoDB on this machine (cloud sandboxes, fresh laptops): skip only the
+# tests marked requires_db, the documented local mode (tests/conftest.py).
+# CI always runs them against its mongo:7 service, so nothing goes unchecked.
+if [ -z "$SKIP_DB_TESTS" ] && ! python3 - <<'PY' 2>/dev/null
+import os, socket, urllib.parse
+u = urllib.parse.urlparse(os.environ.get("MONGO_URL") or "mongodb://localhost:27017")
+socket.create_connection((u.hostname or "localhost", u.port or 27017), timeout=1).close()
+PY
+then
+    export SKIP_DB_TESTS=1
+    printf "  ${YLW}⚠${RST} MongoDB not reachable — requires_db tests skipped locally (CI runs them)\n"
+fi
+
+# Same selection as CI (.github/workflows/ci.yml) so local and CI agree.
+CI_ARGS="--ignore=tests/test_hardware.py --ignore=tests/test_backend_runtime_bootstrap.py"
+if $PYTEST --help 2>/dev/null | grep -q -- "--timeout"; then
+    CI_ARGS="$CI_ARGS --timeout=120"
+fi
+
 # Run tests — fail fast, quiet output (show only failures)
-if ! $PYTEST -x -q 2>&1; then
+if ! $PYTEST -x -q $CI_ARGS 2>&1; then
     echo ""
     _error "Tests FAILED. Push blocked."
     _error "Fix failing tests before pushing."
