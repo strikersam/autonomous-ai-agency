@@ -268,8 +268,10 @@ allows 60-86400; a change applies to new grants only). Boundaries:
 - Grants apply only to runners that carry an identity. `AgentRunner` takes
   optional `agent_name` / `owner` (set from the authenticated principal at
   each construction site: proxy per-request runners, `/api/chat` agent jobs,
-  the workflow orchestrator, CEO cross-verify, and the internal-agent and E2B
-  runtimes). A runner with neither resolves to `agent:unknown` + `system` and
+  the workflow orchestrator, CEO cross-verify, the internal-agent and E2B
+  runtimes, `/api/direct-chat` agent jobs and the legacy `MultiAgentSwarm`;
+  a spawned sub-agent inherits its parent's agent name and owner but gets its
+  own session, so a parent's grant never covers the child). A runner with neither resolves to `agent:unknown` + `system` and
   is never granted - this is the case for the shared `proxy.AGENT_RUNNER`
   singleton, whose identity is cached for the process.
 - Any lookup error means "no grant" and a human is asked.

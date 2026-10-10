@@ -3171,6 +3171,8 @@ class AgentRunner:
             provider_headers=self.provider_headers or None,
             provider_temperature=self.provider_temperature,
             session_store=self._session_store,
+            agent_name=self.agent_name,
+            owner=self.owner,
         )
         sub._depth = child_depth
         # Apply per-role sub-agent config if available

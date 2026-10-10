@@ -565,6 +565,7 @@ async def _do_handle_agent_mode(
             provider_temperature=req.temperature,
             github_token=github_token,
             email=user.email,
+            owner=user.email,
             repo_url=req.repo_url,
             base_branch=req.repo_ref or "main",
         )
@@ -703,6 +704,7 @@ async def _do_handle_agent_mode(
             provider_temperature=req.temperature,
             github_token=github_token,
             email=user.email,
+            owner=user.email,
             repo_url=req.repo_url,
             base_branch=req.repo_ref or "main",
         )
