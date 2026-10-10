@@ -115,7 +115,11 @@ def test_no_unregistered_motor_clients_exist() -> None:
     Scripts and one-shot utilities are excluded — they build a client, use it,
     and exit, so they never outlive a test's event loop.
     """
-    excluded_prefixes = ("tests/", "scripts/", "setup/", "docker/", "_scripts/")
+    # `.claude/worktrees/` holds full checkouts made by agent sessions (git
+    # worktrees); scanning them reports every real call site once per copy.
+    excluded_prefixes = (
+        "tests/", "scripts/", "setup/", "docker/", "_scripts/", ".claude/worktrees/",
+    )
     offenders: list[str] = []
 
     for path in _REPO_ROOT.rglob("*.py"):
