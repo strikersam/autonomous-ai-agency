@@ -194,3 +194,40 @@ async def test_find_by_id_does_not_decode_every_row(store, monkeypatch):
 async def test_atomic_increment_rejects_empty_inc(store):
     with pytest.raises(ValueError):
         await atomic_increment(store.user_token_usage, "d:u", {})
+
+
+async def test_purge_removes_rows_with_missing_or_non_numeric_expiry(store):
+    col = store.governance_grants
+    future = sp.expiry_fields(datetime.now(timezone.utc) + timedelta(hours=1))
+    await col.insert_one({"_id": "live", **future})
+    await col.insert_one({"_id": "no-ts", "expires_at": "2020-01-01"})
+    await col.insert_one({"_id": "text-ts", sp.EXPIRES_TS: "soon"})
+    assert await purge_expired(col, sp.EXPIRES_TS, datetime.now(timezone.utc).timestamp()) == 2
+    assert [d["_id"] for d in await col.find({}).to_list(None)] == ["live"]
+    # With the corrupt row gone, $gt queries on the table work again.
+    now_ts = datetime.now(timezone.utc).timestamp()
+    assert len(await col.find({sp.EXPIRES_TS: {"$gt": now_ts}}).to_list(None)) == 1
+
+
+def test_atomic_increment_is_exact_across_processes(tmp_path):
+    import multiprocessing as mp
+    from concurrent.futures import ProcessPoolExecutor
+
+    from tests._sqlite_increment_worker import increment_many
+
+    db_path = str(tmp_path / "shared.db")
+
+    async def _init_and_read(read: bool) -> int:
+        s = SQLiteStore(db_path)
+        try:
+            await s._get_conn()  # create the schema before children race on it
+            doc = await s.user_token_usage.find_one({"_id": "d:u"}) if read else None
+            return int(doc["tokens"]) if doc else 0
+        finally:
+            await s.close()
+
+    asyncio.run(_init_and_read(False))
+    with ProcessPoolExecutor(max_workers=4, mp_context=mp.get_context("spawn")) as pool:
+        for fut in [pool.submit(increment_many, db_path, "d:u", 50) for _ in range(4)]:
+            fut.result(timeout=120)
+    assert asyncio.run(_init_and_read(True)) == 200

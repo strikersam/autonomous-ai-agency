@@ -66,9 +66,18 @@ async def atomic_increment(
 
 
 async def purge_expired(col: Any, field: str, now_ts: float) -> int:
-    """Delete rows whose numeric epoch-seconds *field* is in the past; returns the count."""
+    """Delete rows whose epoch-seconds *field* is past, missing or not a number.
+
+    Readers already treat a missing or non-numeric expiry as expired (fail
+    closed), so such rows are dead weight; a non-numeric one would also make
+    the Python ``$gt`` matcher raise for every query on the table.
+    Returns the number of rows deleted.
+    """
     _checked(field)
-    sql = f"DELETE FROM {col._name} WHERE json_extract(data, '$.{field}') < ?"  # nosec B608
+    expr = f"json_extract(data, '$.{field}')"
+    sql = (  # nosec B608 - table is allowlisted by _Collection, field passes _IDENT
+        f"DELETE FROM {col._name} WHERE typeof({expr}) NOT IN ('integer', 'real') OR {expr} < ?"
+    )
     conn = await col._conn()
     cur = await conn.execute(sql, [now_ts])
     await conn.commit()
