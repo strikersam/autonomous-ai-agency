@@ -1702,6 +1702,7 @@ class AgentRunner:
             "status": "applied",
             "changed_files": changed_files,
             "resolved_issues": resolved_issues[:20],
+            "executed_checks": list(getattr(self, "_last_executed_checks", [])),
             "observations": observations,
             "models": {"executor": executor_model, "verifier": verifier_model},
         }
@@ -2767,6 +2768,9 @@ class AgentRunner:
         still pass. Runs once per step, after all files are applied, so a
         failure surfaces as a step failure with the tool output attached.
         """
+        # Checks that actually ran and passed: a task's rule-49 report only
+        # counts as PASS when something executable backs the review.
+        self._last_executed_checks: list[str] = []
         if os.environ.get("AGENT_EMPIRICAL_VERIFY", "false").strip().lower() not in ("true", "1", "yes", "on"):
             return []
         py_files = [f for f in changed_files if f.endswith(".py")]
@@ -2788,6 +2792,7 @@ class AgentRunner:
             if rc != 0:
                 issues.append(f"Changed files fail to byte-compile:\n{out}")
                 return issues
+            self._last_executed_checks.append(f"python -m py_compile {' '.join(py_files)}: passed")
 
             test_targets: list[str] = []
             for f in py_files:
@@ -2802,6 +2807,10 @@ class AgentRunner:
                 rc, out = _run([sys.executable, "-m", "pytest", "-x", "-q", *dict.fromkeys(test_targets)])
                 if rc != 0:
                     issues.append(f"Scoped tests failed for this change:\n{out}")
+                else:
+                    self._last_executed_checks.append(
+                        f"pytest -x {' '.join(dict.fromkeys(test_targets))}: passed"
+                    )
         except subprocess.TimeoutExpired:
             issues.append(f"Empirical verification timed out after {timeout}s.")
         except (OSError, FileNotFoundError) as exc:

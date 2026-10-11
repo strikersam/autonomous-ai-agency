@@ -16,6 +16,8 @@ from tasks.verification import (
     has_passing_verdict,
     human_acceptance,
     is_human_actor,
+    rework_or_park,
+    unbacked_note,
     verification_from_run,
     verification_required,
 )
@@ -216,15 +218,8 @@ class TaskWorkflowService:
         verdict = task.verification
         if verdict is not None and verdict.passed:
             return TaskStatus.DONE, review_reason, message
-        if verdict is not None and task.status is not TaskStatus.IN_PROGRESS:
-            # FAIL from review: back to work. (IN_PROGRESS -> IN_PROGRESS is a no-op.)
-            return TaskStatus.IN_PROGRESS, None, (
-                f"Independent verification FAILED ({verdict.verifier}); sent back for rework"
-            )
-        if verdict is not None:
-            return TaskStatus.IN_REVIEW, "Independent verification failed; needs rework or a human decision", (
-                f"Independent verification FAILED ({verdict.verifier}); not marked done"
-            )
+        if verdict is not None:  # FAIL: rework, or a person after repeated failures
+            return rework_or_park(task, actor)
         return TaskStatus.IN_REVIEW, WAITING_REASON, f"Not marked done by {actor}: {WAITING_REASON}"
 
     def assign_agent(self, task: Task, agent_id: str | None, *, actor: str) -> Task:
@@ -1574,9 +1569,12 @@ class TaskExecutionCoordinator:
         if agent_comment:
             self.workflow.add_comment(task, author=actor, body=agent_comment)
 
-        run_verdict = verification_from_run(metadata.get("raw_result"))
-        if run_verdict is not None:
-            task.verification = run_verdict
+        # Only this run's verdict counts; anything already on the task was about
+        # earlier work.
+        task.verification = verification_from_run(metadata.get("raw_result"))
+        note = unbacked_note(metadata.get("raw_result"))
+        if note:
+            task.add_log(note, event_type="verification_unbacked", actor=actor, task_status=task.status)
 
         next_status = metadata.get("task_status")
         if task.requires_approval and next_status in (None, TaskStatus.DONE.value):

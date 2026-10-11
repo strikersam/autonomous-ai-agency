@@ -27,7 +27,8 @@ from tasks.verification import (
 RUN = {
     "steps": [
         {"description": "add retry", "status": "applied", "changed_files": ["a.py"],
-         "resolved_issues": ["a.py: missing import of time"]},
+         "resolved_issues": ["a.py: missing import of time"],
+         "executed_checks": ["pytest -x tests/test_a.py: passed"]},
         {"description": "docs", "status": "applied", "changed_files": []},
     ],
     "judge": {"verdict": "APPROVED", "security": "PASS", "correctness": "PASS", "notes": "ok"},
@@ -71,12 +72,26 @@ def test_judge_approval_becomes_pass_with_checked_defects_and_fixes():
     ({"verdict": "BLOCKED"}, "FAIL"),
 ])
 def test_judge_verdicts_map_onto_rule_49_verdicts(judge, expected):
-    assert verification_from_run({"steps": [], "judge": judge}).verdict == expected
+    run = {"steps": RUN["steps"], "judge": judge}
+    assert verification_from_run(run).verdict == expected
 
 
 def test_no_judge_means_no_verdict():
     assert verification_from_run({"steps": [{"status": "applied"}]}) is None
     assert verification_from_run(None) is None
+
+
+def test_an_approving_review_with_nothing_executed_is_not_a_pass():
+    from tasks.verification import unbacked_note
+    run = {"steps": [{"description": "x", "status": "applied", "changed_files": ["a.py"]}],
+           "judge": {"verdict": "APPROVED"}}
+    assert verification_from_run(run) is None
+    assert "no tests or checks were run" in unbacked_note(run)
+    assert unbacked_note(RUN) is None
+
+
+def test_executed_checks_are_listed_as_what_was_checked():
+    assert any("ran pytest -x tests/test_a.py: passed" in c for c in verification_from_run(RUN).checked)
 
 
 def test_rejection_notes_are_listed_as_a_defect():
@@ -99,6 +114,51 @@ def test_agent_reaches_done_with_a_passing_verdict():
     task.verification = verification_from_run(RUN)
     TaskWorkflowService(store=TaskStore()).transition(task, TaskStatus.DONE, actor="agent:dev")
     assert task.status is TaskStatus.DONE
+
+
+def _reject():
+    return TaskVerification(verdict="FAIL", verifier="agent:judge", defects_found=["breaks login"])
+
+
+def test_a_judge_fail_sends_work_back_with_the_defects_as_a_comment():
+    task = _task()
+    task.verification = _reject()
+    TaskWorkflowService(store=TaskStore()).transition(task, TaskStatus.DONE, actor="agent:dev")
+    assert task.status is TaskStatus.IN_PROGRESS
+    assert task.pending_agent_run is True
+    assert any("breaks login" in c.body for c in task.comments)
+
+
+def test_repeated_fails_park_for_a_person_instead_of_looping():
+    wf = TaskWorkflowService(store=TaskStore())
+    task = _task()
+    for _ in range(2):
+        task.verification = _reject()
+        wf.transition(task, TaskStatus.DONE, actor="agent:dev")
+        assert task.status is TaskStatus.IN_PROGRESS
+    task.verification = _reject()
+    wf.transition(task, TaskStatus.DONE, actor="agent:dev")
+    assert task.status is TaskStatus.IN_REVIEW
+    assert "needs a person" in task.review_reason
+
+
+def test_a_person_acting_resets_the_rework_budget():
+    from tasks.verification import _automatic_failures
+    wf = TaskWorkflowService(store=TaskStore())
+    task = _task()
+    for _ in range(2):
+        task.verification = _reject()
+        wf.transition(task, TaskStatus.DONE, actor="agent:dev")
+    task.add_log("comment", actor="priya@x.com")
+    assert _automatic_failures(task) == 0
+
+
+def test_settle_success_requeues_a_rejected_ceo_run():
+    task = _task()
+    settle_success(task, {"steps": [], "judge": {"verdict": "REJECTED", "notes": "wrong file"}},
+                   actor="runtime:internal_agent")
+    assert task.status is TaskStatus.IN_PROGRESS
+    assert task.pending_agent_run is True
 
 
 def test_failed_verdict_from_review_sends_work_back():
