@@ -251,10 +251,14 @@ button,
 [role='button'] { touch-action: manipulation; }
 
 /* Instant press feedback: a tap is acknowledged on the very next frame, before
-   any data the next screen needs has arrived. No transition, so it never lags. */
+   any data the next screen needs has arrived. The dim works on every button,
+   including the many with an inline background; class-styled ones also tint.
+   Transitions are switched off while pressed so neither fades in. */
 button:not(:disabled):active,
 [role='button']:active {
   background-color: color-mix(in oklab, var(--ink) 9%, transparent);
+  opacity: 0.72;
+  transition: none;
 }
 .app-button-primary:not(:disabled):active { background-color: var(--accent-hover); filter: brightness(0.92); }
 

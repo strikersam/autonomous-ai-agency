@@ -30,8 +30,8 @@ export function AuthProvider({ children }) {
   useEffect(() => { checkAuth(); }, [checkAuth]);
 
   const login = async (email, password) => {
-    clearSafeDataCache();
     const { data } = await apiLogin(email, password);
+    clearSafeDataCache();
     localStorage.setItem('access_token', data.access_token);
     localStorage.setItem('refresh_token', data.refresh_token);
     setUser({ id: data.id, email: data.email, name: data.name, role: data.role });
@@ -42,6 +42,8 @@ export function AuthProvider({ children }) {
     // Cached screen data belongs to this account; never show it to the next one.
     clearSafeDataCache();
     await apiLogout();
+    // Again after the await: a request in flight at sign-out may have refilled it.
+    clearSafeDataCache();
     setUser(false);
   };
 
