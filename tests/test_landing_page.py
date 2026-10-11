@@ -184,3 +184,25 @@ def test_indexnow_key_file_matches_its_name_and_robots_meta_allows_snippets(html
     assert len(keys) == 1
     assert keys[0].read_text(encoding="utf-8").strip() == keys[0].stem
     assert 'content="index,follow,max-snippet:-1,max-image-preview:large' in html
+
+
+def test_title_fits_the_serp_and_cards_are_not_articles(html):
+    # >60 chars is truncated in results; <article> without a date is flagged by the AIO checks.
+    assert len(re.search(r"<title>(.*?)</title>", html, re.S).group(1)) <= 60
+    assert "<article" not in html
+    assert '"@type": "BreadcrumbList"' in html
+    assert 'alt=""' not in html
+
+
+def test_csp_allows_every_external_host_the_page_loads_from(html):
+    # The CSP in worker/index.js is landing-page only; a host the page loads from but the
+    # policy omits is silently blocked in browsers (this dropped the web fonts once).
+    worker = (REPO / "worker" / "index.js").read_text(encoding="utf-8")
+    csp = re.search(r'const CSP_LANDING = (.*?);\n\n', worker, re.S).group(1)
+    hosts = set(re.findall(r'<link[^>]+rel="stylesheet"[^>]*', html))
+    for tag in hosts:
+        href = re.search(r'href="(https://[^/"]+)', tag)
+        if href:
+            assert href.group(1) in csp, href.group(1)
+    for src in re.findall(r'<link[^>]+rel="preconnect"[^>]+href="(https://[^"]+)"', html):
+        assert src in csp, src
