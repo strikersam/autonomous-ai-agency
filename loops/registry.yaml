@@ -597,3 +597,16 @@ loops:
     self_heal: false
     gate: none
     purpose: Call the default model of each routed provider daily and open/update a single drift-tracking issue when a configured id is unreachable or would not answer, so a dead model is caught on a cadence instead of via a production 410/404/402.
+
+  - id: feature-scout
+    name: Competitor Feature Scout
+    pattern: learn-scan
+    level: L2
+    trigger: schedule
+    cadence: weekly (Mon 05:47 UTC)
+    runs_per_day: 0.14
+    cost: low
+    source: .github/workflows/feature-scout.yml
+    self_heal: false
+    gate: human
+    purpose: Read competitor releases weekly, learn from how past scout issues were closed, and file at most two small feature issues that autonomous-agent turns into PRs for human merge.

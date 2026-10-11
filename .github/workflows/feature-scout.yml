@@ -1,0 +1,60 @@
+name: Feature Scout
+
+# Weekly competitor feature scout. Reads recent releases of competing agent
+# frameworks (config/feature_scout.yaml, plus repos it discovers through GitHub
+# search), asks the free brain chain which small features this agency lacks,
+# and files at most a few `feature-scout` issues. autonomous-agent.yml turns
+# them into PRs; a human squash-merges after CI is green. It learns from how
+# earlier scout issues were closed (completed vs not planned).
+#
+# Free providers only (gh_brain_failover.py: Cerebras -> Groq -> Mistral ->
+# NVIDIA NIM). No Anthropic key is passed, so it can never fall back to paid.
+
+on:
+  schedule:
+    - cron: '47 5 * * 1'   # Mondays 05:47 UTC
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Print proposals without filing issues'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: feature-scout
+  cancel-in-progress: false
+
+jobs:
+  scout:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+
+      - name: Install deps
+        run: pip install httpx pyyaml 2>&1 | tail -2
+
+      - name: Ensure label exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh label create feature-scout --color 5319e7 --description "Weekly competitor feature scout" --force --repo "${{ github.repository }}"
+
+      - name: Run feature scout
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          CEREBRAS_API_KEY: ${{ secrets.CEREBRAS_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: python3 .github/scripts/feature_scout.py
