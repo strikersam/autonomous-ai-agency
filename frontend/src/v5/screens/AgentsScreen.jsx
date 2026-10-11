@@ -433,7 +433,7 @@ function RunTaskModal({ agent, onClose, onViewInTasks }) {
       <div onClick={e=>e.stopPropagation()} style={{ width:'100%', maxWidth:560, maxHeight:'88vh', overflowY:'auto', borderRadius:14, border:'1px solid color-mix(in oklab, var(--accent) 20%, transparent)', background:'var(--bg-surface)', padding:'20px' }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
           <div style={{ fontSize:15, fontWeight:700, color:'var(--text-primary)' }}>Run a task · {agent.name}</div>
-          <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-muted)', fontSize:20, cursor:'pointer' }}>×</button>
+          <button type="button" className="close-btn" aria-label="Close" onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-muted)', fontSize:20, cursor:'pointer' }}>×</button>
         </div>
         <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:12, lineHeight:1.5 }}>Creates a tracked task in the <strong style={{ color:'var(--text-tertiary)' }}>Tasks board</strong>, then dispatches it through the <strong style={{ color:'var(--text-tertiary)' }}>{agent.name}</strong> pipeline. Monitor progress here or find the full lifecycle in Tasks.</div>
         <textarea value={task} onChange={e=>setTask(e.target.value)} disabled={busy} placeholder="Describe the task…  e.g. 'Audit the checkout flow for SEO regressions and open a PR'" rows={4}

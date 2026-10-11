@@ -271,7 +271,7 @@ function HistorySidebar({ sessions, loading, activeId, onSelect, onClose }) {
     }}>
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 16px 10px', borderBottom:'1px solid color-mix(in oklab, var(--ink) 7%, transparent)' }}>
         <span style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)' }}>Chat History</span>
-        <button onClick={onClose} style={{ width:26, height:26, borderRadius:7, display:'flex', alignItems:'center', justifyContent:'center', background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'none', cursor:'pointer', color:'var(--text-muted)', fontSize:13 }}>✕</button>
+        <button type="button" className="close-btn" aria-label="Close chat history" onClick={onClose} style={{ width:26, height:26, borderRadius:7, display:'flex', alignItems:'center', justifyContent:'center', background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'none', cursor:'pointer', color:'var(--text-muted)', fontSize:13 }}>✕</button>
       </div>
       <button onClick={()=>{ onSelect(null); onClose(); }} style={{ margin:'10px 10px 0', padding:'9px 14px', borderRadius:12, background:'color-mix(in oklab, var(--accent) 12%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 25%, transparent)', color:'var(--accent)', fontSize:13, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:7 }}>
         <span>＋</span> New chat
