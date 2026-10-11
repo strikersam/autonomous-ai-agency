@@ -1,13 +1,105 @@
+# v3 (master) vs v4 build: pixel diff, 13 screens + 40 hover states + taskdetail, desktop 1440 / mobile 390
 desktop-assistant            diff_pixels=      8 (0.001%) bbox=(33, 25, 42, 28)
-desktop-company              diff_pixels=      0 (0.000%) bbox=None
+desktop-company              diff_pixels=      3 (0.000%) bbox=(260, 64, 1440, 70)
 desktop-home                 diff_pixels=      0 (0.000%) bbox=None
-desktop-insights             diff_pixels=      0 (0.000%) bbox=None
-desktop-login                diff_pixels=      0 (0.000%) bbox=None
+desktop-insights             diff_pixels=      7 (0.001%) bbox=(260, 60, 270, 70)
 desktop-settings             diff_pixels=      0 (0.000%) bbox=None
-desktop-work                 diff_pixels=      0 (0.000%) bbox=None
+desktop-taskdetail           diff_pixels=      0 (0.000%) bbox=None
+desktop-work                 diff_pixels=      8 (0.001%) bbox=(33, 25, 42, 28)
+hover-assistant-0            diff_pixels=      0 (0.000%) bbox=None
+hover-assistant-1            diff_pixels=      8 (0.001%) bbox=(33, 25, 42, 28)
+hover-assistant-10           diff_pixels=      8 (0.001%) bbox=(33, 25, 42, 28)
+hover-assistant-11           diff_pixels=      8 (0.001%) bbox=(33, 25, 42, 28)
+hover-assistant-12           diff_pixels=      8 (0.001%) bbox=(33, 25, 42, 28)
+hover-assistant-13           diff_pixels=      8 (0.001%) bbox=(33, 25, 42, 28)
+hover-assistant-2            diff_pixels=      0 (0.000%) bbox=None
+hover-assistant-3            diff_pixels=      8 (0.001%) bbox=(33, 25, 42, 28)
+hover-assistant-4            diff_pixels=      8 (0.001%) bbox=(33, 25, 42, 28)
+hover-assistant-5            diff_pixels=      8 (0.001%) bbox=(33, 25, 42, 28)
+hover-assistant-6            diff_pixels=      8 (0.001%) bbox=(33, 25, 42, 28)
+hover-assistant-7            diff_pixels=      8 (0.001%) bbox=(33, 25, 42, 28)
+hover-assistant-8            diff_pixels=      8 (0.001%) bbox=(33, 25, 42, 28)
+hover-assistant-9            diff_pixels=      8 (0.001%) bbox=(33, 25, 42, 28)
+hover-company-0              diff_pixels=     11 (0.001%) bbox=(33, 25, 1440, 70)
+hover-company-1              diff_pixels=      3 (0.000%) bbox=(260, 64, 1440, 70)
+hover-company-10             diff_pixels=      2 (0.000%) bbox=(260, 64, 265, 70)
+hover-company-11             diff_pixels=      3 (0.000%) bbox=(260, 64, 1440, 70)
+hover-company-12             diff_pixels=      2 (0.000%) bbox=(260, 64, 265, 70)
+hover-company-13             diff_pixels=      0 (0.000%) bbox=None
+hover-company-2              diff_pixels=     11 (0.001%) bbox=(33, 25, 1440, 70)
+hover-company-3              diff_pixels=      3 (0.000%) bbox=(260, 64, 1440, 70)
+hover-company-4              diff_pixels=      3 (0.000%) bbox=(260, 64, 1440, 70)
+hover-company-5              diff_pixels=      3 (0.000%) bbox=(260, 64, 1440, 70)
+hover-company-6              diff_pixels=      3 (0.000%) bbox=(260, 64, 1440, 70)
+hover-company-7              diff_pixels=      3 (0.000%) bbox=(260, 64, 1440, 70)
+hover-company-8              diff_pixels=      3 (0.000%) bbox=(260, 64, 1440, 70)
+hover-company-9              diff_pixels=      3 (0.000%) bbox=(260, 64, 1440, 70)
+hover-home-0                 diff_pixels=      0 (0.000%) bbox=None
+hover-home-1                 diff_pixels=      0 (0.000%) bbox=None
+hover-home-10                diff_pixels=      0 (0.000%) bbox=None
+hover-home-11                diff_pixels=      0 (0.000%) bbox=None
+hover-home-12                diff_pixels=      8 (0.001%) bbox=(1389, 269, 1395, 274)
+hover-home-13                diff_pixels=      0 (0.000%) bbox=None
+hover-home-2                 diff_pixels=      0 (0.000%) bbox=None
+hover-home-3                 diff_pixels=      0 (0.000%) bbox=None
+hover-home-4                 diff_pixels=      0 (0.000%) bbox=None
+hover-home-5                 diff_pixels=      0 (0.000%) bbox=None
+hover-home-6                 diff_pixels=      0 (0.000%) bbox=None
+hover-home-7                 diff_pixels=      0 (0.000%) bbox=None
+hover-home-8                 diff_pixels=      0 (0.000%) bbox=None
+hover-home-9                 diff_pixels=      0 (0.000%) bbox=None
+hover-insights-0             diff_pixels=      7 (0.001%) bbox=(260, 60, 270, 70)
+hover-insights-1             diff_pixels=      7 (0.001%) bbox=(260, 60, 270, 70)
+hover-insights-10            diff_pixels=      7 (0.001%) bbox=(260, 60, 270, 70)
+hover-insights-11            diff_pixels=      7 (0.001%) bbox=(260, 60, 270, 70)
+hover-insights-12            diff_pixels=      7 (0.001%) bbox=(260, 60, 270, 70)
+hover-insights-13            diff_pixels=      1 (0.000%) bbox=(260, 69, 261, 70)
+hover-insights-2             diff_pixels=      7 (0.001%) bbox=(260, 60, 270, 70)
+hover-insights-3             diff_pixels=      7 (0.001%) bbox=(260, 60, 270, 70)
+hover-insights-4             diff_pixels=      7 (0.001%) bbox=(260, 60, 270, 70)
+hover-insights-5             diff_pixels=      7 (0.001%) bbox=(260, 60, 270, 70)
+hover-insights-6             diff_pixels=      7 (0.001%) bbox=(260, 60, 270, 70)
+hover-insights-7             diff_pixels=     10 (0.001%) bbox=(153, 60, 270, 864)
+hover-insights-8             diff_pixels=      7 (0.001%) bbox=(260, 60, 270, 70)
+hover-insights-9             diff_pixels=      7 (0.001%) bbox=(260, 60, 270, 70)
+hover-settings-0             diff_pixels=      0 (0.000%) bbox=None
+hover-settings-1             diff_pixels=      0 (0.000%) bbox=None
+hover-settings-10            diff_pixels=      0 (0.000%) bbox=None
+hover-settings-11            diff_pixels=      0 (0.000%) bbox=None
+hover-settings-12            diff_pixels=      0 (0.000%) bbox=None
+hover-settings-13            diff_pixels=      0 (0.000%) bbox=None
+hover-settings-2             diff_pixels=      0 (0.000%) bbox=None
+hover-settings-3             diff_pixels=      0 (0.000%) bbox=None
+hover-settings-4             diff_pixels=      0 (0.000%) bbox=None
+hover-settings-5             diff_pixels=      0 (0.000%) bbox=None
+hover-settings-6             diff_pixels=      0 (0.000%) bbox=None
+hover-settings-7             diff_pixels=      0 (0.000%) bbox=None
+hover-settings-8             diff_pixels=      0 (0.000%) bbox=None
+hover-settings-9             diff_pixels=      0 (0.000%) bbox=None
+hover-work-0                 diff_pixels=      0 (0.000%) bbox=None
+hover-work-1                 diff_pixels=      8 (0.001%) bbox=(33, 25, 42, 28)
+hover-work-10                diff_pixels=      0 (0.000%) bbox=None
+hover-work-11                diff_pixels=      0 (0.000%) bbox=None
+hover-work-12                diff_pixels=      0 (0.000%) bbox=None
+hover-work-13                diff_pixels=      0 (0.000%) bbox=None
+hover-work-2                 diff_pixels=      0 (0.000%) bbox=None
+hover-work-3                 diff_pixels=      0 (0.000%) bbox=None
+hover-work-4                 diff_pixels=      0 (0.000%) bbox=None
+hover-work-5                 diff_pixels=      0 (0.000%) bbox=None
+hover-work-6                 diff_pixels=      0 (0.000%) bbox=None
+hover-work-7                 diff_pixels=      0 (0.000%) bbox=None
+hover-work-8                 diff_pixels=      0 (0.000%) bbox=None
+hover-work-9                 diff_pixels=      0 (0.000%) bbox=None
 mobile-assistant             diff_pixels=      0 (0.000%) bbox=None
 mobile-company               diff_pixels=      0 (0.000%) bbox=None
 mobile-home                  diff_pixels=      0 (0.000%) bbox=None
 mobile-insights              diff_pixels=      0 (0.000%) bbox=None
-mobile-login                 diff_pixels=      0 (0.000%) bbox=None
+mobile-taskdetail            diff_pixels=      0 (0.000%) bbox=None
 mobile-work                  diff_pixels=      0 (0.000%) bbox=None
+
+# Tab focus: 75 tab stops compared
+tab stops 75 diffs 0
+
+# Keyframes (getKeyframes)
+before {'fadeIn': '0:translateY(4px)/0 | 1:none/1', 'pulseSlow': '0:/1 | 0.5:/0.55 | 1:/1', 'scaleIn': '0:scale(0.98)/0 | 1:none/1', 'slideInLeft': '0:translate(-8px)/0 | 1:none/1'}
+after {'fadeIn': '0:translateY(4px)/0 | 1:none/1', 'pulseSlow': '0:/1 | 0.5:/0.55 | 1:/1', 'scaleIn': '0:scale(0.98)/0 | 1:none/1', 'slideInLeft': '0:translate(-8px)/0 | 1:none/1'}
