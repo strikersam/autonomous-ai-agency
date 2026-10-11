@@ -447,6 +447,11 @@ class Settings:
             "AGENT_EMPIRICAL_VERIFY", "true"
         ).strip().lower()
         self.agent_empirical_verify_timeout: int = _env_int("AGENT_EMPIRICAL_VERIFY_TIMEOUT", 120)
+        # Install the project's requirements in the E2B sandbox before the
+        # first scoped test run, so tests can import the code under test.
+        self.agent_sandbox_install_deps_raw: str = os.environ.get(
+            "AGENT_SANDBOX_INSTALL_DEPS", "true"
+        ).strip().lower()
         # Screenshot changed pages with the browser and attach them to the
         # task's verification report as proof for UI changes.
         self.agent_ui_evidence_raw: str = os.environ.get(
@@ -493,6 +498,11 @@ class Settings:
     def agent_empirical_verify(self) -> bool:
         """When True, agents execute compile + scoped tests before a step counts."""
         return self.agent_empirical_verify_raw in {"1", "true", "yes", "on"}
+
+    @property
+    def agent_sandbox_install_deps(self) -> bool:
+        """When True, the sandbox installs project requirements before tests."""
+        return self.agent_sandbox_install_deps_raw in {"1", "true", "yes", "on"}
 
     @property
     def agent_ui_evidence(self) -> bool:

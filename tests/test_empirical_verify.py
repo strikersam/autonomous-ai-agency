@@ -174,3 +174,67 @@ def test_control_is_live_and_on_by_default():
     finally:
         control_overrides.apply_overrides({})
     assert settings.agent_empirical_verify is True
+
+
+# ── project dependencies in the sandbox ───────────────────────────────────────
+
+def test_sandbox_installs_requirements_once_before_tests(tmp_path, monkeypatch):
+    runner = _sandbox_runner(tmp_path, monkeypatch, [
+        ("ls -1", 0, "tests/test_mymod.py\n"),
+        ("pytest -x", 0, "1 passed"),
+    ])
+    asyncio.run(runner._empirical_verify_async(["mymod.py"]))
+    asyncio.run(runner._empirical_verify_async(["mymod.py"]))
+    installs = [c for c in runner._mcp.cmds if "pip install -q --disable-pip-version-check" in c]
+    assert len(installs) == 1 and "requirements.txt" in installs[0]
+    first_test = next(i for i, c in enumerate(runner._mcp.cmds) if "pytest -x" in c)
+    assert runner._mcp.cmds.index(installs[0]) < first_test
+
+
+def test_failed_install_is_noted_and_not_retried(tmp_path, monkeypatch):
+    from agent import empirical_verify as ev
+
+    runner = _sandbox_runner(tmp_path, monkeypatch, [("--disable-pip-version-check", 1, "No matching distribution")])
+    note = asyncio.run(ev.ensure_dependencies(runner._mcp))
+    assert note and "failed (exit 1)" in note
+    assert asyncio.run(ev.ensure_dependencies(runner._mcp)) == note
+    assert len([c for c in runner._mcp.cmds if "--disable-pip-version-check" in c]) == 1
+
+
+def test_no_requirements_file_is_not_a_failure(tmp_path, monkeypatch):
+    from agent import empirical_verify as ev
+
+    runner = _sandbox_runner(tmp_path, monkeypatch, [("--disable-pip-version-check", 3, "")])
+    assert asyncio.run(ev.ensure_dependencies(runner._mcp)) is None
+
+
+def test_install_control_off_skips_it(tmp_path, monkeypatch):
+    from agent import empirical_verify as ev
+    from packages.config import control_overrides
+    from packages.config.control_registry import get_control
+
+    assert get_control("AGENT_SANDBOX_INSTALL_DEPS").live is True
+    runner = _sandbox_runner(tmp_path, monkeypatch, [])
+    try:
+        control_overrides.apply_overrides({"AGENT_SANDBOX_INSTALL_DEPS": "false"})
+        assert asyncio.run(ev.ensure_dependencies(runner._mcp)) is None
+        assert runner._mcp.cmds == []
+    finally:
+        control_overrides.apply_overrides({})
+
+
+def test_install_timeout_is_cached_not_retried(tmp_path, monkeypatch):
+    from agent import empirical_verify as ev
+
+    runner = _sandbox_runner(tmp_path, monkeypatch, [])
+    calls = []
+
+    async def boom(name, args):
+        calls.append(args["cmd"])
+        raise RuntimeError("command timed out")
+
+    runner._mcp.call_tool = boom
+    note = asyncio.run(ev.ensure_dependencies(runner._mcp))
+    assert note and "timed out" in note
+    assert asyncio.run(ev.ensure_dependencies(runner._mcp)) == note
+    assert len(calls) == 1

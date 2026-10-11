@@ -1007,6 +1007,17 @@ _AGENT_LOOP: tuple[ControlSpec, ...] = (
         live=True,
     ),
     _toggle(
+        "AGENT_SANDBOX_INSTALL_DEPS",
+        "Install project packages in the sandbox",
+        "agent_loop",
+        "true",
+        "Before an agent's first test run in an E2B sandbox, install the project's "
+        "requirements.txt there so the tests can import the code. Adds a one-time "
+        "install (often a few minutes) per task. Off: tests that need project "
+        "packages cannot run in the sandbox and the change waits for a person.",
+        live=True,
+    ),
+    _toggle(
         "AGENT_UI_EVIDENCE",
         "Screenshot UI changes as proof",
         "agent_loop",
