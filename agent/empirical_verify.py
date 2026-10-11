@@ -28,6 +28,8 @@ log = logging.getLogger("qwen-proxy")
 # the tests could not run here (often a missing dependency in the sandbox).
 _NOT_RUN_CODES = frozenset({2, 4, 5})
 _IMPORT_ERRORS = ("ModuleNotFoundError", "ImportError while importing")
+# One-time requirements install per sandbox; large projects take minutes.
+_INSTALL_TIMEOUT_S = 300
 
 
 @dataclass
@@ -82,6 +84,45 @@ async def _sandbox_targets(session: Any, py_files: list[str]) -> list[str]:
     return list(dict.fromkeys(targets))
 
 
+def install_deps_enabled() -> bool:
+    """Read the live ``AGENT_SANDBOX_INSTALL_DEPS`` control."""
+    from packages.config import settings
+
+    return bool(getattr(settings, "agent_sandbox_install_deps", True))
+
+
+async def ensure_dependencies(session: Any) -> str | None:
+    """Install the project's Python requirements in the sandbox, once per session.
+
+    The base E2B image has no project packages, so every scoped test run failed
+    at import ("tests not runnable") and no change could be verified. Installs
+    ``requirements.txt`` (falling back to ``backend/requirements.txt``) on the
+    first test run of a sandbox and remembers the outcome on the session, so
+    later steps pay nothing. Returns a note when the install failed.
+    """
+    if not install_deps_enabled():
+        return None
+    done = getattr(session, "_deps_install_result", None)
+    if done is not None:
+        return done or None
+    pick = "f=requirements.txt; [ -f $f ] || f=backend/requirements.txt; [ -f $f ] || exit 3; "
+    cmd = pick + "python3 -m pip install -q --disable-pip-version-check --prefer-binary -r $f"
+    try:
+        code, out = await _sh(session, cmd, _INSTALL_TIMEOUT_S)
+    except Exception as exc:  # noqa: BLE001 - timeout or dead sandbox: note it, never retry
+        code, out = -1, str(exc)
+    if code in (0, 3):
+        note = ""
+    else:
+        note = f"Installing the project's requirements in the sandbox failed (exit {code}): {out[-600:]}"
+        log.info("empirical verify: sandbox dependency install failed (exit %s)", code)
+    try:
+        session._deps_install_result = note
+    except AttributeError:  # pragma: no cover - slotted session objects
+        pass
+    return note or None
+
+
 async def verify_in_sandbox(session: Any, py_files: list[str]) -> CheckOutcome:
     """Byte-compile and run the scoped tests inside the E2B sandbox."""
     result = CheckOutcome()
@@ -94,11 +135,15 @@ async def verify_in_sandbox(session: Any, py_files: list[str]) -> CheckOutcome:
     targets = await _sandbox_targets(session, py_files)
     if not targets:
         return result
+    note = await ensure_dependencies(session)
+    if note:
+        result.notes.append(note)
     await _sh(session, "python3 -m pytest --version >/dev/null 2>&1 || python3 -m pip install -q pytest", 180)
     joined = " ".join(shlex.quote(t) for t in targets)
     code, out = await _sh(session, f"TESTING=true python3 -m pytest -x -q {joined}", limit)
     if code == 0:
         result.checks.append(f"pytest -x {' '.join(targets)} (E2B sandbox): passed")
+        log.info("empirical verify: sandbox tests passed (%s)", " ".join(targets))
     elif tests_not_runnable(code, out):
         result.notes.append(
             f"Tests could not run in the sandbox (exit {code}); the sandbox template may lack "
@@ -107,4 +152,5 @@ async def verify_in_sandbox(session: Any, py_files: list[str]) -> CheckOutcome:
         log.info("empirical verify: sandbox tests not runnable (exit %s)", code)
     else:
         result.issues.append(f"Scoped tests failed for this change (in the sandbox):\n{out}")
+        log.info("empirical verify: sandbox tests failed (exit %s, %s)", code, " ".join(targets))
     return result

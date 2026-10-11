@@ -24,11 +24,22 @@ def test_apscheduler_is_installed_and_the_scheduler_registers_jobs():
         s.shutdown()
 
 
-def test_requirements_declare_apscheduler():
+@pytest.mark.parametrize("req", ["requirements.txt", "backend/requirements.txt"])
+def test_requirements_declare_apscheduler(req):
+    """Both files: production (render.yaml → Dockerfile.backend) installs
+    backend/requirements.txt, so declaring it only at the root fixed nothing."""
     from pathlib import Path
 
-    text = Path(__file__).resolve().parents[1].joinpath("requirements.txt").read_text()
+    text = Path(__file__).resolve().parents[1].joinpath(req).read_text()
     assert any(line.lower().startswith("apscheduler") for line in text.splitlines())
+
+
+def test_production_image_installs_the_backend_requirements():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    assert "dockerfilePath: ./Dockerfile.backend" in root.joinpath("render.yaml").read_text()
+    assert "backend/requirements.txt" in root.joinpath("Dockerfile.backend").read_text()
 
 
 @pytest.mark.asyncio
