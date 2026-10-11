@@ -20,9 +20,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import threading
 import time
 from collections.abc import Coroutine
+from datetime import datetime, timezone
 from typing import Any
 
 log = logging.getLogger("qwen-proxy")
@@ -35,6 +37,52 @@ _index_retry_at: dict[str, float] = {}
 _INDEX_RETRY_S = 60.0
 _WARN_EVERY_S = 60.0
 _last_warn: dict[str, float] = {}
+_last_purge: dict[str, float] = {}
+_PURGE_EVERY_S = 300.0  # SQLite has no TTL index: purge expired rows at most this often per collection
+
+# Backend-neutral expiry: every persisted row carries ``expires_at`` (a datetime,
+# which MongoDB TTL indexes need) and ``expires_at_ts`` (epoch seconds, a number
+# that compares the same on every backend). SQLite stores datetimes as strings,
+# so all queries and parsing use the numeric field.
+EXPIRES_TS = "expires_at_ts"
+
+
+def expiry_fields(expires: datetime) -> dict[str, Any]:
+    """The ``expires_at`` / ``expires_at_ts`` pair to store for *expires* (UTC)."""
+    if expires.tzinfo is None:
+        expires = expires.replace(tzinfo=timezone.utc)
+    return {"expires_at": expires, EXPIRES_TS: expires.timestamp()}
+
+
+def parse_expiry(value: Any) -> float | None:
+    """Epoch seconds from a number, datetime or ISO/numeric string; ``None`` if unusable.
+
+    Naive datetimes are UTC (Motor returns them that way). Callers treat ``None``
+    as already expired, so a malformed or legacy value fails closed.
+    """
+    try:
+        if isinstance(value, bool) or value is None:
+            return None
+        if isinstance(value, datetime):
+            ts = (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).timestamp()
+        elif isinstance(value, str):
+            text = value.strip()
+            try:
+                ts = float(text)
+            except ValueError:
+                parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+                ts = (parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)).timestamp()
+        else:
+            ts = float(value)
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+    return ts if math.isfinite(ts) else None
+
+
+def doc_expiry(doc: dict[str, Any]) -> float | None:
+    """A stored row's expiry in epoch seconds: ``expires_at_ts``, else ``expires_at``."""
+    ts = parse_expiry(doc.get(EXPIRES_TS))
+    return ts if ts is not None else parse_expiry(doc.get("expires_at"))
 
 
 def warn_limited(key: str, msg: str, *args: Any) -> None:
@@ -114,8 +162,32 @@ async def _create_index(name: str, marker: str, make: Any) -> None:
         log.debug("state persistence: index %s on %s not created: %s", marker, name, exc)
 
 
+async def _purge_sqlite(name: str, col: Any) -> None:
+    """Opportunistically delete expired rows (SQLite has no TTL index); never raises."""
+    now = time.monotonic()
+    if now - _last_purge.get(name, -_PURGE_EVERY_S) < _PURGE_EVERY_S:
+        return
+    _last_purge[name] = now
+    try:
+        from packages.storage.sqlite_atomic import purge_expired
+
+        removed = await purge_expired(col, EXPIRES_TS, time.time())
+        if removed:
+            log.debug("state persistence: purged %d expired rows from %s", removed, name)
+    except Exception as exc:  # noqa: BLE001 - reads filter on expiry anyway
+        log.debug("state persistence: purge of %s failed: %s", name, exc)
+
+
 async def ensure_ttl_index(name: str, col: Any, field: str) -> None:
-    """Create ``expireAfterSeconds=0`` on *field*; idempotent, never raises."""
+    """Create ``expireAfterSeconds=0`` on *field*; idempotent, never raises.
+
+    On SQLite there are no TTL indexes: this instead runs the throttled purge.
+    """
+    from packages.storage.sqlite_atomic import is_sqlite_collection
+
+    if is_sqlite_collection(col):
+        await _purge_sqlite(name, col)
+        return
     await _create_index(
         name, f"{name}:ttl:{field}",
         lambda: col.create_index(field, expireAfterSeconds=0, background=True),
@@ -132,4 +204,5 @@ def reset() -> None:
     _indexed.clear()
     _index_retry_at.clear()
     _last_warn.clear()
+    _last_purge.clear()
     _pending.clear()

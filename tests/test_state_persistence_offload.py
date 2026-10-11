@@ -1,6 +1,8 @@
 """Durable tool-output offload (agent/tool_output_store.py) + the operator control."""
 from __future__ import annotations
 
+from packages.storage.state_persistence import expiry_fields
+
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -72,7 +74,7 @@ async def test_expired_db_entry_is_not_served(monkeypatch):
     db = install(monkeypatch)
     ref = tos.ToolOutputStore().offload("old", owner="o")
     await drain()
-    _col(db).docs[ref]["expires_at"] = datetime.now(timezone.utc) - timedelta(seconds=1)
+    _col(db).docs[ref].update(expiry_fields(datetime.now(timezone.utc) - timedelta(seconds=1)))
     assert (await tos.ToolOutputStore().read_async(ref, owner="o"))["ok"] is False
 
 

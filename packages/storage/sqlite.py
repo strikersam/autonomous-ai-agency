@@ -95,16 +95,12 @@ _COLLECTIONS = [
     "workflows",
     "app_settings",
     "agent_specs",
-    # Deliberately NOT "agent_schedules", however tempting: without it the
-    # boot sweep raises "refusing to bind to non-whitelisted table" on SQLite.
-    # This store and agent/schedule_store.py both default to .data/agency.db,
-    # and _init_schema() creates every name in this list as (id, data). The
-    # scheduler's table is (job_id, doc, updated_at). Whichever initialises
-    # first wins the CREATE TABLE IF NOT EXISTS, so listing it here risks
-    # schedule persistence writing into a table that lacks its columns —
-    # breaking the scheduler outright rather than leaving one sweep inert.
-    # SQLite drains the backlog through force_cleanup instead, which goes via
-    # the scheduler's own store and needs nothing from this allowlist.
+    # State mirrors: new names, so they safely take this store's (id, data) schema.
+    "user_token_usage", "governance_grants", "tool_output_offload",
+    # Deliberately NOT "agent_schedules": agent/schedule_store.py shares this DB
+    # file and creates its own (job_id, doc, updated_at) table of that name;
+    # whichever initialises first wins CREATE TABLE IF NOT EXISTS, so listing it
+    # here could break the scheduler. SQLite drains that backlog via force_cleanup.
 ]
 
 # Fields that are extracted into real columns for indexed lookup.
@@ -303,12 +299,12 @@ def _push_down_where(name: str, query: dict) -> tuple[str, list[str]]:
     arbitrary caller input — a query key is only used after confirming it is a
     declared indexed column for this table.
     """
-    indexed = set(_INDEXED_FIELDS.get(name, []))
-    if not indexed:
-        return "", []
+    # ``_id`` is the ``id`` primary key on every table (stored as str(_id)).
+    indexed = set(_INDEXED_FIELDS.get(name, [])) | {"_id"}
     clauses: list[str] = []
     params: list[str] = []
     for key, val in query.items():
+        col = "id" if key == "_id" else key
         if key not in indexed:
             # Not an indexed column (or an operator like $or/$and) — leave it to
             # the Python _match pass.
@@ -321,12 +317,12 @@ def _push_down_where(name: str, query: dict) -> tuple[str, list[str]]:
                         and all(_is_pushable_scalar(v) for v in operand)):
                     placeholders = ", ".join("?" * len(operand))
                     # nosec B608 — `key` is a whitelisted indexed column name
-                    clauses.append(f"{key} IN ({placeholders})")
+                    clauses.append(f"{col} IN ({placeholders})")
                     params.extend(str(v) for v in operand)
             continue
         if _is_pushable_scalar(val):
             # nosec B608 — `key` is a whitelisted indexed column name
-            clauses.append(f"{key} = ?")
+            clauses.append(f"{col} = ?")
             params.append(str(val))
     if not clauses:
         return "", []
