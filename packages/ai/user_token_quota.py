@@ -20,7 +20,8 @@ person, so it is exempt: capping it would silently halt every scheduled job.
 Memory is the hot-path cache, per process and per UTC day. Each recorded call
 is also pushed (asynchronously, never blocking the caller) as an atomic ``$inc``
 upsert to the ``user_token_usage`` collection, one document per (user, UTC day)
-with a TTL, unless ``AGENCY_STATE_PERSISTENCE_ENABLED`` is off or no DB is
+with a TTL (on SQLite an atomic single-statement upsert and a periodic purge),
+unless ``AGENCY_STATE_PERSISTENCE_ENABLED`` is off or no DB is
 reachable. The pre-run check (``user_quota_refusal_async``) reads that
 authoritative total so the cap holds across workers and restarts; per-call checks
 use the cache plus a throttled background refresh. A DB error leaves the cache
@@ -40,6 +41,7 @@ from datetime import datetime, timedelta, timezone
 
 from packages.config.autonomy_limits import user_daily_token_cap
 from packages.storage import state_persistence as _persist
+from packages.storage.sqlite_atomic import atomic_increment, is_sqlite_collection
 
 log = logging.getLogger("qwen-proxy")
 
@@ -175,11 +177,12 @@ async def _persist_tokens(day: str, uid: str, count: int) -> None:
     try:
         await _persist.ensure_ttl_index(USAGE_COLLECTION, col, "expires_at")
         expires = datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=timezone.utc) + timedelta(days=_TTL_DAYS)
+        on_insert = {"user_id": uid, "day": day, **_persist.expiry_fields(expires)}
+        if is_sqlite_collection(col):  # read-then-write would lose concurrent spend
+            await atomic_increment(col, _doc_id(day, uid), {"tokens": count}, set_on_insert=on_insert)
+            return
         await col.update_one(
-            {"_id": _doc_id(day, uid)},
-            {"$inc": {"tokens": count},
-             "$setOnInsert": {"user_id": uid, "day": day, "expires_at": expires}},
-            upsert=True,
+            {"_id": _doc_id(day, uid)}, {"$inc": {"tokens": count}, "$setOnInsert": on_insert}, upsert=True,
         )
     except Exception as exc:  # noqa: BLE001 - the cache keeps enforcing
         _persist.warn_limited("quota-write", "user token ledger write failed (cache still enforces): %s", exc)

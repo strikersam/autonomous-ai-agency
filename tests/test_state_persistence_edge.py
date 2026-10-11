@@ -7,6 +7,8 @@ are simulated by swapping process-level caches around the shared FakeDB.
 """
 from __future__ import annotations
 
+from packages.storage.state_persistence import expiry_fields
+
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -146,8 +148,8 @@ async def test_grant_expired_in_db_but_live_in_worker_cache_is_no_grant(monkeypa
     a = GrantStore()
     grant = _issue(a)
     await drain()
-    db.governance_grants.docs[grant.grant_id]["expires_at"] = (
-        datetime.now(timezone.utc) - timedelta(seconds=1)
+    db.governance_grants.docs[grant.grant_id].update(
+        expiry_fields(datetime.now(timezone.utc) - timedelta(seconds=1))
     )
     assert a.has_grant("s1", "shell", "run", "a1", "o1") is not None  # cache still live
     assert await a.has_grant_async("s1", "shell", "run", "a1", "o1") is None

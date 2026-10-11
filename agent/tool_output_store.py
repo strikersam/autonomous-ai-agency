@@ -184,7 +184,7 @@ class ToolOutputStore:
             expires = datetime.now(timezone.utc) + timedelta(seconds=self.ttl_seconds)
             await col.replace_one(
                 {"_id": ref},
-                {"_id": ref, "owner": owner, "text": safe, "expires_at": expires},
+                {"_id": ref, "owner": owner, "text": safe, **_persist.expiry_fields(expires)},
                 upsert=True,
             )
         except Exception as exc:  # noqa: BLE001 - memory copy still serves this worker
@@ -234,7 +234,7 @@ class ToolOutputStore:
             return result
         try:
             doc = await asyncio.wait_for(
-                col.find_one({"_id": ref, "expires_at": {"$gt": datetime.now(timezone.utc)}}),
+                col.find_one({"_id": ref, _persist.EXPIRES_TS: {"$gt": time.time()}}),
                 _DB_TIMEOUT_S,
             )
             if not doc or doc.get("owner") != owner or not isinstance(doc.get("text"), str):

@@ -1,6 +1,8 @@
 """Durable sticky approval grants (packages/governance/approvals.py GrantStore)."""
 from __future__ import annotations
 
+from packages.storage.state_persistence import expiry_fields
+
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -69,7 +71,7 @@ async def test_expired_db_grant_is_not_honoured(monkeypatch):
     a, b = GrantStore(), GrantStore()
     grant = _issue(a)
     await drain()
-    _col(db).docs[grant.grant_id]["expires_at"] = datetime.now(timezone.utc) - timedelta(seconds=1)
+    _col(db).docs[grant.grant_id].update(expiry_fields(datetime.now(timezone.utc) - timedelta(seconds=1)))
     assert await b.has_grant_async("s1", "shell", "run", "a1", "o1") is None
 
 

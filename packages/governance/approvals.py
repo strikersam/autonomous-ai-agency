@@ -397,8 +397,8 @@ class SessionGrant:
             "agent_id", "owner", "source_approval_id")}
         doc.update(
             _id=self.grant_id, created_iso=self.created_iso,
-            expires_at=datetime.now(timezone.utc) + timedelta(
-                seconds=max(0.0, self.ttl_s - (time.monotonic() - self.created_at))),
+            **_persist.expiry_fields(datetime.now(timezone.utc) + timedelta(
+                seconds=max(0.0, self.ttl_s - (time.monotonic() - self.created_at)))),
         )
         return doc
 
@@ -419,10 +419,10 @@ class SessionGrant:
                 return None
             if doc.get("agent_id") == "agent:unknown" and doc.get("owner") == "system":
                 return None
-            expires = doc["expires_at"]
-            if expires.tzinfo is None:  # Motor returns naive UTC datetimes
-                expires = expires.replace(tzinfo=timezone.utc)
-            remaining = (expires - datetime.now(timezone.utc)).total_seconds()
+            expires = _persist.doc_expiry(doc)  # None (unparseable/legacy) -> no grant
+            if expires is None:
+                return None
+            remaining = expires - time.time()
             remaining = min(remaining, float(doc.get("ttl_s") or remaining))  # never outlive its own TTL
             if remaining <= 0:
                 return None
@@ -600,12 +600,12 @@ class GrantStore:
         self, col: Any, local: SessionGrant | None, session_id: str, surface: str,
         action: str, agent_id: str | None, owner: str | None,
     ) -> SessionGrant | None:
-        now = datetime.now(timezone.utc)
+        now = time.time()
         if local is None:
             return await self._remote_grant(col, now, session_id, surface, action, agent_id, owner)
         if local.grant_id not in self._persisted:
             return local
-        if await col.find_one({"_id": local.grant_id, "expires_at": {"$gt": now}}) is not None:
+        if await col.find_one({"_id": local.grant_id, _persist.EXPIRES_TS: {"$gt": now}}) is not None:
             return local
         with self._lock:
             self._grants.pop(local.grant_id, None)
@@ -613,14 +613,14 @@ class GrantStore:
         return None
 
     async def _remote_grant(
-        self, col: Any, now: datetime, session_id: str, surface: str, action: str,
+        self, col: Any, now: float, session_id: str, surface: str, action: str,
         agent_id: str | None, owner: str | None,
     ) -> SessionGrant | None:
         session_id = str(session_id or "").strip()
         if _is_anonymous(session_id) or str(surface) in self._excluded:
             return None
         rows = await col.find(
-            {"session_id": session_id, "expires_at": {"$gt": now}}
+            {"session_id": session_id, _persist.EXPIRES_TS: {"$gt": now}}
         ).to_list(length=100)
         for row in rows:
             grant = SessionGrant.from_doc(row, self._excluded)
@@ -636,7 +636,7 @@ class GrantStore:
         if col is not None:
             try:
                 rows = await asyncio.wait_for(
-                    col.find({"expires_at": {"$gt": datetime.now(timezone.utc)}}).to_list(length=500),
+                    col.find({_persist.EXPIRES_TS: {"$gt": time.time()}}).to_list(length=500),
                     _DB_TIMEOUT_S,
                 )
                 for row in rows:
