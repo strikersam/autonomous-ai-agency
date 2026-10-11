@@ -2976,6 +2976,11 @@ class AgentRunner:
                 diff = await asyncio.to_thread(review_diff, self.tools.root, base)
             except Exception:
                 log.warning("Could not build the judge diff", exc_info=True)
+        from agent import empirical_verify as ev
+
+        if ev.is_sandbox(self._mcp):
+            # The edits live in the sandbox; the host diff holds at most the plan file.
+            diff = "\n".join(d for d in (diff, await ev.sandbox_diff(self._mcp)) if d)
         lines.append(f"Diff:\n```diff\n{diff}\n```" if diff else "Diff: (unavailable)")
         policy = await asyncio.to_thread(review_policy, self.tools.root)
         if policy:

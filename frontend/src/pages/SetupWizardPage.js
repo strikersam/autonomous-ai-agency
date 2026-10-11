@@ -78,7 +78,7 @@ const LOCAL_MODELS = {
 const DEFAULT_LANGFUSE_HOST = process.env.REACT_APP_LANGFUSE_BASE_URL || process.env.REACT_APP_LANGFUSE_HOST || 'https://cloud.langfuse.com';
 
 const pill = (label, color = 'green') =>
-  `inline-block px-2 py-0.5 rounded text-xs font-semibold bg-${color}-100 text-${color}-800`;
+  `inline-block px-2 py-0.5 rounded-sm text-xs font-semibold bg-${color}-100 text-${color}-800`;
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -598,11 +598,11 @@ export default function SetupWizardPage({ onComplete }) {
 
   if (done) {
     return (
-      <div className="setup-wizard min-h-[100dvh] flex flex-col items-center justify-center p-4 sm:p-8">
+      <div className="setup-wizard min-h-dvh flex flex-col items-center justify-center p-4 sm:p-8">
         <div className="app-panel-elevated p-8 sm:p-10 text-center max-w-md w-full">
           <div className="text-5xl mb-4"><Glyph g="🎉"/></div>
-          <h1 className="text-2xl font-bold text-[var(--text-primary)] mb-2">You're all set</h1>
-          <p className="text-[var(--text-tertiary)] mb-6">Your AI Agent Control Plane is ready to use.</p>
+          <h1 className="text-2xl font-bold text-(--text-primary) mb-2">You're all set</h1>
+          <p className="text-(--text-tertiary) mb-6">Your AI Agent Control Plane is ready to use.</p>
           <button
             onClick={() => navigate(getPublicPath('/'))}
             className="app-button-primary w-full rounded-[18px]"
@@ -617,12 +617,12 @@ export default function SetupWizardPage({ onComplete }) {
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   return (
-    <div className="setup-wizard min-h-[100dvh] flex flex-col lg:flex-row">
+    <div className="setup-wizard min-h-dvh flex flex-col lg:flex-row">
       <div className="lg:hidden sticky top-0 z-20 border-b app-glass px-4 py-3 flex items-center justify-between pt-[calc(env(safe-area-inset-top,0px)+0.75rem)]"
         style={{ borderColor: 'var(--border)' }}>
         <div>
-          <div className="text-sm font-bold text-[var(--text-primary)]"><Glyph g="🧠"/> Setup Wizard</div>
-          <div className="text-[11px] text-[var(--text-muted)]">Step {step} of {STEPS.length}</div>
+          <div className="text-sm font-bold text-(--text-primary)"><Glyph g="🧠"/> Setup Wizard</div>
+          <div className="text-[11px] text-(--text-muted)">Step {step} of {STEPS.length}</div>
         </div>
         <button
           type="button"
@@ -661,11 +661,11 @@ export default function SetupWizardPage({ onComplete }) {
       )}
 
       {/* Sidebar */}
-      <div className="hidden lg:flex w-[280px] bg-[var(--bg-sidebar)] text-[var(--text-primary)] p-6 flex-col border-r"
+      <div className="hidden lg:flex w-[280px] bg-(--bg-sidebar) text-(--text-primary) p-6 flex-col border-r"
         style={{ borderColor: 'var(--border)' }}>
         <div className="mb-8">
           <div className="text-lg font-bold tracking-[-0.03em]"><Glyph g="🧠"/> Setup Wizard</div>
-          <div className="text-[var(--text-tertiary)] text-sm mt-1">{setupAlreadyCompleted ? 'Update your saved setup anytime' : "Let's get you started"}</div>
+          <div className="text-(--text-tertiary) text-sm mt-1">{setupAlreadyCompleted ? 'Update your saved setup anytime' : "Let's get you started"}</div>
         </div>
         <nav className="space-y-1 flex-1">
           {STEPS.map(s => (
@@ -686,7 +686,7 @@ export default function SetupWizardPage({ onComplete }) {
             </div>
           ))}
         </nav>
-        <div className="text-[var(--text-muted)] text-xs mt-6 font-mono">Autonomous AI Agency · AI Control Plane</div>
+        <div className="text-(--text-muted) text-xs mt-6 font-mono">Autonomous AI Agency · AI Control Plane</div>
       </div>
 
       {/* Main */}
@@ -706,12 +706,12 @@ export default function SetupWizardPage({ onComplete }) {
                 <>
                   <p className="text-xs text-gray-600 mb-3">
                     Enter the URL of your running Autonomous AI Agency backend. Use{' '}
-                    <code className="bg-white px-1 rounded">http://localhost:8000</code> if
+                    <code className="bg-white px-1 rounded-sm">http://localhost:8000</code> if
                     running locally, or your ngrok/Cloudflare tunnel URL for remote access.
                   </p>
                   <div className="flex flex-col sm:flex-row gap-2">
                     <input
-                      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 bg-white focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
                       value={backendUrlInput}
                       onChange={e => setBackendUrlInput(e.target.value)}
                       placeholder="http://localhost:8000"
@@ -734,7 +734,7 @@ export default function SetupWizardPage({ onComplete }) {
                     </button>
                   </div>
                   {connectError && (
-                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
+                    <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded-sm text-xs text-red-700">
                       <Glyph g="⚠"/> {connectError}
                     </div>
                   )}
@@ -783,7 +783,7 @@ export default function SetupWizardPage({ onComplete }) {
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl shadow p-5 sm:p-6 lg:p-8">
+          <div className="bg-white rounded-2xl shadow-sm p-5 sm:p-6 lg:p-8">
 
             {/* ── Step 1: Provider Setup ─────────────────────────────────── */}
             {step === 1 && (
@@ -816,8 +816,8 @@ export default function SetupWizardPage({ onComplete }) {
                     <div className="flex-1">
                       <div className="font-medium flex items-center gap-2">
                         <Glyph g="🟢"/> Nvidia NIM
-                        <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-800">Free</span>
-                        <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-indigo-100 text-indigo-800">Recommended</span>
+                        <span className="inline-block px-2 py-0.5 rounded-sm text-xs font-semibold bg-green-100 text-green-800">Free</span>
+                        <span className="inline-block px-2 py-0.5 rounded-sm text-xs font-semibold bg-indigo-100 text-indigo-800">Recommended</span>
                       </div>
                       <div className="text-sm text-gray-500">Free cloud inference — no local GPU or Ollama required</div>
                       {nvidiaKeyConfigured
@@ -840,7 +840,7 @@ export default function SetupWizardPage({ onComplete }) {
                       <div>
                         <label className="text-sm font-medium text-gray-700">Ollama URL</label>
                         <input
-                          className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                          className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
                           value={ollamaUrl}
                           onChange={e => setOllamaUrl(e.target.value)}
                           placeholder="http://localhost:11434"
@@ -849,7 +849,7 @@ export default function SetupWizardPage({ onComplete }) {
                       <div>
                         <label className="text-sm font-medium text-gray-700">Repository Folder</label>
                         <input
-                          className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                          className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
                           value={repoPath}
                           onChange={e => setRepoPath(e.target.value)}
                           placeholder="/path/to/autonomous-ai-agency"
@@ -859,7 +859,7 @@ export default function SetupWizardPage({ onComplete }) {
                       <div>
                         <label className="text-sm font-medium text-gray-700">Models Folder</label>
                         <input
-                          className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                          className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
                           value={modelsPath}
                           onChange={e => setModelsPath(e.target.value)}
                           placeholder="/path/to/models"
@@ -881,7 +881,7 @@ export default function SetupWizardPage({ onComplete }) {
                     <div className="ml-8 mb-3">
                       <label className="text-sm font-medium text-gray-700">OpenAI API Key</label>
                       <input
-                        className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                        className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
                         type="password"
                         value={openaiKey}
                         onChange={e => setOpenaiKey(e.target.value)}
@@ -903,7 +903,7 @@ export default function SetupWizardPage({ onComplete }) {
                     <div className="ml-8">
                       <label className="text-sm font-medium text-gray-700">Anthropic API Key</label>
                       <input
-                        className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                        className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
                         type="password"
                         value={anthropicKey}
                         onChange={e => setAnthropicKey(e.target.value)}
@@ -925,7 +925,7 @@ export default function SetupWizardPage({ onComplete }) {
                     <div className="ml-8">
                       <label className="text-sm font-medium text-gray-700">Google AI API Key</label>
                       <input
-                        className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                        className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
                         type="password"
                         value={googleKey}
                         onChange={e => setGoogleKey(e.target.value)}
@@ -947,7 +947,7 @@ export default function SetupWizardPage({ onComplete }) {
                     <div className="ml-8">
                       <label className="text-sm font-medium text-gray-700">Azure OpenAI API Key</label>
                       <input
-                        className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                        className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
                         type="password"
                         value={azureKey}
                         onChange={e => setAzureKey(e.target.value)}
@@ -969,7 +969,7 @@ export default function SetupWizardPage({ onComplete }) {
                     <div className="ml-8">
                       <label className="text-sm font-medium text-gray-700">GitHub Copilot Token</label>
                       <input
-                        className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                        className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
                         type="password"
                         value={copilotKey}
                         onChange={e => setCopilotKey(e.target.value)}
@@ -1014,7 +1014,7 @@ export default function SetupWizardPage({ onComplete }) {
                     {isDeployed ? (
                       <div className="p-3 bg-white rounded-lg border border-gray-200 text-sm text-gray-500">
                         <Glyph g="🌐"/> Running on a deployed instance — local daemon control is only available when running locally.
-                        Services are managed by your backend at <code className="bg-gray-100 px-1 rounded">{backendUrl}</code>.
+                        Services are managed by your backend at <code className="bg-gray-100 px-1 rounded-sm">{backendUrl}</code>.
                       </div>
                     ) : (
                       <>
@@ -1032,7 +1032,7 @@ export default function SetupWizardPage({ onComplete }) {
                           </div>
                           {!daemonConnected && (
                             <p className="text-xs text-gray-500 mt-1">
-                              Start with: <code className="bg-gray-100 px-1 rounded">python service_daemon.py</code>
+                              Start with: <code className="bg-gray-100 px-1 rounded-sm">python service_daemon.py</code>
                             </p>
                           )}
                         </div>
@@ -1043,13 +1043,13 @@ export default function SetupWizardPage({ onComplete }) {
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                               <button
                                 onClick={() => proxyRunning ? stopService('proxy') : startService('proxy')}
-                                className={`px-2 py-1.5 rounded text-xs font-medium ${proxyRunning ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
+                                className={`px-2 py-1.5 rounded-sm text-xs font-medium ${proxyRunning ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
                               >
                                 {proxyRunning ? '⏹️ Stop Proxy' : '▶️ Start Proxy'}
                               </button>
                               <button
                                 onClick={() => tunnelRunning ? stopService('tunnel') : startService('tunnel')}
-                                className={`px-2 py-1.5 rounded text-xs font-medium ${tunnelRunning ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
+                                className={`px-2 py-1.5 rounded-sm text-xs font-medium ${tunnelRunning ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
                               >
                                 {tunnelRunning ? '⏹️ Stop Tunnel' : '▶️ Start Tunnel'}
                               </button>
@@ -1088,7 +1088,7 @@ export default function SetupWizardPage({ onComplete }) {
                 <div className="space-y-4">
                   <div>
                     <label className="text-sm font-medium text-gray-700">Direct Chat default model</label>
-                    <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                    <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
                       value={defaultModel} onChange={e => setDefaultModel(e.target.value)}
                       placeholder="nvidia/llama-3.1-70b-instruct" />
                     <p className="text-xs text-gray-500 mt-1">Used for non-agent chat when you stay on the provider default path.</p>
@@ -1096,25 +1096,25 @@ export default function SetupWizardPage({ onComplete }) {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div>
                       <label className="text-sm font-medium text-gray-700">Planner model</label>
-                      <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                      <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
                         value={plannerModel} onChange={e => setPlannerModel(e.target.value)}
                         placeholder="nvidia/nemotron-3-super-120b-a12b" />
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-700">Coder / executor model</label>
-                      <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                      <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
                         value={executorModel} onChange={e => setExecutorModel(e.target.value)}
                         placeholder="nvidia/llama-3.1-70b-instruct" />
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-700">Verifier model</label>
-                      <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                      <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
                         value={verifierModel} onChange={e => setVerifierModel(e.target.value)}
                         placeholder="nvidia/llama-3.1-70b-instruct" />
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-700">Judge model</label>
-                      <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                      <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
                         value={judgeModel} onChange={e => setJudgeModel(e.target.value)}
                         placeholder="nvidia/nemotron-3-super-120b-a12b" />
                     </div>
@@ -1157,17 +1157,17 @@ export default function SetupWizardPage({ onComplete }) {
                 <div className="space-y-3">
                   <div>
                     <label className="text-sm font-medium text-gray-700">Agent Name</label>
-                    <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                    <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
                       value={agentName} onChange={e => setAgentName(e.target.value)} />
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-700">Model</label>
-                    <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                    <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
                       value={agentModel} onChange={e => setAgentModel(e.target.value)} />
                   </div>
                   <div>
                     <label className="text-sm font-medium text-gray-700">Cost Policy</label>
-                    <select className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                    <select className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
                       value={costPolicy} onChange={e => setCostPolicy(e.target.value)}>
                       <option value="free_only">Free only (Nvidia NIM + local — no paid cloud)</option>
                       <option value="local_only">Local only (no cloud costs)</option>
@@ -1211,7 +1211,7 @@ export default function SetupWizardPage({ onComplete }) {
                     {enableLangfuse && (
                       <div className="ml-6 mt-2">
                         <label className="text-sm font-medium text-gray-700">Langfuse Host</label>
-                        <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-none"
+                        <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
                           value={langfuseHost} onChange={e => setLangfuseHost(e.target.value)} />
                         <p className="text-xs text-gray-400 mt-1">Add your Langfuse API keys in Settings → Secrets after setup.</p>
                       </div>
