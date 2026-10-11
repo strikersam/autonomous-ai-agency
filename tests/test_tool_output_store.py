@@ -2,6 +2,8 @@ from __future__ import annotations
 
 """Lossless tool-output offload (agent/tool_output_store.py)."""
 
+import asyncio
+
 import pytest
 
 from agent import prompts, tool_output_store as tos
@@ -202,10 +204,10 @@ def test_registry_exposes_tool_and_reads():
     tool = reg.get("read_tool_output")
     assert tool is not None
     ref = tos.get_tool_output_store().offload("payload", owner="run_a")
-    assert tool.handler(ref, owner="run_a")["content"] == "payload"
-    assert tool.handler(ref, owner="run_b")["ok"] is False
-    assert tool.handler(ref)["ok"] is False
-    assert tool.handler("out_missing")["ok"] is False
+    assert asyncio.run(tool.handler(ref, owner="run_a"))["content"] == "payload"
+    assert asyncio.run(tool.handler(ref, owner="run_b"))["ok"] is False
+    assert asyncio.run(tool.handler(ref))["ok"] is False
+    assert asyncio.run(tool.handler("out_missing"))["ok"] is False
 
 
 def test_registry_tool_hidden_and_refuses_when_flag_off(monkeypatch):
@@ -218,7 +220,7 @@ def test_registry_tool_hidden_and_refuses_when_flag_off(monkeypatch):
     monkeypatch.setattr(settings, "agent_tool_output_offload_raw", "false")
     assert not tool.is_available()
     assert reg.to_openai_tools() == []
-    assert tool.handler(ref)["ok"] is False
+    assert asyncio.run(tool.handler(ref))["ok"] is False
 
 
 def _enrichment_block(reg) -> str:

@@ -17,21 +17,29 @@ Calls with no bound user (human proxy traffic, background loops) are never
 counted or capped. The ``scheduler`` pseudo-user is autonomous work, not a
 person, so it is exempt: capping it would silently halt every scheduled job.
 
-The ledger is in-memory, per process and per UTC day, the same scope as
-``agent_budget``. A restart clears the day's counts, which a daily cap
-tolerates. Tokens are counted after a call returns, so one call can overshoot.
-Usage is recorded even while the cap is 0 so the usage endpoints stay useful.
+Memory is the hot-path cache, per process and per UTC day. Each recorded call
+is also pushed (asynchronously, never blocking the caller) as an atomic ``$inc``
+upsert to the ``user_token_usage`` collection, one document per (user, UTC day)
+with a TTL, unless ``AGENCY_STATE_PERSISTENCE_ENABLED`` is off or no DB is
+reachable. The pre-run check (``user_quota_refusal_async``) reads that
+authoritative total so the cap holds across workers and restarts; per-call checks
+use the cache plus a throttled background refresh. A DB error leaves the cache
+enforcing on its own. Tokens are counted after a call returns, so one call can
+overshoot. Usage is recorded even while the cap is 0 so the usage endpoints stay useful.
 """
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import logging
 import threading
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from packages.config.autonomy_limits import user_daily_token_cap
+from packages.storage import state_persistence as _persist
 
 log = logging.getLogger("qwen-proxy")
 
@@ -49,6 +57,11 @@ _OVERFLOW_IDS_FACTOR = 10
 # Generic, client-safe wording (CLAUDE.md rule 27): no counts, no internals.
 REFUSAL_MESSAGE = "Daily agent token limit reached. It resets at 00:00 UTC."
 
+USAGE_COLLECTION = "user_token_usage"
+_TTL_DAYS = 3  # old days are dropped by a TTL index on expires_at
+_REFRESH_S = 15.0  # min gap between background DB refreshes per user
+_DB_TIMEOUT_S = 2.0  # the pre-run DB read never stalls a run longer than this
+
 _current_user: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "current_quota_user", default=None
 )
@@ -57,6 +70,13 @@ _day = ""
 _ledger: dict[str, int] = {}
 _overflowed: set[str] = set()
 _overflow_logged = False
+# DB total per user as of the last refresh. It already includes this worker's
+# flushed writes, so the effective figure is max(local, remote), never the sum.
+_remote: dict[str, int] = {}
+# This worker's local count at the moment `_remote` was read. Tokens recorded here
+# since then are not in `_remote` yet, so they are added on top (never less than local).
+_local_at_refresh: dict[str, int] = {}
+_refreshed: dict[str, float] = {}
 
 
 class UserTokenQuotaExceeded(RuntimeError):
@@ -75,6 +95,9 @@ def _roll_day() -> None:
         _day = today
         _ledger.clear()
         _overflowed.clear()
+        _remote.clear()
+        _refreshed.clear()
+        _local_at_refresh.clear()
 
 
 def _counted(user_id: str | None) -> str | None:
@@ -97,6 +120,13 @@ def user_scope(user_id: str | None) -> Iterator[None]:
         _current_user.reset(token)
 
 
+def _local_locked(user_id: str) -> int:
+    """This worker's own count (overflow-aware); caller holds ``_lock``."""
+    if user_id in _ledger:
+        return _ledger[user_id]
+    return _ledger.get(_OVERFLOW, 0) if user_id in _overflowed else 0
+
+
 def tokens_used_today(user_id: str) -> int:
     """Tokens recorded for *user_id* so far today (UTC).
 
@@ -105,9 +135,11 @@ def tokens_used_today(user_id: str) -> int:
     """
     with _lock:
         _roll_day()
-        if user_id in _ledger:
-            return _ledger[user_id]
-        return _ledger.get(_OVERFLOW, 0) if user_id in _overflowed else 0
+        local = _local_locked(user_id)
+        if user_id not in _remote:
+            return local
+        since = max(local - _local_at_refresh.get(user_id, 0), 0)
+        return max(local, _remote[user_id] + since)
 
 
 def user_quota_refusal(user_id: str | None) -> str | None:
@@ -124,9 +156,85 @@ def user_quota_refusal(user_id: str | None) -> str | None:
 
 def ensure_user_within_quota() -> None:
     """Raise ``UserTokenQuotaExceeded`` when the bound user is over the cap."""
-    refusal = user_quota_refusal(current_user())
+    uid = current_user()
+    _maybe_refresh(uid)
+    refusal = user_quota_refusal(uid)
     if refusal:
         raise UserTokenQuotaExceeded(refusal)
+
+
+def _doc_id(day: str, uid: str) -> str:
+    return f"{day}:{uid}"
+
+
+async def _persist_tokens(day: str, uid: str, count: int) -> None:
+    """Atomically add *count* to the (user, day) document. Never raises."""
+    col = _persist.collection(USAGE_COLLECTION)
+    if col is None:
+        return
+    try:
+        await _persist.ensure_ttl_index(USAGE_COLLECTION, col, "expires_at")
+        expires = datetime.strptime(day, "%Y-%m-%d").replace(tzinfo=timezone.utc) + timedelta(days=_TTL_DAYS)
+        await col.update_one(
+            {"_id": _doc_id(day, uid)},
+            {"$inc": {"tokens": count},
+             "$setOnInsert": {"user_id": uid, "day": day, "expires_at": expires}},
+            upsert=True,
+        )
+    except Exception as exc:  # noqa: BLE001 - the cache keeps enforcing
+        _persist.warn_limited("quota-write", "user token ledger write failed (cache still enforces): %s", exc)
+
+
+async def refresh_user_total(user_id: str) -> int | None:
+    """Pull today's authoritative DB total for *user_id* into the cache.
+
+    Returns the DB total, or ``None`` when persistence is off or the read
+    failed (the cache is then left as it was).
+    """
+    col = _persist.collection(USAGE_COLLECTION)
+    if col is None:
+        return None
+    with _lock:
+        _roll_day()
+        day = _day
+        before = _local_locked(user_id)  # later local growth is added on top of the DB total
+    try:
+        doc = await asyncio.wait_for(col.find_one({"_id": _doc_id(day, user_id)}), _DB_TIMEOUT_S)
+        total = _safe_count((doc or {}).get("tokens"))
+    except Exception as exc:  # noqa: BLE001 - fall back to the cache
+        _persist.warn_limited("quota-read", "user token ledger read failed (using cache): %s", exc)
+        return None
+    with _lock:
+        if _day == day:
+            _remote[user_id] = total
+            _local_at_refresh[user_id] = before
+            _refreshed[user_id] = time.monotonic()
+    return total
+
+
+def _maybe_refresh(user_id: str | None) -> None:
+    """Kick a throttled background refresh for the per-call (sync) check."""
+    uid = _counted(user_id)
+    if uid is None or not user_daily_token_cap() or not _persist.persistence_enabled():
+        return
+    now = time.monotonic()
+    with _lock:
+        _roll_day()  # a day change clears the throttle, so roll before stamping it
+        if now - _refreshed.get(uid, -_REFRESH_S) < _REFRESH_S:
+            return
+        _refreshed[uid] = now
+    _persist.fire_and_forget(refresh_user_total(uid))
+
+
+async def user_quota_refusal_async(user_id: str | None) -> str | None:
+    """Pre-run check that consults the authoritative DB total first.
+
+    Same contract as :func:`user_quota_refusal`; the DB read only tightens it.
+    """
+    uid = _counted(user_id)
+    if uid is not None and user_daily_token_cap():
+        await refresh_user_total(uid)
+    return user_quota_refusal(user_id)
 
 
 def _safe_count(tokens: object) -> int:
@@ -155,6 +263,9 @@ def record_user_tokens(tokens: int) -> None:
                             _MAX_USERS_PER_DAY)
             uid = _OVERFLOW
         _ledger[uid] = _ledger.get(uid, 0) + count
+        day = _day
+    if count and _persist.persistence_enabled():
+        _persist.fire_and_forget(_persist_tokens(day, current_user() or uid, count))
 
 
 def anthropic_usage_total(resp: object) -> int:
@@ -179,4 +290,7 @@ def reset() -> None:
         _ledger.clear()
         _overflowed.clear()
         _overflow_logged = False
+        _remote.clear()
+        _refreshed.clear()
+        _local_at_refresh.clear()
         _day = ""

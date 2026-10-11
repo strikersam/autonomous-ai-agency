@@ -6,6 +6,7 @@ Written as a QA pass over commit 0c513fe. Failing tests here are real defects,
 not test mistakes; see the QA report for the root cause of each.
 """
 
+import asyncio
 import threading
 
 import pytest
@@ -138,8 +139,8 @@ def test_registry_handler_bad_args_do_not_raise():
     _register_tool_output_tools(reg)
     tool = reg.get("read_tool_output")
     ref = tos.get_tool_output_store().offload("payload")
-    assert tool.handler(ref, offset="nope")["ok"] is False
-    assert tool.handler("out_missing", offset=0, limit=5)["ok"] is False
+    assert asyncio.run(tool.handler(ref, offset="nope"))["ok"] is False
+    assert asyncio.run(tool.handler("out_missing", offset=0, limit=5))["ok"] is False
 
 
 # ---------------------------------------------------------------------------
