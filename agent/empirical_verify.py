@@ -143,6 +143,7 @@ async def verify_in_sandbox(session: Any, py_files: list[str]) -> CheckOutcome:
     code, out = await _sh(session, f"TESTING=true python3 -m pytest -x -q {joined}", limit)
     if code == 0:
         result.checks.append(f"pytest -x {' '.join(targets)} (E2B sandbox): passed")
+        log.info("empirical verify: sandbox tests passed (%s)", " ".join(targets))
     elif tests_not_runnable(code, out):
         result.notes.append(
             f"Tests could not run in the sandbox (exit {code}); the sandbox template may lack "
@@ -151,4 +152,5 @@ async def verify_in_sandbox(session: Any, py_files: list[str]) -> CheckOutcome:
         log.info("empirical verify: sandbox tests not runnable (exit %s)", code)
     else:
         result.issues.append(f"Scoped tests failed for this change (in the sandbox):\n{out}")
+        log.info("empirical verify: sandbox tests failed (exit %s, %s)", code, " ".join(targets))
     return result

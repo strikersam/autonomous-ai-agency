@@ -204,6 +204,10 @@ async def _verify(task: Any, result: Any) -> dict[str, Any] | None:
     if judge is None:
         return None
     run = _as_run(judge, pr, ev, str(getattr(result, "runtime_id", "runtime")))
+    log.info("Independent verifier: %s for %s (pr=%s, checks passed=%d, screenshots=%d)",
+             run["judge"].get("verdict"), getattr(task, "task_id", "?"), run["pr_url"],
+             len(run["steps"][0]["executed_checks"]),
+             sum(1 for s in run["ui_evidence"] if s.get("shot_id")))
     if ev.get("gap"):
         run["verifier_gap"] = ev["gap"]
     return run

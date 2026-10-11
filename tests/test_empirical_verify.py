@@ -238,3 +238,22 @@ def test_install_timeout_is_cached_not_retried(tmp_path, monkeypatch):
     assert note and "timed out" in note
     assert asyncio.run(ev.ensure_dependencies(runner._mcp)) == note
     assert len(calls) == 1
+
+
+def test_sandbox_pass_and_failure_are_logged(tmp_path, monkeypatch, caplog):
+    # A passing run must leave a trace in the service logs, not only in the report.
+    caplog.set_level("INFO", logger="qwen-proxy")
+    runner = _sandbox_runner(tmp_path, monkeypatch, [
+        ("ls -1", 0, "tests/test_mymod.py\n"),
+        ("pytest -x", 0, "1 passed"),
+    ])
+    asyncio.run(runner._empirical_verify_async(["mymod.py"]))
+    assert "sandbox tests passed (tests/test_mymod.py)" in caplog.text
+
+    caplog.clear()
+    runner = _sandbox_runner(tmp_path, monkeypatch, [
+        ("ls -1", 0, "tests/test_mymod.py\n"),
+        ("pytest -x", 1, "1 failed"),
+    ])
+    asyncio.run(runner._empirical_verify_async(["mymod.py"]))
+    assert "sandbox tests failed (exit 1, tests/test_mymod.py)" in caplog.text
