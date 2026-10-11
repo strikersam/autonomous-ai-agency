@@ -55,9 +55,12 @@ async def atomic_increment(
     sets = ", ".join(
         f"'$.{f}', COALESCE(json_extract(data, '$.{f}'), 0) + ?" for f in inc
     )
-    sql = (  # nosec B608 - table is allowlisted by _Collection, fields pass _IDENT, values bound
-        f"INSERT INTO {col._name} (id, data) VALUES (?, ?) "
-        f"ON CONFLICT(id) DO UPDATE SET data = json_set(data, {sets}, '$.updated_at', ?)"
+    # Table is allowlisted by _Collection, fields pass _IDENT, values are bound.
+    # (Bandit honours only a same-line nosec, so each SQL line carries one.)
+    table = col._name
+    sql = (
+        f"INSERT INTO {table} (id, data) VALUES (?, ?) "  # nosec B608
+        f"ON CONFLICT(id) DO UPDATE SET data = json_set(data, {sets}, '$.updated_at', ?)"  # nosec B608
     )
     params = [str(doc_id), json.dumps(seed, default=str), *inc.values(), now]
     conn = await col._conn()
@@ -75,9 +78,9 @@ async def purge_expired(col: Any, field: str, now_ts: float) -> int:
     """
     _checked(field)
     expr = f"json_extract(data, '$.{field}')"
-    sql = (  # nosec B608 - table is allowlisted by _Collection, field passes _IDENT
-        f"DELETE FROM {col._name} WHERE typeof({expr}) NOT IN ('integer', 'real') OR {expr} < ?"
-    )
+    # Table is allowlisted by _Collection, field passes _IDENT, the cutoff is bound.
+    where = f"typeof({expr}) NOT IN ('integer', 'real') OR {expr} < ?"
+    sql = f"DELETE FROM {col._name} WHERE {where}"  # nosec B608
     conn = await col._conn()
     cur = await conn.execute(sql, [now_ts])
     await conn.commit()

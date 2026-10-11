@@ -1,0 +1,45 @@
+# config/feature_scout.yaml — Weekly competitor feature scout
+# (.github/workflows/feature-scout.yml → .github/scripts/feature_scout.py).
+#
+# Each run reads the latest releases of the repos below plus any repos it
+# discovers through the GitHub search queries, asks the free brain chain which
+# features this agency lacks, and files at most `max_issues_per_run` small,
+# one-PR-sized issues labelled `feature-scout`. The autonomous-agent loop
+# implements them as PRs; a human squash-merges after CI is green.
+#
+# Learning: every run reads the outcome of earlier `feature-scout` issues
+# (closed as completed = accepted, closed as not planned = rejected) and
+# feeds them back into the prompt, so proposals drift toward what the
+# operator actually merges. Close an issue as "not planned" to teach it.
+
+max_issues_per_run: 2
+# Backpressure: skip filing when this many scout issues are still open.
+max_open_issues: 3
+releases_per_repo: 2
+release_notes_chars: 1500
+lesson_history: 30
+
+seed_repos:
+  - crewAIInc/crewAI
+  - microsoft/autogen
+  - langchain-ai/langgraph
+  - All-Hands-AI/OpenHands
+  - FoundationAgents/MetaGPT
+  - agno-agi/agno
+  - huggingface/smolagents
+  - openai/openai-agents-python
+  - letta-ai/letta
+  - block/goose
+  - Aider-AI/aider
+  - browser-use/browser-use
+  - n8n-io/n8n
+  - pydantic/pydantic-ai
+
+# Discovery: new competitors found here join the run's candidate pool.
+discovery:
+  queries:
+    - "topic:ai-agents stars:>3000"
+    - "topic:multi-agent stars:>2000"
+    - "autonomous agent framework in:description stars:>3000"
+  per_query: 5
+  pushed_within_days: 30
