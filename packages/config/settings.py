@@ -324,6 +324,13 @@ class Settings:
             "AGENT_TOOL_OUTPUT_OFFLOAD", "true"
         )
 
+        # AGENCY_STATE_PERSISTENCE_ENABLED — mirror the per-user token ledger,
+        # sticky approval grants and the tool-output offload store into the
+        # shared DB so they survive restarts and hold across workers. Default on.
+        self.agency_state_persistence_enabled_raw: str = os.environ.get(
+            "AGENCY_STATE_PERSISTENCE_ENABLED", "true"
+        )
+
         # ── Agent-to-agent delegation (agent/delegation.py) ────────────────
         # AGENT_DELEGATION_ENABLED — lets an executing agent hand work to a
         # specialist through the task store. Default off; when off the tools
@@ -513,6 +520,11 @@ class Settings:
     def agent_tool_output_offload(self) -> bool:
         """False only when an operator switched tool-output offload off."""
         return self.agent_tool_output_offload_raw.strip().lower() not in {"0", "false", "no", "off"}
+
+    @property
+    def agency_state_persistence_enabled(self) -> bool:
+        """False only when an operator switched durable state persistence off."""
+        return self.agency_state_persistence_enabled_raw.strip().lower() not in {"0", "false", "no", "off"}
 
     @property
     def agent_delegation_enabled(self) -> bool:

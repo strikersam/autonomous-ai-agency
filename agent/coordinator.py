@@ -212,6 +212,8 @@ class MultiAgentSwarm:
                         department=department,
                         key_id=key_id,
                         github_token=self.github_token,
+                        agent_name=agent.agent_id,
+                        owner=email or key_id,
                     )
                     result = await runner.run(
                         instruction=task.instruction,

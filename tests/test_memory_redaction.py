@@ -72,3 +72,34 @@ def test_procedural_memory_redacts_before_storing():
     stored = mem._records[0]
     assert _TOKEN not in stored.step_description
     assert "hunter2pass" not in stored.action_summary
+
+
+# ── AWS credentials (official documentation example values) ──────────────────
+
+_AWS_KEY_ID = "AKIAIOSFODNN7EXAMPLE"
+_AWS_SECRET = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+
+
+def test_redact_aws_access_key_id_akia_and_asia():
+    for key_id in (_AWS_KEY_ID, "ASIAIOSFODNN7EXAMPLE"):
+        out = redact_secrets(f"id {key_id} used")
+        assert key_id not in out and "used" in out
+
+
+def test_redact_aws_secret_access_key_in_every_form():
+    forms = (
+        f"aws_secret_access_key={_AWS_SECRET}",
+        f"AWS_SECRET_ACCESS_KEY = {_AWS_SECRET}",
+        f'{{"secretAccessKey": "{_AWS_SECRET}"}}',
+        f"aws_secret_access_key: '{_AWS_SECRET}'",
+        f"export AWS_SECRET_ACCESS_KEY={_AWS_SECRET}",
+    )
+    for text in forms:
+        out = redact_secrets(text)
+        assert _AWS_SECRET not in out, text
+        assert "***" in out
+
+
+def test_aws_patterns_leave_lookalikes_alone():
+    text = "AKIA is a prefix; AKIASHORT; aws_secret_access_key=short"
+    assert redact_secrets(text).startswith("AKIA is a prefix; AKIASHORT")

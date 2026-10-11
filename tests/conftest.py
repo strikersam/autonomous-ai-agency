@@ -76,6 +76,9 @@ os.environ.setdefault("SELF_BOOTSTRAP_ENABLED", "false")
 # them directly (e.g. test_background_services / test_autonomy_bootstrap) or set
 # the flag explicitly, so disabling the lifespan auto-start here is safe.
 os.environ.setdefault("RUN_BACKGROUND_IN_WEB", "false")
+# Durable-state mirroring is off by default so unrelated tests write no rows; the
+# persistence tests opt in explicitly (rule 32).
+os.environ.setdefault("AGENCY_STATE_PERSISTENCE_ENABLED", "false")
 
 # ── NOTE: STORAGE_BACKEND is deliberately NOT pinned here ────────────────────
 # Pinning it to sqlite looks tempting — `db/__init__.py`'s own docstring calls
@@ -448,3 +451,37 @@ def pytest_sessionfinish(session, exitstatus):  # noqa: ARG001 - pytest hook sig
             % (len(lingering), ", ".join(sorted(t.name for t in lingering))),
             file=sys.stderr,
         )
+
+
+
+@pytest.fixture
+def hermetic_dns(monkeypatch):
+    """Resolve public hostnames to a fixed public IP without touching DNS.
+
+    Tests that exercise the SSRF guard (``unsafe_target_reason``) need a
+    hostname such as ``example.com`` to resolve, but CI-only DNS made them fail
+    in sandboxes with no resolver (rule 32: tests are hermetic). IP literals
+    and ``localhost`` still go through the real resolver, so the
+    private/loopback checks are exercised for real; ``*.invalid`` stays
+    unresolvable.
+    """
+    import ipaddress
+    import socket
+
+    real = socket.getaddrinfo
+
+    def fake_getaddrinfo(host, port, *args, **kwargs):
+        name = (host.decode() if isinstance(host, bytes) else str(host or "")).strip("[]")
+        try:
+            ipaddress.ip_address(name)
+            return real(host, port, *args, **kwargs)
+        except ValueError:
+            pass
+        if name in ("localhost", "") or name.endswith(".localhost"):
+            return real(host, port, *args, **kwargs)
+        if name.endswith(".invalid"):
+            raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("93.184.216.34", port or 0))]
+
+    monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
+    return fake_getaddrinfo

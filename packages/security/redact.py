@@ -48,6 +48,13 @@ _VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"\bgsk_[A-Za-z0-9]{16,}"),                   # Groq
     re.compile(r"\be2b_[A-Za-z0-9]{16,}"),                   # E2B
     re.compile(r"\bsk-ant-[A-Za-z0-9\-_]{16,}"),             # Anthropic
+    re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"),            # AWS access key id
+    # AWS secret access key in key=value, key: value and JSON forms; the 40-char
+    # value is group 1 (the name stays readable).
+    re.compile(
+        r"(?i)\b(?:aws[_-]?secret[_-]?access[_-]?key|secret[_-]?access[_-]?key)\b[\"']?\s*[=:]\s*[\"']?"
+        r"([A-Za-z0-9/+=]{40})(?![A-Za-z0-9/+=])"
+    ),
     re.compile(r"(?i)\bbearer\s+[A-Za-z0-9\-._~+/]{16,}"),
     re.compile(
         r"(?i)\b(?:token|secret|password|api[_-]?key)\b\s*[=:]\s*[\"']?([^\s\"'&]{8,})"

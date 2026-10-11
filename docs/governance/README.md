@@ -262,14 +262,20 @@ allows 60-86400; a change applies to new grants only). Boundaries:
   `anonymous` session (any case), or for the fully generic `agent:unknown` +
   `system` identity. Only a request that THIS call moved from pending to
   approved can mint a grant, and an expired request cannot be approved.
-- In-process only: a grant exists in the web process that served the approve
-  and is lost on restart (the safe direction: the human is asked again).
-  Do not assume it applies across replicas.
+- Durable and shared: issue and revoke are mirrored to the `governance_grants`
+  collection (TTL index on `expires_at`) unless
+  `AGENCY_STATE_PERSISTENCE_ENABLED=false`, so a grant survives a restart and
+  `GovernanceGate` finds one issued by another worker (memory first, then the
+  DB). Expired rows are never honoured, a revoke on any worker removes the DB
+  row, and any DB error means no grant (the human is asked again). With
+  persistence off a grant lives only in the process that served the approve.
 - Grants apply only to runners that carry an identity. `AgentRunner` takes
   optional `agent_name` / `owner` (set from the authenticated principal at
   each construction site: proxy per-request runners, `/api/chat` agent jobs,
-  the workflow orchestrator, CEO cross-verify, and the internal-agent and E2B
-  runtimes). A runner with neither resolves to `agent:unknown` + `system` and
+  the workflow orchestrator, CEO cross-verify, the internal-agent and E2B
+  runtimes, `/api/direct-chat` agent jobs and the legacy `MultiAgentSwarm`;
+  a spawned sub-agent inherits its parent's agent name and owner but gets its
+  own session, so a parent's grant never covers the child). A runner with neither resolves to `agent:unknown` + `system` and
   is never granted - this is the case for the shared `proxy.AGENT_RUNNER`
   singleton, whose identity is cached for the process.
 - Any lookup error means "no grant" and a human is asked.

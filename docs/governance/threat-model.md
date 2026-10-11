@@ -98,7 +98,7 @@ schedule backlog causing an OOM crash loop (CHANGELOG 2026-08-02/03).
 |---|---|
 | Before | `services/cost_attribution.py` **measured** spend. `MAX_SUBAGENT_DEPTH` was the only enforced bound. Nothing capped calls, spend, tokens, or retries. |
 | Now | `SessionBudget` enforces six ceilings per session. `SandboxManager.max_concurrent` gives backpressure instead of exhaustion. Every buffer is bounded with explicit eviction. |
-| Residual | Budgets are per-session and in-process. A fleet of 1000 sessions each under its own ceiling can still exhaust a shared provider quota; a global budget needs shared state. |
+| Residual | The per-user daily token cap (`AGENT_USER_TOKENS_PER_DAY`) is shared across workers through the `user_token_usage` collection, but its pre-run check fails open to the per-worker cache during a DB outage (a user can then overshoot about N times, for N workers, until the DB returns). Budgets are per-session and in-process. A fleet of 1000 sessions each under its own ceiling can still exhaust a shared provider quota; a global budget needs shared state. |
 
 ### T5 — Over-broad credential exposure
 **Severity: High.**
@@ -182,7 +182,7 @@ turn one decision into many.
 | | |
 |---|---|
 | Now | Grants are TTL-bound (`GOVERNANCE_GRANT_TTL_S`), bound to session + agent id + owner, and only ever short-circuit `REQUIRE_APPROVAL`: a DENY is never affected. Refused for the `credential` surface, for empty/`anonymous` sessions and the generic `agent:unknown`/`system` identity. Minted only by the call that moved a request pending -> approved; expired requests cannot be approved. Issue, revoke and every covered call are audited with the admin and source approval id. Lookup errors fail closed. `GOVERNANCE_SESSION_GRANTS_ENABLED=false` is a live kill switch. |
-| Residual | Within its TTL a `session` grant approves any non-credential gated action for that agent, including ones the admin never saw; the admin chooses that scope knowingly. Grants live in one web process (lost on restart, not shared across replicas), so they cannot be revoked from a different replica than the one that issued them. |
+| Residual | Within its TTL a `session` grant approves any non-credential gated action for that agent, including ones the admin never saw; the admin chooses that scope knowingly. Grants are mirrored to the `governance_grants` collection (`AGENCY_STATE_PERSISTENCE_ENABLED`, default on), so they survive restarts, are honoured across workers, are listed by `GET /api/governance/grants` from any replica and can be revoked from any replica (ids are random, a revoke racing the async write wins, DB lookups time out after 2s to "no grant"); the write is asynchronous, so for a moment after issue only the issuing worker honours the grant, and a failed write leaves it valid on that worker alone. With persistence off they are in-process only and cannot be revoked from a different replica than the one that issued them. |
 
 ---
 

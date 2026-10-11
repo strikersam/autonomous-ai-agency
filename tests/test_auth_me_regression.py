@@ -55,6 +55,7 @@ def backend_jwt(client: TestClient) -> str:
 class TestBackendAuthMe:
     """JWT-based /api/auth/me on backend/server.py (port 8001)."""
 
+    @pytest.mark.requires_db
     def test_valid_token_returns_user_profile(self, client: TestClient, backend_jwt: str):
         """GET /api/auth/me with valid JWT → 200 and correct email."""
         r = client.get("/api/auth/me", headers={
