@@ -250,6 +250,18 @@ a:hover { color: var(--accent-hover); text-decoration: underline; }
 button,
 [role='button'] { touch-action: manipulation; }
 
+/* Instant press feedback: a tap is acknowledged on the very next frame, before
+   any data the next screen needs has arrived. The dim works on every button,
+   including the many with an inline background; class-styled ones also tint.
+   Transitions are switched off while pressed so neither fades in. */
+button:not(:disabled):active,
+[role='button']:active {
+  background-color: color-mix(in oklab, var(--ink) 9%, transparent);
+  opacity: 0.72;
+  transition: none;
+}
+.app-button-primary:not(:disabled):active { background-color: var(--accent-hover); filter: brightness(0.92); }
+
 button {
   background: none;
   border: none;
@@ -718,6 +730,15 @@ textarea:focus-visible { outline: none; }
   button, [role='button'], select { min-height: 44px; }
 }
 
+/* Icon-only close buttons on panels and dialogs: a full 44px target. */
+.close-btn {
+  min-width: 44px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -968,7 +989,7 @@ textarea:focus-visible { outline: none; }
   font-weight: 550;
   color: var(--text-muted);
 }
-.shell-bottomnav button.is-active { color: var(--accent); }
+.shell-bottomnav button.is-active { color: var(--accent); background: var(--accent-soft); }
 .shell-bottomnav button.is-active svg { stroke-width: 2.1; }
 
 .shell-drawer {
