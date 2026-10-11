@@ -90,6 +90,12 @@ def test_an_approving_review_with_nothing_executed_is_not_a_pass():
     assert unbacked_note(RUN) is None
 
 
+def test_one_tested_step_cannot_back_an_untested_one():
+    run = {"steps": [RUN["steps"][0], {"description": "y", "status": "applied", "changed_files": ["b.css"]}],
+           "judge": {"verdict": "APPROVED"}}
+    assert verification_from_run(run) is None
+
+
 def test_executed_checks_are_listed_as_what_was_checked():
     assert any("ran pytest -x tests/test_a.py: passed" in c for c in verification_from_run(RUN).checked)
 

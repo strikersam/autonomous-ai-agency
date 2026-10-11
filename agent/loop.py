@@ -2768,8 +2768,8 @@ class AgentRunner:
         still pass. Runs once per step, after all files are applied, so a
         failure surfaces as a step failure with the tool output attached.
         """
-        # Checks that actually ran and passed: a task's rule-49 report only
-        # counts as PASS when something executable backs the review.
+        # Tests that actually ran and passed: a task's rule-49 report only counts
+        # as PASS when a test run backs the review ("it compiles" is not proof).
         self._last_executed_checks: list[str] = []
         if os.environ.get("AGENT_EMPIRICAL_VERIFY", "false").strip().lower() not in ("true", "1", "yes", "on"):
             return []
@@ -2792,7 +2792,6 @@ class AgentRunner:
             if rc != 0:
                 issues.append(f"Changed files fail to byte-compile:\n{out}")
                 return issues
-            self._last_executed_checks.append(f"python -m py_compile {' '.join(py_files)}: passed")
 
             test_targets: list[str] = []
             for f in py_files:

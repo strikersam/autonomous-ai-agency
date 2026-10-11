@@ -126,7 +126,9 @@ def _step_lines(steps: list[dict[str, Any]]) -> tuple[list[str], list[str], list
 
 
 def _executed(steps: list[dict[str, Any]]) -> bool:
-    return any(step.get("executed_checks") for step in steps)
+    """Every step that changed files ran tests that passed (and there was one)."""
+    changed = [s for s in steps if s.get("status") == "applied" and s.get("changed_files")]
+    return bool(changed) and all(s.get("executed_checks") for s in changed)
 
 
 def unbacked_note(raw: dict[str, Any] | None) -> str | None:
