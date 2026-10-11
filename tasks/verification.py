@@ -117,10 +117,31 @@ def _step_lines(steps: list[dict[str, Any]]) -> tuple[list[str], list[str], list
             phase = step.get("failure_phase") or "execution"
             issues = "; ".join(str(x) for x in (step.get("issues") or [])[:3]) or "no detail"
             defects.append(f"Step {i} '{desc}' failed {phase}: {issues}")
+        for check in step.get("executed_checks") or []:
+            checked.append(f"Step {i} '{desc}': ran {check}")
         for issue in step.get("resolved_issues") or []:
             defects.append(f"Step {i} '{desc}': {issue}")
             fixed.append(f"Step {i} '{desc}': fixed on retry, then passed: {issue}")
     return checked, defects, fixed
+
+
+def _executed(steps: list[dict[str, Any]]) -> bool:
+    """Every step that changed files ran tests that passed (and there was one)."""
+    changed = [s for s in steps if s.get("status") == "applied" and s.get("changed_files")]
+    return bool(changed) and all(s.get("executed_checks") for s in changed)
+
+
+def unbacked_note(raw: dict[str, Any] | None) -> str | None:
+    """Why an approving judge did not count as a pass, or None."""
+    if not isinstance(raw, dict) or not isinstance(raw.get("judge"), dict):
+        return None
+    if _judge_verdict(raw["judge"]) in PASSING and not _executed(list(raw.get("steps") or [])):
+        return (
+            "The reviewing agent approved the change, but no tests or checks were run "
+            "against it, so it is not verified yet (rule 49). Enable AGENT_EMPIRICAL_VERIFY "
+            "to let agents run them, or check the result yourself."
+        )
+    return None
 
 
 def verification_from_run(raw: dict[str, Any] | None) -> TaskVerification | None:
@@ -135,7 +156,13 @@ def verification_from_run(raw: dict[str, Any] | None) -> TaskVerification | None
     verdict = _judge_verdict(judge) if isinstance(judge, dict) else None
     if verdict is None:
         return None
-    checked, defects, fixed = _step_lines(list(raw.get("steps") or []))
+    steps = list(raw.get("steps") or [])
+    if verdict in PASSING and not _executed(steps):
+        # An approving review of a diff is not proof it works (rule 49:
+        # exercise the real artifact). Without an executed check the task
+        # waits for a person; unbacked_note() explains why.
+        return None
+    checked, defects, fixed = _step_lines(steps)
     for key in ("security", "correctness"):
         if judge.get(key):
             checked.append(f"Judge {key} review: {judge[key]}")
@@ -188,14 +215,63 @@ def settle_success(task: Any, raw_result: dict[str, Any] | None, *, actor: str) 
     if not verification_required() or has_passing_verdict(task):
         task.status = TaskStatus.DONE
         return
-    failed = task.verification is not None
+    if task.verification is not None:  # FAIL
+        status, reason, message = rework_or_park(task, actor)
+        task.status = status
+        task.review_reason = reason
+        task.pending_agent_run = status is TaskStatus.IN_PROGRESS
+        task.add_log(message, event_type="status_changed", actor=actor, task_status=status)
+        return
+    note = unbacked_note(raw_result)
     task.status = TaskStatus.IN_REVIEW
-    task.review_reason = (
-        "Independent verification failed; needs rework or a human decision" if failed else WAITING_REASON
-    )
+    task.review_reason = WAITING_REASON
+    task.pending_agent_run = False
     task.add_log(
-        f"Not marked done by {actor}: {task.review_reason}",
+        f"Not marked done by {actor}: {note or WAITING_REASON}",
         event_type="status_changed",
         actor=actor,
         task_status=TaskStatus.IN_REVIEW,
     )
+
+
+MAX_AUTO_REWORK = 2
+
+
+def _automatic_failures(task: Any) -> int:
+    """Verification failures since a person last acted on the task."""
+    n = 0
+    for entry in reversed(list(getattr(task, "execution_log", []) or [])):
+        if is_human_actor(getattr(entry, "actor", None)):
+            break
+        if getattr(entry, "event_type", "") == "verification_failed":
+            n += 1
+    return n
+
+
+def rework_or_park(task: Any, actor: str) -> tuple[Any, str | None, str]:
+    """A FAIL verdict sends the work back to the agents, with the defects as a
+    comment the next run reads, up to MAX_AUTO_REWORK times in a row; after
+    that it parks in review for a person instead of looping forever.
+
+    Returns (status, review_reason, log message).
+    """
+    from tasks.models import TaskComment, TaskStatus
+
+    verdict = task.verification
+    prior = _automatic_failures(task)
+    problems = "\n".join(f"- {d}" for d in (verdict.defects_found or [])) or f"- {verdict.notes or 'No detail given'}"
+    task.comments.append(TaskComment(
+        author=verdict.verifier,
+        body=f"Independent verification failed. Fix these, then it will be checked again:\n{problems}",
+    ))
+    task.add_log(
+        f"Independent verification FAILED ({verdict.verifier})",
+        event_type="verification_failed",
+        actor=actor,
+        task_status=task.status,
+        metadata={"defects_found": verdict.defects_found[:10]},
+    )
+    if prior + 1 <= MAX_AUTO_REWORK:
+        return TaskStatus.IN_PROGRESS, None, f"Verification failed; sent back for rework (attempt {prior + 1} of {MAX_AUTO_REWORK})"
+    reason = f"Failed independent verification {prior + 1} times in a row; needs a person"
+    return TaskStatus.IN_REVIEW, reason, reason
