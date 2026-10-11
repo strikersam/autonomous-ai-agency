@@ -1,6 +1,7 @@
 /* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars */
 import React from 'react';
 import Glyph from '../components/ui/Glyph';
+import VerificationReport from '../components/VerificationReport';
 import * as api from '../../api';
 import { ExecutionTimeline } from '../components/Charts';
 
@@ -201,6 +202,17 @@ function TaskDetailPanel({ taskId, onClose, onTaskUpdated }) {
     } catch (e) { setActionError(errText(e)); }
   };
 
+  const [verifyBusy, setVerifyBusy] = React.useState(false);
+  const submitVerification = async (data) => {
+    setVerifyBusy(true);
+    try {
+      await api.recordTaskVerification(taskId, data);
+      await fetchTask(); if (onTaskUpdated) onTaskUpdated();
+      return true;
+    } catch (e) { setActionError(errText(e)); return false; }
+    finally { setVerifyBusy(false); }
+  };
+
   const submitApproval = async (checkpointId, approve, reason = '') => {
     try {
       await api.approveTaskCheckpoint(taskId, { checkpoint_id: checkpointId, approve, reason });
@@ -361,6 +373,9 @@ function TaskDetailPanel({ taskId, onClose, onTaskUpdated }) {
             ))}
           </div>
         )}
+
+        <VerificationReport task={task} busy={verifyBusy}
+          onRecord={['in_review', 'done', 'needs_clarification'].includes(task.status) ? submitVerification : null} />
 
         {/* Comment thread */}
         <div style={{ padding: '14px 20px', borderBottom: '1px solid color-mix(in oklab, var(--ink) 6%, transparent)', flex: 1 }}>

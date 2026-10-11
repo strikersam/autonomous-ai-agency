@@ -11,6 +11,14 @@ from typing import Any
 from agents.store import AgentDefinition, AgentStore, get_agent_store
 from runtimes.base import RuntimeUnavailableError, TaskResult, TaskSpec
 from runtimes.manager import RuntimeManager, get_runtime_manager
+from tasks.verification import (
+    WAITING_REASON,
+    has_passing_verdict,
+    human_acceptance,
+    is_human_actor,
+    verification_from_run,
+    verification_required,
+)
 from tasks.models import Task, TaskComment, TaskStatus, goal_ancestry_block
 from tasks.store import TaskStore, get_task_store
 from agent.workflow import WorkflowEngine, WorkflowPhase, classify_domain
@@ -75,6 +83,9 @@ class TaskWorkflowService:
         self.store = store or get_task_store()
 
     async def create_task(self, task: Task, *, actor: str) -> Task:
+        if task.status is TaskStatus.DONE:
+            # Creating a task as already done is the same claim as moving it there.
+            task.status, task.review_reason, _ = self._verification_gate(task, actor, task.review_reason, None)
         self._validate_status_payload(task.status, blocked_reason=task.blocked_reason, review_reason=task.review_reason)
         auto_assigned_agent: AgentDefinition | None = None
         if not task.agent_id and task.status in {TaskStatus.TODO, TaskStatus.IN_PROGRESS}:
@@ -132,8 +143,13 @@ class TaskWorkflowService:
             if status not in allowed:
                 raise TaskRuleError(f"Cannot transition task from {task.status.value} to {status.value}")
 
+        if status is TaskStatus.DONE:
+            status, review_reason, message = self._verification_gate(task, actor, review_reason, message)
+
         self._validate_status_payload(status, blocked_reason=blocked_reason, review_reason=review_reason)
 
+        if status in {TaskStatus.TODO, TaskStatus.IN_PROGRESS} and task.status not in {TaskStatus.TODO, TaskStatus.IN_PROGRESS}:
+            self._retire_verdict(task, actor)
         task.status = status
         task.blocked_reason = blocked_reason if status is TaskStatus.BLOCKED else None
         task.review_reason = review_reason if status is TaskStatus.IN_REVIEW else None
@@ -166,6 +182,50 @@ class TaskWorkflowService:
             },
         )
         return task
+
+    @staticmethod
+    def _retire_verdict(task: Task, actor: str) -> None:
+        """Re-opened work needs a fresh verdict: a PASS on the old result must not
+        complete the new one (rule 49). The retired report stays in the log."""
+        old = task.verification
+        if old is None:
+            return
+        task.add_log(
+            f"Previous verification ({old.verdict} by {old.verifier}) retired: the work was re-opened by {actor}",
+            event_type="verification_retired",
+            actor=actor,
+            task_status=task.status,
+            metadata={"verification": old.model_dump(mode="json")},
+        )
+        task.verification = None
+
+    @staticmethod
+    def _verification_gate(
+        task: Task, actor: str, review_reason: str | None, message: str | None
+    ) -> tuple[TaskStatus, str | None, str | None]:
+        """Rule 49: decide where a request to mark ``task`` DONE actually lands.
+
+        A person moving it to done is the independent verifier and is recorded
+        as such. Anyone else needs a PASS already on the task; a FAIL sends the
+        work back for rework, and no verdict parks it in review.
+        """
+        if not verification_required():
+            return TaskStatus.DONE, review_reason, message
+        if is_human_actor(actor) and not has_passing_verdict(task):
+            task.verification = human_acceptance(actor)
+        verdict = task.verification
+        if verdict is not None and verdict.passed:
+            return TaskStatus.DONE, review_reason, message
+        if verdict is not None and task.status is not TaskStatus.IN_PROGRESS:
+            # FAIL from review: back to work. (IN_PROGRESS -> IN_PROGRESS is a no-op.)
+            return TaskStatus.IN_PROGRESS, None, (
+                f"Independent verification FAILED ({verdict.verifier}); sent back for rework"
+            )
+        if verdict is not None:
+            return TaskStatus.IN_REVIEW, "Independent verification failed; needs rework or a human decision", (
+                f"Independent verification FAILED ({verdict.verifier}); not marked done"
+            )
+        return TaskStatus.IN_REVIEW, WAITING_REASON, f"Not marked done by {actor}: {WAITING_REASON}"
 
     def assign_agent(self, task: Task, agent_id: str | None, *, actor: str) -> Task:
         previous = task.agent_id
@@ -1513,6 +1573,10 @@ class TaskExecutionCoordinator:
         agent_comment = metadata.get("agent_comment")
         if agent_comment:
             self.workflow.add_comment(task, author=actor, body=agent_comment)
+
+        run_verdict = verification_from_run(metadata.get("raw_result"))
+        if run_verdict is not None:
+            task.verification = run_verdict
 
         next_status = metadata.get("task_status")
         if task.requires_approval and next_status in (None, TaskStatus.DONE.value):

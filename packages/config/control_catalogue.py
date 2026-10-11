@@ -1046,6 +1046,18 @@ _GOVERNANCE: tuple[ControlSpec, ...] = (
         risk=RISK_HIGH,
     ),
     _toggle(
+        "TASK_VERIFICATION_REQUIRED",
+        "Independent verification before done",
+        "governance",
+        "true",
+        "A task is marked done only after a verifier that did not do the work "
+        "(the agent judge or a person) returns PASS, with a report of what was "
+        "checked, what broke and what got fixed. Unverified work waits in review; "
+        "a FAIL sends it back. Off: an agent's own success marks the task done.",
+        live=True,
+        risk=RISK_HIGH,
+    ),
+    _toggle(
         "GOVERNANCE_SESSION_GRANTS_ENABLED",
         "Sticky approval grants",
         "governance",

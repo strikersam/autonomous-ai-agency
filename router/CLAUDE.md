@@ -11,11 +11,14 @@
 <!-- pstack-verification:start -->
 49. **No "done" without an independent verifier (pstack).** Before any task is reported
     done, by a coding agent or by an agency agent, a verifier that did not write the
-    change exercises the real artifact (runs the feature, the tests, the built page; not
-    "it compiles", not the author's own report) and returns `PASS`, `PASS+NOTES`, or
-    `FAIL` with the evidence it observed. `FAIL` sends the work back. Only `PASS` or
-    `PASS+NOTES` permits a done claim, and the report quotes that verdict. Work in small
-    units that each end in a check, and verify each before starting the next. Source:
+    change tries to break it. It exercises the real artifact (runs the feature, the
+    tests, the built page; not "it compiles", not the author's own report) and returns
+    `PASS`, `PASS+NOTES`, or `FAIL` with a report: what it checked, what it found broken,
+    what was fixed, and the evidence (command output; screenshots for any UI change).
+    `FAIL` sends the work back: fix every defect it found, then verify again, until it
+    passes. Only `PASS` or `PASS+NOTES` permits a done claim, and the report quotes that
+    verdict. Work in small units that each end in a check. Agency tasks enforce this in
+    code (`tasks/verification.py`, live control `TASK_VERIFICATION_REQUIRED`). Source:
     pstack's `principle-prove-it-works` and its independent per-PR verdict
     (github.com/cursor/plugins/tree/main/pstack, github.com/michael-denyer/pstack-claude).
     This rule is mirrored byte-for-byte in every agent instruction file;

@@ -318,6 +318,7 @@ export const escalateTask = (id) => API.post(`/api/tasks/${id}/escalate`);
 export const runTask = (id) => API.post(`/api/tasks/${id}/run`);
 export const addTaskComment = (id, data) => API.post(`/api/tasks/${id}/comments`, data);
 export const approveTaskCheckpoint = (id, data) => API.post(`/api/tasks/${id}/approve`, data);
+export const recordTaskVerification = (id, data) => API.post(`/api/tasks/${id}/verification`, data);
 export const getTaskCounts = () => API.get('/api/tasks/counts');
 export const getDueSoonTasks = (withinHours = 24) =>
   API.get('/api/tasks/due-soon', { params: { within_hours: withinHours } });

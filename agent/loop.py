@@ -1470,10 +1470,14 @@ class AgentRunner:
                 "models": {"executor": executor_model, "verifier": verifier_model},
             }
 
+        # Verifier/syntax rejections that a later attempt fixed, kept so the
+        # task's rule-49 report can say what was broken and what got fixed.
+        resolved_issues: list[str] = []
         for target_file in target_files:
             original_content = self._safe_read(target_file)
             retries = 0
             feedback_issues: list[str] = []
+            pending_fixes: list[str] = []
             file_applied = False
             while retries <= 4:
                 async with _timed_phase("execute_generate", step_id=step.get("id"), file=target_file):
@@ -1624,6 +1628,7 @@ class AgentRunner:
                     changed_files.append(out_path)
                     context_items.append({"tool": "apply_diff", "result": diff_result})
                     file_applied = True
+                    resolved_issues.extend(pending_fixes)
                     # Adaptive Loop Halting: track confidence for early exit
                     if "_confidence_scores" not in step:
                         step["_confidence_scores"] = []
@@ -1643,6 +1648,7 @@ class AgentRunner:
 
                 retries += 1
                 feedback_issues = syntax_issues + verdict.issues
+                pending_fixes = [f"{target_file}: {i}" for i in feedback_issues]
                 if retries > 2:
                     return {
                         "step_id": step["id"],
@@ -1695,6 +1701,7 @@ class AgentRunner:
             "description": step["description"],
             "status": "applied",
             "changed_files": changed_files,
+            "resolved_issues": resolved_issues[:20],
             "observations": observations,
             "models": {"executor": executor_model, "verifier": verifier_model},
         }

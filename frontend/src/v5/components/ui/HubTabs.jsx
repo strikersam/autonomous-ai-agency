@@ -10,6 +10,19 @@ import React from 'react';
  */
 export default function HubTabs({ tabs, active, onChange, label = 'Sections' }) {
   const refs = React.useRef({});
+  const listRef = React.useRef(null);
+  // Bring the active tab into view on a phone by scrolling the strip itself.
+  // Not scrollIntoView(): Chrome moves its Tab starting point to the element,
+  // so the first Tab after a deep link skipped the "Skip to content" link.
+  React.useEffect(() => {
+    const list = listRef.current;
+    const el = refs.current[active];
+    if (!list || !el) return;
+    const left = el.offsetLeft - list.offsetLeft;
+    if (left < list.scrollLeft || left + el.offsetWidth > list.scrollLeft + list.clientWidth) {
+      list.scrollLeft = Math.max(0, left - 16);
+    }
+  }, [active]);
   const onKey = (e, i) => {
     const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
     const jump = e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : null;
@@ -19,12 +32,9 @@ export default function HubTabs({ tabs, active, onChange, label = 'Sections' }) 
     onChange(next.id);
     refs.current[next.id]?.focus();
   };
-  React.useEffect(() => {
-    refs.current[active]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
-  }, [active]);
   return (
     <div className="hub-tabs-wrap">
-      <div className="hub-tabs scrollbar-hide" role="tablist" aria-label={label}>
+      <div ref={listRef} className="hub-tabs scrollbar-hide" role="tablist" aria-label={label}>
         {tabs.map((t, i) => {
           const on = active === t.id;
           return (

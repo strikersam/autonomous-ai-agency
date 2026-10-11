@@ -163,7 +163,8 @@ STANDING_INSTRUCTIONS_NOTICE = (
     "(verification, epistemic marking, completeness, self-attack, refusing "
     "to guess) — apply them to every response in this role. Rule 49: never "
     "report a task done until a verifier that did not write the work has "
-    "exercised the real artifact and returned PASS or PASS+NOTES."
+    "exercised the real artifact and returned PASS or PASS+NOTES, with a "
+    "report of what it checked, what was broken and what got fixed."
 )
 
 SCOUT_SYSTEM = """\

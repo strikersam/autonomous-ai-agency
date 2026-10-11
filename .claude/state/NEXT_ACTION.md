@@ -1,10 +1,9 @@
-# NEXT_ACTION — updated 2026-10-10 (UI revamp + rule 49)
+# NEXT_ACTION — updated 2026-10-11 (UI revamp + rule 49 in code)
 
-Branch `claude/ui-revamp`: full dashboard and landing-page redesign (see `docs/design-system.md`) plus CLAUDE.md rule 49 (no "done" without an independent verifier's PASS, mirrored into every agent instruction file).
+Branch `claude/ui-revamp` → PR to master. Merge when CI is green (squash).
 
-1. **Rule 49 verdict for this branch: PASS+NOTES.** Open note: on a deep link (e.g. /v5/work) the first Tab in headless Chromium did not always land on the skip link; not reproduced as a regression yet.
-2. **Backend gate for rule 49 is not built.** Agency task completion is set in several places in `backend/server.py` (`task.status = "done"`); enforcing a verifier verdict there changes the task API and needs a human decision (rule 40).
-3. Screens still worth a bespoke pass: Onboarding wizard steps, Skills catalogue, Provider console table density on tablets.
+1. Rule 49 is now enforced for agency tasks (`TASK_VERIFICATION_REQUIRED`, default on). Watch "Needs you" on Home after deploy: tasks whose run has no judge verdict (analysis-only tasks, non-internal runtimes) now wait for a person. Follow-up worth doing: have the agency run its verifier role automatically on those so a person is not the only fallback.
+2. Apper MCP connector is connected but has no projects; it cannot audit this repo or the live site.
 
 ---
 

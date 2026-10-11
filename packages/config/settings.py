@@ -423,6 +423,11 @@ class Settings:
             "GOVERNANCE_SESSION_GRANTS_ENABLED", "true"
         ).strip().lower()
         self.governance_grant_ttl_s: int = _env_int("GOVERNANCE_GRANT_TTL_S", 3600)
+        # Rule 49: a task reaches DONE only with an independent PASS verdict
+        # (tasks/verification.py). Off restores the old "agent says done" path.
+        self.task_verification_required_raw: str = os.environ.get(
+            "TASK_VERIFICATION_REQUIRED", "true"
+        ).strip().lower()
         # Backpressure rather than resource exhaustion once many agents run
         # at once — see the multi-agent scaling notes in docs/governance.
         self.governance_max_sandboxes: int = _env_int("GOVERNANCE_MAX_SANDBOXES", 8)
@@ -449,6 +454,11 @@ class Settings:
     def governance_session_grants_enabled(self) -> bool:
         """When True, an approval may be widened into a session-scoped grant."""
         return self.governance_session_grants_enabled_raw in {"1", "true", "yes", "on"}
+
+    @property
+    def task_verification_required(self) -> bool:
+        """When True, DONE needs a PASS/PASS+NOTES verdict from an independent verifier."""
+        return self.task_verification_required_raw in {"1", "true", "yes", "on"}
 
     @property
     def is_testing(self) -> bool:
