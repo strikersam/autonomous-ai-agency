@@ -66,7 +66,7 @@ def cited_shot_ids(task: Any) -> set[str]:
     v = getattr(task, "verification", None)
     out: set[str] = set()
     for line in getattr(v, "evidence", None) or []:
-        m = EVIDENCE_RE.match(str(line))
+        m = EVIDENCE_RE.match(str(line).strip())
         if m:
             out.add(m.group(1))
     return out

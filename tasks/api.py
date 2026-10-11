@@ -554,6 +554,19 @@ async def get_verification_screenshot(
     return Response(content=bytes(shot["image"]), media_type=media, headers={"Cache-Control": "private, no-store"})
 
 
+def _own_evidence_only(task: Task, fields: dict[str, Any]) -> dict[str, Any]:
+    """Drop screenshot citations of other tasks' screenshots: the screenshot
+    endpoint trusts a report's citations for access."""
+    from tasks.screenshots import EVIDENCE_RE, cited_shot_ids
+
+    own = cited_shot_ids(task)
+    fields["evidence"] = [
+        e for e in fields.get("evidence") or []
+        if not (m := EVIDENCE_RE.match(str(e).strip())) or m.group(1) in own
+    ]
+    return fields
+
+
 @task_router.post("/{task_id}/verification")
 async def record_verification(
     task_id: str,
@@ -573,17 +586,7 @@ async def record_verification(
     if task.status not in verifiable:
         # A verdict on unfinished work would later complete it unchecked.
         raise HTTPException(status_code=409, detail="Nothing to verify yet: the task has not finished")
-    from tasks.screenshots import EVIDENCE_RE, cited_shot_ids
-
-    # A screenshot id may only be cited by the task that captured it: the
-    # screenshot endpoint trusts the report's citations for access.
-    own = cited_shot_ids(task)
-    fields = body.model_dump()
-    fields["evidence"] = [
-        e for e in fields.get("evidence") or []
-        if not (m := EVIDENCE_RE.match(str(e).strip())) or m.group(1) in own
-    ]
-    task.verification = TaskVerification(verifier=actor, **fields)
+    task.verification = TaskVerification(verifier=actor, **_own_evidence_only(task, body.model_dump()))
     task.add_log(
         f"Independent verification {body.verdict} recorded by {actor}",
         event_type="verification_recorded",

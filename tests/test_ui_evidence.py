@@ -39,6 +39,7 @@ def _fresh(monkeypatch):
     control_overrides.apply_overrides({})
     set_task_store(TaskStore())
     screenshots._memory.clear()
+    monkeypatch.setattr(settings, "browserbase_api_key", "bb_test", raising=False)
     yield
     control_overrides.apply_overrides({})
 
@@ -103,6 +104,14 @@ def test_no_sandbox_means_no_screenshot_and_says_why(monkeypatch):
     assert "no E2B sandbox" in out[0]["error"]
 
 
+def test_no_screenshots_with_a_local_browser(monkeypatch):
+    """Agent-written page scripts must not run on this host's network (rule 14)."""
+    calls = _fake_browser(monkeypatch)
+    monkeypatch.setattr(settings, "browserbase_api_key", "", raising=False)
+    out = asyncio.run(ui_evidence.capture(_Sandbox(), _steps("index.html")))
+    assert calls == [] and "Browserbase" in out[0]["error"]
+
+
 def test_capture_off_by_control(monkeypatch):
     calls = _fake_browser(monkeypatch)
     control_overrides.apply_overrides({"AGENT_UI_EVIDENCE": "false"})
@@ -133,6 +142,13 @@ def test_ui_change_without_screenshot_waits_for_a_person(ui):
     run = _run(["src/App.jsx", "a.py"], ui)
     assert verification_from_run(run) is None
     assert "screenshot" in unbacked_note(run)
+
+
+def test_gap_message_names_the_control_only_when_it_is_off():
+    run = _run(["index.html", "a.py"], [])
+    assert "AGENT_UI_EVIDENCE" not in unbacked_note(run)
+    control_overrides.apply_overrides({"AGENT_UI_EVIDENCE": "false"})
+    assert "AGENT_UI_EVIDENCE is off" in unbacked_note(run)
 
 
 def test_non_ui_change_needs_no_screenshot():

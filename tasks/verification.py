@@ -144,7 +144,10 @@ def _ui_proof_gap(raw: dict[str, Any]) -> str | None:
     shots = [e for e in raw.get("ui_evidence") or [] if isinstance(e, dict)]
     missing = [e for e in shots if not e.get("shot_id")]
     if not shots:
-        return "it changed the UI, but no screenshot of the result was taken (AGENT_UI_EVIDENCE)"
+        from agent.ui_evidence import enabled
+
+        why = "" if enabled() else " because AGENT_UI_EVIDENCE is off"
+        return f"it changed the UI, but no screenshot of the result was taken{why}"
     if missing:
         gaps = "; ".join(f"{e.get('page')}: {e.get('error')}" for e in missing[:3])
         return f"it changed the UI, but not every changed page could be screenshotted ({gaps})"

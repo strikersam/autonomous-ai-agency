@@ -35,6 +35,8 @@ class _Commands:
 
     async def run(self, cmd, timeout=60, background=None):
         self.sb.cmds.append((cmd, background))
+        if background:
+            assert timeout == 0, "a background server must not inherit the 60s default"
         if "fail-me" in cmd:
             raise _Exit(1, stdout="1 failed", stderr="boom")
         if "dead" in cmd:

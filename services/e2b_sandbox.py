@@ -247,6 +247,7 @@ class E2BSandboxSession:
                 await sb.commands.run(
                     f"cd {SANDBOX_WORKDIR} && python3 -m http.server {int(port)} --bind 0.0.0.0",
                     background=True,
+                    timeout=0,  # 0 = no limit; the SDK default (60s) would kill the server
                 )
                 await sb.commands.run(
                     f"for i in $(seq 1 20); do curl -s -o /dev/null http://127.0.0.1:{int(port)}/ && exit 0; sleep 0.25; done; exit 1",

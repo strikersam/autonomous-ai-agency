@@ -38,6 +38,12 @@ def enabled() -> bool:
     return bool(getattr(settings, "agent_ui_evidence", True))
 
 
+def _remote_browser() -> bool:
+    from packages.config import settings
+
+    return bool(getattr(settings, "browserbase_configured", False))
+
+
 def ui_files(steps: list[dict[str, Any]]) -> list[str]:
     """Changed files that affect what a person sees, from applied steps."""
     out: list[str] = []
@@ -73,6 +79,11 @@ async def capture(mcp: Any, steps: list[dict[str, Any]]) -> list[dict[str, Any]]
         return []
     pages, needs_build = _pages(files)
     gaps = [{"page": f, "error": "needs a build step to preview; not screenshotted"} for f in needs_build]
+    if not _remote_browser():
+        # Agent-written pages run their own scripts; on a local Chromium those
+        # could reach this host's network (rule 14). Only the cloud browser
+        # renders them.
+        return gaps + [{"page": p, "error": "screenshots need the Browserbase cloud browser"} for p in pages]
     preview = getattr(mcp, "preview_url", None)
     if preview is None:
         return gaps + [{"page": p, "error": "no E2B sandbox attached to serve the page from"} for p in pages]
