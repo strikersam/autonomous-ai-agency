@@ -92,7 +92,7 @@ async def test_health_available_when_configured(monkeypatch):
     health = await adapter.health_check()
     assert health.available is True
     assert health.details.get("template") == "base"
-    assert health.details.get("timeout_sec") == 300
+    assert health.details.get("timeout_sec") == 660
 
 
 # ── required_dependencies ────────────────────────────────────────────────

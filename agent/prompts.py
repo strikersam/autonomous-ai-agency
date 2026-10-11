@@ -95,6 +95,7 @@ def _web_reach_tool_lines() -> str:
         "- fetch_rss(url, limit=10): Fetch and parse an RSS/Atom feed\n"
         "- browse_page(url): Open a URL in a REAL browser and read its rendered text\n"
         "  (after JavaScript runs). Use when fetch_url returns an empty/app-shell page.\n"
+        "  If the browser is down it returns fetch_url text with a note; do not retry it.\n"
     )
 
 

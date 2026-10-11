@@ -140,14 +140,22 @@ class TestNavigationIsScreened:
 
 # ── browse_page is fail-soft ──────────────────────────────────────────────────
 
-def test_browse_page_stub_is_fail_soft(monkeypatch):
-    """With automation disabled, browse_page returns a dict, never raises."""
+def test_browse_page_without_a_browser_reads_the_page_with_fetch(monkeypatch):
+    """With automation disabled, browse_page falls back to fetch_url text and
+    says so, instead of failing the agent's step."""
     import agent.browser as browser
+    import agent.web_reach as web_reach
+
+    class _Reach:
+        def fetch_page(self, url):
+            return {"ok": True, "url": url, "text": "hello"}
+
+    monkeypatch.setattr(web_reach, "get_web_reach", lambda: _Reach())
     monkeypatch.setattr(browser.settings, "browser_automation_enabled_raw", "false")
     out = asyncio.run(browser.browse_page("https://example.com"))
-    assert out["ok"] is False
-    assert out["backend"] == "stub"
-    assert "url" in out
+    assert out["ok"] is True and out["text"] == "hello"
+    assert out["backend"] == "fetch_fallback"
+    assert "JavaScript may be missing" in out["note"]
 
 
 # ── settings: the low-RAM connect URL ─────────────────────────────────────────

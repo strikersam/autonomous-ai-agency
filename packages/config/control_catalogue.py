@@ -989,8 +989,33 @@ _AGENT_LOOP: tuple[ControlSpec, ...] = (
         "AGENT_EMPIRICAL_VERIFY",
         "Empirical verification",
         "agent_loop",
-        "false",
-        "Verify by executing the result, not just by reading it.",
+        "true",
+        "Before a step counts, byte-compile the changed Python files and run "
+        "their matching tests (inside the E2B sandbox when one is attached). "
+        "A reviewer's approval only marks a task done when these tests ran "
+        "and passed (rule 49). Off: nothing executes and tasks wait for a person.",
+        live=True,
+    ),
+    _number(
+        "AGENT_EMPIRICAL_VERIFY_TIMEOUT",
+        "Empirical verification timeout (seconds)",
+        "agent_loop",
+        "120",
+        "How long one compile or test run may take before the step fails.",
+        minimum=10,
+        maximum=1200,
+        live=True,
+    ),
+    _toggle(
+        "AGENT_UI_EVIDENCE",
+        "Screenshot UI changes as proof",
+        "agent_loop",
+        "true",
+        "When an agent changes a web page, open it in the browser (served from "
+        "the E2B sandbox) and attach the screenshot to the task's verification "
+        "report. A UI change without a screenshot is not marked done on its "
+        "own; it waits for a person.",
+        live=True,
     ),
     _toggle(
         "AGENT_CROSS_VERIFY_ENABLED",

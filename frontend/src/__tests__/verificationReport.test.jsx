@@ -5,6 +5,9 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import VerificationReport from '../v5/components/VerificationReport';
+import { getTaskScreenshot } from '../api';
+
+vi.mock('../api', () => ({ getTaskScreenshot: vi.fn() }));
 
 const report = {
   verdict: 'PASS',
@@ -56,4 +59,23 @@ test('after a FAIL re-opens the task, the failed findings stay visible', () => {
   render(<VerificationReport task={{ status: 'in_progress', execution_log: log }} />);
   expect(screen.getByText(/Last check failed/)).toBeInTheDocument();
   expect(screen.getByText('Totals wrong')).toBeInTheDocument();
+});
+
+test('screenshots an agent captured load through the authenticated API', async () => {
+  getTaskScreenshot.mockResolvedValue({ data: new Blob(['jpeg'], { type: 'image/jpeg' }) });
+  globalThis.URL.createObjectURL = vi.fn(() => 'blob:shot');
+  globalThis.URL.revokeObjectURL = vi.fn();
+  const v = { ...report, evidence: ['screenshot:shot_0123456789abcdef https://4173-sbx.e2b.app/index.html'] };
+  render(<VerificationReport task={{ task_id: 'task_1', status: 'done', verification: v }} />);
+  const img = await screen.findByAltText('Screenshot of https://4173-sbx.e2b.app/index.html');
+  expect(img).toHaveAttribute('src', 'blob:shot');
+  expect(getTaskScreenshot).toHaveBeenCalledWith('task_1', 'shot_0123456789abcdef');
+  expect(screen.queryByText(/^screenshot:/)).not.toBeInTheDocument();
+});
+
+test('a screenshot that fails to load says so instead of a broken image', async () => {
+  getTaskScreenshot.mockRejectedValue(new Error('404'));
+  const v = { ...report, evidence: ['screenshot:shot_0123456789abcdef https://h/'] };
+  render(<VerificationReport task={{ task_id: 'task_1', status: 'done', verification: v }} />);
+  expect(await screen.findByText(/could not be loaded/)).toBeInTheDocument();
 });

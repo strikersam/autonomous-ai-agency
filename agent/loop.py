@@ -988,6 +988,16 @@ class AgentRunner:
                         "failure_phase": "judge",
                     }
 
+            # Rule 49 evidence for UI changes: screenshot the changed pages,
+            # served from the sandbox, once the judge has approved the run.
+            ui_evidence: list[dict[str, Any]] = []
+            if str(judge.get("verdict", "")).upper().startswith("APPROVED"):
+                try:
+                    from agent import ui_evidence as _ui_evidence
+                    ui_evidence = await _ui_evidence.capture(self._mcp, step_results)
+                except Exception:
+                    log.warning("UI evidence capture failed (non-fatal)", exc_info=True)
+
             # Push and open a PR when auto_commit produced local commits and we have
             # a GitHub repo URL to target. Gated behind AGENT_AUTO_PR_ENABLED (default
             # off) so this new agent-initiated GitHub write path is opt-in and has a
@@ -1065,6 +1075,7 @@ class AgentRunner:
                 "time_budget_exceeded": time_budget_exceeded,
                 "report": self._build_report(plan.goal, step_results, commits, pr_url),
                 "judge": judge,
+                "ui_evidence": ui_evidence,
                 "pr_url": pr_url,
                 "pr_blockers": pr_blockers,
             }
@@ -1682,7 +1693,7 @@ class AgentRunner:
                 "models": {"executor": executor_model, "verifier": verifier_model},
             }
 
-        empirical_issues = self._empirical_verify(changed_files)
+        empirical_issues = await self._empirical_verify_async(changed_files)
         if empirical_issues:
             self._log_event(session_id, "empirical_verify_failed", {"issues": empirical_issues[:5]})
             return {
@@ -2759,10 +2770,29 @@ class AgentRunner:
                 issues.append("Auth/JWT code introduces fake in-memory users, which is not a safe default for real authentication work.")
         return issues
 
+    async def _empirical_verify_async(self, changed_files: list[str]) -> list[str]:
+        """Run the empirical checks where the edits live: in the attached E2B
+        sandbox, else on the host workspace in a worker thread."""
+        from agent import empirical_verify as ev
+
+        self._last_executed_checks = []
+        py_files = [f for f in changed_files if f.endswith(".py")]
+        if not ev.enabled() or not py_files:
+            return []
+        if not ev.is_sandbox(self._mcp):
+            return await asyncio.to_thread(self._empirical_verify, changed_files)
+        try:
+            outcome = await ev.verify_in_sandbox(self._mcp, py_files)
+        except Exception as exc:  # noqa: BLE001 - a dead sandbox is not a failed change
+            log.warning("Empirical verification in the sandbox unavailable: %s", exc)
+            return []
+        self._last_executed_checks = outcome.checks
+        return outcome.issues
+
     def _empirical_verify(self, changed_files: list[str]) -> list[str]:
         """Run real validation (byte-compile + scoped pytest) on this step's changes.
 
-        Opt-in via AGENT_EMPIRICAL_VERIFY=true. Complements the model-based
+        Host path; gated by the live AGENT_EMPIRICAL_VERIFY control. Complements the model-based
         verifier with executable evidence: the verifier judges the diff, this
         gate proves the changed modules still compile and their matching tests
         still pass. Runs once per step, after all files are applied, so a
@@ -2771,19 +2801,21 @@ class AgentRunner:
         # Tests that actually ran and passed: a task's rule-49 report only counts
         # as PASS when a test run backs the review ("it compiles" is not proof).
         self._last_executed_checks: list[str] = []
-        if os.environ.get("AGENT_EMPIRICAL_VERIFY", "false").strip().lower() not in ("true", "1", "yes", "on"):
+        from agent import empirical_verify as ev
+
+        if not ev.enabled():
             return []
         py_files = [f for f in changed_files if f.endswith(".py")]
         if not py_files:
             return []
         issues: list[str] = []
-        timeout = int(os.environ.get("AGENT_EMPIRICAL_VERIFY_TIMEOUT", "120"))
+        timeout = ev.timeout_s()
         root = Path(self.tools.root)
 
         def _run(argv: list[str]) -> tuple[int, str]:
             proc = subprocess.run(  # nosec B603 - fixed interpreter argv, list form (no shell)
                 argv, cwd=root, capture_output=True, text=True, timeout=timeout,
-                env={**os.environ, "TESTING": "true"},
+                env=_check_env(),
             )
             return proc.returncode, (proc.stdout + proc.stderr)[-4000:]
 
@@ -3514,3 +3546,14 @@ class FreeBuffAgent(AgentRunner):
             max_steps=max_steps,
             **kwargs,
         )
+
+
+# Agent-written code runs during the host-side checks, so it gets no secrets:
+# only what an interpreter needs to start, plus TESTING=true.
+_CHECK_ENV_KEYS = ("PATH", "HOME", "LANG", "LC_ALL", "PYTHONPATH", "VIRTUAL_ENV", "TMPDIR", "SYSTEMROOT")
+
+
+def _check_env() -> dict[str, str]:
+    env = {k: os.environ[k] for k in _CHECK_ENV_KEYS if k in os.environ}
+    env["TESTING"] = "true"
+    return env

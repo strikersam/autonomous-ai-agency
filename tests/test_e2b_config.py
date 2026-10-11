@@ -56,7 +56,7 @@ def test_e2b_enabled_with_explicit_opt_in(monkeypatch):
     assert cfg is not None
     assert cfg.api_key == "e2b_test_key_abc123"
     assert cfg.template == "base"
-    assert cfg.timeout_sec == 300
+    assert cfg.timeout_sec == 660
 
 
 def test_e2b_enabled_with_runtime_flag(monkeypatch):
@@ -145,7 +145,7 @@ def test_e2b_timeout_invalid_falls_back_to_default(monkeypatch):
     monkeypatch.setenv("E2B_TIMEOUT_SEC", "not-a-number")
     cfg = resolve_e2b_config()
     assert cfg is not None
-    assert cfg.timeout_sec == 300
+    assert cfg.timeout_sec == 660
 
 
 def test_e2b_metadata_parsed(monkeypatch):
