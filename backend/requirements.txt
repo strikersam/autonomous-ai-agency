@@ -72,3 +72,6 @@ PyYAML>=6.0.3
 
 # handlers/v3_models.py /stats imports psutil unguarded — absent it 500s.
 psutil>=7.2.2
+# Fires scheduled and agency jobs (packages/scheduler/scheduler.py). This is
+# the file the production image installs (Dockerfile.backend).
+apscheduler>=3.10,<4
