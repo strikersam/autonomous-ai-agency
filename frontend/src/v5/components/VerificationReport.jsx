@@ -1,5 +1,6 @@
 import React from 'react';
 import { Icon } from '../AppShell';
+import { getTaskScreenshot } from '../../api';
 
 /**
  * VerificationReport — rule 49's proof, shown on every task.
@@ -7,12 +8,14 @@ import { Icon } from '../AppShell';
  * A task is done only when a verifier that did not do the work returns PASS
  * or PASS+NOTES. This shows that verifier's report (what was checked, what
  * was broken, what got fixed, the evidence) and lets a person record their
- * own verdict. Image evidence (screenshots) renders inline.
+ * own verdict. Image evidence renders inline: links to images, and the
+ * screenshots agents capture of pages they changed (`screenshot:<id> <url>`).
  */
 
 const TONE = { PASS: 'var(--success)', 'PASS+NOTES': 'var(--warning)', FAIL: 'var(--danger)' };
 const LABEL = { PASS: 'Passed', 'PASS+NOTES': 'Passed with notes', FAIL: 'Failed' };
 const IMAGE = /^https?:\/\/\S+\.(png|jpe?g|gif|webp|avif)(\?\S*)?$/i;
+const SHOT = /^screenshot:(shot_[0-9a-f]{16})\s*(\S*)/;
 
 function List({ title, items, tone }) {
   if (!items || items.length === 0) return null;
@@ -33,21 +36,44 @@ function List({ title, items, tone }) {
   );
 }
 
-function Evidence({ items }) {
+function Thumb({ src, href, label }) {
+  return (
+    <a href={href} target="_blank" rel="noreferrer noopener" title={label}>
+      <img src={src} alt={label} loading="lazy"
+        style={{ width: '100%', aspectRatio: '16 / 10', objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)' }} />
+    </a>
+  );
+}
+
+function StoredShot({ taskId, shotId, page }) {
+  const [url, setUrl] = React.useState(null);
+  const [failed, setFailed] = React.useState(false);
+  React.useEffect(() => {
+    let objectUrl = null;
+    let live = true;
+    getTaskScreenshot(taskId, shotId)
+      .then(res => { if (live) { objectUrl = URL.createObjectURL(res.data); setUrl(objectUrl); } })
+      .catch(() => { if (live) setFailed(true); });
+    return () => { live = false; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [taskId, shotId]);
+  const label = `Screenshot of ${page || 'the changed page'}`;
+  if (failed) return <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{label} could not be loaded</span>;
+  if (!url) return <div className="skeleton" role="img" aria-label={`Loading ${label}`} style={{ aspectRatio: '16 / 10', borderRadius: 8 }} />;
+  return <Thumb src={url} href={url} label={label} />;
+}
+
+function Evidence({ items, taskId }) {
   if (!items || items.length === 0) return null;
+  const shots = items.map(e => SHOT.exec(e)).filter(Boolean);
   const images = items.filter(e => IMAGE.test(e));
-  const rest = items.filter(e => !IMAGE.test(e));
+  const rest = items.filter(e => !IMAGE.test(e) && !SHOT.test(e));
   return (
     <div style={{ marginTop: 12 }}>
       <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 6 }}>Evidence</div>
-      {images.length > 0 && (
+      {(images.length > 0 || shots.length > 0) && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 8, marginBottom: 8 }}>
-          {images.map(src => (
-            <a key={src} href={src} target="_blank" rel="noreferrer noopener" title="Open screenshot">
-              <img src={src} alt="Verification screenshot" loading="lazy"
-                style={{ width: '100%', aspectRatio: '16 / 10', objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)' }} />
-            </a>
-          ))}
+          {shots.map(([, id, page]) => <StoredShot key={id} taskId={taskId} shotId={id} page={page} />)}
+          {images.map(src => <Thumb key={src} src={src} href={src} label="Verification screenshot" />)}
         </div>
       )}
       <List title="Records" items={rest} tone="var(--text-muted)" />
@@ -107,7 +133,7 @@ export default function VerificationReport({ task, onRecord, busy = false }) {
           <List title="What was checked" items={v.checked} tone="var(--accent)" />
           <List title="What was broken" items={v.defects_found} tone="var(--danger)" />
           <List title="What got fixed" items={v.fixed} tone="var(--success)" />
-          <Evidence items={v.evidence} />
+          <Evidence items={v.evidence} taskId={task.task_id} />
           {v.notes && <p style={{ marginTop: 10, fontSize: 14, color: 'var(--text-tertiary)', whiteSpace: 'pre-wrap' }}>{v.notes}</p>}
         </>
       )}

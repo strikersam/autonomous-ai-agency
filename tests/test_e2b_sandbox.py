@@ -200,7 +200,7 @@ async def test_session_open_and_close(monkeypatch, patched_async_sandbox):
     assert _FakeAsyncSandboxClass.last_created
     create_kwargs = _FakeAsyncSandboxClass.last_created[0]
     assert create_kwargs.get("api_key") == "e2b_test_key_abc123"
-    assert create_kwargs.get("timeout") == 300
+    assert create_kwargs.get("timeout") == 660
     await session.close()
     assert session.is_open is False
 

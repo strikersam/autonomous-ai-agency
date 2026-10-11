@@ -11,6 +11,10 @@ Two verifiers exist today:
   run after the executor and per-step verifier finish (``agent/loop.py``);
 * a **person** who reviews the result and accepts it.
 
+The judge's approval counts only with proof behind it: the step's tests ran
+and passed (``executed_checks``) and, for a UI change, every changed page was
+screenshotted in a real browser (``ui_evidence``, agent/ui_evidence.py).
+
 The gate lives in ``TaskWorkflowService.transition`` and ``create_task`` (both
 see the actor). Code that assigns ``task.status`` directly must call
 ``settle_success`` instead; the two CEO-dispatch paths in ``backend/server.py``
@@ -131,24 +135,64 @@ def _executed(steps: list[dict[str, Any]]) -> bool:
     return bool(changed) and all(s.get("executed_checks") for s in changed)
 
 
+def _ui_proof_gap(raw: dict[str, Any]) -> str | None:
+    """Why a run's UI change lacks screenshot proof, or None when it has it."""
+    from agent.ui_evidence import ui_files
+
+    if not ui_files(list(raw.get("steps") or [])):
+        return None
+    shots = [e for e in raw.get("ui_evidence") or [] if isinstance(e, dict)]
+    missing = [e for e in shots if not e.get("shot_id")]
+    if not shots:
+        return "it changed the UI, but no screenshot of the result was taken (AGENT_UI_EVIDENCE)"
+    if missing:
+        gaps = "; ".join(f"{e.get('page')}: {e.get('error')}" for e in missing[:3])
+        return f"it changed the UI, but not every changed page could be screenshotted ({gaps})"
+    return None
+
+
+def _unbacked_reason(raw: dict[str, Any]) -> str | None:
+    if not _executed(list(raw.get("steps") or [])):
+        return (
+            "no tests or checks were run against it, so it is not verified yet (rule 49). "
+            "Turn on AGENT_EMPIRICAL_VERIFY to let agents run them, or check the result yourself."
+        )
+    gap = _ui_proof_gap(raw)
+    if gap:
+        return f"{gap}, so it is not verified yet (rule 49). Check the page yourself."
+    return None
+
+
 def unbacked_note(raw: dict[str, Any] | None) -> str | None:
     """Why an approving judge did not count as a pass, or None."""
     if not isinstance(raw, dict) or not isinstance(raw.get("judge"), dict):
         return None
-    if _judge_verdict(raw["judge"]) in PASSING and not _executed(list(raw.get("steps") or [])):
-        return (
-            "The reviewing agent approved the change, but no tests or checks were run "
-            "against it, so it is not verified yet (rule 49). Enable AGENT_EMPIRICAL_VERIFY "
-            "to let agents run them, or check the result yourself."
-        )
+    if _judge_verdict(raw["judge"]) in PASSING:
+        reason = _unbacked_reason(raw)
+        if reason:
+            return f"The reviewing agent approved the change, but {reason}"
     return None
+
+
+def _ui_lines(raw: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """(checked lines, evidence lines) for the run's screenshots."""
+    from tasks.screenshots import evidence_line
+
+    checked: list[str] = []
+    evidence: list[str] = []
+    for e in raw.get("ui_evidence") or []:
+        if isinstance(e, dict) and e.get("shot_id"):
+            checked.append(f"Opened {e.get('page')} in a real browser and captured a screenshot")
+            evidence.append(evidence_line(str(e["shot_id"]), str(e.get("url") or e.get("page"))))
+    return checked, evidence
 
 
 def verification_from_run(raw: dict[str, Any] | None) -> TaskVerification | None:
     """Build the report from an agent-loop result; None if no judge ran.
 
     The judge is a separate role that reviews the finished run, so its verdict
-    is the independent one. The per-step lines are the evidence behind it.
+    is the independent one. The per-step lines and screenshots are the
+    evidence behind it.
     """
     if not isinstance(raw, dict):
         return None
@@ -157,16 +201,18 @@ def verification_from_run(raw: dict[str, Any] | None) -> TaskVerification | None
     if verdict is None:
         return None
     steps = list(raw.get("steps") or [])
-    if verdict in PASSING and not _executed(steps):
+    if verdict in PASSING and _unbacked_reason(raw):
         # An approving review of a diff is not proof it works (rule 49:
-        # exercise the real artifact). Without an executed check the task
-        # waits for a person; unbacked_note() explains why.
+        # exercise the real artifact; screenshots for UI changes). Without
+        # that the task waits for a person; unbacked_note() explains why.
         return None
     checked, defects, fixed = _step_lines(steps)
+    ui_checked, ui_evidence = _ui_lines(raw)
+    checked += ui_checked
     for key in ("security", "correctness"):
         if judge.get(key):
             checked.append(f"Judge {key} review: {judge[key]}")
-    evidence = [f"Commit {c}" for c in (raw.get("commits") or [])][:10]
+    evidence = ui_evidence + [f"Commit {c}" for c in (raw.get("commits") or [])][:10]
     if raw.get("pr_url"):
         evidence.append(f"Pull request {raw['pr_url']}")
     evidence += [f"PR blocker: {b}" for b in (raw.get("pr_blockers") or [])]

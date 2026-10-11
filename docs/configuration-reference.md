@@ -105,6 +105,9 @@ See [docs/claude-code-setup.md](claude-code-setup.md) for full Claude Code setup
 | `NEMOTRON_THINKING` | `false` | Whether Nemotron 3 models (the default free NVIDIA brain, e.g. `nvidia/nemotron-3-super-120b-a12b`) think before answering. `false` sends `chat_template_kwargs.enable_thinking=false`, which cuts per-call latency several-fold on the free tier; `true` leaves the request untouched. Other models are never affected. Also a live control under Settings → Platform controls → Brain & Model Routing. |
 | `AGENT_WORKSPACE_ROOT` | (repo root) | Absolute path to the workspace the agent operates on. Defaults to the directory containing `proxy.py`. |
 | `AGENT_TOOL_OUTPUT_OFFLOAD` | `true` | Lossless tool-output offload. When on, an older tool result that `ContextManager.mask_observations` shortens is kept in a bounded store (in-memory LRU cache, 1 h TTL, bound to the agent run that produced it; also persisted to `tool_output_offload` with secrets redacted when `AGENCY_STATE_PERSISTENCE_ENABLED` is on; refs are bound to one agent run, so the DB copy lets that same run read a ref after LRU eviction or a restart, not a different worker) and the shortened text ends with `[full output: ref=out_...]`; the agent pages it back with the `read_tool_output` tool. When `false`, shortened output is lost as before and the tool is left out of the prompt and tool catalogue. Live control: Settings → Platform controls → Agent loop. |
+| `AGENT_EMPIRICAL_VERIFY` | `true` | Before a step counts, byte-compile the changed Python files and run their matching `tests/test_<module>*.py`. Runs inside the E2B sandbox when one is attached (where the agent's edits live), otherwise on the host workspace in a worker thread with a secret-free environment. A passing scoped `pytest` run is what lets the judge's approval count as an independent PASS (rule 49). Tests that cannot run in the sandbox (missing dependencies, pytest exit 2/4/5) are not counted as evidence and do not fail the step. Live control: Settings → Platform controls → Agent loop. |
+| `AGENT_EMPIRICAL_VERIFY_TIMEOUT` | `120` | Seconds one compile or test run may take (10–1200). Live control. |
+| `AGENT_UI_EVIDENCE` | `true` | After the judge approves a run that changed UI files (`.html`, `.css`, `.scss`, `.jsx`, `.tsx`, `.vue`, `.svelte`), serve the E2B sandbox's working copy on its public preview host, open each changed page (up to 3; the home page for a stylesheet change) in the real browser, and attach the screenshots to the task's verification report. A UI change without a screenshot for every changed page (components that need a build, no sandbox, browser down) does not pass on its own: the task waits in review for a person. Live control. |
 
 ### Anthropic provider tuning
 
@@ -351,7 +354,7 @@ local headless Chromium, which does.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BROWSER_AUTOMATION_ENABLED` | `false` | Master switch for the `browse_page` agent tool. Off by default. Also a Platform Control. |
+| `BROWSER_AUTOMATION_ENABLED` | `false` | Master switch for the real browser behind `browse_page` and UI screenshots. Off by default. Also a Platform Control. When it is off, or the browser fails to start (a Browserbase 5xx or 403), `browse_page` returns the page's plain text from `fetch_url` with a note, and after a start failure the browser is skipped for 10 minutes instead of being retried on every call. |
 | `BROWSERBASE_API_KEY` | (empty) | Browserbase API key. When set, agents use the remote cloud browser (no local Chromium). Secret — env-only, never committed. |
 | `BROWSERBASE_PROJECT_ID` | (empty) | Optional Browserbase project ID, appended to the CDP connect URL. |
 | `PLAYWRIGHT_MCP_URL` | (empty) | Optional external Playwright MCP server (`npx @playwright/mcp --port <n>`). Set this instead of Browserbase to route browser tools through an MCP server. |
@@ -470,7 +473,7 @@ Full guide: [`docs/governance/README.md`](governance/README.md).
 | `GOVERNANCE_SANDBOX_BACKEND` | `auto` | `auto` \| `docker` \| `e2b` \| `local`. `auto` probes Docker, then E2B, then falls back to `local`. Pin only when the probe order is wrong for your install. |
 | `GOVERNANCE_AUDIT_CAPACITY` | `2000` | Ring-buffer size for the API and dashboard. The durable record is the `governance.audit.events` log stream — past ~100 concurrent agents this buffer covers minutes, not hours, so SIEM shipping stops being optional. |
 | `GOVERNANCE_APPROVAL_TTL_S` | `300` | How long an agent blocks on a human approval. On expiry the request is **denied**, not allowed — an approval gate that opens when ignored is theatre. |
-| `TASK_VERIFICATION_REQUIRED` | `true` | Rule 49 for agency tasks: a task reaches `done` only with a `PASS`/`PASS+NOTES` report from a verifier that did not do the work (the agent loop's judge, or a person). The judge's approval only counts when the run also executed a check (set `AGENT_EMPIRICAL_VERIFY=true` so agents run byte-compile and scoped tests); without one the task waits in `in_review`. A `FAIL` sends it back for rework, at most twice in a row, then parks it for a person. `false` lets an agent's own success mark the task done again. Live, editable under Settings → Platform controls. |
+| `TASK_VERIFICATION_REQUIRED` | `true` | Rule 49 for agency tasks: a task reaches `done` only with a `PASS`/`PASS+NOTES` report from a verifier that did not do the work (the agent loop's judge, or a person). The judge's approval only counts when the run also executed a check (`AGENT_EMPIRICAL_VERIFY`, on by default, has agents run byte-compile and scoped tests), and a UI change only counts with a screenshot of each changed page (`AGENT_UI_EVIDENCE`); without one the task waits in `in_review`. A `FAIL` sends it back for rework, at most twice in a row, then parks it for a person. `false` lets an agent's own success mark the task done again. Live, editable under Settings → Platform controls. |
 | `GOVERNANCE_SESSION_GRANTS_ENABLED` | `true` | Allow an admin to widen an approval into a session-scoped grant (`action` or `session` scope) so the same agent session is not asked again. `false` makes approve ignore the scope and enforcement never consult grants. Live, editable under Settings → Platform controls. Grants never apply to the `credential` surface and never override a DENY. |
 | `GOVERNANCE_GRANT_TTL_S` | `3600` | Lifetime of a session approval grant, in seconds. Expired grants are ignored and pruned. Live. |
 | `GOVERNANCE_AUTO_APPROVE` | `false` | Self-approve approval-gated actions. Local development only. Audited as `resolved_by=auto-approve` whenever it fires, so its use is always visible in the trail. |
@@ -535,6 +538,19 @@ Run `setup_ngrok.py` once to populate these automatically. Get your token free a
 
 ---
 
+
+## E2B sandbox
+
+Agency tasks run their edits, git and checks inside an E2B micro-VM when it is
+enabled (`services/e2b_config.py` is the only reader of these variables).
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `E2B_ENABLED` | unset | `true` opts in (a bare key is not enough); `false` is a kill switch. `RUNTIME_E2B_ENABLED=true` and `AGENT_SANDBOX_MODE=e2b` also opt in. |
+| `E2B_API_KEY` | unset | Secret, env-only. |
+| `E2B_TEMPLATE` | `base` | Sandbox template. A custom template with the target repo's dependencies preinstalled lets `AGENT_EMPIRICAL_VERIFY` run its tests in the sandbox instead of skipping them for missing modules. |
+| `E2B_TIMEOUT_SEC` | `660` | Idle lifetime in seconds, clamped to 30–1800. Refreshed on every tool call (at most once a minute), so a busy run never loses its sandbox; keep it above `TASK_EXECUTION_TIMEOUT_SEC` (600). At the old 300s default the sandbox died mid-task and the task was re-queued in a loop. |
+| `E2B_SANDBOX_METADATA` | unset | Optional `key=value,key=value` metadata passed to the sandbox. |
 
 ## Workspace Isolation
 

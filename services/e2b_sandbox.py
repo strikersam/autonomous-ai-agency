@@ -46,6 +46,7 @@ import json as _json
 import logging
 import os
 import tarfile
+import time
 from typing import Any
 
 from agent.mcp_client import MCPUnavailableError
@@ -59,6 +60,8 @@ log = logging.getLogger("qwen-proxy")
 # E2B's default cwd is /home/user; we clone/seed into /home/user/repo and
 # cd into it for every command.
 SANDBOX_WORKDIR = "/home/user/repo"
+# How often call_tool refreshes the sandbox lifetime (E2BSandboxSession._keepalive).
+_KEEPALIVE_EVERY_S = 60.0
 
 
 def _scrub_token(text: str, token: str | None) -> str:
@@ -112,6 +115,8 @@ class E2BSandboxSession:
             raise MCPUnavailableError("E2B_API_KEY not set; cannot open sandbox")
         self._sandbox: Any = None  # e2b_code_interpreter.AsyncSandbox
         self._closed = False
+        self._last_keepalive = 0.0
+        self._preview_hosts: dict[int, str] = {}
         # Track whether the working dir has been seeded (clone or seed_from_worktree).
         # Used by extract_changes_to_worktree to decide whether extraction is safe.
         self._seeded = False
@@ -182,6 +187,7 @@ class E2BSandboxSession:
         if not self.is_open:
             raise MCPUnavailableError("E2B sandbox not open")
         sb = self._sandbox
+        await self._keepalive(sb)
         try:
             if name == "write_file":
                 return await self._write_file(sb, arguments)
@@ -210,6 +216,47 @@ class E2BSandboxSession:
             raise
         except Exception as exc:
             raise MCPUnavailableError(f"E2B call_tool({name}) failed: {exc}") from exc
+
+    async def _keepalive(self, sb: Any) -> None:
+        """Push the sandbox's expiry out while the agent is still using it.
+
+        The lifetime set at create time is absolute; a run longer than it lost
+        the sandbox mid-task. Refreshed at most once a minute; best-effort.
+        """
+        now = time.monotonic()
+        if now - self._last_keepalive < _KEEPALIVE_EVERY_S:
+            return
+        self._last_keepalive = now
+        try:
+            await sb.set_timeout(self._config.timeout_sec)
+        except Exception as exc:  # noqa: BLE001 - keepalive must never fail a call
+            log.debug("E2B keepalive failed (best-effort): %s", exc)
+
+    async def preview_url(self, port: int = 4173) -> str | None:
+        """Serve the working directory over HTTP and return its public URL.
+
+        Starts ``python3 -m http.server`` in the background on *port* (once per
+        port) and returns ``https://<port>-<sandbox>.e2b.app`` so a browser
+        outside the sandbox can open pages the agent changed. None on failure.
+        """
+        if not self.is_open:
+            return None
+        sb = self._sandbox
+        if port not in self._preview_hosts:
+            try:
+                await sb.commands.run(
+                    f"cd {SANDBOX_WORKDIR} && python3 -m http.server {int(port)} --bind 0.0.0.0",
+                    background=True,
+                )
+                await sb.commands.run(
+                    f"for i in $(seq 1 20); do curl -s -o /dev/null http://127.0.0.1:{int(port)}/ && exit 0; sleep 0.25; done; exit 1",
+                    timeout=15,
+                )
+                self._preview_hosts[port] = sb.get_host(int(port))
+            except Exception as exc:  # noqa: BLE001 - preview is best-effort
+                log.warning("E2B preview server failed to start: %s", exc)
+                return None
+        return f"https://{self._preview_hosts[port]}"
 
     # ── File ops (all resolve against SANDBOX_WORKDIR) ─────────────────────
 
@@ -358,7 +405,12 @@ class E2BSandboxSession:
         try:
             result = await sb.commands.run(full_cmd, timeout=timeout)
         except Exception as exc:
-            raise MCPUnavailableError(f"run_command failed: {exc}") from exc
+            # The SDK raises CommandExitException for a non-zero exit. That is
+            # the command's answer (a failing test run), not a dead sandbox:
+            # return it, so callers do not fall back to host tools.
+            if getattr(exc, "exit_code", None) is None:
+                raise MCPUnavailableError(f"run_command failed: {exc}") from exc
+            result = exc
         stdout = getattr(result, "stdout", "") or ""
         stderr = getattr(result, "stderr", "") or ""
         exit_code = getattr(result, "exit_code", getattr(result, "returncode", 0))

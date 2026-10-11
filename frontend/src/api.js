@@ -319,6 +319,8 @@ export const runTask = (id) => API.post(`/api/tasks/${id}/run`);
 export const addTaskComment = (id, data) => API.post(`/api/tasks/${id}/comments`, data);
 export const approveTaskCheckpoint = (id, data) => API.post(`/api/tasks/${id}/approve`, data);
 export const recordTaskVerification = (id, data) => API.post(`/api/tasks/${id}/verification`, data);
+// Screenshot evidence is behind auth, so it is fetched as a blob, not an <img src>.
+export const getTaskScreenshot = (id, shotId) => API.get(`/api/tasks/${id}/screenshots/${shotId}`, { responseType: 'blob' });
 export const getTaskCounts = () => API.get('/api/tasks/counts');
 export const getDueSoonTasks = (withinHours = 24) =>
   API.get('/api/tasks/due-soon', { params: { within_hours: withinHours } });

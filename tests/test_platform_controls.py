@@ -571,3 +571,23 @@ def test_session_grant_controls_are_live_and_take_effect(clean_overrides):
     control_overrides.apply_overrides({})
     assert settings.governance_session_grants_enabled is True
     assert settings.governance_grant_ttl_s == 3600
+
+
+def test_agent_evidence_controls_are_live_and_take_effect(clean_overrides):
+    from agent import empirical_verify, ui_evidence
+    from packages.config import settings
+
+    for key in ("AGENT_EMPIRICAL_VERIFY", "AGENT_EMPIRICAL_VERIFY_TIMEOUT", "AGENT_UI_EVIDENCE"):
+        assert get_control(key).live is True
+    assert empirical_verify.enabled() and ui_evidence.enabled()
+    assert empirical_verify.timeout_s() == 120
+
+    control_overrides.apply_overrides({
+        "AGENT_EMPIRICAL_VERIFY": "false", "AGENT_EMPIRICAL_VERIFY_TIMEOUT": "300", "AGENT_UI_EVIDENCE": "false",
+    })
+    assert settings.agent_empirical_verify is False and empirical_verify.enabled() is False
+    assert empirical_verify.timeout_s() == 300
+    assert ui_evidence.enabled() is False
+
+    control_overrides.apply_overrides({})
+    assert empirical_verify.enabled() and ui_evidence.enabled()
