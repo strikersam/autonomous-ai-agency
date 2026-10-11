@@ -123,6 +123,32 @@ async def ensure_dependencies(session: Any) -> str | None:
     return note or None
 
 
+# Everything changed since the sandbox was seeded (its root commit), including
+# commits made inside the sandbox and new files the agent created.
+_SANDBOX_DIFF_CMD = (
+    "base=$(git rev-list --max-parents=0 HEAD 2>/dev/null | tail -n 1); "
+    "git diff --stat --patch ${base:-HEAD}; "
+    "git ls-files -z --others --exclude-standard | "
+    "xargs -0 -r -n 1 git diff --no-index -- /dev/null; true"
+)
+
+
+async def sandbox_diff(session: Any, max_chars: int = 12000) -> str:
+    """The diff of the agent's edits inside the E2B sandbox, for the judge.
+
+    The edits live in the sandbox, not on the host, so a host ``git diff``
+    sees nothing; without this the judge saw "Diff: (unavailable)" and
+    rejected every sandbox run. Returns "" when the diff cannot be read.
+    """
+    try:
+        raw = await session.call_tool("run_command", {"cmd": _SANDBOX_DIFF_CMD, "timeout": 60})
+        out = json.loads(raw).get("stdout") or ""
+    except Exception as exc:  # noqa: BLE001 - no diff is a gap, not a crash
+        log.warning("empirical verify: could not read the sandbox diff: %s", exc)
+        return ""
+    return out if len(out) <= max_chars else out[:max_chars] + f"\n… diff truncated ({len(out)} chars total)"
+
+
 async def verify_in_sandbox(session: Any, py_files: list[str]) -> CheckOutcome:
     """Byte-compile and run the scoped tests inside the E2B sandbox."""
     result = CheckOutcome()

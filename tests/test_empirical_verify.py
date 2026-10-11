@@ -257,3 +257,34 @@ def test_sandbox_pass_and_failure_are_logged(tmp_path, monkeypatch, caplog):
     ])
     asyncio.run(runner._empirical_verify_async(["mymod.py"]))
     assert "sandbox tests failed (exit 1, tests/test_mymod.py)" in caplog.text
+
+
+def test_sandbox_diff_reads_the_edits_from_the_sandbox(tmp_path, monkeypatch):
+    from agent import empirical_verify as ev
+
+    session = E2BSandboxSession([("git diff", 0, "diff --git a/mymod.py b/mymod.py\n+fixed\n")])
+    assert "+fixed" in asyncio.run(ev.sandbox_diff(session))
+    assert "ls-files -z --others" in session.cmds[0]  # new files are included too
+    long = E2BSandboxSession([("git diff", 0, "x" * 50)])
+    assert asyncio.run(ev.sandbox_diff(long, max_chars=10)).endswith("diff truncated (50 chars total)")
+
+
+def test_judge_sees_the_sandbox_diff_not_unavailable(tmp_path, monkeypatch):
+    # Production 2026-10-11: every sandbox run was REJECTED with "The diff is
+    # unavailable", because the judge brief only read the host repository.
+    from agent.models import AgentPlan, AgentStep
+
+    runner = _sandbox_runner(tmp_path, monkeypatch, [("git diff", 0, "diff --git a/mymod.py b/mymod.py\n+fixed\n")])
+    plan = AgentPlan(goal="fix mymod", steps=[AgentStep(id=1, description="d", files=["mymod.py"], type="edit")])
+    brief = asyncio.run(runner._judge_brief(plan, [{"status": "applied", "changed_files": ["mymod.py"]}], []))
+    assert "+fixed" in brief and "(unavailable)" not in brief
+
+
+def test_a_dead_sandbox_gives_no_diff_instead_of_raising():
+    from agent import empirical_verify as ev
+
+    class Dead(E2BSandboxSession):
+        async def call_tool(self, name, args):
+            raise RuntimeError("sandbox gone")
+
+    assert asyncio.run(ev.sandbox_diff(Dead([]))) == ""
