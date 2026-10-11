@@ -987,6 +987,7 @@ class AgentRunner:
                         "notes": "Judge produced no valid output after 3 attempts.",
                         "failure_phase": "judge",
                     }
+                log.info("Agent judge: %s (%s)", judge.get("verdict"), str(judge.get("notes") or "")[:300])
 
             # Rule 49 evidence for UI changes: screenshot the changed pages,
             # served from the sandbox, once the judge has approved the run.

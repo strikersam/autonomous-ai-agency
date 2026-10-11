@@ -105,4 +105,5 @@ async def _shoot(url: str, page: str) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 - storage failure is a gap, not a crash
         log.warning("UI evidence: could not store screenshot of %s: %s", page, exc)
         return {"page": page, "error": "screenshot could not be stored"}
+    log.info("UI evidence: screenshot %s stored for %s", shot_id, page)
     return {"page": page, "url": url, "shot_id": shot_id, "title": shot.get("title", "")}

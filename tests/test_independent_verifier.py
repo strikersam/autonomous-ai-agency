@@ -97,6 +97,14 @@ def test_approved_with_passing_tests_is_a_pass(monkeypatch):
     assert "Fix the cart total" in briefs[0] and "Opened" in briefs[0]
 
 
+def test_verdict_is_logged(monkeypatch, caplog):
+    caplog.set_level("INFO", logger="qwen-proxy")
+    _stub(monkeypatch)
+    asyncio.run(iv.verify(_task(), _result()))
+    assert "Independent verifier: APPROVED" in caplog.text
+    assert "checks passed=1, screenshots=0" in caplog.text
+
+
 def test_failing_tests_are_a_fail_whatever_the_reviewer_says(monkeypatch):
     _stub(monkeypatch, checks=(), issues=("Scoped tests failed: assert 41 == 42",))
     v = verification_from_run(asyncio.run(iv.verify(_task(), _result())))

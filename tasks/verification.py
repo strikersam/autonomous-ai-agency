@@ -308,6 +308,8 @@ def rework_or_park(task: Any, actor: str) -> tuple[Any, str | None, str]:
 
     verdict = task.verification
     prior = _automatic_failures(task)
+    log.info("Verification FAIL for %s (%s): %s", getattr(task, "task_id", "?"), verdict.verifier,
+             " | ".join(d[:200] for d in (verdict.defects_found or [])[:3]) or (verdict.notes or "")[:300])
     problems = "\n".join(f"- {d}" for d in (verdict.defects_found or [])) or f"- {verdict.notes or 'No detail given'}"
     task.comments.append(TaskComment(
         author=verdict.verifier,
