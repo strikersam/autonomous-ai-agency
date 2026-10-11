@@ -2,6 +2,7 @@ import React from 'react';
 import { useReportSub } from '../screenContext';
 import HubTabs from '../components/ui/HubTabs';
 import Spinner from '../components/ui/Spinner';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 const TaskBoardScreen = React.lazy(() => import('./TaskBoardScreen'));
 const SchedulesScreen = React.lazy(() => import('./SchedulesScreen'));
@@ -27,12 +28,14 @@ export default function WorkHub({ initialTab, isAdmin }) {
   return (
     <div>
       <HubTabs tabs={tabs} active={tab} onChange={setTab} />
+      <ErrorBoundary resetKey={tab}>
       <React.Suspense fallback={<Spinner center />}>
         {tab === 'now' && <TaskBoardScreen />}
         {tab === 'autopilot' && <SchedulesScreen />}
         {tab === 'roadmap' && <PortfolioScreen />}
         {tab === 'workflows' && <WorkflowScreen />}
       </React.Suspense>
+      </ErrorBoundary>
     </div>
   );
 }

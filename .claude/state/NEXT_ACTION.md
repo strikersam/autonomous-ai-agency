@@ -1,3 +1,9 @@
+# NEXT_ACTION — updated 2026-10-11 (UI revamp + rule 49 in code)
+
+Branch `claude/ui-revamp` → PR to master. Merge when CI is green (squash).
+
+1. Rule 49 is now enforced for agency tasks (`TASK_VERIFICATION_REQUIRED`, default on). Watch "Needs you" on Home after deploy: tasks whose run has no judge verdict (analysis-only tasks, non-internal runtimes) now wait for a person. Follow-up worth doing: have the agency run its verifier role automatically on those so a person is not the only fallback.
+2. Apper MCP connector is connected but has no projects; it cannot audit this repo or the live site.
 # NEXT_ACTION — updated 2026-10-10 (Octop-inspired features)
 
 Shipped from the Octop (TencentCloud/Octop) review, all merged: #1710 pre-push hook no longer leaks GIT_DIR into tests; #1711 per-user daily agent token cap (`AGENT_USER_TOKENS_PER_DAY`, off by default); #1712 lossless tool-output offload (`read_tool_output`); #1713 async specialist delegation (`AGENT_DELEGATION_ENABLED`, off by default); #1714 sticky session approval grants + runner identity. Follow-up branch `chore/finish-octop-followups` wires owner into the remaining runners.

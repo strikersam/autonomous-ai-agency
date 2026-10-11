@@ -1,0 +1,201 @@
+"""tasks/verification.py — rule 49: no task is done without an independent verdict.
+
+A task reaches DONE only when a verifier that did not do the work has returned
+PASS or PASS+NOTES. The verdict travels with the task as a report: what was
+checked, what was found broken, what got fixed, and the evidence behind it, so
+an operator can see the proof instead of trusting a "done".
+
+Two verifiers exist today:
+
+* the agent loop's **judge**, a separate role and model that reviews the whole
+  run after the executor and per-step verifier finish (``agent/loop.py``);
+* a **person** who reviews the result and accepts it.
+
+The gate lives in ``TaskWorkflowService.transition`` and ``create_task`` (both
+see the actor). Code that assigns ``task.status`` directly must call
+``settle_success`` instead; the two CEO-dispatch paths in ``backend/server.py``
+do. Re-opening a task retires its verdict, so a new run needs a new one. The
+gate is the ``TASK_VERIFICATION_REQUIRED`` platform control, on by default.
+"""
+
+from __future__ import annotations
+
+import logging
+import time
+from typing import Any, Literal, Union
+
+from pydantic import BaseModel, Field, field_validator
+
+log = logging.getLogger("qwen-proxy")
+
+Verdict = Literal["PASS", "PASS+NOTES", "FAIL"]
+PASSING: frozenset[str] = frozenset({"PASS", "PASS+NOTES"})
+_MAX_ITEMS = 40
+_MAX_ITEM_CHARS = 600
+
+# Actors that are software, not a person. Anything else is a human user id or
+# email. "telegram_bot" is deliberately absent: it relays a person's tap on
+# Approve in Telegram (telegram_bot.py), so that decision is a human one.
+_MACHINE_PREFIXES = (
+    "agent:", "agent-", "runtime:", "system:", "scheduler:", "ceo:", "workflow:",
+    "service:", "api_key:", "judge:", "verifier:",
+)
+_MACHINE_NAMES = frozenset({
+    "agent", "ceo", "system", "runtime", "scheduler", "internal_agent", "workflow", "judge", "verifier",
+})
+
+WAITING_REASON = "Waiting for an independent verifier (rule 49)"
+
+
+def _clip(items: list[str]) -> list[str]:
+    out = [str(i).strip()[:_MAX_ITEM_CHARS] for i in items if str(i).strip()]
+    return out[:_MAX_ITEMS]
+
+
+class TaskVerification(BaseModel):
+    """An independent verifier's report on a task's result."""
+
+    verdict: Verdict
+    verifier: str = Field(..., min_length=1, max_length=200)
+    checked: list[str] = Field(default_factory=list)
+    defects_found: list[str] = Field(default_factory=list)
+    fixed: list[str] = Field(default_factory=list)
+    evidence: list[str] = Field(default_factory=list)
+    notes: str = Field(default="", max_length=4000)
+    verified_at: Union[float, str] = Field(default_factory=time.time)
+
+    @field_validator("checked", "defects_found", "fixed", "evidence", mode="before")
+    @classmethod
+    def _bounded(cls, v: Any) -> list[str]:
+        return _clip(list(v or []))
+
+    @property
+    def passed(self) -> bool:
+        """True for PASS and PASS+NOTES."""
+        return self.verdict in PASSING
+
+
+def is_human_actor(actor: str | None) -> bool:
+    """A person (user id or email), as opposed to an agent, runtime or system."""
+    a = (actor or "").strip().lower()
+    return bool(a) and a not in _MACHINE_NAMES and not a.startswith(_MACHINE_PREFIXES)
+
+
+def human_acceptance(actor: str) -> TaskVerification:
+    """A person accepting the result is the independent verifier."""
+    return TaskVerification(
+        verdict="PASS",
+        verifier=actor,
+        checked=[f"Result reviewed and accepted by {actor}"],
+    )
+
+
+def _judge_verdict(judge: dict[str, Any]) -> Verdict | None:
+    raw = str(judge.get("verdict") or "").strip().upper()
+    if raw == "APPROVED":
+        notes_flag = any(str(judge.get(k, "")).upper() == "WARN" for k in ("security", "correctness"))
+        return "PASS+NOTES" if notes_flag else "PASS"
+    if raw == "APPROVED_WITH_CONDITIONS":
+        return "PASS+NOTES"
+    if raw in {"REJECTED", "BLOCKED"}:
+        return "FAIL"
+    return None
+
+
+def _step_lines(steps: list[dict[str, Any]]) -> tuple[list[str], list[str], list[str]]:
+    checked: list[str] = []
+    defects: list[str] = []
+    fixed: list[str] = []
+    for i, step in enumerate(steps, 1):
+        desc = str(step.get("description") or f"step {i}")[:200]
+        status = step.get("status")
+        files = step.get("changed_files") or []
+        if status == "applied":
+            what = f"{len(files)} file(s)" if files else "no file changes"
+            checked.append(f"Step {i} '{desc}': passed the step verifier ({what})")
+        elif status == "failed":
+            phase = step.get("failure_phase") or "execution"
+            issues = "; ".join(str(x) for x in (step.get("issues") or [])[:3]) or "no detail"
+            defects.append(f"Step {i} '{desc}' failed {phase}: {issues}")
+        for issue in step.get("resolved_issues") or []:
+            defects.append(f"Step {i} '{desc}': {issue}")
+            fixed.append(f"Step {i} '{desc}': fixed on retry, then passed: {issue}")
+    return checked, defects, fixed
+
+
+def verification_from_run(raw: dict[str, Any] | None) -> TaskVerification | None:
+    """Build the report from an agent-loop result; None if no judge ran.
+
+    The judge is a separate role that reviews the finished run, so its verdict
+    is the independent one. The per-step lines are the evidence behind it.
+    """
+    if not isinstance(raw, dict):
+        return None
+    judge = raw.get("judge") or {}
+    verdict = _judge_verdict(judge) if isinstance(judge, dict) else None
+    if verdict is None:
+        return None
+    checked, defects, fixed = _step_lines(list(raw.get("steps") or []))
+    for key in ("security", "correctness"):
+        if judge.get(key):
+            checked.append(f"Judge {key} review: {judge[key]}")
+    evidence = [f"Commit {c}" for c in (raw.get("commits") or [])][:10]
+    if raw.get("pr_url"):
+        evidence.append(f"Pull request {raw['pr_url']}")
+    evidence += [f"PR blocker: {b}" for b in (raw.get("pr_blockers") or [])]
+    if verdict == "FAIL" and judge.get("notes"):
+        defects.append(f"Judge: {judge['notes']}")
+    return TaskVerification(
+        verdict=verdict,
+        verifier="agent:judge",
+        checked=checked,
+        defects_found=defects,
+        fixed=fixed,
+        evidence=evidence,
+        notes=str(judge.get("notes") or "")[:4000],
+    )
+
+
+def verification_required() -> bool:
+    """Read the live ``TASK_VERIFICATION_REQUIRED`` control; default on."""
+    try:
+        from packages.config import settings
+
+        return bool(getattr(settings, "task_verification_required", True))
+    except Exception:
+        log.warning("verification control unreadable; enforcing rule 49", exc_info=True)
+        return True
+
+
+def has_passing_verdict(task: Any) -> bool:
+    """True when the task carries a PASS or PASS+NOTES report."""
+    v = getattr(task, "verification", None)
+    return bool(v is not None and getattr(v, "verdict", None) in PASSING)
+
+
+def settle_success(task: Any, raw_result: dict[str, Any] | None, *, actor: str) -> None:
+    """Mark a successful run DONE only if an independent verdict allows it.
+
+    For code paths that set ``task.status`` directly instead of going through
+    ``TaskWorkflowService.transition``. Attaches the judge's report when the run
+    produced one; without a PASS the task waits in review with that reason.
+    """
+    from tasks.models import TaskStatus
+
+    # Only this run's verdict counts: a verdict already on the task is about
+    # earlier work (these paths re-run tasks without going through transition).
+    task.verification = verification_from_run(raw_result)
+    if not verification_required() or has_passing_verdict(task):
+        task.status = TaskStatus.DONE
+        return
+    failed = task.verification is not None
+    task.status = TaskStatus.IN_REVIEW
+    task.review_reason = (
+        "Independent verification failed; needs rework or a human decision" if failed else WAITING_REASON
+    )
+    task.add_log(
+        f"Not marked done by {actor}: {task.review_reason}",
+        event_type="status_changed",
+        actor=actor,
+        task_status=TaskStatus.IN_REVIEW,
+    )

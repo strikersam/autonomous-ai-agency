@@ -8,7 +8,8 @@
   <link rel="canonical" href="https://autonomous-ai-agency.strikersam.workers.dev/">
   <meta name="robots" content="index,follow,max-snippet:-1,max-image-preview:large,max-video-preview:-1">
   <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt">
-  <meta name="theme-color" content="#0F0F13">
+  <meta name="theme-color" content="#f7f5f0" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1c1a17" media="(prefers-color-scheme: dark)">
   <link rel="icon" type="image/svg+xml" href="/logo.svg">
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Autonomous AI Agency">
@@ -81,57 +82,100 @@
     // Signed-in visitors go straight to the dashboard; everyone else (and every crawler) reads this page.
     try { if (localStorage.getItem("access_token")) location.replace("/v5"); } catch (e) {}
   </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
-    :root { --bg:#0F0F13; --panel:#17171f; --line:#2a2a36; --text:#ececf1; --muted:#a3a3b2; --accent:#6ea8ff; --ok:#3ecf8e; }
-    * { box-sizing:border-box; }
-    html { scroll-behavior:smooth; }
-    body { margin:0; background:var(--bg); color:var(--text); font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
-    a { color:var(--accent); }
-    .wrap { max-width:1080px; margin:0 auto; padding:0 20px; }
-    header.top { position:sticky; top:0; background:rgba(15,15,19,.92); backdrop-filter:blur(6px); border-bottom:1px solid var(--line); z-index:2; }
-    header.top .wrap { display:flex; align-items:center; gap:16px; height:60px; }
-    .brand { display:flex; align-items:center; gap:10px; font-weight:700; color:var(--text); text-decoration:none; }
-    .brand img { width:28px; height:28px; }
-    nav.primary { margin-left:auto; display:flex; gap:18px; align-items:center; flex-wrap:wrap; }
-    nav.primary a { color:var(--muted); text-decoration:none; font-size:15px; }
-    nav.primary a:hover { color:var(--text); }
-    .btn { display:inline-block; padding:10px 18px; border-radius:10px; font-weight:600; text-decoration:none; border:1px solid var(--line); color:var(--text); }
-    .btn.primary { background:var(--accent); color:#0b0b10; border-color:var(--accent); }
-    nav.primary .btn { color:var(--text); padding:6px 14px; }
-    .hero { padding:72px 0 40px; text-align:center; }
-    .hero h1 { font-size:clamp(32px,5vw,52px); line-height:1.1; margin:0 0 16px; letter-spacing:-.02em; }
-    .hero p.lead { color:var(--muted); font-size:clamp(17px,2.2vw,20px); max-width:760px; margin:0 auto 28px; }
-    .cta { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
-    .hero figure { margin:44px auto 0; max-width:900px; }
-    .hero img.shot { width:100%; height:auto; border-radius:16px; border:1px solid var(--line); }
-    .hero figcaption { color:var(--muted); font-size:14px; margin-top:8px; }
-    section { padding:56px 0; border-top:1px solid var(--line); }
-    h2 { font-size:clamp(24px,3.2vw,32px); margin:0 0 12px; letter-spacing:-.01em; }
-    .sub { color:var(--muted); margin:0 0 28px; max-width:760px; }
-    .grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); }
-    .card { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:20px; }
-    .card h3 { margin:0 0 6px; font-size:18px; }
-    .card p { margin:0; color:var(--muted); }
-    ol.flow { counter-reset:s; list-style:none; padding:0; margin:0; display:grid; gap:12px; }
-    ol.flow li { counter-increment:s; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px 14px 56px; position:relative; }
-    ol.flow li::before { content:counter(s); position:absolute; left:16px; top:13px; width:26px; height:26px; border-radius:50%; background:var(--accent); color:#0b0b10; font-weight:700; text-align:center; line-height:26px; font-size:14px; }
-    pre { background:#0a0a0e; border:1px solid var(--line); border-radius:12px; padding:16px; overflow-x:auto; font-size:14px; }
-    code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
-    ul.plain { padding-left:20px; margin:0; }
-    ul.plain li { margin:6px 0; }
-    .note { color:var(--muted); font-size:15px; }
-    .stat { font-size:28px; font-weight:700; color:var(--ok); }
-    footer { border-top:1px solid var(--line); padding:28px 0 40px; color:var(--muted); font-size:14px; }
-    footer .wrap { display:flex; gap:18px; flex-wrap:wrap; justify-content:space-between; }
-    footer a { color:var(--muted); }
-    form.go { display:inline; margin:0; }
-    button.btn, button.linklike { font:inherit; cursor:pointer; }
-    button.btn { background:transparent; }
-    button.linklike { background:none; border:0; padding:0; color:var(--muted); text-decoration:underline; font-size:inherit; }
-    @media (max-width:640px) { nav.primary a:not(.btn) { display:none; } }
+    :root {
+      color-scheme: light dark;
+      --bg: oklch(0.975 0.006 85); --panel: oklch(0.995 0.003 85); --sunk: oklch(0.95 0.008 85);
+      --line: oklch(0.2 0.02 70 / 0.12); --text: oklch(0.2 0.012 70); --muted: oklch(0.45 0.012 70);
+      --accent: oklch(0.5 0.16 258); --accent-hover: oklch(0.44 0.16 258); --on-accent: #fff; --ok: oklch(0.52 0.12 155);
+      --sans: "Instrument Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: oklch(0.17 0.006 75); --panel: oklch(0.205 0.007 75); --sunk: oklch(0.15 0.006 75);
+        --line: oklch(0.96 0.01 85 / 0.11); --text: oklch(0.96 0.006 85); --muted: oklch(0.74 0.01 85);
+        --accent: oklch(0.74 0.12 255); --accent-hover: oklch(0.8 0.1 255); --on-accent: oklch(0.18 0.03 258); --ok: oklch(0.76 0.13 158);
+      }
+    }
+    * { box-sizing: border-box; }
+    @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 17px/1.6 var(--sans); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+    ::selection { background: color-mix(in oklab, var(--accent) 25%, transparent); }
+    a { color: var(--accent); text-underline-offset: .18em; }
+    a:hover { color: var(--accent-hover); }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+    .skip { position: absolute; left: 12px; top: -60px; background: var(--accent); color: var(--on-accent); padding: 10px 14px; border-radius: 8px; z-index: 10; }
+    .skip:focus { top: 12px; }
+    .wrap { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+    header.top { position: sticky; top: 0; z-index: 5; background: color-mix(in oklab, var(--bg) 90%, transparent); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+    header.top .wrap { display: flex; align-items: center; gap: 16px; height: 64px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; color: var(--text); text-decoration: none; letter-spacing: -.01em; }
+    .brand img { width: 28px; height: 28px; }
+    nav.primary { margin-left: auto; display: flex; gap: 22px; align-items: center; }
+    nav.primary a { color: var(--muted); text-decoration: none; font-size: 15px; font-weight: 500; }
+    nav.primary a:hover { color: var(--text); }
+    .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 46px; padding: 10px 20px; border-radius: 10px; font: 600 16px/1.2 var(--sans); text-decoration: none; border: 1px solid var(--line); color: var(--text); background: var(--panel); cursor: pointer; transition: background-color .18s ease, border-color .18s ease, transform .12s ease; }
+    .btn:hover { border-color: color-mix(in oklab, var(--text) 30%, transparent); color: var(--text); }
+    .btn:active { transform: translateY(1px); }
+    .btn.primary { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+    .btn.primary:hover { background: var(--accent-hover); color: var(--on-accent); }
+    nav.primary .btn { min-height: 38px; padding: 6px 14px; font-size: 15px; }
+    .hero { padding: 88px 0 56px; border-top: 0; }
+    .hero h1 { font-size: clamp(40px, 7vw, 76px); line-height: 1.02; margin: 0 0 22px; letter-spacing: -.035em; font-weight: 650; max-width: 14ch; text-wrap: balance; }
+    .hero p.lead { color: var(--muted); font-size: clamp(18px, 2.2vw, 21px); max-width: 58ch; margin: 0 0 32px; text-wrap: pretty; }
+    .cta { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .cta .quiet { color: var(--muted); font-weight: 500; text-decoration: underline; padding: 10px 6px; }
+    .hero figure { margin: 64px 0 0; }
+    .hero img.shot { display: block; width: 100%; height: auto; border-radius: 16px; border: 1px solid var(--line); box-shadow: 0 2px 6px oklch(0.25 0.03 60 / .07), 0 30px 70px oklch(0.25 0.03 60 / .14); }
+    .hero figcaption { color: var(--muted); font-size: 15px; margin-top: 12px; }
+    section { padding: 80px 0; border-top: 1px solid var(--line); }
+    .split { display: grid; gap: 28px 64px; grid-template-columns: minmax(0, 1fr); }
+    .split > * { min-width: 0; }
+    @media (min-width: 900px) { .split { grid-template-columns: 320px minmax(0, 1fr); } .split > header { position: sticky; top: 100px; align-self: start; } }
+    h2 { font-size: clamp(28px, 3.6vw, 40px); line-height: 1.1; margin: 0 0 14px; letter-spacing: -.025em; font-weight: 650; text-wrap: balance; }
+    .sub { color: var(--muted); margin: 0; max-width: 60ch; }
+    .features { display: grid; gap: 0 48px; grid-template-columns: 1fr; margin: 0; }
+    @media (min-width: 700px) { .features { grid-template-columns: 1fr 1fr; } }
+    .features article { padding: 22px 0; border-top: 1px solid var(--line); }
+    .features h3 { margin: 0 0 6px; font-size: 19px; font-weight: 650; letter-spacing: -.01em; }
+    .features p { margin: 0; color: var(--muted); }
+    ol.flow { counter-reset: s; list-style: none; padding: 0; margin: 0; }
+    ol.flow li { counter-increment: s; position: relative; padding: 18px 0 18px 64px; border-top: 1px solid var(--line); color: var(--muted); }
+    ol.flow li strong { color: var(--text); display: block; font-size: 19px; font-weight: 650; margin-bottom: 2px; }
+    ol.flow li::before { content: counter(s); position: absolute; left: 0; top: 16px; width: 40px; height: 40px; border-radius: 10px; background: color-mix(in oklab, var(--accent) 12%, transparent); color: var(--accent); font-weight: 650; text-align: center; line-height: 40px; font-variant-numeric: tabular-nums; }
+    .proof { display: grid; gap: 0; }
+    .proof article { display: grid; gap: 4px 32px; grid-template-columns: 1fr; padding: 22px 0; border-top: 1px solid var(--line); }
+    @media (min-width: 700px) { .proof article { grid-template-columns: 240px 1fr; } }
+    .proof p { margin: 0; color: var(--muted); }
+    .stat { font-size: 26px; font-weight: 650; letter-spacing: -.02em; color: var(--text) !important; font-variant-numeric: tabular-nums; }
+    pre { background: var(--sunk); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; overflow-x: auto; font-size: 15px; line-height: 1.7; margin: 0 0 16px; }
+    code { font-family: var(--mono); }
+    ul.plain { padding: 0; margin: 0 0 18px; list-style: none; }
+    ul.plain li { padding: 14px 0 14px 28px; border-top: 1px solid var(--line); position: relative; }
+    ul.plain li::before { content: ""; position: absolute; left: 4px; top: 25px; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+    .note { color: var(--muted); font-size: 16px; margin: 0; }
+    .faq details { border-top: 1px solid var(--line); padding: 4px 0; }
+    .faq details:last-child { border-bottom: 1px solid var(--line); }
+    .faq summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 16px 0; }
+    .faq summary::-webkit-details-marker { display: none; }
+    .faq summary::after { content: "+"; font-size: 24px; color: var(--muted); line-height: 1; transition: transform .2s ease; }
+    .faq details[open] summary::after { transform: rotate(45deg); }
+    .faq summary h3 { margin: 0; font-size: 19px; font-weight: 600; }
+    .faq details p { margin: 0 0 18px; color: var(--muted); max-width: 64ch; }
+    footer { border-top: 1px solid var(--line); padding: 32px 0 48px; color: var(--muted); font-size: 15px; }
+    footer .wrap { display: flex; gap: 18px; flex-wrap: wrap; justify-content: space-between; }
+    footer a { color: var(--muted); }
+    form.go { display: inline; margin: 0; }
+    button.linklike { font: inherit; cursor: pointer; background: none; border: 0; padding: 0; color: var(--muted); text-decoration: underline; }
+    @media (max-width: 760px) { nav.primary a:not(.btn) { display: none; } .hero { padding: 56px 0 40px; } section { padding: 56px 0; } }
   </style>
 </head>
 <body>
+  <a class="skip" href="#main">Skip to content</a>
   <header class="top">
     <div class="wrap">
       <a class="brand" href="/" aria-label="Autonomous AI Agency home"><img src="/logo.svg" alt="" width="28" height="28">Autonomous AI Agency</a>
@@ -147,17 +191,17 @@
   </header>
 
   <main id="main">
-    <section class="hero" aria-labelledby="hero-title" style="border-top:0">
+    <section class="hero" aria-labelledby="hero-title">
       <div class="wrap">
         <h1 id="hero-title">An AI company that runs itself, on your servers</h1>
         <p class="lead">Paste a website URL and get a scored SEO, GEO and security audit. Then a CEO agent and a team of specialist agents plan the work, write the code, test it and open pull requests. The only thing they ask you for is the merge.</p>
         <div class="cta">
           <form class="go" action="/login" method="get"><button class="btn primary" type="submit">Try the live dashboard</button></form>
           <a class="btn" href="#self-host">Run it in one command</a>
-          <a class="btn" href="https://github.com/strikersam/autonomous-ai-agency">View the source</a>
+          <a class="quiet" href="https://github.com/strikersam/autonomous-ai-agency">View the source</a>
         </div>
         <figure>
-          <img class="shot" src="/og.jpg" width="1920" height="1080" alt="SAM, the agency's mascot, answering 'Brief me' with the CEO loop's live status and queuing the top roadmap item">
+          <img class="shot" fetchpriority="high" src="/og.jpg" width="1920" height="1080" alt="SAM, the agency's mascot, answering 'Brief me' with the CEO loop's live status and queuing the top roadmap item">
           <figcaption>SAM runs the agency from any screen. Anything risky still waits for you.</figcaption>
         </figure>
       </div>
@@ -165,23 +209,29 @@
 
     <section id="what-it-does" aria-labelledby="what-title">
       <div class="wrap">
-        <h2 id="what-title">What it does</h2>
-        <p class="sub">Self-hosted, MIT licensed, and OpenAI-compatible. Your code, customer data and prompts stay on infrastructure you control.</p>
-        <div class="grid">
-          <article class="card"><h3>Reads your business</h3><p>Scans a site's stack and runs a deterministic audit across SEO, GEO, AIO and security, with a 0–100 score and every finding priced.</p></article>
-          <article class="card"><h3>Staffs itself</h3><p>Provisions the specialist agents that business needs, coordinated by a CEO agent with a C-suite advisory board.</p></article>
-          <article class="card"><h3>Checks its own work</h3><p>Every change goes plan → execute → verify. It compiles and runs the tests before accepting a step; an LLM grading its own diff doesn't count.</p></article>
-          <article class="card"><h3>Fixes itself and learns</h3><p>Dashboard errors become fix tasks. Failures become lessons the planner reads next time, and repeated failures are filed as improvements.</p></article>
-          <article class="card"><h3>Stays on a leash</h3><p>Approval gates, a kill switch, per-agent daily spend caps, a policy engine and an audit trail. Nothing merges or deploys without you.</p></article>
-          <article class="card"><h3>Free models first</h3><p>Defaults to free NVIDIA NIM models and fails over across Cerebras, Groq and local Ollama, so the agency keeps working when a provider is down.</p></article>
+        <div class="split">
+          <header><h2 id="what-title">What it does</h2>
+        <p class="sub">Self-hosted, MIT licensed, and OpenAI-compatible. Your code, customer data and prompts stay on infrastructure you control.</p></header>
+          <div>
+        <div class="features">
+          <article><h3>Reads your business</h3><p>Scans a site's stack and runs a deterministic audit across SEO, GEO, AIO and security, with a 0–100 score and every finding priced.</p></article>
+          <article><h3>Staffs itself</h3><p>Provisions the specialist agents that business needs, coordinated by a CEO agent with a C-suite advisory board.</p></article>
+          <article><h3>Checks its own work</h3><p>Every change goes plan → execute → verify. It compiles and runs the tests before accepting a step; an LLM grading its own diff doesn't count.</p></article>
+          <article><h3>Fixes itself and learns</h3><p>Dashboard errors become fix tasks. Failures become lessons the planner reads next time, and repeated failures are filed as improvements.</p></article>
+          <article><h3>Stays on a leash</h3><p>Approval gates, a kill switch, per-agent daily spend caps, a policy engine and an audit trail. Nothing merges or deploys without you.</p></article>
+          <article><h3>Free models first</h3><p>Defaults to free NVIDIA NIM models and fails over across Cerebras, Groq and local Ollama, so the agency keeps working when a provider is down.</p></article>
+        </div>
+          </div>
         </div>
       </div>
     </section>
 
     <section id="how-it-works" aria-labelledby="how-title">
       <div class="wrap">
-        <h2 id="how-title">How it works</h2>
-        <p class="sub">The same loop for every piece of work, whether it starts from your goal, an audit finding or an error on the dashboard.</p>
+        <div class="split">
+          <header><h2 id="how-title">How it works</h2>
+        <p class="sub">The same loop for every piece of work, whether it starts from your goal, an audit finding or an error on the dashboard.</p></header>
+          <div>
         <ol class="flow">
           <li><strong>You give it a goal or a URL.</strong> Type it, or tell SAM.</li>
           <li><strong>The CEO agent plans.</strong> It breaks the goal into tasks and assigns specialists, prioritised by value and urgency.</li>
@@ -189,35 +239,47 @@
           <li><strong>A verifier checks every step.</strong> Code must compile and tests must pass before a step is kept; the PR carries the evidence.</li>
           <li><strong>You approve.</strong> A pull request waits for your review. Deploys, deletes, payments and messages always ask first.</li>
         </ol>
+          </div>
+        </div>
       </div>
     </section>
 
     <section id="proof" aria-labelledby="proof-title">
       <div class="wrap">
-        <h2 id="proof-title">Don't trust it, check the proof</h2>
-        <p class="sub">Most agent projects show a demo video. This one publishes its own output, including where it falls short.</p>
-        <div class="grid">
-          <article class="card"><p class="stat">Built by its own agents</p><p>A large share of this repository's merged pull requests were opened by AI agent sessions, each verifiable from its branch name. <a href="https://github.com/strikersam/autonomous-ai-agency/blob/master/proof/agent-built.md">See the count and how to check it</a>.</p></article>
-          <article class="card"><p class="stat">43.1 / 100</p><p>The audit engine run against this project's own docs page, published unedited with every finding. <a href="https://github.com/strikersam/autonomous-ai-agency/blob/master/proof/README.md">Read the self-audit</a>.</p></article>
-          <article class="card"><p class="stat">Open source</p><p>MIT licensed. Every gate, prompt and test is in the repository, with a public changelog of what changed and why. <a href="https://github.com/strikersam/autonomous-ai-agency/blob/master/CHANGELOG.md">Changelog</a>.</p></article>
+        <div class="split">
+          <header><h2 id="proof-title">Don't trust it, check the proof</h2>
+        <p class="sub">Most agent projects show a demo video. This one publishes its own output, including where it falls short.</p></header>
+          <div>
+        <div class="proof">
+          <article><p class="stat">Built by its own agents</p><p>A large share of this repository's merged pull requests were opened by AI agent sessions, each verifiable from its branch name. <a href="https://github.com/strikersam/autonomous-ai-agency/blob/master/proof/agent-built.md">See the count and how to check it</a>.</p></article>
+          <article><p class="stat">43.1 / 100</p><p>The audit engine run against this project's own docs page, published unedited with every finding. <a href="https://github.com/strikersam/autonomous-ai-agency/blob/master/proof/README.md">Read the self-audit</a>.</p></article>
+          <article><p class="stat">Open source</p><p>MIT licensed. Every gate, prompt and test is in the repository, with a public changelog of what changed and why. <a href="https://github.com/strikersam/autonomous-ai-agency/blob/master/CHANGELOG.md">Changelog</a>.</p></article>
+        </div>
+          </div>
         </div>
       </div>
     </section>
 
     <section id="self-host" aria-labelledby="self-title">
       <div class="wrap">
-        <h2 id="self-title">Run it in one command</h2>
-        <p class="sub">No cloud account, no database server, no Docker. SQLite storage, the dashboard and the 24×7 loops run in one process.</p>
+        <div class="split">
+          <header><h2 id="self-title">Run it in one command</h2>
+        <p class="sub">No cloud account, no database server, no Docker. SQLite storage, the dashboard and the 24×7 loops run in one process.</p></header>
+          <div>
 <pre><code>git clone https://github.com/strikersam/autonomous-ai-agency.git
 cd autonomous-ai-agency
 ./scripts/quickstart.sh          # or: make up</code></pre>
         <p class="note">Open http://localhost:8001/ and sign in with the credentials the script prints. Requires Python 3.11+ and Node 20+. A free NVIDIA NIM key gives top-tier output with no GPU. <a href="https://github.com/strikersam/autonomous-ai-agency/blob/master/docs/local-setup.md">Setup guide</a>.</p>
+          </div>
+        </div>
       </div>
     </section>
 
     <section id="who" aria-labelledby="who-title">
       <div class="wrap">
-        <h2 id="who-title">Who it's for</h2>
+        <div class="split">
+          <header><h2 id="who-title">Who it's for</h2></header>
+          <div>
         <ul class="plain">
           <li>Teams paying per seat for AI dev and ops tools who want the same leverage on infrastructure they control.</li>
           <li>Anyone who needs agents that can write to production without choosing between no gates and a human on every step.</li>
@@ -225,18 +287,24 @@ cd autonomous-ai-agency
           <li>Organisations that care where their code, customer data and prompts go.</li>
         </ul>
         <p class="note">If you only want help writing code in one repository, a coding assistant such as Claude Code, Cursor or Aider is a better fit.</p>
+          </div>
+        </div>
       </div>
     </section>
     <section id="faq" aria-labelledby="faq-title">
       <div class="wrap">
-        <h2 id="faq-title">Frequently asked questions</h2>
-        <div class="grid" style="grid-template-columns:1fr">
-        <details class="card"><summary><h3 style="display:inline">What is Autonomous AI Agency?</h3></summary><p>A self-hosted, MIT-licensed, OpenAI-compatible AI proxy and multi-agent platform. A CEO agent coordinates specialist agents that plan, build, test and open pull requests for your approval.</p></details>
-        <details class="card"><summary><h3 style="display:inline">Does it merge or deploy code on its own?</h3></summary><p>No. Every change goes plan, execute, verify, then waits as a pull request for your review. Deploys, deletes, payments and messages always ask first.</p></details>
-        <details class="card"><summary><h3 style="display:inline">What does the website audit check?</h3></summary><p>A deterministic audit across SEO, GEO, AIO and security, with a 0-100 score and every finding priced. You can paste any website URL to run it.</p></details>
-        <details class="card"><summary><h3 style="display:inline">Which AI models does it use?</h3></summary><p>It defaults to free NVIDIA NIM models and fails over across Cerebras, Groq and local Ollama, so the agency keeps working when a provider is down.</p></details>
-        <details class="card"><summary><h3 style="display:inline">How do I run it myself?</h3></summary><p>Clone the repository and run ./scripts/quickstart.sh. It needs Python 3.11+ and Node 20+, uses SQLite storage, and needs no cloud account or Docker.</p></details>
-        <details class="card"><summary><h3 style="display:inline">Is it free?</h3></summary><p>Yes. It is open source under the MIT licence and free to self-host.</p></details>
+        <div class="split">
+          <header><h2 id="faq-title">Frequently asked questions</h2></header>
+          <div>
+        <div class="faq">
+        <details><summary><h3 style="display:inline">What is Autonomous AI Agency?</h3></summary><p>A self-hosted, MIT-licensed, OpenAI-compatible AI proxy and multi-agent platform. A CEO agent coordinates specialist agents that plan, build, test and open pull requests for your approval.</p></details>
+        <details><summary><h3 style="display:inline">Does it merge or deploy code on its own?</h3></summary><p>No. Every change goes plan, execute, verify, then waits as a pull request for your review. Deploys, deletes, payments and messages always ask first.</p></details>
+        <details><summary><h3 style="display:inline">What does the website audit check?</h3></summary><p>A deterministic audit across SEO, GEO, AIO and security, with a 0-100 score and every finding priced. You can paste any website URL to run it.</p></details>
+        <details><summary><h3 style="display:inline">Which AI models does it use?</h3></summary><p>It defaults to free NVIDIA NIM models and fails over across Cerebras, Groq and local Ollama, so the agency keeps working when a provider is down.</p></details>
+        <details><summary><h3 style="display:inline">How do I run it myself?</h3></summary><p>Clone the repository and run ./scripts/quickstart.sh. It needs Python 3.11+ and Node 20+, uses SQLite storage, and needs no cloud account or Docker.</p></details>
+        <details><summary><h3 style="display:inline">Is it free?</h3></summary><p>Yes. It is open source under the MIT licence and free to self-host.</p></details>
+        </div>
+          </div>
         </div>
       </div>
     </section>

@@ -280,7 +280,7 @@ class TestReasonsAreActionable:
     def test_frontend_colours_available_green(self):
         """A backend-served server reads as healthy, not as a warning."""
         src = (REPO_ROOT / "frontend/src/v5/screens/ProvidersScreen.jsx").read_text()
-        assert "available:'#46d9a4'" in src
+        assert "available:'var(--success)'" in src
 
 
 # ── the screen this backs ─────────────────────────────────────────────────────

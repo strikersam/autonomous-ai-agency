@@ -1,5 +1,6 @@
 /* eslint-disable jsx-a11y/anchor-is-valid, no-unused-vars -- ported design prototype; hardened when wired to live data */
 import React from 'react';
+import { Icon } from '../AppShell';
 import * as api from '../../api';
 
 
@@ -14,18 +15,18 @@ const QUEUED_NOTES = [
 
 function NoteStatusPill({ status }) {
   const map = {
-    queued:     { color: '#7c9dff', bg: 'rgba(124,157,255,0.10)', label: 'Queued' },
-    processing: { color: '#ffbd66', bg: 'rgba(255,189,102,0.10)', label: 'In progress', pulse: true },
-    done:       { color: '#46d9a4', bg: 'rgba(70,217,164,0.08)',  label: 'Done' },
-    failed:     { color: '#ff6b7d', bg: 'rgba(255,107,125,0.10)', label: 'Failed' },
+    queued:     { color: 'var(--accent)', bg: 'color-mix(in oklab, var(--accent) 10%, transparent)', label: 'Queued' },
+    processing: { color: 'var(--warning)', bg: 'color-mix(in oklab, var(--warning) 10%, transparent)', label: 'In progress', pulse: true },
+    done:       { color: 'var(--success)', bg: 'color-mix(in oklab, var(--success) 8%, transparent)',  label: 'Done' },
+    failed:     { color: 'var(--danger)', bg: 'color-mix(in oklab, var(--danger) 10%, transparent)', label: 'Failed' },
   };
   const s = map[status] || map.queued;
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 4,
-      fontSize: 9, fontFamily: 'var(--font-mono)', letterSpacing: '0.10em', textTransform: 'uppercase',
+      fontSize:13, fontVariantNumeric:'tabular-nums',
       padding: '2px 7px', borderRadius: 999, color: s.color, background: s.bg,
-      border: `1px solid ${s.color}28`,
+      border: `1px solid color-mix(in oklab, ${s.color} 16%, transparent)`,
     }}>
       <span style={{ width: 5, height: 5, borderRadius: '50%', background: s.color, animation: s.pulse ? 'pulse 1.5s infinite' : 'none' }}/>
       {s.label}
@@ -143,106 +144,78 @@ function QuickNotes({ onClose }) {
   const handleKey = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } };
 
   return (
-    <div style={{
-      position: 'fixed', bottom: 80, right: 16, zIndex: 200,
-      width: 'min(380px, calc(100vw - 32px))',
-      borderRadius: 20,
-      background: 'rgba(12,14,18,0.97)',
-      border: '1px solid rgba(255,255,255,0.12)',
-      boxShadow: '0 24px 60px rgba(0,0,0,0.5)',
-      backdropFilter: 'blur(20px)',
-      animation: 'fadeSlideUp 0.25s ease-out',
-      overflow: 'hidden',
-    }}>
-      {/* Header */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '14px 16px 12px',
-        borderBottom: '1px solid rgba(255,255,255,0.08)',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div style={{
-            width: 26, height: 26, borderRadius: 8,
-            background: 'linear-gradient(135deg, rgba(93,162,255,0.20), rgba(93,162,255,0.08))',
-            border: '1px solid rgba(93,162,255,0.25)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13,
-          }}>📝</div>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>Quick Notes</div>
-            <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-              {ghConnected ? 'GitHub connected → full implement → PR → review → merge pipeline' : 'iPhone Shortcut → Dev Agent → git push'}
-            </div>
+    <div className="shell-popover" role="dialog" aria-label="Quick notes">
+      <div className="shell-popover-head">
+        <div style={{ minWidth: 0 }}>
+          <div className="shell-popover-title">Quick notes</div>
+          <div style={{ fontSize:14, color: 'var(--text-muted)', lineHeight: 1.4 }}>
+            {ghConnected ? 'Each note becomes a GitHub issue your agents build, review and merge.' : 'Jot an idea or paste a link. Your developer agent picks it up.'}
           </div>
         </div>
-        <button onClick={onClose} style={{
-          width: 28, height: 28, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: 'rgba(255,255,255,0.05)', border: 'none', cursor: 'pointer', color: 'var(--text-muted)',
-        }}
-        onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.10)'; e.currentTarget.style.color = '#fff'; }}
-        onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'var(--text-muted)'; }}>
-          ✕
+        <button type="button" className="shell-icon-btn" aria-label="Close quick notes" onClick={onClose}>
+          <Icon name="X" size={18}/>
         </button>
       </div>
 
       {/* Composer */}
-      <div style={{ padding: '12px 14px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+      <div style={{ padding: '12px 14px', borderBottom: '1px solid color-mix(in oklab, var(--ink) 7%, transparent)' }}>
         <div style={{
           display: 'flex', alignItems: 'flex-end', gap: 8,
           padding: '10px 12px',
-          background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.10)',
+          background: 'color-mix(in oklab, var(--ink) 4%, transparent)', border: '1px solid color-mix(in oklab, var(--ink) 10%, transparent)',
           borderRadius: 14, transition: 'border-color 0.2s',
         }}>
           <textarea ref={textareaRef}
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKey}
-            placeholder="Paste a URL or type an idea — Dev Agent will implement it…"
+            aria-label="New note" placeholder="Paste a link or describe an idea…"
             rows={2}
             style={{
-              flex: 1, background: 'transparent', border: 'none', outline: 'none', resize: 'none',
-              fontSize: 13, color: '#fff', fontFamily: 'var(--font-main)', lineHeight: 1.5,
+              flex: 1, background: 'transparent', border: 'none', outline: 'none', resize: 'none', padding: 0, boxShadow: 'none',
+              fontSize: 15, color: 'var(--text-primary)', fontFamily: 'var(--font-main)', lineHeight: 1.5,
             }}
           />
-          <button onClick={submit} disabled={!input.trim() || sending} style={{
-            width: 30, height: 30, borderRadius: 9, flexShrink: 0,
-            background: input.trim() && !sending ? 'var(--accent)' : 'rgba(255,255,255,0.08)',
+          <button type="button" aria-label="Send note" onClick={submit} disabled={!input.trim() || sending} style={{
+            width: 36, height: 36, borderRadius: 8, flexShrink: 0,
+            background: input.trim() && !sending ? 'var(--accent)' : 'color-mix(in oklab, var(--ink) 8%, transparent)',
             border: 'none', cursor: input.trim() && !sending ? 'pointer' : 'not-allowed',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             transition: 'all 0.2s ease',
           }}>
             {sending
-              ? <div style={{ width: 12, height: 12, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.2)', borderTopColor: '#fff', animation: 'spin 0.8s linear infinite' }}/>
-              : <span style={{ fontSize: 14, color: input.trim() ? '#06111f' : 'var(--text-muted)' }}>↑</span>
+              ? <div style={{ width: 12, height: 12, borderRadius: '50%', border: '2px solid color-mix(in oklab, var(--ink) 20%, transparent)', borderTopColor:'currentColor', animation: 'spin 0.8s linear infinite' }}/>
+              : <Icon name="ArrowUp" size={16} style={{ color: input.trim() ? 'var(--on-accent)' : 'var(--text-muted)' }}/>
             }
           </button>
         </div>
         {sent && (
-          <div style={{ marginTop: 8, fontSize: 11, color: '#46d9a4', fontFamily: 'var(--font-mono)', animation: 'fadeSlideUp 0.2s ease-out' }}>
-            ✓ {ghConnected ? 'GitHub issue created — agents will implement, review, and auto-merge when green.' : 'Queued — Dev Agent will implement this shortly.'}
+          <div style={{ marginTop: 8, fontSize:13, color: 'var(--success)', fontVariantNumeric:'tabular-nums', animation: 'fadeSlideUp 0.2s ease-out' }}>
+            {ghConnected ? 'GitHub issue created — agents will implement, review, and auto-merge when green.' : 'Queued — Dev Agent will implement this shortly.'}
           </div>
         )}
-        <div style={{ marginTop: 7, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>
-          <span>Also available via iPhone Shortcut → POST /v1/quick-notes</span>
-          <span>⏎ send</span>
+        <div style={{ marginTop: 7, fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>
+          <span>Also works from an iPhone Shortcut</span>
+          <span>Enter to send</span>
         </div>
       </div>
 
       {/* Queue */}
       <div style={{ maxHeight: 220, overflowY: 'auto' }} className="scrollbar-hide">
-        <div style={{ padding: '8px 14px 4px', fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Queue ({notes.length})</div>
+        <div style={{ padding: '8px 14px 4px', fontSize:13, color: 'var(--text-muted)' }}>Queue ({notes.length})</div>
         {notes.map(note => (
           <div key={note.id} style={{
             display: 'flex', alignItems: 'flex-start', gap: 8, padding: '9px 14px',
-            borderBottom: '1px solid rgba(255,255,255,0.04)',
+            borderBottom: '1px solid color-mix(in oklab, var(--ink) 4%, transparent)',
           }}>
-            <span style={{ fontSize: 13, flexShrink: 0, marginTop: 1 }}>{note.type === 'url' ? '🔗' : '📝'}</span>
+            <Icon name={note.type === 'url' ? 'Link' : 'NotePen'} size={15} style={{ flexShrink: 0, marginTop: 2, color: 'var(--text-muted)' }}/>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{
-                fontSize: 12, color: note.status === 'done' ? 'var(--text-muted)' : 'var(--text-secondary)',
+                fontSize:13, color: note.status === 'done' ? 'var(--text-muted)' : 'var(--text-secondary)',
                 lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                 textDecoration: note.status === 'done' ? 'line-through' : 'none',
               }}>{note.text}</div>
-              <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', marginTop: 2 }}>{note.ago}</div>
+              <div style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)', marginTop: 2 }}>{note.ago}</div>
             </div>
             <NoteStatusPill status={note.status}/>
           </div>
@@ -252,28 +225,16 @@ function QuickNotes({ onClose }) {
   );
 }
 
-// Floating trigger button — rendered outside AppShell so it's always on top
+// Header trigger; the panel opens as a popover under the header.
 function QuickNotesFAB({ visible }) {
   const [open, setOpen] = React.useState(false);
   if (!visible) return null;
   return (
     <>
       {open && <QuickNotes onClose={() => setOpen(false)}/>}
-      <button onClick={() => setOpen(o => !o)} style={{
-        position: 'fixed', bottom: 88, right: 16, zIndex: 100,
-        width: 44, height: 44, borderRadius: '50%',
-        background: open ? 'rgba(93,162,255,0.25)' : 'rgba(14,17,22,0.92)',
-        border: `1px solid ${open ? 'rgba(93,162,255,0.45)' : 'rgba(255,255,255,0.15)'}`,
-        boxShadow: '0 4px 16px rgba(0,0,0,0.4)',
-        backdropFilter: 'blur(12px)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        cursor: 'pointer', fontSize: 18, transition: 'all 0.2s ease',
-        transform: open ? 'scale(1.05)' : 'scale(1)',
-      }}
-      title="Quick Notes"
-      onMouseEnter={e => { if (!open) e.currentTarget.style.background = 'rgba(93,162,255,0.15)'; }}
-      onMouseLeave={e => { if (!open) e.currentTarget.style.background = 'rgba(14,17,22,0.92)'; }}>
-        {open ? <span style={{ fontSize: 14, color: 'var(--accent)' }}>✕</span> : '📝'}
+      <button type="button" className="shell-icon-btn" onClick={() => setOpen(o => !o)}
+        aria-expanded={open} aria-haspopup="dialog" aria-label="Quick notes" title="Quick notes">
+        <Icon name="NotePen" size={20}/>
       </button>
     </>
   );

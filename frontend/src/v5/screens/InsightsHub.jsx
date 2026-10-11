@@ -2,6 +2,7 @@ import React from 'react';
 import { useReportSub } from '../screenContext';
 import HubTabs from '../components/ui/HubTabs';
 import Spinner from '../components/ui/Spinner';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 const LogsScreen = React.lazy(() => import('./LogsScreen'));
 const IntelligenceScreen = React.lazy(() => import('./IntelligenceScreen'));
@@ -21,10 +22,12 @@ export default function InsightsHub({ initialTab, onNavigate }) {
   return (
     <div>
       <HubTabs tabs={TABS} active={tab} onChange={setTab} />
+      <ErrorBoundary resetKey={tab}>
       <React.Suspense fallback={<Spinner center />}>
         {tab === 'activity' && <LogsScreen />}
         {tab === 'market' && <IntelligenceScreen onNavigate={onNavigate} />}
       </React.Suspense>
+      </ErrorBoundary>
     </div>
   );
 }

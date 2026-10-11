@@ -79,27 +79,27 @@ export default function LocalBrainToggleCard() {
   const hbStale = !hbFresh && hbAgeSec < 600;
 
   const pill = (() => {
-    if (!state) return { color: '#5b6478', label: 'loading…' };
+    if (!state) return { color: 'var(--text-muted)', label: 'loading…' };
     if (desired === 'off') {
       if (last.at && hbFresh && last.status === 'ok') {
-        return { color: '#ffbd66', label: 'OFF (was up — still running)' };
+        return { color: 'var(--warning)', label: 'OFF (was up — still running)' };
       }
-      return { color: '#5b6478', label: 'OFF' };
+      return { color: 'var(--text-muted)', label: 'OFF' };
     }
     // desired === 'on'
-    if (healthy && hbFresh)   return { color: '#46d9a4', label: 'ON — listening' };
-    if (healthy && hbStale)   return { color: '#ffbd66', label: 'ON — stale heartbeat' };
-    if (last.status === 'starting') return { color: '#5da2ff', label: 'ON — starting…' };
-    if (last.error)           return { color: '#ff6b7d', label: `ON — error: ${last.error.slice(0, 36)}` };
-    if (last.at)              return { color: '#ff6b7d', label: 'ON — unreachable' };
-    return { color: '#ffbd66', label: 'ON — waiting for first heartbeat' };
+    if (healthy && hbFresh)   return { color: 'var(--success)', label: 'ON — listening' };
+    if (healthy && hbStale)   return { color: 'var(--warning)', label: 'ON — stale heartbeat' };
+    if (last.status === 'starting') return { color: 'var(--accent)', label: 'ON — starting…' };
+    if (last.error)           return { color: 'var(--danger)', label: `ON — error: ${last.error.slice(0, 36)}` };
+    if (last.at)              return { color: 'var(--danger)', label: 'ON — unreachable' };
+    return { color: 'var(--warning)', label: 'ON — waiting for first heartbeat' };
   })();
 
   return (
     <div style={{
       borderRadius: 16,
-      border: `1px solid ${pill.color}33`,
-      background:  `${pill.color}08`,
+      border: `1px solid color-mix(in oklab, ${pill.color} 20%, transparent)`,
+      background:  `color-mix(in oklab, ${pill.color} 3%, transparent)`,
       padding:    '14px 16px',
       marginBottom: 14,
       display:    'flex',
@@ -110,63 +110,59 @@ export default function LocalBrainToggleCard() {
       {/* Status pill column */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: '1 1 280px', minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 13, fontWeight: 800, color: '#fff', letterSpacing: '-0.02em' }}>
+          <span style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)', letterSpacing: '-0.02em' }}>
             Local GLM-5.2 brain
           </span>
           <span style={{
-            fontSize: 9,
-            fontFamily: 'var(--font-mono)',
-            textTransform: 'uppercase',
-            letterSpacing: '0.10em',
+            fontSize:13,
+            fontVariantNumeric:'tabular-nums',
             padding: '2px 7px',
             borderRadius: 999,
-            background: `${pill.color}22`,
-            border:     `1px solid ${pill.color}55`,
+            background: `color-mix(in oklab, ${pill.color} 13%, transparent)`,
+            border:     `1px solid color-mix(in oklab, ${pill.color} 33%, transparent)`,
             color:       pill.color,
             fontWeight: 700,
-            animation: pill.color === '#46d9a4' ? 'pulse 2s infinite' : 'none',
+            animation: pill.color === 'var(--success)' ? 'pulse 2s infinite' : 'none',
           }}>
             {pill.label}
           </span>
           {leaseOwned && (
             <span title={lease.acquired_at} style={{
-              fontSize: 9,
-              fontFamily: 'var(--font-mono)',
+              fontSize:13,
+              fontVariantNumeric:'tabular-nums',
               padding: '2px 7px',
               borderRadius: 999,
-              background: 'rgba(70,217,164,0.10)',
-              border:     '1px solid rgba(70,217,164,0.30)',
-              color:       '#46d9a4',
-              textTransform: 'uppercase',
-              letterSpacing: '0.10em',
+              background: 'color-mix(in oklab, var(--success) 10%, transparent)',
+              border:     '1px solid color-mix(in oklab, var(--success) 30%, transparent)',
+              color:       'var(--success)',
             }}>
               leased: {(lease.machine_id || '').slice(0, 12)}…
             </span>
           )}
         </div>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6, maxWidth: 540 }}>
-          Toggle <strong style={{ color: '#46d9a4' }}>on</strong> to run the agency's brain on{' '}
+        <div style={{ fontSize:13, color: 'var(--text-muted)', lineHeight: 1.6, maxWidth: 540 }}>
+          Toggle <strong style={{ color: 'var(--success)' }}>on</strong> to run the agency's brain on{' '}
           <strong style={{ color: 'var(--text-secondary)' }}>this machine</strong> via{' '}
           <code style={{ fontFamily: 'var(--font-mono)' }}>llama-server.exe</code> serving{' '}
           <code style={{ fontFamily: 'var(--font-mono)' }}>glm-5.2</code> at port 8072. A daemon on the
           local box (see <code style={{ fontFamily: 'var(--font-mono)' }}>scripts/local_controller.py</code>)
           polls this toggle and starts the server. Works from any computer with the setup. Toggle{' '}
-          <strong style={{ color: '#ff6b7d' }}>off</strong> to fall back to cloud providers (NVIDIA,
+          <strong style={{ color: 'var(--danger)' }}>off</strong> to fall back to cloud providers (NVIDIA,
           GLM, Cerebras, Groq).
         </div>
-        <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-tertiary)', display: 'grid', gridTemplateColumns: '1fr 1fr', rowGap: 3, columnGap: 12 }}>
-          <span>desired: <span style={{ color: '#fff' }}>{desired}</span> · provider: <span style={{ color: '#fff' }}>{state?.desired?.provider || 'auto'}</span></span>
-          <span>last heartbeat: <span style={{ color: hbFresh ? '#46d9a4' : hbStale ? '#ffbd66' : '#ff6b7d' }}>
+        <div style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-tertiary)', display: 'grid', gridTemplateColumns: '1fr 1fr', rowGap: 3, columnGap: 12 }}>
+          <span>desired: <span style={{ color:'var(--text-primary)' }}>{desired}</span> · provider: <span style={{ color:'var(--text-primary)' }}>{state?.desired?.provider || 'auto'}</span></span>
+          <span>last heartbeat: <span style={{ color: hbFresh ? 'var(--success)' : hbStale ? 'var(--warning)' : 'var(--danger)' }}>
             {last.at ? `${last.at} (${Math.floor(hbAgeSec)}s ago)` : 'never'}
           </span></span>
-          <span>port state: <span style={{ color: '#fff' }}>{last.port_state || 'unknown'}</span></span>
-          <span>machine: <span style={{ color: '#fff' }}>{(last.machine_id || '—').slice(0, 16)}{(last.machine_id || '').length > 16 ? '…' : ''}</span></span>
+          <span>port state: <span style={{ color:'var(--text-primary)' }}>{last.port_state || 'unknown'}</span></span>
+          <span>machine: <span style={{ color:'var(--text-primary)' }}>{(last.machine_id || '—').slice(0, 16)}{(last.machine_id || '').length > 16 ? '…' : ''}</span></span>
         </div>
         {toggleErr && (
-          <div style={{ fontSize: 11, color: '#ff6b7d', fontFamily: 'var(--font-mono)' }}>{toggleErr}</div>
+          <div style={{ fontSize:13, color: 'var(--danger)', fontVariantNumeric:'tabular-nums' }}>{toggleErr}</div>
         )}
         {loadErr && (
-          <div style={{ fontSize: 11, color: '#ff6b7d', fontFamily: 'var(--font-mono)' }}>{loadErr}</div>
+          <div style={{ fontSize:13, color: 'var(--danger)', fontVariantNumeric:'tabular-nums' }}>{loadErr}</div>
         )}
       </div>
 
@@ -179,11 +175,11 @@ export default function LocalBrainToggleCard() {
             style={{
               padding:        '10px 22px',
               borderRadius:   12,
-              fontSize:       13,
+              fontSize:14,
               fontWeight:     800,
               cursor:         busy ? 'not-allowed' : 'pointer',
-              background:     'linear-gradient(135deg, #46d9a4, #2ecc71)',
-              color:          '#06111f',
+              background:     'linear-gradient(135deg, var(--success), var(--success))',
+              color:          'var(--on-accent)',
               border:         'none',
               opacity:        busy ? 0.6 : 1,
               transition:     'all 0.15s',
@@ -197,11 +193,11 @@ export default function LocalBrainToggleCard() {
             style={{
               padding:        '10px 22px',
               borderRadius:   12,
-              fontSize:       13,
+              fontSize:14,
               fontWeight:     800,
               cursor:         busy ? 'not-allowed' : 'pointer',
-              background:     'linear-gradient(135deg, #ff6b7d, #e74c3c)',
-              color:          '#06111f',
+              background:     'linear-gradient(135deg, var(--danger), #e74c3c)',
+              color:          'var(--on-accent)',
               border:         'none',
               opacity:        busy ? 0.6 : 1,
               transition:     'all 0.15s',
@@ -214,15 +210,13 @@ export default function LocalBrainToggleCard() {
           style={{
             padding:      '5px 12px',
             borderRadius: 9,
-            fontSize:     10,
-            fontFamily:   'var(--font-mono)',
+            fontSize:13,
+            fontVariantNumeric:'tabular-nums',
             fontWeight:   600,
             cursor:       'pointer',
-            background:   'rgba(255,255,255,0.04)',
-            border:       '1px solid rgba(255,255,255,0.10)',
+            background:   'color-mix(in oklab, var(--ink) 4%, transparent)',
+            border:       '1px solid color-mix(in oklab, var(--ink) 10%, transparent)',
             color:        'var(--text-muted)',
-            textTransform:'uppercase',
-            letterSpacing:'0.10em',
           }}
         >{showLease ? 'hide details' : 'show details'}</button>
       </div>
@@ -232,14 +226,14 @@ export default function LocalBrainToggleCard() {
           width:        '100%',
           padding:      10,
           borderRadius: 8,
-          background:   'rgba(255,255,255,0.03)',
-          border:       '1px solid rgba(255,255,255,0.06)',
-          fontSize:     10,
-          fontFamily:   'var(--font-mono)',
+          background:   'color-mix(in oklab, var(--ink) 3%, transparent)',
+          border:       '1px solid color-mix(in oklab, var(--ink) 6%, transparent)',
+          fontSize:13,
+          fontVariantNumeric:'tabular-nums',
           color:        'var(--text-muted)',
           lineHeight:   1.6,
         }}>
-          <div style={{ marginBottom: 6, color: '#fff', fontSize: 11 }}>heartbeat payload</div>
+          <div style={{ marginBottom: 6, color:'var(--text-primary)', fontSize:13 }}>heartbeat payload</div>
           <pre style={{ margin: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
 {JSON.stringify(state, null, 2)}
           </pre>

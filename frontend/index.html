@@ -3,12 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0F0F13" />
+  <meta name="theme-color" content="#f7f5f0" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#1c1a17" media="(prefers-color-scheme: dark)" />
   <!-- The app shell is not a landing page; "/" serves home.html, which is the indexed page. -->
   <meta name="robots" content="noindex" />
-  <meta name="description" content="Autonomous AI Agency v5.0 — Your AI-powered workforce. Self-hosted, CEO-coordinated agents, internet-connected trend intelligence, and 8 runtimes on your own hardware." />
+  <meta name="description" content="Your AI team, on your own hardware. Hand work to specialist agents, watch what they do, and approve anything that matters." />
   <link rel="icon" type="image/svg+xml" href="/logo.svg" />
-  <title>Autonomous AI Agency v5.0 — Your AI-powered workforce</title>
+  <title>Autonomous AI Agency v5.0</title>
 
   <!-- Schema.org structured data for the SPA dashboard -->
   <script type="application/ld+json">
@@ -28,7 +29,11 @@
   </script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>
+    // Apply a saved light/dark choice before first paint (see src/theme.js).
+    try { var t = localStorage.getItem('theme'); if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t); } catch (e) {}
+  </script>
 </head>
 <body>
   <div id="root"></div>

@@ -17,6 +17,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
+import Glyph from '../v5/components/ui/Glyph';
 import { useNavigate } from 'react-router-dom';
 import {
   getSetupState,
@@ -599,7 +600,7 @@ export default function SetupWizardPage({ onComplete }) {
     return (
       <div className="setup-wizard min-h-[100dvh] flex flex-col items-center justify-center p-4 sm:p-8">
         <div className="app-panel-elevated p-8 sm:p-10 text-center max-w-md w-full">
-          <div className="text-5xl mb-4">🎉</div>
+          <div className="text-5xl mb-4"><Glyph g="🎉"/></div>
           <h1 className="text-2xl font-bold text-[var(--text-primary)] mb-2">You're all set</h1>
           <p className="text-[var(--text-tertiary)] mb-6">Your AI Agent Control Plane is ready to use.</p>
           <button
@@ -620,7 +621,7 @@ export default function SetupWizardPage({ onComplete }) {
       <div className="lg:hidden sticky top-0 z-20 border-b app-glass px-4 py-3 flex items-center justify-between pt-[calc(env(safe-area-inset-top,0px)+0.75rem)]"
         style={{ borderColor: 'var(--border)' }}>
         <div>
-          <div className="text-sm font-bold text-[var(--text-primary)]">🧠 Setup Wizard</div>
+          <div className="text-sm font-bold text-[var(--text-primary)]"><Glyph g="🧠"/> Setup Wizard</div>
           <div className="text-[11px] text-[var(--text-muted)]">Step {step} of {STEPS.length}</div>
         </div>
         <button
@@ -648,7 +649,7 @@ export default function SetupWizardPage({ onComplete }) {
                 setShowStepMenu(false);
               }}
             >
-              <span className="text-xl">{s.icon}</span>
+              <span className="text-xl"><Glyph g={s.icon}/></span>
               <div>
                 <div className="text-sm font-medium">Step {s.num}</div>
                 <div className="text-xs opacity-80">{s.title}</div>
@@ -660,10 +661,10 @@ export default function SetupWizardPage({ onComplete }) {
       )}
 
       {/* Sidebar */}
-      <div className="hidden lg:flex w-[280px] bg-[rgba(5,6,8,0.92)] text-white p-6 flex-col border-r"
+      <div className="hidden lg:flex w-[280px] bg-[var(--bg-sidebar)] text-[var(--text-primary)] p-6 flex-col border-r"
         style={{ borderColor: 'var(--border)' }}>
         <div className="mb-8">
-          <div className="text-lg font-bold tracking-[-0.03em]">🧠 Setup Wizard</div>
+          <div className="text-lg font-bold tracking-[-0.03em]"><Glyph g="🧠"/> Setup Wizard</div>
           <div className="text-[var(--text-tertiary)] text-sm mt-1">{setupAlreadyCompleted ? 'Update your saved setup anytime' : "Let's get you started"}</div>
         </div>
         <nav className="space-y-1 flex-1">
@@ -676,7 +677,7 @@ export default function SetupWizardPage({ onComplete }) {
               }`}
               onClick={() => step > s.num && setStep(s.num)}
             >
-              <span className="text-xl">{s.icon}</span>
+              <span className="text-xl"><Glyph g={s.icon}/></span>
               <div>
                 <div className="text-sm font-medium">Step {s.num}</div>
                 <div className="text-xs opacity-70">{s.title}</div>
@@ -685,7 +686,7 @@ export default function SetupWizardPage({ onComplete }) {
             </div>
           ))}
         </nav>
-        <div className="text-[var(--text-muted)] text-xs mt-6 font-mono uppercase tracking-[0.16em]">Autonomous AI Agency · AI Control Plane</div>
+        <div className="text-[var(--text-muted)] text-xs mt-6 font-mono">Autonomous AI Agency · AI Control Plane</div>
       </div>
 
       {/* Main */}
@@ -734,11 +735,11 @@ export default function SetupWizardPage({ onComplete }) {
                   </div>
                   {connectError && (
                     <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700">
-                      ⚠ {connectError}
+                      <Glyph g="⚠"/> {connectError}
                     </div>
                   )}
                   <p className="text-xs text-amber-700 mt-2">
-                    ⚠ Steps will be saved locally until a backend is connected.
+                    <Glyph g="⚠"/> Steps will be saved locally until a backend is connected.
                   </p>
                 </>
               )}
@@ -787,7 +788,7 @@ export default function SetupWizardPage({ onComplete }) {
             {/* ── Step 1: Provider Setup ─────────────────────────────────── */}
             {step === 1 && (
               <div>
-                <h2 className="text-xl font-bold text-gray-800 mb-1">Provider Setup</h2>
+                <h2 className="text-xl font-bold text-gray-800 mb-1">Provider setup</h2>
                 <p className="text-gray-500 text-sm mb-6">Choose which AI providers you want to use. The default is free cloud inference — no local GPU needed.</p>
                 <div className="space-y-4">
 
@@ -814,7 +815,7 @@ export default function SetupWizardPage({ onComplete }) {
                     }} className="w-4 h-4" />
                     <div className="flex-1">
                       <div className="font-medium flex items-center gap-2">
-                        🟢 Nvidia NIM
+                        <Glyph g="🟢"/> Nvidia NIM
                         <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-800">Free</span>
                         <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-indigo-100 text-indigo-800">Recommended</span>
                       </div>
@@ -830,7 +831,7 @@ export default function SetupWizardPage({ onComplete }) {
                   <label className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
                     <input type="checkbox" checked={useOllama} onChange={e => setUseOllama(e.target.checked)} className="w-4 h-4" />
                     <div className="flex-1">
-                      <div className="font-medium">🦙 Ollama (Local)</div>
+                      <div className="font-medium"><Glyph g="🦙"/> Ollama (Local)</div>
                       <div className="text-sm text-gray-500">Run models locally on this machine (optional fallback)</div>
                     </div>
                   </label>
@@ -872,7 +873,7 @@ export default function SetupWizardPage({ onComplete }) {
                   <label className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
                     <input type="checkbox" checked={useOpenAI} onChange={e => setUseOpenAI(e.target.checked)} className="w-4 h-4" />
                     <div className="flex-1">
-                      <div className="font-medium">🌐 OpenAI</div>
+                      <div className="font-medium"><Glyph g="🌐"/> OpenAI</div>
                       <div className="text-sm text-gray-500">GPT-4o, GPT-4o-mini (requires API key)</div>
                     </div>
                   </label>
@@ -894,7 +895,7 @@ export default function SetupWizardPage({ onComplete }) {
                   <label className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
                     <input type="checkbox" checked={useAnthropic} onChange={e => setUseAnthropic(e.target.checked)} className="w-4 h-4" />
                     <div className="flex-1">
-                      <div className="font-medium">🔮 Anthropic</div>
+                      <div className="font-medium"><Glyph g="🔮"/> Anthropic</div>
                       <div className="text-sm text-gray-500">Claude 3.5 / 4 (requires API key)</div>
                     </div>
                   </label>
@@ -916,7 +917,7 @@ export default function SetupWizardPage({ onComplete }) {
                   <label className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
                     <input type="checkbox" checked={useGoogle} onChange={e => setUseGoogle(e.target.checked)} className="w-4 h-4" />
                     <div className="flex-1">
-                      <div className="font-medium">🔵 Google Gemini</div>
+                      <div className="font-medium"><Glyph g="🔵"/> Google Gemini</div>
                       <div className="text-sm text-gray-500">Gemini Pro / Flash (requires API key)</div>
                     </div>
                   </label>
@@ -938,7 +939,7 @@ export default function SetupWizardPage({ onComplete }) {
                   <label className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
                     <input type="checkbox" checked={useAzure} onChange={e => setUseAzure(e.target.checked)} className="w-4 h-4" />
                     <div className="flex-1">
-                      <div className="font-medium">🟦 Azure OpenAI</div>
+                      <div className="font-medium"><Glyph g="🟦"/> Azure OpenAI</div>
                       <div className="text-sm text-gray-500">GPT-4o via Azure (requires API key)</div>
                     </div>
                   </label>
@@ -960,7 +961,7 @@ export default function SetupWizardPage({ onComplete }) {
                   <label className="flex items-center gap-3 p-4 border rounded-xl cursor-pointer hover:border-indigo-400 transition-colors">
                     <input type="checkbox" checked={useCopilot} onChange={e => setUseCopilot(e.target.checked)} className="w-4 h-4" />
                     <div className="flex-1">
-                      <div className="font-medium">🤖 GitHub Copilot</div>
+                      <div className="font-medium"><Glyph g="🤖"/> GitHub Copilot</div>
                       <div className="text-sm text-gray-500">GPT-4o via GitHub Copilot (requires token)</div>
                     </div>
                   </label>
@@ -979,7 +980,7 @@ export default function SetupWizardPage({ onComplete }) {
                   )}
                 </div>
                 <p className="text-xs text-gray-400 mt-4">
-                  💡 API keys are stored securely in Settings → Secrets. They are never exposed in the UI or committed to source control.
+                  <Glyph g="💡"/> API keys are stored securely in Settings → Secrets. They are never exposed in the UI or committed to source control.
                 </p>
               </div>
             )}
@@ -987,7 +988,7 @@ export default function SetupWizardPage({ onComplete }) {
             {/* ── Step 2: Model Selection ────────────────────────────────── */}
             {step === 2 && (
               <div>
-                <h2 className="text-xl font-bold text-gray-800 mb-1">Model Selection</h2>
+                <h2 className="text-xl font-bold text-gray-800 mb-1">Model selection</h2>
                 <p className="text-gray-500 text-sm mb-4">
                   {useNvidiaNim
                     ? 'Using Nvidia NIM free cloud models. Change or override below if needed.'
@@ -995,7 +996,7 @@ export default function SetupWizardPage({ onComplete }) {
                 </p>
                 {useNvidiaNim && (
                   <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-5">
-                    <div className="font-semibold text-green-800 mb-2">🟢 Nvidia NIM Free Models</div>
+                    <div className="font-semibold text-green-800 mb-2"><Glyph g="🟢"/> Nvidia NIM Free Models</div>
                     <div className="grid grid-cols-1 gap-1 text-sm text-green-700">
                       <div><span className="font-medium">Coder:</span> {NVIDIA_MODELS.executor}</div>
                       <div><span className="font-medium">Planner:</span> {NVIDIA_MODELS.planner}</div>
@@ -1009,10 +1010,10 @@ export default function SetupWizardPage({ onComplete }) {
                 {/* Local daemon control (local-only) */}
                 {useOllama && (
                   <div className="bg-blue-50 border border-blue-200 rounded-xl p-5 mb-6">
-                    <div className="font-semibold text-gray-800 mb-3">⚙️ Local Services</div>
+                    <div className="font-semibold text-gray-800 mb-3"><Glyph g="⚙️"/> Local Services</div>
                     {isDeployed ? (
                       <div className="p-3 bg-white rounded-lg border border-gray-200 text-sm text-gray-500">
-                        🌐 Running on a deployed instance — local daemon control is only available when running locally.
+                        <Glyph g="🌐"/> Running on a deployed instance — local daemon control is only available when running locally.
                         Services are managed by your backend at <code className="bg-gray-100 px-1 rounded">{backendUrl}</code>.
                       </div>
                     ) : (
@@ -1062,7 +1063,7 @@ export default function SetupWizardPage({ onComplete }) {
 
                 {hardware && (
                   <div className="bg-gray-50 rounded-xl p-4 mb-5 text-sm">
-                    <div className="font-semibold text-gray-700 mb-2">🖥️ Detected Hardware</div>
+                    <div className="font-semibold text-gray-700 mb-2"><Glyph g="🖥️"/> Detected Hardware</div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-gray-600">
                       <span>CPU: {hardware.cpu_model?.split(' ').slice(0,4).join(' ')}</span>
                       <span>RAM: {hardware.ram_total_gb?.toFixed(0)} GB</span>
@@ -1125,7 +1126,7 @@ export default function SetupWizardPage({ onComplete }) {
             {/* ── Step 3: Runtime Config ─────────────────────────────────── */}
             {step === 3 && (
               <div>
-                <h2 className="text-xl font-bold text-gray-800 mb-1">Runtime Configuration</h2>
+                <h2 className="text-xl font-bold text-gray-800 mb-1">Runtime configuration</h2>
                 <p className="text-gray-500 text-sm mb-5">Enable the coding runtimes you have installed on this machine.</p>
                 <div className="space-y-3">
                   {[
@@ -1151,7 +1152,7 @@ export default function SetupWizardPage({ onComplete }) {
             {/* ── Step 4: Default Agent ──────────────────────────────────── */}
             {step === 4 && (
               <div>
-                <h2 className="text-xl font-bold text-gray-800 mb-1">Default Agent</h2>
+                <h2 className="text-xl font-bold text-gray-800 mb-1">Default agent</h2>
                 <p className="text-gray-500 text-sm mb-5">Configure your default agent. You can create more in Operations → Agents.</p>
                 <div className="space-y-3">
                   <div>
@@ -1180,7 +1181,7 @@ export default function SetupWizardPage({ onComplete }) {
             {/* ── Step 5: Policy & Privacy ───────────────────────────────── */}
             {step === 5 && (
               <div>
-                <h2 className="text-xl font-bold text-gray-800 mb-1">Policy & Privacy</h2>
+                <h2 className="text-xl font-bold text-gray-800 mb-1">Policy & privacy</h2>
                 <p className="text-gray-500 text-sm mb-5">Set your cost control and observability preferences.</p>
                 <div className="space-y-4">
                   <label className="flex items-center gap-3 cursor-pointer">

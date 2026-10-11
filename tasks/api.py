@@ -24,11 +24,13 @@ from tasks.models import (
     TaskPriority,
     TaskStatus,
     TaskUpdateRequest,
+    VerificationRequest,
     inherit_goal,
 )
 from tasks.service import TaskRuleError, TaskWorkflowService
 from tasks.service import TaskExecutionCoordinator
 from tasks.store import TaskStore, get_task_store
+from tasks.verification import TaskVerification
 log = logging.getLogger("qwen-proxy")
 
 
@@ -526,6 +528,55 @@ async def approve_checkpoint(task_id: str, body: ApprovalRequest, request: Reque
     await store.update(task)
     _invalidate_task_caches(user_id=_user_id(user))
     return {"task": task.as_dict()}
+
+
+@task_router.post("/{task_id}/verification")
+async def record_verification(
+    task_id: str,
+    body: VerificationRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    user: Any = Depends(_current_user),
+) -> dict[str, Any]:
+    """Record an independent verdict on a task (rule 49).
+
+    The signed-in caller is the verifier. A passing verdict on a task waiting in
+    review completes it; FAIL on a task in review or done re-opens it for rework.
+    """
+    task, store, actor = await _load_task(request, task_id, user)
+    workflow = _get_workflow(request)
+    verifiable = (TaskStatus.IN_REVIEW, TaskStatus.NEEDS_CLARIFICATION, TaskStatus.DONE)
+    if task.status not in verifiable:
+        # A verdict on unfinished work would later complete it unchecked.
+        raise HTTPException(status_code=409, detail="Nothing to verify yet: the task has not finished")
+    task.verification = TaskVerification(verifier=actor, **body.model_dump())
+    task.add_log(
+        f"Independent verification {body.verdict} recorded by {actor}",
+        event_type="verification_recorded",
+        actor=actor,
+        task_status=task.status,
+        metadata={"defects_found": len(body.defects_found), "fixed": len(body.fixed)},
+    )
+    reopened = False
+    try:
+        if body.verdict != "FAIL" and task.status in (TaskStatus.IN_REVIEW, TaskStatus.NEEDS_CLARIFICATION):
+            workflow.transition(task, TaskStatus.DONE, actor=actor, message=f"Verified ({body.verdict}) by {actor}")
+        elif body.verdict == "FAIL" and task.status in (TaskStatus.IN_REVIEW, TaskStatus.DONE):
+            # The agents read task comments on the next run: tell them what to fix.
+            problems = "\n".join(f"- {d}" for d in body.defects_found) or f"- {body.notes or 'No detail given'}"
+            workflow.add_comment(task, author=actor, body=f"Verification failed. Fix these, then it will be checked again:\n{problems}")
+            workflow.transition(
+                task, TaskStatus.IN_PROGRESS, actor=actor, pending_agent_run=True,
+                message=f"Verification FAILED by {actor}; sent back for rework",
+            )
+            reopened = True
+    except TaskRuleError as exc:
+        raise HTTPException(status_code=400, detail=exc.user_message) from exc
+    await store.update(task)
+    _invalidate_task_caches(user_id=_user_id(user))
+    if reopened:
+        _queue_task_execution(background_tasks, request, task_id)
+    return {"task": task.as_dict(), "requeued": reopened}
 
 
 @task_router.post("/{task_id}/approve-execution")

@@ -18,8 +18,8 @@ function relTime(val) {
   return `${Math.floor(diff/86400)}d ago`;
 }
 
-const tagColors = { pr:'#5da2ff', scan:'#ffbd66', merge:'#46d9a4', note:'#c4b5fd', directive:'#c4b5fd', release:'#46d9a4', source:'#7c9dff', fix:'#5da2ff' };
-const actorColors = { 'Dev Agent':'#5da2ff', 'Security Agent':'#ffbd66', 'CEO Agent':'#c4b5fd', 'Release Agent':'#7c9dff', 'Sam Striker':'#46d9a4', 'Alex Chen':'#46d9a4' };
+const tagColors = { pr:'var(--accent)', scan:'var(--warning)', merge:'var(--success)', note:'var(--violet)', directive:'var(--violet)', release:'var(--success)', source:'var(--accent)', fix:'var(--accent)' };
+const actorColors = { 'Dev Agent':'var(--accent)', 'Security Agent':'var(--warning)', 'CEO Agent':'var(--violet)', 'Release Agent':'var(--accent)', 'Sam Striker':'var(--success)', 'Alex Chen':'var(--success)' };
 
 function SourceTypeIcon({ type }) {
   const icons = { github:'⎇', url:'🔗', file:'📄', text:'📝' };
@@ -27,28 +27,28 @@ function SourceTypeIcon({ type }) {
 }
 
 function Tag({ label, color }) {
-  return <span style={{ fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', padding:'2px 7px', borderRadius:999, color: color || 'var(--text-muted)', background:`${color || '#fff'}12`, border:`1px solid ${color || '#fff'}22` }}>{label}</span>;
+  return <span style={{ fontSize:13, padding:'2px 7px', borderRadius:999, color: color || 'var(--text-muted)', background:`color-mix(in oklab, ${color || 'var(--text-muted)'} 7%, transparent)`, border:`1px solid color-mix(in oklab, ${color || 'var(--text-muted)'} 13%, transparent)` }}>{label}</span>;
 }
 
 function DocCard({ doc }) {
   return (
     <button style={{
       padding:'12px 14px', borderRadius:14, textAlign:'left', cursor:'pointer',
-      background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.09)',
+      background:'color-mix(in oklab, var(--ink) 3%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 9%, transparent)',
       transition:'all 0.15s ease', width:'100%',
     }}
-    onMouseEnter={e => { e.currentTarget.style.background='rgba(93,162,255,0.06)'; e.currentTarget.style.borderColor='rgba(93,162,255,0.20)'; }}
-    onMouseLeave={e => { e.currentTarget.style.background='rgba(255,255,255,0.03)'; e.currentTarget.style.borderColor='rgba(255,255,255,0.09)'; }}>
+    onMouseEnter={e => { e.currentTarget.style.background='color-mix(in oklab, var(--accent) 6%, transparent)'; e.currentTarget.style.borderColor='color-mix(in oklab, var(--accent) 20%, transparent)'; }}
+    onMouseLeave={e => { e.currentTarget.style.background='color-mix(in oklab, var(--ink) 3%, transparent)'; e.currentTarget.style.borderColor='color-mix(in oklab, var(--ink) 9%, transparent)'; }}>
       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', marginBottom:6 }}>
-        <span style={{ fontSize:13, fontWeight:700, color:'var(--text-primary)', lineHeight:1.4 }}>{doc.title}</span>
-        <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', flexShrink:0, marginLeft:8 }}>{doc.updated}</span>
+        <span style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)', lineHeight:1.4 }}>{doc.title}</span>
+        <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--text-muted)', flexShrink:0, marginLeft:8 }}>{doc.updated}</span>
       </div>
       {Array.isArray(doc.tags) && doc.tags.length > 0 && (
         <div style={{ display:'flex', gap:5, flexWrap:'wrap', marginBottom:5 }}>
           {doc.tags.map(t => <Tag key={t} label={t} color='var(--accent)'/>)}
         </div>
       )}
-      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>
+      <div style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--text-muted)' }}>
         {doc.words > 0 ? `${doc.words.toLocaleString()} words` : '—'} · by {doc.author || '—'}
       </div>
     </button>
@@ -60,38 +60,38 @@ function ActivityRow({ item }) {
   const tagColor = tagColors[item.tag] || 'var(--text-muted)';
   const typeIcon = item.type === 'human' ? '👤' : item.type === 'note' ? '📝' : '🤖';
   return (
-    <div style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'9px 0', borderBottom:'1px solid rgba(255,255,255,0.05)' }}>
+    <div style={{ display:'flex', alignItems:'flex-start', gap:10, padding:'9px 0', borderBottom:'1px solid color-mix(in oklab, var(--ink) 5%, transparent)' }}>
       <span style={{ fontSize:14, flexShrink:0, marginTop:1 }}>{typeIcon}</span>
       <div style={{ flex:1, minWidth:0 }}>
         <div style={{ display:'flex', alignItems:'center', gap:6, flexWrap:'wrap', marginBottom:2 }}>
-          <span style={{ fontSize:11, fontWeight:700, color }}>{item.actor}</span>
+          <span style={{ fontSize:13, fontWeight:700, color }}>{item.actor}</span>
           <Tag label={item.tag} color={tagColor}/>
         </div>
-        <div style={{ fontSize:12, color:'var(--text-tertiary)', lineHeight:1.5 }}>{item.action}</div>
+        <div style={{ fontSize:13, color:'var(--text-tertiary)', lineHeight:1.5 }}>{item.action}</div>
       </div>
-      <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', flexShrink:0, marginTop:2 }}>{item.ts}</span>
+      <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--text-muted)', flexShrink:0, marginTop:2 }}>{item.ts}</span>
     </div>
   );
 }
 
 function SourceRow({ source, onRemove, busy }) {
   const st = source.status || 'pending';
-  const statusColor = (st === 'processed' || st === 'synced') ? '#46d9a4' : st === 'failed' ? '#ff6b7d' : '#ffbd66';
+  const statusColor = (st === 'processed' || st === 'synced') ? 'var(--success)' : st === 'failed' ? 'var(--danger)' : 'var(--warning)';
   const label = source.title || source.url || 'Untitled source';
   const sub = source.summary || (source.url || '');
   return (
-    <div style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 14px', borderRadius:12, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)' }}>
+    <div style={{ display:'flex', alignItems:'center', gap:10, padding:'11px 14px', borderRadius:12, background:'color-mix(in oklab, var(--ink) 3%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 8%, transparent)' }}>
       <SourceTypeIcon type={source.type}/>
       <div style={{ flex:1, minWidth:0 }}>
-        <div style={{ fontSize:12, fontWeight:600, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{label}</div>
-        <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{sub ? `${sub} · ` : ''}{relTime(source.created_at)}</div>
+        <div style={{ fontSize:13, fontWeight:600, color:'var(--text-primary)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{label}</div>
+        <div style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--text-muted)', marginTop:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{sub ? `${sub} · ` : ''}{relTime(source.created_at)}</div>
       </div>
       <div style={{ display:'flex', alignItems:'center', gap:5, flexShrink:0 }}>
         <span style={{ width:6, height:6, borderRadius:'50%', background:statusColor }}/>
-        <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:statusColor, textTransform:'uppercase', letterSpacing:'0.10em' }}>{st}</span>
+        <span style={{ fontSize:13, color:statusColor }}>{st}</span>
       </div>
-      <button onClick={() => onRemove(source._id || source.id)} disabled={busy} style={{ width:26, height:26, borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', background:'transparent', border:'none', cursor:busy?'wait':'pointer', color:'var(--text-muted)', fontSize:12, flexShrink:0 }}
-        onMouseEnter={e => { e.currentTarget.style.background='rgba(255,107,125,0.10)'; e.currentTarget.style.color='#ff6b7d'; }}
+      <button onClick={() => onRemove(source._id || source.id)} disabled={busy} style={{ width:26, height:26, borderRadius:8, display:'flex', alignItems:'center', justifyContent:'center', background:'transparent', border:'none', cursor:busy?'wait':'pointer', color:'var(--text-muted)', fontSize:13, flexShrink:0 }}
+        onMouseEnter={e => { e.currentTarget.style.background='color-mix(in oklab, var(--danger) 10%, transparent)'; e.currentTarget.style.color='#ff6b7d'; }}
         onMouseLeave={e => { e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--text-muted)'; }}>✕</button>
     </div>
   );
@@ -132,31 +132,31 @@ function AddSourceForm({ onIngest, onClose }) {
   };
 
   return (
-    <div style={{ padding:'14px', borderRadius:14, background:'rgba(93,162,255,0.05)', border:'1px solid rgba(93,162,255,0.18)', marginBottom:12, animation:'fadeSlideUp 0.2s ease-out' }}>
-      <div style={{ fontSize:11, fontWeight:700, color:'var(--text-secondary)', marginBottom:10 }}>Add source</div>
+    <div style={{ padding:'14px', borderRadius:14, background:'color-mix(in oklab, var(--accent) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 18%, transparent)', marginBottom:12, animation:'fadeSlideUp 0.2s ease-out' }}>
+      <div style={{ fontSize:13, fontWeight:700, color:'var(--text-secondary)', marginBottom:10 }}>Add source</div>
       <div style={{ display:'flex', gap:6, marginBottom:10 }}>
         {['url','text','file'].map(t => (
-          <button key={t} onClick={() => setType(t)} style={{ padding:'5px 12px', borderRadius:999, fontSize:11, cursor:'pointer', background:type===t?'rgba(93,162,255,0.15)':'rgba(255,255,255,0.04)', border:`1px solid ${type===t?'rgba(93,162,255,0.35)':'rgba(255,255,255,0.09)'}`, color:type===t?'#fff':'var(--text-muted)', textTransform:'capitalize', transition:'all 0.15s' }}>{t}</button>
+          <button key={t} onClick={() => setType(t)} style={{ padding:'5px 12px', borderRadius:999, fontSize:13, cursor:'pointer', background:type===t?'color-mix(in oklab, var(--accent) 15%, transparent)':'color-mix(in oklab, var(--ink) 4%, transparent)', border:`1px solid ${type===t?'color-mix(in oklab, var(--accent) 35%, transparent)':'color-mix(in oklab, var(--ink) 9%, transparent)'}`, color:type===t?'var(--text-primary)':'var(--text-muted)', textTransform:'capitalize', transition:'all 0.15s' }}>{t}</button>
         ))}
       </div>
       <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Title (optional)"
-        style={{ width:'100%', padding:'9px 12px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-main)', marginBottom:8 }}/>
+        style={{ width:'100%', padding:'9px 12px', borderRadius:10, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-primary)', fontSize:14, outline:'none', fontFamily:'var(--font-main)', marginBottom:8 }}/>
       {type === 'url' && (
         <input value={url} onChange={e => setUrl(e.target.value)} placeholder="https://docs.example.com"
-          style={{ width:'100%', padding:'9px 12px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-mono)', marginBottom:8 }}/>
+          style={{ width:'100%', padding:'9px 12px', borderRadius:10, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-primary)', fontSize:14, outline:'none', fontFamily:'var(--font-mono)', marginBottom:8 }}/>
       )}
       {type === 'text' && (
         <textarea value={text} onChange={e => setText(e.target.value)} placeholder="Paste content to index…" rows={3}
-          style={{ width:'100%', padding:'9px 12px', borderRadius:10, resize:'vertical', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-main)', marginBottom:8 }}/>
+          style={{ width:'100%', padding:'9px 12px', borderRadius:10, resize:'vertical', background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-primary)', fontSize:14, outline:'none', fontFamily:'var(--font-main)', marginBottom:8 }}/>
       )}
       {type === 'file' && (
         <input type="file" onChange={e => setFile(e.target.files?.[0] || null)}
-          style={{ width:'100%', fontSize:12, color:'var(--text-secondary)', marginBottom:8 }}/>
+          style={{ width:'100%', fontSize:13, color:'var(--text-secondary)', marginBottom:8 }}/>
       )}
-      {error && <div style={{ marginBottom:8, padding:'8px 12px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:12 }}>{error}</div>}
+      {error && <div style={{ marginBottom:8, padding:'8px 12px', borderRadius:10, background:'color-mix(in oklab, var(--danger) 10%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 25%, transparent)', color:'var(--danger)', fontSize:13 }}>{error}</div>}
       <div style={{ display:'flex', gap:8 }}>
-        <button onClick={submit} disabled={busy} style={{ padding:'9px 16px', borderRadius:10, background:'var(--accent)', color:'#06111f', fontSize:12, fontWeight:800, border:'none', cursor:busy?'wait':'pointer', opacity:busy?0.7:1 }}>{busy ? 'Ingesting…' : 'Add'}</button>
-        <button onClick={onClose} disabled={busy} style={{ padding:'9px 14px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)', fontSize:12, cursor:'pointer' }}>Cancel</button>
+        <button onClick={submit} disabled={busy} style={{ padding:'9px 16px', borderRadius:10, background:'var(--accent)', color:'var(--on-accent)', fontSize:13, fontWeight:700, border:'none', cursor:busy?'wait':'pointer', opacity:busy?0.7:1 }}>{busy ? 'Ingesting…' : 'Add'}</button>
+        <button onClick={onClose} disabled={busy} style={{ padding:'9px 14px', borderRadius:10, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-muted)', fontSize:13, cursor:'pointer' }}>Cancel</button>
       </div>
     </div>
   );
@@ -172,12 +172,12 @@ function AddSourceForm({ onIngest, onClose }) {
 
 const GRAPH_NODE_COLORS = {
   company: '#ffffff',
-  website: '#7c9dff',
-  repo: '#5da2ff',
-  system: '#ffbd66',
-  specialist: '#46d9a4',
-  workflow: '#c4b5fd',
-  knowledge: '#ff9fb0',
+  website: 'var(--accent)',
+  repo: 'var(--accent)',
+  system: 'var(--warning)',
+  specialist: 'var(--success)',
+  workflow: 'var(--violet)',
+  knowledge: 'var(--danger)',
   connector: '#66e0d0',
 };
 
@@ -388,10 +388,10 @@ function CompanyGraphPanel() {
   const { nodes, edges } = React.useMemo(() => buildGraphElements(graph), [graph]);
 
   if (loading && companies.length === 0) {
-    return <div style={{ padding:'18px 0', fontSize:13, color:'var(--text-muted)' }}>Loading your companies…</div>;
+    return <div style={{ padding:'18px 0', fontSize:14, color:'var(--text-muted)' }}>Loading your companies…</div>;
   }
   if (companies.length === 0) {
-    return <div style={{ padding:'18px 0', fontSize:13, color:'var(--text-muted)' }}>No companies found for your account yet — onboard one from the Company screen.</div>;
+    return <div style={{ padding:'18px 0', fontSize:14, color:'var(--text-muted)' }}>No companies found for your account yet — onboard one from the Company screen.</div>;
   }
 
   const size = GRAPH_SIZE;
@@ -411,15 +411,15 @@ function CompanyGraphPanel() {
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:10, marginBottom:12 }}>
         {companies.length > 1 ? (
           <select value={selectedCompanyId} onChange={e => setSelectedCompanyId(e.target.value)}
-            style={{ padding:'8px 12px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:12, outline:'none' }}>
+            style={{ padding:'8px 12px', borderRadius:10, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-primary)', fontSize:13, outline:'none' }}>
             {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         ) : (
-          <div style={{ fontSize:13, fontWeight:700, color:'var(--text-primary)' }}>{companies[0]?.name}</div>
+          <div style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)' }}>{companies[0]?.name}</div>
         )}
         <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
           {counts.map(c => (
-            <span key={c.type} style={{ fontSize:10, fontFamily:'var(--font-mono)', color:GRAPH_NODE_COLORS[c.type], textTransform:'capitalize', padding:'3px 9px', borderRadius:999, background:`${GRAPH_NODE_COLORS[c.type]}14`, border:`1px solid ${GRAPH_NODE_COLORS[c.type]}30` }}>
+            <span key={c.type} style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:GRAPH_NODE_COLORS[c.type], textTransform:'capitalize', padding:'3px 9px', borderRadius:999, background:`color-mix(in oklab, ${GRAPH_NODE_COLORS[c.type]} 8%, transparent)`, border:`1px solid color-mix(in oklab, ${GRAPH_NODE_COLORS[c.type]} 19%, transparent)` }}>
               {c.type}s · {c.count}
             </span>
           ))}
@@ -427,20 +427,20 @@ function CompanyGraphPanel() {
       </div>
 
       {error ? (
-        <div style={{ padding:'18px 0', fontSize:13, color:'#ff6b7d' }}>Couldn't load the company graph: {error}</div>
+        <div style={{ padding:'18px 0', fontSize:14, color:'var(--danger)' }}>Couldn't load the company graph: {error}</div>
       ) : loading ? (
-        <div style={{ padding:'18px 0', fontSize:13, color:'var(--text-muted)' }}>Loading company graph…</div>
+        <div style={{ padding:'18px 0', fontSize:14, color:'var(--text-muted)' }}>Loading company graph…</div>
       ) : nodes.length <= 1 ? (
-        <div style={{ padding:'18px 0', fontSize:13, color:'var(--text-muted)' }}>This company's graph is empty so far — run onboarding to detect systems and provision specialists.</div>
+        <div style={{ padding:'18px 0', fontSize:14, color:'var(--text-muted)' }}>This company's graph is empty so far — run onboarding to detect systems and provision specialists.</div>
       ) : (
-        <div style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:16, padding:16, display:'flex', justifyContent:'center' }}>
+        <div style={{ background:'color-mix(in oklab, var(--ink) 2%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 8%, transparent)', borderRadius:16, padding:16, display:'flex', justifyContent:'center' }}>
           <svg viewBox={`0 0 ${size} ${size}`} style={{ width:'100%', maxWidth:560, height:'auto' }}>
             {edges.map((e, i) => {
               const a = pos(e.from), b = pos(e.to);
               const active = hoveredId && (e.from === hoveredId || e.to === hoveredId);
               return (
                 <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                  stroke={active ? 'rgba(93,162,255,0.55)' : 'rgba(255,255,255,0.10)'}
+                  stroke={active ? 'color-mix(in oklab, var(--accent) 55%, transparent)' : 'color-mix(in oklab, var(--ink) 10%, transparent)'}
                   strokeWidth={active ? 1.5 : 1} />
               );
             })}
@@ -450,7 +450,7 @@ function CompanyGraphPanel() {
               const color = GRAPH_NODE_COLORS[n.type] || 'var(--text-muted)';
               return (
                 <g key={n.id} onMouseEnter={() => setHoveredId(n.id)} onMouseLeave={() => setHoveredId(null)} style={{ cursor:'pointer' }}>
-                  <circle cx={p.x} cy={p.y} r={r} fill={n.type === 'company' ? color : `${color}33`} stroke={color} strokeWidth={1.5} />
+                  <circle cx={p.x} cy={p.y} r={r} fill={n.type === 'company' ? color : `color-mix(in oklab, ${color} 20%, transparent)`} stroke={color} strokeWidth={1.5} />
                   <title>{n.label}</title>
                   {(n.type === 'company' || hoveredId === n.id) && (
                     <text x={p.x} y={p.y + r + 12} textAnchor="middle" fontSize={10} fontFamily="var(--font-mono)" fill="#fff">
@@ -555,29 +555,28 @@ function KnowledgeScreen() {
   };
 
   return (
-    <div style={{ padding:'20px 16px 48px', maxWidth:900, margin:'0 auto' }}>
-      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:6 }}>Knowledge</div>
+    <div style={{ padding:'20px 16px 48px', maxWidth:1200, margin:'0 auto' }}>
       <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', flexWrap:'wrap', gap:10, marginBottom:16 }}>
         <div>
-          <h1 style={{ fontSize:26, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1, marginBottom:4 }}>Knowledge Base</h1>
+          <h1 style={{ fontSize:26, fontWeight:700, color:'var(--text-primary)', letterSpacing:'-0.04em', lineHeight:1.1, marginBottom:4 }}>Knowledge base</h1>
           <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.5, maxWidth:480 }}>Everything agents and humans do is recorded here. Docs, sources, activity, quick notes — one searchable memory.</p>
         </div>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search knowledge…"
-          style={{ padding:'9px 14px', borderRadius:12, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-main)', minWidth:200 }}
-          onFocus={e => e.target.style.borderColor='rgba(93,162,255,0.45)'} onBlur={e => e.target.style.borderColor='rgba(255,255,255,0.10)'}/>
+          style={{ padding:'9px 14px', borderRadius:12, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-primary)', fontSize:14, outline:'none', fontFamily:'var(--font-main)', minWidth:200 }}
+          onFocus={e => e.target.style.borderColor='color-mix(in oklab, var(--accent) 45%, transparent)'} onBlur={e => e.target.style.borderColor='color-mix(in oklab, var(--ink) 10%, transparent)'}/>
       </div>
 
       {/* Stats row */}
       <div style={{ display:'flex', gap:10, marginBottom:18, flexWrap:'wrap' }}>
         {[
           { label:'Docs', value:docs.length, color:'var(--accent)' },
-          { label:'Sources', value:sources.length, color:'#c4b5fd' },
-          { label:'Processed', value:sources.filter(s=>s.status==='processed').length, color:'#46d9a4' },
-          { label:'Activity events', value:activity.length, color:'#ffbd66' },
+          { label:'Sources', value:sources.length, color:'var(--violet)' },
+          { label:'Processed', value:sources.filter(s=>s.status==='processed').length, color:'var(--success)' },
+          { label:'Activity events', value:activity.length, color:'var(--warning)' },
         ].map(s => (
-          <div key={s.label} style={{ padding:'8px 14px', borderRadius:12, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)' }}>
-            <div style={{ fontSize:18, fontWeight:800, color:s.color, letterSpacing:'-0.03em' }}>{s.value}</div>
-            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.10em', textTransform:'uppercase' }}>{s.label}</div>
+          <div key={s.label} style={{ padding:'8px 14px', borderRadius:12, background:'color-mix(in oklab, var(--ink) 3%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 8%, transparent)' }}>
+            <div style={{ fontSize:18, fontWeight:700, color:s.color, letterSpacing:'-0.03em' }}>{s.value}</div>
+            <div style={{ fontSize:13, color:'var(--text-muted)' }}>{s.label}</div>
           </div>
         ))}
       </div>
@@ -585,7 +584,7 @@ function KnowledgeScreen() {
       {/* Tabs */}
       <div style={{ display:'flex', gap:4, marginBottom:16 }}>
         {['activity','docs','sources','graph'].map(t => (
-          <button key={t} onClick={() => setTab(t)} style={{ padding:'7px 18px', borderRadius:999, fontSize:12, fontWeight:600, cursor:'pointer', textTransform:'capitalize', transition:'all 0.15s', background:tab===t?'rgba(93,162,255,0.15)':'rgba(255,255,255,0.04)', border:`1px solid ${tab===t?'rgba(93,162,255,0.35)':'rgba(255,255,255,0.08)'}`, color:tab===t?'#fff':'var(--text-muted)' }}>{t}</button>
+          <button key={t} onClick={() => setTab(t)} style={{ padding:'7px 18px', borderRadius:999, fontSize:13, fontWeight:600, cursor:'pointer', textTransform:'capitalize', transition:'all 0.15s', background:tab===t?'color-mix(in oklab, var(--accent) 15%, transparent)':'color-mix(in oklab, var(--ink) 4%, transparent)', border:`1px solid ${tab===t?'color-mix(in oklab, var(--accent) 35%, transparent)':'color-mix(in oklab, var(--ink) 8%, transparent)'}`, color:tab===t?'var(--text-primary)':'var(--text-muted)' }}>{t}</button>
         ))}
       </div>
 
@@ -593,16 +592,16 @@ function KnowledgeScreen() {
         <div style={{ animation:'fadeSlideUp 0.3s ease-out' }}>
           <div style={{ display:'flex', gap:6, marginBottom:12 }}>
             {['all','agent','human','note'].map(f => (
-              <button key={f} onClick={() => setActFilter(f)} style={{ padding:'4px 12px', borderRadius:999, fontSize:11, cursor:'pointer', textTransform:'capitalize', background:actFilter===f?'rgba(93,162,255,0.12)':'rgba(255,255,255,0.04)', border:`1px solid ${actFilter===f?'rgba(93,162,255,0.30)':'rgba(255,255,255,0.08)'}`, color:actFilter===f?'#fff':'var(--text-muted)', transition:'all 0.15s' }}>{f}</button>
+              <button key={f} onClick={() => setActFilter(f)} style={{ padding:'4px 12px', borderRadius:999, fontSize:13, cursor:'pointer', textTransform:'capitalize', background:actFilter===f?'color-mix(in oklab, var(--accent) 12%, transparent)':'color-mix(in oklab, var(--ink) 4%, transparent)', border:`1px solid ${actFilter===f?'color-mix(in oklab, var(--accent) 30%, transparent)':'color-mix(in oklab, var(--ink) 8%, transparent)'}`, color:actFilter===f?'var(--text-primary)':'var(--text-muted)', transition:'all 0.15s' }}>{f}</button>
             ))}
           </div>
-          <div style={{ background:'rgba(255,255,255,0.02)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:16, padding:'0 16px' }}>
+          <div style={{ background:'color-mix(in oklab, var(--ink) 2%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 8%, transparent)', borderRadius:16, padding:'0 16px' }}>
             {states.activity?.loading && activity.length === 0 ? (
-              <div style={{ padding:'18px 0', fontSize:13, color:'var(--text-muted)' }}>Loading activity…</div>
+              <div style={{ padding:'18px 0', fontSize:14, color:'var(--text-muted)' }}>Loading activity…</div>
             ) : states.activity?.error ? (
-              <div style={{ padding:'18px 0', fontSize:13, color:'#ff6b7d' }}>Couldn't load activity: {states.activity.error}</div>
+              <div style={{ padding:'18px 0', fontSize:14, color:'var(--danger)' }}>Couldn't load activity: {states.activity.error}</div>
             ) : filteredActivity.length === 0 ? (
-              <div style={{ padding:'18px 0', fontSize:13, color:'var(--text-muted)' }}>No activity recorded yet.</div>
+              <div style={{ padding:'18px 0', fontSize:14, color:'var(--text-muted)' }}>No activity recorded yet.</div>
             ) : (
               filteredActivity.map(item => <ActivityRow key={item.id} item={item}/>)
             )}
@@ -613,14 +612,14 @@ function KnowledgeScreen() {
       {tab === 'docs' && (
         <div style={{ animation:'fadeSlideUp 0.3s ease-out' }}>
           <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:10 }}>
-            <button onClick={() => setShowNewDoc(true)} style={{ padding:'8px 16px', borderRadius:10, fontSize:12, fontWeight:700, cursor:'pointer', background:'rgba(93,162,255,0.12)', border:'1px solid rgba(93,162,255,0.25)', color:'var(--accent)' }}>+ New doc</button>
+            <button onClick={() => setShowNewDoc(true)} style={{ padding:'8px 16px', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', background:'color-mix(in oklab, var(--accent) 12%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 25%, transparent)', color:'var(--accent)' }}>+ New doc</button>
           </div>
           {states.pages?.loading && docs.length === 0 ? (
-            <div style={{ padding:'18px 0', fontSize:13, color:'var(--text-muted)' }}>Loading docs…</div>
+            <div style={{ padding:'18px 0', fontSize:14, color:'var(--text-muted)' }}>Loading docs…</div>
           ) : states.pages?.error ? (
-            <div style={{ padding:'18px 0', fontSize:13, color:'#ff6b7d' }}>Couldn't load docs: {states.pages.error}</div>
+            <div style={{ padding:'18px 0', fontSize:14, color:'var(--danger)' }}>Couldn't load docs: {states.pages.error}</div>
           ) : docs.filter(d => !search || d.title.toLowerCase().includes(search.toLowerCase())).length === 0 ? (
-            <div style={{ padding:'18px 0', fontSize:13, color:'var(--text-muted)' }}>No docs yet.</div>
+            <div style={{ padding:'18px 0', fontSize:14, color:'var(--text-muted)' }}>No docs yet.</div>
           ) : (
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(260px,1fr))', gap:10 }}>
               {docs.filter(d => !search || d.title.toLowerCase().includes(search.toLowerCase())).map(doc => <DocCard key={doc.id} doc={doc}/>)}
@@ -632,38 +631,38 @@ function KnowledgeScreen() {
       {tab === 'sources' && (
         <div style={{ animation:'fadeSlideUp 0.3s ease-out' }}>
           <div style={{ display:'flex', justifyContent:'flex-end', marginBottom:10 }}>
-            <button onClick={() => setShowAdd(true)} style={{ padding:'8px 16px', borderRadius:10, fontSize:12, fontWeight:700, cursor:'pointer', background:'rgba(93,162,255,0.12)', border:'1px solid rgba(93,162,255,0.25)', color:'var(--accent)' }}>+ Add source</button>
+            <button onClick={() => setShowAdd(true)} style={{ padding:'8px 16px', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', background:'color-mix(in oklab, var(--accent) 12%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 25%, transparent)', color:'var(--accent)' }}>+ Add source</button>
           </div>
           {showAdd && <AddSourceForm onIngest={handleIngest} onClose={() => setShowAdd(false)}/>}
 
       {showNewDoc && (
-        <div style={{ position:'fixed', inset:0, zIndex:200, background:'rgba(0,0,0,0.7)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
-          <form onSubmit={handleCreateDoc} style={{ background:'rgba(10,13,18,0.98)', border:'1px solid rgba(255,255,255,0.12)', borderRadius:20, padding:'28px 24px', width:'100%', maxWidth:480, display:'flex', flexDirection:'column', gap:14 }}>
-            <div style={{ fontSize:15, fontWeight:700, color:'#fff', marginBottom:4 }}>New document</div>
+        <div style={{ position:'fixed', inset:0, zIndex:200, background:'color-mix(in oklab, var(--shade) 70%, transparent)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+          <form onSubmit={handleCreateDoc} style={{ background:'color-mix(in oklab, var(--bg-surface) 98%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 12%, transparent)', borderRadius:14, padding:'28px 24px', width:'100%', maxWidth:480, display:'flex', flexDirection:'column', gap:14 }}>
+            <div style={{ fontSize:15, fontWeight:700, color:'var(--text-primary)', marginBottom:4 }}>New document</div>
             <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-              <label style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.5)', textTransform:'uppercase', letterSpacing:'0.06em' }}>Title</label>
-              <input autoFocus value={newDocTitle} onChange={e => setNewDocTitle(e.target.value)} placeholder="e.g. API Reference" style={{ padding:'10px 14px', borderRadius:10, fontSize:13, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.12)', color:'#fff', outline:'none' }} />
+              <label style={{ fontSize:13, fontWeight:700, color:'color-mix(in oklab, var(--ink) 50%, transparent)' }}>Title</label>
+              <input autoFocus value={newDocTitle} onChange={e => setNewDocTitle(e.target.value)} placeholder="e.g. API Reference" style={{ padding:'10px 14px', borderRadius:10, fontSize:14, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 12%, transparent)', color:'var(--text-primary)', outline:'none' }} />
             </div>
             <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
-              <label style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.5)', textTransform:'uppercase', letterSpacing:'0.06em' }}>Content (optional)</label>
-              <textarea rows={5} value={newDocBody} onChange={e => setNewDocBody(e.target.value)} placeholder="Start writing in Markdown…" style={{ padding:'10px 14px', borderRadius:10, fontSize:13, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.12)', color:'#fff', outline:'none', resize:'vertical', fontFamily:'var(--font-mono)' }} />
+              <label style={{ fontSize:13, fontWeight:700, color:'color-mix(in oklab, var(--ink) 50%, transparent)' }}>Content (optional)</label>
+              <textarea rows={5} value={newDocBody} onChange={e => setNewDocBody(e.target.value)} placeholder="Start writing in Markdown…" style={{ padding:'10px 14px', borderRadius:10, fontSize:14, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 12%, transparent)', color:'var(--text-primary)', outline:'none', resize:'vertical', fontFamily:'var(--font-mono)' }} />
             </div>
             <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:4 }}>
-              <button type="button" onClick={() => { setShowNewDoc(false); setNewDocTitle(''); setNewDocBody(''); }} style={{ padding:'9px 18px', borderRadius:10, fontSize:13, fontWeight:700, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-secondary)', cursor:'pointer' }}>Cancel</button>
-              <button type="submit" disabled={!newDocTitle.trim() || newDocSaving} style={{ padding:'9px 18px', borderRadius:10, fontSize:13, fontWeight:700, background:newDocTitle.trim() && !newDocSaving ? 'linear-gradient(135deg,#6CB0FF,#3A7FE8)' : 'rgba(93,162,255,0.2)', border:'none', color:'#fff', cursor: newDocTitle.trim() && !newDocSaving ? 'pointer' : 'not-allowed' }}>
+              <button type="button" onClick={() => { setShowNewDoc(false); setNewDocTitle(''); setNewDocBody(''); }} style={{ padding:'9px 18px', borderRadius:10, fontSize:14, fontWeight:700, background:'color-mix(in oklab, var(--ink) 6%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-secondary)', cursor:'pointer' }}>Cancel</button>
+              <button type="submit" disabled={!newDocTitle.trim() || newDocSaving} style={{ padding:'9px 18px', borderRadius:10, fontSize:14, fontWeight:700, background:newDocTitle.trim() && !newDocSaving ? 'linear-gradient(135deg,var(--accent),var(--accent))' : 'color-mix(in oklab, var(--accent) 20%, transparent)', border:'none', color:'var(--text-primary)', cursor: newDocTitle.trim() && !newDocSaving ? 'pointer' : 'not-allowed' }}>
                 {newDocSaving ? 'Saving…' : 'Create doc'}
               </button>
             </div>
           </form>
         </div>
       )}
-          {actionErr && <div style={{ marginBottom:10, padding:'8px 12px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:12 }}>{actionErr}</div>}
+          {actionErr && <div style={{ marginBottom:10, padding:'8px 12px', borderRadius:10, background:'color-mix(in oklab, var(--danger) 10%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 25%, transparent)', color:'var(--danger)', fontSize:13 }}>{actionErr}</div>}
           {states.sources?.loading && sources.length === 0 ? (
-            <div style={{ padding:'18px 0', fontSize:13, color:'var(--text-muted)' }}>Loading sources…</div>
+            <div style={{ padding:'18px 0', fontSize:14, color:'var(--text-muted)' }}>Loading sources…</div>
           ) : states.sources?.error ? (
-            <div style={{ padding:'18px 0', fontSize:13, color:'#ff6b7d' }}>Couldn't load sources: {states.sources.error}</div>
+            <div style={{ padding:'18px 0', fontSize:14, color:'var(--danger)' }}>Couldn't load sources: {states.sources.error}</div>
           ) : sources.length === 0 ? (
-            <div style={{ padding:'18px 0', fontSize:13, color:'var(--text-muted)' }}>No sources yet. Add a URL, text, or file above to index it.</div>
+            <div style={{ padding:'18px 0', fontSize:14, color:'var(--text-muted)' }}>No sources yet. Add a URL, text, or file above to index it.</div>
           ) : (
             <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
               {sources.map(s => <SourceRow key={s._id || s.id} source={s} onRemove={handleRemove} busy={removingId===(s._id||s.id)}/>)}

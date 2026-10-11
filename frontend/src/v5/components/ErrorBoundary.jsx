@@ -46,29 +46,23 @@ export class ErrorBoundary extends React.Component {
         return this.props.fallback(this.state.error, this.handleRetry);
       }
       return (
-        <div style={{
-          padding: '12px 16px',
-          borderRadius: 12,
-          background: 'rgba(255,107,125,0.07)',
-          border: '1px solid rgba(255,107,125,0.18)',
-          fontSize: 12,
-          color: '#ff6b7d',
-          fontFamily: 'var(--font-mono)',
+        <div role="alert" style={{
+          padding: '14px 16px', borderRadius: 12,
+          background: 'color-mix(in oklab, var(--danger) 7%, transparent)',
+          border: '1px solid color-mix(in oklab, var(--danger) 20%, transparent)',
+          fontSize: 15, color: 'var(--text-primary)',
         }}>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>Widget render error</div>
-          <div style={{ marginBottom: 8, opacity: 0.8 }}>
-            {this.state.error?.message || 'Something went wrong rendering this widget.'}
-          </div>
-          <button
-            onClick={this.handleRetry}
-            style={{
-              padding: '4px 10px', borderRadius: 6,
-              background: 'rgba(255,107,125,0.15)', border: '1px solid rgba(255,107,125,0.3)',
-              color: '#ff6b7d', cursor: 'pointer', fontSize: 11, fontFamily: 'var(--font-mono)',
-            }}
-          >
-            Retry
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>This part of the page could not load.</div>
+          <div style={{ color: 'var(--text-tertiary)', marginBottom: 10 }}>The rest of the app still works. Try again, and if it keeps happening, check System health in Settings.</div>
+          <button type="button" className="app-button-secondary" onClick={this.handleRetry} style={{ minHeight: 40 }}>
+            Try again
           </button>
+          {this.state.error?.message && (
+            <details style={{ marginTop: 10, fontSize: 13, color: 'var(--text-muted)' }}>
+              <summary style={{ cursor: 'pointer' }}>Technical details</summary>
+              <code style={{ display: 'block', marginTop: 6, overflowWrap: 'anywhere' }}>{this.state.error.message}</code>
+            </details>
+          )}
         </div>
       );
     }

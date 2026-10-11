@@ -1,5 +1,6 @@
 /* eslint-disable jsx-a11y/anchor-is-valid -- ported design prototype; hardened when wired to live data */
 import React from 'react';
+import Glyph from '../components/ui/Glyph';
 import { useSafeData } from '../hooks/useSafeData';
 import * as api from '../../api';
 
@@ -27,15 +28,15 @@ const RUNTIMES = [
   { id:'openhands', label:'OpenHands',   desc:'Full sandboxed execution environment (Docker).',           status:'online', tier:'execution' },
   { id:'claude-code',label:'Claude Code',desc:'Anthropic\'s agentic coding assistant (external CLI).',    status:'external',tier:'external' },
 ];
-const RUNTIME_TIER_COLOR = { recommended:'#46d9a4', code:'#5da2ff', reasoning:'#c4b5fd', execution:'#ffbd66', external:'var(--text-muted)' };
+const RUNTIME_TIER_COLOR = { recommended:'var(--success)', code:'var(--accent)', reasoning:'var(--violet)', execution:'var(--warning)', external:'var(--text-muted)' };
 
 // ── Built-in agent definitions (static catalog — these are real system agents) ─
 const BUILTIN_AGENT_DEFS = [
-  { id:'ceo',      name:'CEO Agent',      role:'Orchestrator',  icon:'◎', color:'#c4b5fd', runtime:'hermes',   model:'—', specializations:['orchestration','assessment','directives'],    costPolicy:'local_first', desc:'Orchestrates the agency cycle — reads improvement state and issues directives to specialist agents.' },
-  { id:'dev',      name:'Dev Agent',      role:'Engineer',      icon:'⚙', color:'#5da2ff', runtime:'opencode', model:'—', specializations:['code_generation','repo_editing','test_fixing'], costPolicy:'local_first', desc:'Fixes tests, applies code patches, opens PRs.' },
-  { id:'security', name:'Security Agent', role:'Security',      icon:'🔒',color:'#ffbd66', runtime:'hermes',   model:'—', specializations:['sast','cve_audit','secret_detection'],           costPolicy:'local_only',  desc:'Remediates bandit/CVE/secret findings. Runs on directive.' },
-  { id:'reviewer', name:'Reviewer Agent', role:'Code Review',   icon:'◈', color:'#46d9a4', runtime:'hermes',   model:'—', specializations:['code_review','reasoning','council_review'],       costPolicy:'local_first', desc:'Performs council review on significant changes.' },
-  { id:'release',  name:'Release Agent',  role:'Release Mgmt',  icon:'◉', color:'#7c9dff', runtime:'hermes',   model:'—', specializations:['changelog','version_bump','readiness_check'],     costPolicy:'local_only',  desc:'Weekly readiness check, changelog, and version bumping.' },
+  { id:'ceo',      name:'CEO Agent',      role:'Orchestrator',  icon:'◎', color:'var(--violet)', runtime:'hermes',   model:'—', specializations:['orchestration','assessment','directives'],    costPolicy:'local_first', desc:'Orchestrates the agency cycle — reads improvement state and issues directives to specialist agents.' },
+  { id:'dev',      name:'Dev Agent',      role:'Engineer',      icon:'⚙', color:'var(--accent)', runtime:'opencode', model:'—', specializations:['code_generation','repo_editing','test_fixing'], costPolicy:'local_first', desc:'Fixes tests, applies code patches, opens PRs.' },
+  { id:'security', name:'Security Agent', role:'Security',      icon:'🔒',color:'var(--warning)', runtime:'hermes',   model:'—', specializations:['sast','cve_audit','secret_detection'],           costPolicy:'local_only',  desc:'Remediates bandit/CVE/secret findings. Runs on directive.' },
+  { id:'reviewer', name:'Reviewer Agent', role:'Code Review',   icon:'◈', color:'var(--success)', runtime:'hermes',   model:'—', specializations:['code_review','reasoning','council_review'],       costPolicy:'local_first', desc:'Performs council review on significant changes.' },
+  { id:'release',  name:'Release Agent',  role:'Release Mgmt',  icon:'◉', color:'var(--accent)', runtime:'hermes',   model:'—', specializations:['changelog','version_bump','readiness_check'],     costPolicy:'local_only',  desc:'Weekly readiness check, changelog, and version bumping.' },
 ];
 
 // ── Pipeline modes ────────────────────────────────────────────────────────────
@@ -47,38 +48,38 @@ const PIPELINE_MODES = [
 ];
 
 function statusCfg(s) {
-  if (s==='running') return { color:'#5da2ff', bg:'rgba(93,162,255,0.10)', pulse:true,  label:'Running' };
-  if (s==='active')  return { color:'#46d9a4', bg:'rgba(70,217,164,0.10)', pulse:true,  label:'Active' };
-  if (s==='error')   return { color:'#ff6b7d', bg:'rgba(255,107,125,0.10)',pulse:false, label:'Error' };
-  return               { color:'var(--text-muted)', bg:'rgba(255,255,255,0.05)', pulse:false, label:'Idle' };
+  if (s==='running') return { color:'var(--accent)', bg:'color-mix(in oklab, var(--accent) 10%, transparent)', pulse:true,  label:'Running' };
+  if (s==='active')  return { color:'var(--success)', bg:'color-mix(in oklab, var(--success) 10%, transparent)', pulse:true,  label:'Active' };
+  if (s==='error')   return { color:'var(--danger)', bg:'color-mix(in oklab, var(--danger) 10%, transparent)',pulse:false, label:'Error' };
+  return               { color:'var(--text-muted)', bg:'color-mix(in oklab, var(--ink) 5%, transparent)', pulse:false, label:'Idle' };
 }
 
 // ── CEO cycle panel ───────────────────────────────────────────────────────────
 function CEOCyclePanel({ directives, loading }) {
   return (
-    <div style={{ borderRadius:20, padding:'16px 18px', background:'linear-gradient(135deg,rgba(196,181,253,0.08),rgba(10,12,15,0.95) 60%)', border:'1px solid rgba(196,181,253,0.18)', marginBottom:18 }}>
+    <div style={{ borderRadius:14, padding:'16px 18px', background:'linear-gradient(135deg,color-mix(in oklab, var(--violet) 8%, transparent),color-mix(in oklab, var(--bg-surface) 95%, transparent) 60%)', border:'1px solid color-mix(in oklab, var(--violet) 18%, transparent)', marginBottom:18 }}>
       <div style={{ display:'flex', alignItems:'flex-start', justifyContent:'space-between', gap:12, flexWrap:'wrap', marginBottom:12 }}>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-          <div style={{ width:30, height:30, borderRadius:9, background:'rgba(196,181,253,0.15)', border:'1px solid rgba(196,181,253,0.25)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14 }}>◎</div>
+          <div style={{ width:30, height:30, borderRadius:9, background:'color-mix(in oklab, var(--violet) 15%, transparent)', border:'1px solid color-mix(in oklab, var(--violet) 25%, transparent)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14 }}><Glyph g="◎"/></div>
           <div>
-            <div style={{ fontSize:14, fontWeight:800, color:'#fff', letterSpacing:'-0.02em' }}>CEO Agent</div>
-            <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'#c4b5fd' }}>Orchestrator · recent activity from backend</div>
+            <div style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)', letterSpacing:'-0.02em' }}>CEO Agent</div>
+            <div style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--violet)' }}>Orchestrator · recent activity from backend</div>
           </div>
         </div>
       </div>
-      {loading && <div style={{ fontSize:12, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>Loading activity…</div>}
+      {loading && <div style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--text-muted)' }}>Loading activity…</div>}
       {!loading && directives.length === 0 && (
-        <div style={{ fontSize:12, color:'var(--text-muted)', padding:'8px 0' }}>No recent agent activity logged. Activity will appear here once agents run tasks.</div>
+        <div style={{ fontSize:13, color:'var(--text-muted)', padding:'8px 0' }}>No recent agent activity logged. Activity will appear here once agents run tasks.</div>
       )}
       <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
         {directives.map((d,i) => {
           const sc = statusCfg('active');
           return (
-            <div key={i} style={{ display:'flex', alignItems:'center', gap:9, padding:'7px 10px', borderRadius:9, background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.07)' }}>
+            <div key={i} style={{ display:'flex', alignItems:'center', gap:9, padding:'7px 10px', borderRadius:9, background:'color-mix(in oklab, var(--ink) 3%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 7%, transparent)' }}>
               <span style={{ width:5, height:5, borderRadius:'50%', background:sc.color, flexShrink:0 }}/>
-              <span style={{ fontSize:12, color:'var(--text-secondary)', flex:1 }}>{d.action}</span>
-              <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'rgba(196,181,253,0.7)', flexShrink:0 }}>→ {d.to}</span>
-              <span style={{ fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', color:'var(--text-muted)', padding:'1px 6px', borderRadius:5, background:'rgba(255,255,255,0.05)', flexShrink:0 }}>{d.ago}</span>
+              <span style={{ fontSize:13, color:'var(--text-secondary)', flex:1 }}>{d.action}</span>
+              <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'color-mix(in oklab, var(--violet) 70%, transparent)', flexShrink:0 }}>→ {d.to}</span>
+              <span style={{ fontSize:13, color:'var(--text-muted)', padding:'1px 6px', borderRadius:5, background:'color-mix(in oklab, var(--ink) 5%, transparent)', flexShrink:0 }}>{d.ago}</span>
             </div>
           );
         })}
@@ -94,14 +95,14 @@ function PipelinePanel() {
   const current = PIPELINE_MODES.find(p => p.id === mode);
 
   return (
-    <div style={{ borderRadius:18, border:'1px solid rgba(255,255,255,0.09)', background:'rgba(255,255,255,0.03)', padding:'14px 16px', marginBottom:20 }}>
+    <div style={{ borderRadius:14, border:'1px solid color-mix(in oklab, var(--ink) 9%, transparent)', background:'color-mix(in oklab, var(--ink) 3%, transparent)', padding:'14px 16px', marginBottom:20 }}>
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
         <div>
-          <div style={{ fontSize:13, fontWeight:700, color:'#fff', marginBottom:2 }}>Agent Pipeline</div>
-          <div style={{ fontSize:11, color:'var(--text-muted)' }}>How agents collaborate on each task. Can be overridden per-task.</div>
+          <div style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)', marginBottom:2 }}>Agent Pipeline</div>
+          <div style={{ fontSize:13, color:'var(--text-muted)' }}>How agents collaborate on each task. Can be overridden per-task.</div>
         </div>
-        <button onClick={() => setEnabled(o=>!o)} style={{ width:40, height:22, borderRadius:999, padding:3, cursor:'pointer', background:enabled?'var(--accent)':'rgba(255,255,255,0.10)', border:`1px solid ${enabled?'rgba(93,162,255,0.5)':'rgba(255,255,255,0.15)'}`, transition:'all 0.2s', display:'flex', alignItems:'center', justifyContent:enabled?'flex-end':'flex-start' }}>
-          <div style={{ width:16, height:16, borderRadius:'50%', background:'#fff', boxShadow:'0 1px 3px rgba(0,0,0,0.3)' }}/>
+        <button onClick={() => setEnabled(o=>!o)} style={{ width:40, height:22, borderRadius:999, padding:3, cursor:'pointer', background:enabled?'var(--accent)':'color-mix(in oklab, var(--ink) 10%, transparent)', border:`1px solid ${enabled?'color-mix(in oklab, var(--accent) 50%, transparent)':'color-mix(in oklab, var(--ink) 15%, transparent)'}`, transition:'all 0.2s', display:'flex', alignItems:'center', justifyContent:enabled?'flex-end':'flex-start' }}>
+          <div style={{ width:16, height:16, borderRadius:'50%', background:'#fff', boxShadow:'0 1px 3px color-mix(in oklab, var(--shade) 30%, transparent)' }}/>
         </button>
       </div>
       {enabled && (
@@ -109,24 +110,24 @@ function PipelinePanel() {
           <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:12 }}>
             {PIPELINE_MODES.map(pm => (
               <button key={pm.id} onClick={() => setMode(pm.id)} style={{
-                padding:'6px 14px', borderRadius:999, fontSize:12, fontWeight:600, cursor:'pointer',
-                background:mode===pm.id?'rgba(93,162,255,0.15)':'rgba(255,255,255,0.04)',
-                border:`1px solid ${mode===pm.id?'rgba(93,162,255,0.35)':'rgba(255,255,255,0.09)'}`,
-                color:mode===pm.id?'#fff':'var(--text-muted)', transition:'all 0.15s',
+                padding:'6px 14px', borderRadius:999, fontSize:13, fontWeight:600, cursor:'pointer',
+                background:mode===pm.id?'color-mix(in oklab, var(--accent) 15%, transparent)':'color-mix(in oklab, var(--ink) 4%, transparent)',
+                border:`1px solid ${mode===pm.id?'color-mix(in oklab, var(--accent) 35%, transparent)':'color-mix(in oklab, var(--ink) 9%, transparent)'}`,
+                color:mode===pm.id?'var(--text-primary)':'var(--text-muted)', transition:'all 0.15s',
               }}>{pm.label}</button>
             ))}
           </div>
           {current && (
-            <div style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 12px', borderRadius:11, background:'rgba(93,162,255,0.05)', border:'1px solid rgba(93,162,255,0.14)' }}>
+            <div style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 12px', borderRadius:11, background:'color-mix(in oklab, var(--accent) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 14%, transparent)' }}>
               <div style={{ display:'flex', alignItems:'center', gap:5, flexWrap:'wrap', flex:1 }}>
                 {current.flow.map((step, i) => (
                   <React.Fragment key={step}>
-                    <span style={{ fontSize:11, fontWeight:700, color:'var(--accent)', padding:'3px 10px', borderRadius:7, background:'rgba(93,162,255,0.12)', border:'1px solid rgba(93,162,255,0.22)' }}>{step}</span>
-                    {i < current.flow.length-1 && <span style={{ color:'rgba(255,255,255,0.25)', fontSize:12 }}>→</span>}
+                    <span style={{ fontSize:13, fontWeight:700, color:'var(--accent)', padding:'3px 10px', borderRadius:7, background:'color-mix(in oklab, var(--accent) 12%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 22%, transparent)' }}>{step}</span>
+                    {i < current.flow.length-1 && <span style={{ color:'color-mix(in oklab, var(--ink) 25%, transparent)', fontSize:13 }}>→</span>}
                   </React.Fragment>
                 ))}
               </div>
-              <div style={{ fontSize:12, color:'var(--text-muted)', maxWidth:200, flexShrink:0 }}>{current.desc}</div>
+              <div style={{ fontSize:13, color:'var(--text-muted)', maxWidth:200, flexShrink:0 }}>{current.desc}</div>
             </div>
           )}
         </>
@@ -174,59 +175,59 @@ function NewAgentForm({ onCreate, onClose }) {
   };
 
   return (
-    <div style={{ borderRadius:18, border:'1px solid rgba(93,162,255,0.20)', background:'rgba(93,162,255,0.04)', padding:'18px', marginBottom:18, animation:'fadeSlideUp 0.25s ease-out' }}>
-      <div style={{ fontSize:13, fontWeight:800, color:'#fff', marginBottom:14 }}>New Agent Profile</div>
+    <div style={{ borderRadius:14, border:'1px solid color-mix(in oklab, var(--accent) 20%, transparent)', background:'color-mix(in oklab, var(--accent) 4%, transparent)', padding:'18px', marginBottom:18, animation:'fadeSlideUp 0.25s ease-out' }}>
+      <div style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)', marginBottom:14 }}>New Agent Profile</div>
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:12 }}>
         <div>
-          <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.10em', marginBottom:5 }}>Name *</div>
+          <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:5 }}>Name *</div>
           <input value={name} onChange={e=>setName(e.target.value)} placeholder="e.g. SEO Agent"
-            style={{ width:'100%', padding:'9px 12px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-main)' }}
-            onFocus={e=>e.target.style.borderColor='rgba(93,162,255,0.45)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.10)'}/>
+            style={{ width:'100%', padding:'9px 12px', borderRadius:10, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-primary)', fontSize:14, outline:'none', fontFamily:'var(--font-main)' }}
+            onFocus={e=>e.target.style.borderColor='color-mix(in oklab, var(--accent) 45%, transparent)'} onBlur={e=>e.target.style.borderColor='color-mix(in oklab, var(--ink) 10%, transparent)'}/>
         </div>
         <div>
-          <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.10em', marginBottom:5 }}>Role</div>
+          <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:5 }}>Role</div>
           <input value={role} onChange={e=>setRole(e.target.value)} placeholder="e.g. SEO Specialist"
-            style={{ width:'100%', padding:'9px 12px', borderRadius:10, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, outline:'none', fontFamily:'var(--font-main)' }}
-            onFocus={e=>e.target.style.borderColor='rgba(93,162,255,0.45)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.10)'}/>
+            style={{ width:'100%', padding:'9px 12px', borderRadius:10, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-primary)', fontSize:14, outline:'none', fontFamily:'var(--font-main)' }}
+            onFocus={e=>e.target.style.borderColor='color-mix(in oklab, var(--accent) 45%, transparent)'} onBlur={e=>e.target.style.borderColor='color-mix(in oklab, var(--ink) 10%, transparent)'}/>
         </div>
       </div>
 
       <div style={{ marginBottom:12 }}>
-        <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.10em', marginBottom:5 }}>Runtime</div>
+        <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:5 }}>Runtime</div>
         <div style={{ display:'flex', gap:6, flexWrap:'wrap' }}>
           {RUNTIMES.map(rt => (
             <button key={rt.id} onClick={() => setRuntime(rt.id)} style={{
-              padding:'5px 12px', borderRadius:999, fontSize:11, fontWeight:600, cursor:'pointer',
-              background:runtime===rt.id?`${RUNTIME_TIER_COLOR[rt.tier]}15`:'rgba(255,255,255,0.04)',
-              border:`1px solid ${runtime===rt.id?`${RUNTIME_TIER_COLOR[rt.tier]}40`:'rgba(255,255,255,0.09)'}`,
+              padding:'5px 12px', borderRadius:999, fontSize:13, fontWeight:600, cursor:'pointer',
+              background:runtime===rt.id?`color-mix(in oklab, ${RUNTIME_TIER_COLOR[rt.tier]} 8%, transparent)`:'color-mix(in oklab, var(--ink) 4%, transparent)',
+              border:`1px solid ${runtime===rt.id?`color-mix(in oklab, ${RUNTIME_TIER_COLOR[rt.tier]} 25%, transparent)`:'color-mix(in oklab, var(--ink) 9%, transparent)'}`,
               color:runtime===rt.id?RUNTIME_TIER_COLOR[rt.tier]:'var(--text-muted)', transition:'all 0.15s',
             }}>{rt.label}</button>
           ))}
         </div>
-        {RUNTIMES.find(r=>r.id===runtime) && <div style={{ fontSize:11, color:'var(--text-muted)', marginTop:5 }}>{RUNTIMES.find(r=>r.id===runtime).desc}</div>}
+        {RUNTIMES.find(r=>r.id===runtime) && <div style={{ fontSize:13, color:'var(--text-muted)', marginTop:5 }}>{RUNTIMES.find(r=>r.id===runtime).desc}</div>}
       </div>
 
       <div style={{ marginBottom:12 }}>
-        <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.10em', marginBottom:5 }}>Specializations</div>
+        <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:5 }}>Specializations</div>
         <div style={{ display:'flex', gap:5, flexWrap:'wrap' }}>
           {ALL_SPECS.map(s => {
             const on = specs.includes(s);
-            return <button key={s} onClick={()=>setSpecs(p=>on?p.filter(x=>x!==s):[...p,s])} style={{ padding:'4px 10px', borderRadius:999, fontSize:10, fontFamily:'var(--font-mono)', cursor:'pointer', background:on?'rgba(93,162,255,0.15)':'rgba(255,255,255,0.04)', border:`1px solid ${on?'rgba(93,162,255,0.35)':'rgba(255,255,255,0.09)'}`, color:on?'#fff':'var(--text-muted)', transition:'all 0.15s', textTransform:'uppercase', letterSpacing:'0.08em' }}>{s}</button>;
+            return <button key={s} onClick={()=>setSpecs(p=>on?p.filter(x=>x!==s):[...p,s])} style={{ padding:'4px 10px', borderRadius:999, fontSize:13, cursor:'pointer', background:on?'color-mix(in oklab, var(--accent) 15%, transparent)':'color-mix(in oklab, var(--ink) 4%, transparent)', border:`1px solid ${on?'color-mix(in oklab, var(--accent) 35%, transparent)':'color-mix(in oklab, var(--ink) 9%, transparent)'}`, color:on?'var(--text-primary)':'var(--text-muted)', transition:'all 0.15s' }}>{s}</button>;
           })}
         </div>
       </div>
 
       <div style={{ marginBottom:12 }}>
-        <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.10em', marginBottom:5 }}>System prompt (optional)</div>
+        <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:5 }}>System prompt (optional)</div>
         <textarea value={prompt} onChange={e=>setPrompt(e.target.value)} placeholder="You are an expert SEO agent…" rows={3}
-          style={{ width:'100%', padding:'9px 12px', borderRadius:10, resize:'none', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:12, fontFamily:'var(--font-mono)', outline:'none' }}
-          onFocus={e=>e.target.style.borderColor='rgba(93,162,255,0.45)'} onBlur={e=>e.target.style.borderColor='rgba(255,255,255,0.10)'}/>
+          style={{ width:'100%', padding:'9px 12px', borderRadius:10, resize:'none', background:'color-mix(in oklab, var(--ink) 4%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-primary)', fontSize:13, fontFamily:'var(--font-mono)', outline:'none' }}
+          onFocus={e=>e.target.style.borderColor='color-mix(in oklab, var(--accent) 45%, transparent)'} onBlur={e=>e.target.style.borderColor='color-mix(in oklab, var(--ink) 10%, transparent)'}/>
       </div>
 
-      {error && <div style={{ marginBottom:10, padding:'8px 12px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', color:'#ff6b7d', fontSize:12 }}>{error}</div>}
+      {error && <div style={{ marginBottom:10, padding:'8px 12px', borderRadius:10, background:'color-mix(in oklab, var(--danger) 10%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 25%, transparent)', color:'var(--danger)', fontSize:13 }}>{error}</div>}
       <div style={{ display:'flex', gap:8 }}>
-        <button onClick={submit} disabled={busy} style={{ flex:1, padding:'10px', borderRadius:12, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:13, fontWeight:800, border:'none', cursor:busy?'wait':'pointer', opacity:busy?0.7:1 }}>{busy ? 'Creating…' : '+ Create Agent'}</button>
-        <button onClick={onClose} disabled={busy} style={{ padding:'10px 18px', borderRadius:12, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)', fontSize:13, cursor:'pointer' }}>Cancel</button>
+        <button onClick={submit} disabled={busy} style={{ flex:1, padding:'10px', borderRadius:12, background:'linear-gradient(135deg,var(--accent),var(--accent))', color:'var(--on-accent)', fontSize:14, fontWeight:700, border:'none', cursor:busy?'wait':'pointer', opacity:busy?0.7:1 }}>{busy ? 'Creating…' : '+ Create Agent'}</button>
+        <button onClick={onClose} disabled={busy} style={{ padding:'10px 18px', borderRadius:12, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-muted)', fontSize:14, cursor:'pointer' }}>Cancel</button>
       </div>
     </div>
   );
@@ -236,88 +237,88 @@ function NewAgentForm({ onCreate, onClose }) {
 function AgentCard({ agent, onChat, onRun }) {
   const sc = statusCfg(agent.status);
   const originConfig    = {
-    builtin:    { color:'#5da2ff',  label:'Built-in',    desc:'Core agency agent' },
-    onboarding: { color:'#46d9a4',  label:'Provisioned', desc:'Created from onboarding discovery' },
-    custom:     { color:'#c4b5fd',  label:'Custom',      desc:'Manually created' },
+    builtin:    { color:'var(--accent)',  label:'Built-in',    desc:'Core agency agent' },
+    onboarding: { color:'var(--success)',  label:'Provisioned', desc:'Created from onboarding discovery' },
+    custom:     { color:'var(--violet)',  label:'Custom',      desc:'Manually created' },
   }[agent.origin] || { color:'var(--text-muted)', label:'Custom', desc:'' };
   const rt = RUNTIMES.find(r => r.id === agent.runtime);
 
   return (
     <div style={{
-      borderRadius:18, border:`1px solid ${agent.status!=='idle'?`${sc.color}22`:'rgba(255,255,255,0.09)'}`,
-      background:agent.status!=='idle'?`${sc.color}04`:'rgba(255,255,255,0.03)',
+      borderRadius:14, border:`1px solid ${agent.status!=='idle'?`color-mix(in oklab, ${sc.color} 13%, transparent)`:'color-mix(in oklab, var(--ink) 9%, transparent)'}`,
+      background:agent.status!=='idle'?`color-mix(in oklab, ${sc.color} 2%, transparent)`:'color-mix(in oklab, var(--ink) 3%, transparent)',
       padding:'15px', transition:'all 0.2s ease',
     }}
-    onMouseEnter={e=>{ e.currentTarget.style.transform='translateY(-2px)'; e.currentTarget.style.boxShadow=`0 8px 24px ${sc.color}10`; }}
+    onMouseEnter={e=>{ e.currentTarget.style.transform='translateY(-2px)'; e.currentTarget.style.boxShadow=`0 8px 24px color-mix(in oklab, ${sc.color} 6%, transparent)`; }}
     onMouseLeave={e=>{ e.currentTarget.style.transform='none'; e.currentTarget.style.boxShadow='none'; }}>
 
       {/* Origin badge + status */}
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
-        <span style={{ fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', padding:'2px 8px', borderRadius:999, color:originConfig.color, background:`${originConfig.color}12`, border:`1px solid ${originConfig.color}25` }}>
+        <span style={{ fontSize:13, padding:'2px 8px', borderRadius:999, color:originConfig.color, background:`color-mix(in oklab, ${originConfig.color} 7%, transparent)`, border:`1px solid color-mix(in oklab, ${originConfig.color} 15%, transparent)` }}>
           {originConfig.label}
           {agent.origin==='onboarding' && ' · from discovery'}
         </span>
         <div style={{ display:'flex', alignItems:'center', gap:5 }}>
           <span style={{ width:6, height:6, borderRadius:'50%', background:sc.color, animation:sc.pulse?'pulse 2s infinite':'none' }}/>
-          <span style={{ fontSize:10, fontFamily:'var(--font-mono)', letterSpacing:'0.09em', textTransform:'uppercase', color:sc.color }}>{sc.label}</span>
+          <span style={{ fontSize:13, color:sc.color }}>{sc.label}</span>
         </div>
       </div>
 
       {/* Name + icon */}
       <div style={{ display:'flex', alignItems:'flex-start', gap:10, marginBottom:8 }}>
-        <div style={{ width:36, height:36, borderRadius:12, flexShrink:0, background:`${agent.color}15`, border:`1px solid ${agent.color}28`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16 }}>{agent.icon}</div>
+        <div style={{ width:36, height:36, borderRadius:12, flexShrink:0, background:`color-mix(in oklab, ${agent.color} 8%, transparent)`, border:`1px solid color-mix(in oklab, ${agent.color} 16%, transparent)`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16 }}><Glyph g={agent.icon}/></div>
         <div style={{ flex:1 }}>
-          <div style={{ fontSize:14, fontWeight:800, color:'#fff', letterSpacing:'-0.02em' }}>{agent.name}</div>
-          <div style={{ fontSize:11, color:'var(--text-muted)', fontFamily:'var(--font-mono)' }}>{agent.role}</div>
+          <div style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)', letterSpacing:'-0.02em' }}>{agent.name}</div>
+          <div style={{ fontSize:13, color:'var(--text-muted)', fontVariantNumeric:'tabular-nums' }}>{agent.role}</div>
         </div>
       </div>
 
       {/* Current task */}
       {agent.currentTask && (
-        <div style={{ marginBottom:8, padding:'7px 10px', borderRadius:9, background:`${sc.color}08`, border:`1px solid ${sc.color}18`, fontSize:11, color:'var(--text-secondary)', lineHeight:1.5, display:'flex', alignItems:'flex-start', gap:5 }}>
+        <div style={{ marginBottom:8, padding:'7px 10px', borderRadius:9, background:`color-mix(in oklab, ${sc.color} 3%, transparent)`, border:`1px solid color-mix(in oklab, ${sc.color} 9%, transparent)`, fontSize:13, color:'var(--text-secondary)', lineHeight:1.5, display:'flex', alignItems:'flex-start', gap:5 }}>
           <span style={{ color:sc.color, flexShrink:0, animation:'blink 1.4s infinite' }}>▸</span>
           {agent.currentTask}
         </div>
       )}
 
-      <div style={{ fontSize:12, color:'var(--text-muted)', lineHeight:1.5, marginBottom:8 }}>{agent.desc}</div>
+      <div style={{ fontSize:13, color:'var(--text-muted)', lineHeight:1.5, marginBottom:8 }}>{agent.desc}</div>
 
       {/* Specializations */}
       <div style={{ display:'flex', gap:4, flexWrap:'wrap', marginBottom:10 }}>
         {agent.specializations.slice(0,4).map(s => (
-          <span key={s} style={{ fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'0.09em', textTransform:'uppercase', padding:'2px 6px', borderRadius:999, color:agent.color, background:`${agent.color}10`, border:`1px solid ${agent.color}20` }}>{s.replace(/_/g,' ')}</span>
+          <span key={s} style={{ fontSize:13, padding:'2px 6px', borderRadius:999, color:agent.color, background:`color-mix(in oklab, ${agent.color} 6%, transparent)`, border:`1px solid color-mix(in oklab, ${agent.color} 13%, transparent)` }}>{s.replace(/_/g,' ')}</span>
         ))}
       </div>
 
       {/* Stats */}
-      <div style={{ display:'flex', gap:10, padding:'8px 0', borderTop:'1px solid rgba(255,255,255,0.06)', borderBottom:'1px solid rgba(255,255,255,0.06)', marginBottom:10 }}>
+      <div style={{ display:'flex', gap:10, padding:'8px 0', borderTop:'1px solid color-mix(in oklab, var(--ink) 6%, transparent)', borderBottom:'1px solid color-mix(in oklab, var(--ink) 6%, transparent)', marginBottom:10 }}>
         {[
           { label:'Week', value:agent.tasksWeek||0 },
           { label:'Avg', value:agent.displayAvg || '—' },
           { label:'Last', value:agent.lastRun },
         ].map(m => (
           <div key={m.label} style={{ flex:1 }}>
-            <div style={{ fontSize:9, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.10em', textTransform:'uppercase', marginBottom:2 }}>{m.label}</div>
-            <div style={{ fontSize:12, fontWeight:700, color:'var(--text-primary)' }}>{m.value}</div>
+            <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:2 }}>{m.label}</div>
+            <div style={{ fontSize:13, fontWeight:700, color:'var(--text-primary)' }}>{m.value}</div>
           </div>
         ))}
       </div>
 
       {/* Runtime + model */}
       <div style={{ display:'flex', gap:5, flexWrap:'wrap', marginBottom:10 }}>
-        <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 7px', borderRadius:999, color:rt?RUNTIME_TIER_COLOR[rt.tier]:'var(--text-muted)', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.09)', textTransform:'uppercase', letterSpacing:'0.09em' }}>⚙ {agent.runtime}</span>
+        <span style={{ fontSize:13, padding:'2px 7px', borderRadius:999, color:rt?RUNTIME_TIER_COLOR[rt.tier]:'var(--text-muted)', background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 9%, transparent)' }}><Glyph g="⚙"/> {agent.runtime}</span>
         {agent.model && agent.model !== '—' && (
-          <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 7px', borderRadius:999, color:'var(--text-muted)', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.09)', maxWidth:180, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', textTransform:'uppercase', letterSpacing:'0.09em' }}>◈ {agent.model}</span>
+          <span style={{ fontSize:13, padding:'2px 7px', borderRadius:999, color:'var(--text-muted)', background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 9%, transparent)', maxWidth:180, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}><Glyph g="◈"/> {agent.model}</span>
         )}
       </div>
 
       <div style={{ display:'flex', gap:8 }}>
-        <button onClick={() => onRun && onRun(agent)} style={{ flex:1, padding:'8px', borderRadius:10, fontSize:12, fontWeight:800, cursor:'pointer', background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', border:'none', transition:'all 0.15s ease' }}>
-          ▶ Run task
+        <button onClick={() => onRun && onRun(agent)} style={{ flex:1, padding:'8px', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', background:'linear-gradient(135deg,var(--accent),var(--accent))', color:'var(--on-accent)', border:'none', transition:'all 0.15s ease' }}>
+          <Glyph g="▶"/> Run task
         </button>
-        <button onClick={() => onChat && onChat(agent)} style={{ flex:1, padding:'8px', borderRadius:10, fontSize:12, fontWeight:700, cursor:'pointer', background:`${agent.color}10`, border:`1px solid ${agent.color}22`, color:agent.color, transition:'all 0.15s ease' }}
-          onMouseEnter={e=>e.currentTarget.style.background=`${agent.color}20`}
-          onMouseLeave={e=>e.currentTarget.style.background=`${agent.color}10`}>
+        <button onClick={() => onChat && onChat(agent)} style={{ flex:1, padding:'8px', borderRadius:10, fontSize:13, fontWeight:700, cursor:'pointer', background:`color-mix(in oklab, ${agent.color} 6%, transparent)`, border:`1px solid color-mix(in oklab, ${agent.color} 13%, transparent)`, color:agent.color, transition:'all 0.15s ease' }}
+          onMouseEnter={e=>e.currentTarget.style.background=`color-mix(in oklab, ${agent.color} 13%, transparent)`}
+          onMouseLeave={e=>e.currentTarget.style.background=`color-mix(in oklab, ${agent.color} 6%, transparent)`}>
           → Chat
         </button>
       </div>
@@ -328,17 +329,17 @@ function AgentCard({ agent, onChat, onRun }) {
 // ── Runtimes status bar ───────────────────────────────────────────────────────
 function RuntimesBar() {
   return (
-    <div style={{ borderRadius:16, border:'1px solid rgba(255,255,255,0.09)', background:'rgba(255,255,255,0.025)', padding:'12px 16px', marginBottom:20 }}>
-      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase', marginBottom:10 }}>Agent Runtimes</div>
+    <div style={{ borderRadius:16, border:'1px solid color-mix(in oklab, var(--ink) 9%, transparent)', background:'color-mix(in oklab, var(--ink) 2.5%, transparent)', padding:'12px 16px', marginBottom:20 }}>
+      <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:10 }}>Agent Runtimes</div>
       <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
         {RUNTIMES.map(rt => {
           const tc = RUNTIME_TIER_COLOR[rt.tier];
           return (
-            <div key={rt.id} style={{ display:'flex', alignItems:'center', gap:7, padding:'6px 12px', borderRadius:10, background:`${tc}0a`, border:`1px solid ${tc}22` }}>
-              <span style={{ width:6, height:6, borderRadius:'50%', background:rt.status==='online'?'#46d9a4':rt.status==='external'?'#ffbd66':'#ff6b7d', animation:rt.status==='online'?'pulse 2s infinite':'none' }}/>
-              <span style={{ fontSize:12, fontWeight:600, color:'#fff' }}>{rt.label}</span>
-              {rt.tier==='recommended' && <span style={{ fontSize:9, fontFamily:'var(--font-mono)', color:'#46d9a4', padding:'1px 5px', borderRadius:4, background:'rgba(70,217,164,0.10)' }}>default</span>}
-              {rt.status==='external' && <span style={{ fontSize:9, fontFamily:'var(--font-mono)', color:'#ffbd66' }}>external</span>}
+            <div key={rt.id} style={{ display:'flex', alignItems:'center', gap:7, padding:'6px 12px', borderRadius:10, background:`color-mix(in oklab, ${tc} 4%, transparent)`, border:`1px solid color-mix(in oklab, ${tc} 13%, transparent)` }}>
+              <span style={{ width:6, height:6, borderRadius:'50%', background:rt.status==='online'?'var(--success)':rt.status==='external'?'var(--warning)':'var(--danger)', animation:rt.status==='online'?'pulse 2s infinite':'none' }}/>
+              <span style={{ fontSize:13, fontWeight:600, color:'var(--text-primary)' }}>{rt.label}</span>
+              {rt.tier==='recommended' && <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--success)', padding:'1px 5px', borderRadius:4, background:'color-mix(in oklab, var(--success) 10%, transparent)' }}>default</span>}
+              {rt.status==='external' && <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--warning)' }}>external</span>}
             </div>
           );
         })}
@@ -428,64 +429,64 @@ function RunTaskModal({ agent, onClose, onViewInTasks }) {
   const busy = status === 'starting' || status === 'running';
 
   return (
-    <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:2000, background:'rgba(2,3,4,0.7)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
-      <div onClick={e=>e.stopPropagation()} style={{ width:'100%', maxWidth:560, maxHeight:'88vh', overflowY:'auto', borderRadius:18, border:'1px solid rgba(93,162,255,0.20)', background:'var(--bg-surface)', padding:'20px' }}>
+    <div onClick={onClose} style={{ position:'fixed', inset:0, zIndex:2000, background:'color-mix(in oklab, var(--bg-surface) 70%, transparent)', display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+      <div onClick={e=>e.stopPropagation()} style={{ width:'100%', maxWidth:560, maxHeight:'88vh', overflowY:'auto', borderRadius:14, border:'1px solid color-mix(in oklab, var(--accent) 20%, transparent)', background:'var(--bg-surface)', padding:'20px' }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
-          <div style={{ fontSize:15, fontWeight:800, color:'#fff' }}>Run a task · {agent.name}</div>
+          <div style={{ fontSize:15, fontWeight:700, color:'var(--text-primary)' }}>Run a task · {agent.name}</div>
           <button onClick={onClose} style={{ background:'none', border:'none', color:'var(--text-muted)', fontSize:20, cursor:'pointer' }}>×</button>
         </div>
-        <div style={{ fontSize:12, color:'var(--text-muted)', marginBottom:12, lineHeight:1.5 }}>Creates a tracked task in the <strong style={{ color:'var(--text-tertiary)' }}>Tasks board</strong>, then dispatches it through the <strong style={{ color:'var(--text-tertiary)' }}>{agent.name}</strong> pipeline. Monitor progress here or find the full lifecycle in Tasks.</div>
+        <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:12, lineHeight:1.5 }}>Creates a tracked task in the <strong style={{ color:'var(--text-tertiary)' }}>Tasks board</strong>, then dispatches it through the <strong style={{ color:'var(--text-tertiary)' }}>{agent.name}</strong> pipeline. Monitor progress here or find the full lifecycle in Tasks.</div>
         <textarea value={task} onChange={e=>setTask(e.target.value)} disabled={busy} placeholder="Describe the task…  e.g. 'Audit the checkout flow for SEO regressions and open a PR'" rows={4}
-          style={{ width:'100%', padding:'10px 12px', borderRadius:10, resize:'vertical', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', color:'#fff', fontSize:13, fontFamily:'var(--font-main)', outline:'none', marginBottom:12 }}/>
+          style={{ width:'100%', padding:'10px 12px', borderRadius:10, resize:'vertical', background:'color-mix(in oklab, var(--ink) 4%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-primary)', fontSize:14, fontFamily:'var(--font-main)', outline:'none', marginBottom:12 }}/>
         {busy && (
-          <div style={{ marginBottom:12, padding:'10px 12px', borderRadius:10, background:'rgba(93,162,255,0.06)', border:'1px solid rgba(93,162,255,0.16)', fontSize:12, color:'var(--text-secondary)', display:'flex', alignItems:'center', gap:8 }}>
+          <div style={{ marginBottom:12, padding:'10px 12px', borderRadius:10, background:'color-mix(in oklab, var(--accent) 6%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 16%, transparent)', fontSize:13, color:'var(--text-secondary)', display:'flex', alignItems:'center', gap:8 }}>
             <span style={{ width:7, height:7, borderRadius:'50%', background:'var(--accent)', animation:'pulse 1.4s infinite' }}/>
             {status === 'starting' ? 'Creating task…' : `Running · ${phase || 'in_progress'}…`}
           </div>
         )}
         {taskId && status === 'running' && (
-          <div style={{ marginBottom:12, padding:'8px 12px', borderRadius:10, background:'rgba(93,162,255,0.06)', border:'1px solid rgba(93,162,255,0.14)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
-            <span style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)' }}>
+          <div style={{ marginBottom:12, padding:'8px 12px', borderRadius:10, background:'color-mix(in oklab, var(--accent) 6%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 14%, transparent)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
+            <span style={{ fontSize:13, fontFamily:'var(--font-mono)', color:'var(--accent)' }}>
               Task #{taskId} · <span style={{ color:'var(--text-muted)' }}>running in Tasks board</span>
             </span>
             {onViewInTasks && (
               <button onClick={onViewInTasks} style={{
-                fontSize:10, fontFamily:'var(--font-mono)', fontWeight:700,
+                fontSize:13, fontVariantNumeric:'tabular-nums', fontWeight:700,
                 padding:'4px 10px', borderRadius:7, cursor:'pointer',
-                background:'rgba(93,162,255,0.12)', border:'1px solid rgba(93,162,255,0.28)',
-                color:'var(--accent)', letterSpacing:'0.08em', textTransform:'uppercase',
+                background:'color-mix(in oklab, var(--accent) 12%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 28%, transparent)',
+                color:'var(--accent)',
               }}>View in Tasks →</button>
             )}
           </div>
         )}
         {status === 'done' && result && (
-          <div style={{ marginBottom:12, padding:'12px', borderRadius:10, background:'rgba(70,217,164,0.07)', border:'1px solid rgba(70,217,164,0.20)', fontSize:13, color:'var(--text-secondary)', whiteSpace:'pre-wrap', lineHeight:1.55 }}>
+          <div style={{ marginBottom:12, padding:'12px', borderRadius:10, background:'color-mix(in oklab, var(--success) 7%, transparent)', border:'1px solid color-mix(in oklab, var(--success) 20%, transparent)', fontSize:14, color:'var(--text-secondary)', whiteSpace:'pre-wrap', lineHeight:1.55 }}>
             <div style={{ marginBottom:8, display:'flex', alignItems:'center', justifyContent:'space-between', flexWrap:'wrap', gap:6 }}>
-              <span style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--success)', letterSpacing:'0.08em', textTransform:'uppercase' }}>✓ Completed</span>
+              <span style={{ fontSize:13, color:'var(--success)' }}>✓ Completed</span>
               <div style={{ display:'flex', gap:5 }}>
-                <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 7px', borderRadius:999, color:'#5da2ff', background:'rgba(93,162,255,0.10)', border:'1px solid rgba(93,162,255,0.20)', textTransform:'uppercase', letterSpacing:'0.08em' }}>{agent.name}</span>
-                {taskId && <span style={{ fontSize:9, fontFamily:'var(--font-mono)', padding:'2px 7px', borderRadius:999, color:'var(--text-muted)', background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.09)', textTransform:'uppercase', letterSpacing:'0.08em' }}>Task #{taskId}</span>}
+                <span style={{ fontSize:13, padding:'2px 7px', borderRadius:999, color:'var(--accent)', background:'color-mix(in oklab, var(--accent) 10%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 20%, transparent)' }}>{agent.name}</span>
+                {taskId && <span style={{ fontSize:13, padding:'2px 7px', borderRadius:999, color:'var(--text-muted)', background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 9%, transparent)' }}>Task #{taskId}</span>}
               </div>
             </div>
             {result}
           </div>
         )}
         {(error || (status === 'error')) && (
-          <div style={{ marginBottom:12, padding:'10px 12px', borderRadius:10, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
-            <span style={{ fontSize:12, color:'#ff6b7d' }}>{error || 'Task execution failed.'}</span>
+          <div style={{ marginBottom:12, padding:'10px 12px', borderRadius:10, background:'color-mix(in oklab, var(--danger) 10%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 25%, transparent)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:8 }}>
+            <span style={{ fontSize:13, color:'var(--danger)' }}>{error || 'Task execution failed.'}</span>
             {taskId && onViewInTasks && (
               <button onClick={onViewInTasks} style={{
-                fontSize:10, fontFamily:'var(--font-mono)', fontWeight:700,
+                fontSize:13, fontVariantNumeric:'tabular-nums', fontWeight:700,
                 padding:'4px 10px', borderRadius:7, cursor:'pointer',
-                background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.25)',
-                color:'#ff6b7d', letterSpacing:'0.08em', textTransform:'uppercase',
+                background:'color-mix(in oklab, var(--danger) 10%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 25%, transparent)',
+                color:'var(--danger)',
               }}>View in Tasks →</button>
             )}
           </div>
         )}
         <div style={{ display:'flex', gap:8 }}>
-          <button onClick={run} disabled={busy || !task.trim()} style={{ flex:1, padding:'10px', borderRadius:12, background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', fontSize:13, fontWeight:800, border:'none', cursor:busy?'wait':'pointer', opacity:(busy||!task.trim())?0.6:1 }}>{busy ? 'Running…' : '▶ Run task'}</button>
-          <button onClick={onClose} style={{ padding:'10px 18px', borderRadius:12, background:'rgba(255,255,255,0.05)', border:'1px solid rgba(255,255,255,0.10)', color:'var(--text-muted)', fontSize:13, cursor:'pointer' }}>Close</button>
+          <button onClick={run} disabled={busy || !task.trim()} style={{ flex:1, padding:'10px', borderRadius:12, background:'linear-gradient(135deg,var(--accent),var(--accent))', color:'var(--on-accent)', fontSize:14, fontWeight:700, border:'none', cursor:busy?'wait':'pointer', opacity:(busy||!task.trim())?0.6:1 }}>{busy ? 'Running…' : '▶ Run task'}</button>
+          <button onClick={onClose} style={{ padding:'10px 18px', borderRadius:12, background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-muted)', fontSize:14, cursor:'pointer' }}>Close</button>
         </div>
       </div>
     </div>
@@ -504,7 +505,7 @@ function mapBackendAgent(a, agentTaskStats = {}) {
     name: a.name || 'Agent',
     role: a.role || 'Agent',
     icon: builtin?.icon || '◎',
-    color: builtin?.color || '#5da2ff',
+    color: builtin?.color || 'var(--accent)',
     status: a.status || 'idle',
     currentTask: null,
     runtime: a.preferred_runtime || a.runtime_id || 'hermes',
@@ -612,14 +613,13 @@ function AgentsScreen({ onNavigateToChat, onNavigateToTasks }) {
                  : custom;
 
   return (
-    <div style={{ padding:'20px 16px 48px', maxWidth:1100, margin:'0 auto' }}>
-      <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.18em', textTransform:'uppercase', marginBottom:6 }}>Autonomous Agency</div>
+    <div style={{ padding:'20px 16px 48px', maxWidth:1200, margin:'0 auto' }}>
       <div style={{ display:'flex', alignItems:'flex-end', justifyContent:'space-between', flexWrap:'wrap', gap:10, marginBottom:18 }}>
         <div>
-          <h1 style={{ fontSize:26, fontWeight:800, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1, marginBottom:4 }}>Agent Roster</h1>
+          <h1 style={{ fontSize:26, fontWeight:700, color:'var(--text-primary)', letterSpacing:'-0.04em', lineHeight:1.1, marginBottom:4 }}>Agent roster</h1>
           <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.5, maxWidth:480 }}>Built-in specialist agents + any custom agents you create. Complete onboarding to provision company-specific specialists.</p>
         </div>
-        <button onClick={() => setShowForm(true)} style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 20px', borderRadius:999, fontSize:13, fontWeight:800, cursor:'pointer', background:'linear-gradient(135deg,#6CB0FF,#4F93FF)', color:'#06111f', border:'none', boxShadow:'0 6px 20px rgba(93,162,255,0.22)' }}>+ New agent</button>
+        <button onClick={() => setShowForm(true)} style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'10px 20px', borderRadius:999, fontSize:14, fontWeight:700, cursor:'pointer', background:'linear-gradient(135deg,var(--accent),var(--accent))', color:'var(--on-accent)', border:'none', boxShadow:'0 6px 20px color-mix(in oklab, var(--accent) 22%, transparent)' }}>+ New agent</button>
       </div>
 
       <CEOCyclePanel directives={ceoCycleData} loading={states.activity?.loading}/>
@@ -630,7 +630,7 @@ function AgentsScreen({ onNavigateToChat, onNavigateToTasks }) {
       {runAgent && <RunTaskModal agent={runAgent} onClose={() => setRunAgent(null)} onViewInTasks={handleViewTasks}/>}
 
       {states.agents?.error && (
-        <div style={{ padding:'10px 14px', borderRadius:12, background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.20)', marginBottom:12, fontSize:12, color:'#ff6b7d' }}>
+        <div style={{ padding:'10px 14px', borderRadius:12, background:'color-mix(in oklab, var(--danger) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 20%, transparent)', marginBottom:12, fontSize:13, color:'var(--danger)' }}>
           Couldn't load the live agent roster ({states.agents.error}). Showing the built-in catalog only.
         </div>
       )}
@@ -642,13 +642,13 @@ function AgentsScreen({ onNavigateToChat, onNavigateToTasks }) {
           { id:'builtin', label:`Built-in (${builtIn.length})` },
           { id:'custom',  label:`Custom (${custom.length})` },
         ].map(f => (
-          <button key={f.id} onClick={() => setFilter(f.id)} style={{ padding:'5px 14px', borderRadius:999, fontSize:12, fontWeight:600, cursor:'pointer', background:filter===f.id?'rgba(93,162,255,0.15)':'rgba(255,255,255,0.04)', border:`1px solid ${filter===f.id?'rgba(93,162,255,0.35)':'rgba(255,255,255,0.09)'}`, color:filter===f.id?'#fff':'var(--text-muted)', transition:'all 0.15s' }}>{f.label}</button>
+          <button key={f.id} onClick={() => setFilter(f.id)} style={{ padding:'5px 14px', borderRadius:999, fontSize:13, fontWeight:600, cursor:'pointer', background:filter===f.id?'color-mix(in oklab, var(--accent) 15%, transparent)':'color-mix(in oklab, var(--ink) 4%, transparent)', border:`1px solid ${filter===f.id?'color-mix(in oklab, var(--accent) 35%, transparent)':'color-mix(in oklab, var(--ink) 9%, transparent)'}`, color:filter===f.id?'var(--text-primary)':'var(--text-muted)', transition:'all 0.15s' }}>{f.label}</button>
         ))}
       </div>
 
       {/* Honest callout: provisioned specialists need onboarding */}
       {(filter === 'all' || filter === 'builtin') && (
-        <div style={{ padding:'10px 14px', borderRadius:12, background:'rgba(93,162,255,0.05)', border:'1px solid rgba(93,162,255,0.12)', marginBottom:12, fontSize:12, color:'var(--text-muted)', lineHeight:1.5 }}>
+        <div style={{ padding:'10px 14px', borderRadius:12, background:'color-mix(in oklab, var(--accent) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 12%, transparent)', marginBottom:12, fontSize:13, color:'var(--text-muted)', lineHeight:1.5 }}>
           Company-specific specialists (Commerce, Content, Analytics…) appear here after you complete the Onboarding flow for your site.
         </div>
       )}
@@ -658,7 +658,7 @@ function AgentsScreen({ onNavigateToChat, onNavigateToTasks }) {
           <AgentCard key={agent.id} agent={agent} onChat={() => onNavigateToChat && onNavigateToChat(agent)} onRun={() => setRunAgent(agent)}/>
         ))}
         {filtered.length === 0 && (
-          <div style={{ gridColumn:'1/-1', padding:'32px 0', textAlign:'center', fontSize:13, color:'var(--text-muted)' }}>
+          <div style={{ gridColumn:'1/-1', padding:'32px 0', textAlign:'center', fontSize:14, color:'var(--text-muted)' }}>
             No agents yet. Create one using the button above.
           </div>
         )}

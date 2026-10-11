@@ -1,8 +1,9 @@
 import React from 'react';
-import { APP_NAME, APP_LABEL } from '../version';
+import { APP_NAME } from '../version';
 import { SamFace } from './components/SamAvatar';
 import { useAuth } from '../AuthContext';
 import EphemeralBanner from './screens/EphemeralBanner';
+import { getThemePreference, setThemePreference } from '../theme';
 
 
 // Six destinations, organised around what the user is doing. The former
@@ -11,12 +12,12 @@ import EphemeralBanner from './screens/EphemeralBanner';
 // ALIASES map in V5App.jsx for the old-id → new-destination mapping.
 
 const NAV_ITEMS = [
-  { id:'home',      label:'Home',      icon:'Home',          desc:'What happened & what needs you', section:'MAIN' },
-  { id:'assistant', label:'Assistant', icon:'MessageSquare', desc:'Talk or type to your team',      section:'MAIN' },
-  { id:'work',      label:'Work',      icon:'CheckSquare',   desc:'Now, automated & planned',       section:'MAIN' },
-  { id:'company',   label:'Company',   icon:'Building2',     desc:'Your business, systems & team',  section:'MAIN' },
-  { id:'insights',  label:'Insights',  icon:'TrendingUp',    desc:'Activity, market & site health', section:'MAIN' },
-  { id:'settings',  label:'Settings',  icon:'Sliders',       desc:'Infrastructure & admin',         section:'SYSTEM' },
+  { id:'home',      label:'Home',      icon:'Home',          desc:'What needs you, and what happened', section:'MAIN' },
+  { id:'assistant', label:'Assistant', icon:'MessageSquare', desc:'Ask your team anything',            section:'MAIN' },
+  { id:'work',      label:'Work',      icon:'CheckSquare',   desc:'Tasks, routines and plans',         section:'MAIN' },
+  { id:'company',   label:'Company',   icon:'Building2',     desc:'Your business and your team',       section:'MAIN' },
+  { id:'insights',  label:'Insights',  icon:'TrendingUp',    desc:'Activity, market and site health',  section:'MAIN' },
+  { id:'settings',  label:'Settings',  icon:'Sliders',       desc:'Connections, rules and access',     section:'SYSTEM' },
 ];
 
 // All five everyday destinations fit the bottom bar — no "More" sheet hiding
@@ -59,95 +60,100 @@ function Icon({ name, size=18, style={} }) {
     Menu:            <><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></>,
     X:               <><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></>,
     MoreHorizontal:  <><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></>,
+    Bell:            <><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></>,
+    NotePen:         <><path d="M13.4 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7.4"/><path d="M2 6h4"/><path d="M2 10h4"/><path d="M2 14h4"/><path d="M2 18h4"/><path d="M21.4 5.6a2.12 2.12 0 0 0-3-3L13 8l-1 4 4-1Z"/></>,
+    ArrowUp:         <><path d="m5 12 7-7 7 7"/><path d="M12 19V5"/></>,
+    Link:            <><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></>,
+    Check:           <><path d="M20 6 9 17l-5-5"/></>,
+    AlertCircle:     <><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></>,
+    ChevronRight:    <><path d="m9 18 6-6-6-6"/></>,
+    Clock:           <><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></>,
+    Plus:            <><path d="M5 12h14"/><path d="M12 5v14"/></>,
   };
   return (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={style}>
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={style} aria-hidden="true" focusable="false">
       {paths[name] || <circle cx="12" cy="12" r="5"/>}
     </svg>
   );
 }
 
+const THEME_OPTIONS = [
+  { id: 'system', label: 'Auto' },
+  { id: 'light', label: 'Light' },
+  { id: 'dark', label: 'Dark' },
+];
+
+function ThemeSwitch() {
+  const [pref, setPref] = React.useState(getThemePreference);
+  const choose = (id) => { setPref(id); setThemePreference(id); };
+  return (
+    <div className="shell-theme" role="radiogroup" aria-label="Colour theme">
+      {THEME_OPTIONS.map(o => (
+        <button key={o.id} type="button" role="radio" aria-checked={pref === o.id}
+          className={pref === o.id ? 'is-on' : ''} onClick={() => choose(o.id)}>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function AgentStatus({ running }) {
   return (
-    <div style={{ display:'inline-flex', alignItems:'center', gap:5, background:running?'rgba(70,217,164,0.10)':'rgba(255,255,255,0.04)', border:`1px solid ${running?'rgba(70,217,164,0.2)':'rgba(255,255,255,0.08)'}`, borderRadius:999, padding:'3px 9px', fontSize:10, fontFamily:'var(--font-mono)', letterSpacing:'0.12em', textTransform:'uppercase', color:running?'#46d9a4':'var(--text-muted)' }}>
-      <span style={{ width:6, height:6, borderRadius:'50%', background:running?'#46d9a4':'var(--text-muted)', animation:running?'pulse 2s ease-in-out infinite':'none' }}/>
-      {running ? 'Agency active' : 'Idle'}
+    <div className={`shell-status ${running ? 'is-on' : ''}`} role="status">
+      <span className="shell-status-dot" aria-hidden="true"/>
+      {running ? 'Your team is working' : 'Your team is idle'}
     </div>
   );
 }
 
 function SidebarNav({ activeScreen, onNavigate, onClose, agentRunning, isAdmin, user, onLogout }) {
-  const sections = [...new Set(NAV_ITEMS.map(n => n.section))];
-  const visible  = NAV_ITEMS.filter(n => !n.adminOnly || isAdmin);
+  const visible = NAV_ITEMS.filter(n => !n.adminOnly || isAdmin);
+  const main = visible.filter(n => n.section === 'MAIN');
+  const system = visible.filter(n => n.section !== 'MAIN');
+  const name = user?.name || user?.email || 'You';
+  const item = (n) => {
+    const active = activeScreen === n.id;
+    return (
+      <li key={n.id}>
+        <button type="button" className={`shell-nav-item ${active ? 'is-active' : ''}`}
+          aria-current={active ? 'page' : undefined}
+          onClick={() => { onNavigate(n.id); onClose && onClose(); }}>
+          <Icon name={n.icon} size={19} style={{ flexShrink: 0 }}/>
+          <span className="shell-nav-text">
+            <span className="shell-nav-label">{n.label}</span>
+            <span className="shell-nav-desc">{n.desc}</span>
+          </span>
+        </button>
+      </li>
+    );
+  };
   return (
-    <div style={{ display:'flex', flexDirection:'column', height:'100%', background:'rgba(5,6,8,0.98)', borderRight:'1px solid var(--border)' }}>
-      {/* Logo */}
-      <div style={{ padding:'18px 16px 14px', borderBottom:'1px solid rgba(255,255,255,0.08)' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:10 }}>
-          <div aria-label="SAM" style={{ width:38, height:38, display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, filter:'drop-shadow(0 4px 10px rgba(123,92,255,0.45))' }}>
-            <SamFace size={38}/>
-          </div>
-          <div>
-            <div style={{ fontSize:14, fontWeight:900, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1 }}>{APP_NAME}</div>
-            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.14em', textTransform:'uppercase', marginTop:2 }}>{APP_LABEL}</div>
-          </div>
-        </div>
-        <AgentStatus running={agentRunning}/>
+    <div className="shell-sidebar-inner">
+      <div className="shell-brand">
+        <span className="shell-brand-mark" aria-hidden="true"><SamFace size={30}/></span>
+        <span className="shell-brand-name">{APP_NAME}</span>
       </div>
+      <AgentStatus running={agentRunning}/>
 
-      {/* Sectioned nav */}
-      <nav style={{ flex:1, padding:'6px 0', overflowY:'auto' }}>
-        {sections.map(section => {
-          const items = visible.filter(n => n.section === section);
-          if (!items.length) return null;
-          return (
-            <div key={section} style={{ marginBottom:2 }}>
-              {/* The everyday destinations need no group label — a divider
-                  separates them from the technical Settings entry. */}
-              {section === 'SYSTEM'
-                ? <div style={{ height:1, background:'rgba(255,255,255,0.06)', margin:'12px 18px' }}/>
-                : null}
-              {items.map(item => {
-                const active = activeScreen === item.id;
-                return (
-                  <button key={item.id} onClick={() => { onNavigate(item.id); onClose&&onClose(); }} style={{ display:'flex', alignItems:'center', gap:12, width:'calc(100% - 16px)', margin:'2px 8px', padding:'10px 14px', borderRadius:12, border:'none', cursor:'pointer', background:active?'rgba(93,162,255,0.10)':'transparent', color:active?'#fff':'var(--text-tertiary)', fontFamily:'var(--font-main)', fontSize:15, fontWeight:active?600:500, textAlign:'left', transition:'all 0.15s ease', position:'relative' }}
-                  onMouseEnter={e=>{ if(!active){e.currentTarget.style.background='rgba(255,255,255,0.04)'; e.currentTarget.style.color='var(--text-secondary)'; }}}
-                  onMouseLeave={e=>{ if(!active){e.currentTarget.style.background='transparent'; e.currentTarget.style.color='var(--text-tertiary)'; }}}>
-                    {active && <div style={{ position:'absolute', left:0, top:'50%', transform:'translateY(-50%)', width:3, height:20, background:'var(--accent)', borderRadius:999 }}/>}
-                    <Icon name={item.icon} size={18} style={{ color:active?'var(--accent)':'var(--text-icon-inactive)', flexShrink:0 }}/>
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <div style={{ fontSize:15 }}>{item.label}</div>
-                      <div style={{ fontSize:11, color:active?'rgba(93,162,255,0.7)':'var(--text-muted)', marginTop:2, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{item.desc}</div>
-                    </div>
-                    {item.adminOnly && <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'#ff6b7d', padding:'2px 6px', borderRadius:4, background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.20)', flexShrink:0 }}>admin</span>}
-                  </button>
-                );
-              })}
-            </div>
-          );
-        })}
+      <nav aria-label="Main" className="shell-nav">
+        <ul>{main.map(item)}</ul>
+        {system.length > 0 && <ul className="shell-nav-system">{system.map(item)}</ul>}
       </nav>
 
-      {/* User footer */}
-      <div style={{ padding:'10px 8px', borderTop:'1px solid rgba(255,255,255,0.08)' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 10px', borderRadius:10, background:'rgba(255,255,255,0.03)' }}>
-          <div style={{ width:28, height:28, borderRadius:'50%', background:'linear-gradient(135deg,var(--accent),#3a7fe8)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:800, color:'#06111f', flexShrink:0 }}>
-            {(user?.name || user?.email || '?')[0].toUpperCase()}
-          </div>
-          <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ display:'flex', alignItems:'center', gap:5 }}>
-              <span style={{ fontSize:12, fontWeight:600, color:'var(--text-primary)' }}>{user?.name || user?.email || 'User'}</span>
-              {isAdmin && <span style={{ fontSize:8, fontFamily:'var(--font-mono)', letterSpacing:'0.10em', textTransform:'uppercase', padding:'1px 5px', borderRadius:4, color:'#ff6b7d', background:'rgba(255,107,125,0.10)', border:'1px solid rgba(255,107,125,0.20)' }}>admin</span>}
-            </div>
-            <div style={{ fontSize:9, fontFamily:'var(--font-mono)', color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{user?.email || ''}</div>
-          </div>
-          <button
-            title="Log out"
-            onClick={onLogout}
-            style={{ display:'flex', alignItems:'center', justifyContent:'center', width:26, height:26, borderRadius:8, background:'transparent', border:'none', cursor:'pointer', color:'var(--text-muted)', flexShrink:0 }}
-            onMouseEnter={e=>{ e.currentTarget.style.color='var(--danger)'; e.currentTarget.style.background='rgba(255,107,125,0.10)'; }}
-            onMouseLeave={e=>{ e.currentTarget.style.color='var(--text-muted)'; e.currentTarget.style.background='transparent'; }}>
-            <Icon name="LogOut" size={12}/>
+      <div className="shell-foot">
+        <ThemeSwitch/>
+        <div className="shell-user">
+          <span className="shell-avatar" aria-hidden="true">{name[0].toUpperCase()}</span>
+          <span className="shell-user-text">
+            <span className="shell-user-name">
+              {name}
+              {isAdmin && <span className="shell-role">Admin</span>}
+            </span>
+            {user?.email && user?.name && <span className="shell-user-mail">{user.email}</span>}
+          </span>
+          <button type="button" className="shell-icon-btn" aria-label="Sign out" title="Sign out" onClick={onLogout}>
+            <Icon name="LogOut" size={17}/>
           </button>
         </div>
       </div>
@@ -158,85 +164,84 @@ function SidebarNav({ activeScreen, onNavigate, onClose, agentRunning, isAdmin, 
 function MobileBottomNav({ activeScreen, onNavigate }) {
   const primaryItems = NAV_ITEMS.filter(n => MOBILE_PRIMARY.includes(n.id));
   return (
-    <nav style={{ position:'fixed', bottom:0, left:0, right:0, zIndex:50, background:'rgba(8,10,14,0.96)', backdropFilter:'blur(20px)', borderTop:'1px solid var(--border)', paddingBottom:'max(env(safe-area-inset-bottom,0px), 10px)', paddingTop:6 }}>
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:0, padding:'0 4px' }}>
-        {primaryItems.map(item => {
-          const active = activeScreen === item.id;
-          return (
-            <button key={item.id} onClick={()=>onNavigate(item.id)} style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:4, padding:'8px 2px 6px', minHeight:60, border:'none', background:active?'rgba(93,162,255,0.10)':'transparent', borderRadius:12, cursor:'pointer', transition:'all 0.15s' }}>
-              <Icon name={item.icon} size={22} style={{ color:active?'var(--accent)':'var(--text-muted)' }}/>
-              <span style={{ fontSize:11, fontWeight:600, color:active?'var(--accent)':'var(--text-muted)' }}>{item.label}</span>
-            </button>
-          );
-        })}
-      </div>
+    <nav className="shell-bottomnav" aria-label="Main">
+      {primaryItems.map(item => {
+        const active = activeScreen === item.id;
+        return (
+          <button key={item.id} type="button" onClick={() => onNavigate(item.id)}
+            className={active ? 'is-active' : ''} aria-current={active ? 'page' : undefined}>
+            <Icon name={item.icon} size={22}/>
+            <span>{item.label}</span>
+          </button>
+        );
+      })}
     </nav>
   );
 }
 
-function MobileTopBar({ title, subtitle, onMenuOpen }) {
+function MobileDrawer({ open, onClose, children }) {
+  const panelRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!open) return undefined;
+    const prev = document.activeElement;
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    panelRef.current?.querySelector('button')?.focus();
+    return () => { document.removeEventListener('keydown', onKey); prev && prev.focus && prev.focus(); };
+  }, [open, onClose]);
+  if (!open) return null;
   return (
-    <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', paddingTop:'calc(env(safe-area-inset-top,0px) + 12px)', background:'rgba(8,10,14,0.92)', backdropFilter:'blur(20px)', borderBottom:'1px solid var(--border)', position:'sticky', top:0, zIndex:40 }}>
-      <button onClick={onMenuOpen} style={{ width:44, height:44, borderRadius:12, border:'1px solid var(--border-soft)', background:'rgba(255,255,255,0.05)', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', color:'var(--text-secondary)', flexShrink:0 }}>
-        <Icon name="Menu" size={18}/>
-      </button>
-      <div aria-label="SAM" style={{ width:34, height:34, flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center' }}>
-        <SamFace size={34}/>
-      </div>
-      <div style={{ flex:1, minWidth:0 }}>
-        <div style={{ fontSize:17, fontWeight:900, color:'#fff', letterSpacing:'-0.04em', lineHeight:1.1 }}>{APP_LABEL}</div>
-        {subtitle && <div style={{ fontSize:12, fontFamily:'var(--font-mono)', color:'var(--accent)', letterSpacing:'0.10em', textTransform:'uppercase', marginTop:2 }}>{subtitle}</div>}
+    <div className="shell-drawer" onClick={onClose}>
+      <div ref={panelRef} className="shell-drawer-panel" role="dialog" aria-modal="true" aria-label="Menu"
+        onClick={e => e.stopPropagation()}>
+        <button type="button" className="shell-icon-btn shell-drawer-close" aria-label="Close menu" onClick={onClose}>
+          <Icon name="X" size={20}/>
+        </button>
+        {children}
       </div>
     </div>
   );
 }
 
-function AppShell({ children, activeScreen, onNavigate, agentRunning, isAdmin }) {
+function AppShell({ children, activeScreen, onNavigate, agentRunning, isAdmin, headerActions = null }) {
   const { user: authUser, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = React.useState(false);
+  const closeDrawer = React.useCallback(() => setSidebarOpen(false), []);
   const navItem = NAV_ITEMS.find(n => n.id === activeScreen) || NAV_ITEMS[0];
+  const mainRef = React.useRef(null);
+
+  // A new destination starts at the top, and screen-reader users hear where they are.
+  React.useEffect(() => { mainRef.current?.scrollTo?.(0, 0); }, [activeScreen]);
+
+  const nav = (onClose) => (
+    <SidebarNav activeScreen={activeScreen} onNavigate={onNavigate} onClose={onClose}
+      agentRunning={agentRunning} isAdmin={isAdmin} user={authUser} onLogout={logout}/>
+  );
+
   return (
-    <div style={{ display:'flex', height:'100dvh', overflow:'hidden', background:'var(--bg-base)', position:'relative' }}>
-      <div className="fx-aurora" aria-hidden="true"/>
-      <div className="desktop-sidebar glass" style={{ width:252, flexShrink:0, height:'100%', flexDirection:'column', position:'relative' }}>
-        <SidebarNav activeScreen={activeScreen} onNavigate={onNavigate} agentRunning={agentRunning} isAdmin={isAdmin} user={authUser} onLogout={logout}/>
-      </div>
-      {sidebarOpen && (
-        <div style={{ position:'fixed', inset:0, zIndex:60, background:'rgba(0,0,0,0.65)', backdropFilter:'blur(4px)' }} onClick={()=>setSidebarOpen(false)}>
-          <div style={{ position:'absolute', left:0, top:0, bottom:0, width:'min(84vw,280px)' }} onClick={e=>e.stopPropagation()}>
-            <SidebarNav activeScreen={activeScreen} onNavigate={onNavigate} onClose={()=>setSidebarOpen(false)} agentRunning={agentRunning} isAdmin={isAdmin} user={authUser} onLogout={logout}/>
+    <div className="shell">
+      <a className="skip-link" href="#main-content">Skip to content</a>
+      <aside className="shell-sidebar">{nav()}</aside>
+      <MobileDrawer open={sidebarOpen} onClose={closeDrawer}>{nav(closeDrawer)}</MobileDrawer>
+
+      <div className="shell-body">
+        <header className="shell-header">
+          <button type="button" className="shell-icon-btn shell-menu-btn" aria-label="Open menu"
+            aria-expanded={sidebarOpen} onClick={() => setSidebarOpen(true)}>
+            <Icon name="Menu" size={20}/>
+          </button>
+          <div className="shell-header-title">
+            <span className="shell-header-label">{navItem.label}</span>
+            <span className="shell-header-desc">{navItem.desc}</span>
           </div>
-        </div>
-      )}
-      <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0, height:'100%', overflow:'hidden', position:'relative' }}>
-        <div className="mobile-topbar">
-          <MobileTopBar title={APP_LABEL} subtitle={navItem.label} onMenuOpen={()=>setSidebarOpen(true)}/>
-        </div>
-        <div className="main-scroll" style={{ flex:1, overflowY:'auto', overflowX:'hidden' }}>
+          <div className="shell-header-actions">{headerActions}</div>
+        </header>
+        <main id="main-content" ref={mainRef} className="shell-main" tabIndex={-1} aria-label={navItem.label}>
           {children}
-        </div>
-        <div className="mobile-bottomnav">
-          <MobileBottomNav activeScreen={activeScreen} onNavigate={onNavigate} isAdmin={isAdmin}/>
-        </div>
+        </main>
+        <MobileBottomNav activeScreen={activeScreen} onNavigate={onNavigate}/>
       </div>
       <EphemeralBanner isAdmin={isAdmin}/>
-      <style>{`
-        .desktop-sidebar  { display:none; flex-direction:column; }
-        .mobile-topbar    { display:block; }
-        .mobile-bottomnav { display:block; }
-        .main-scroll      { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 72px); }
-        @media (min-width:1024px) {
-          .desktop-sidebar  { display:flex; }
-          .mobile-topbar    { display:none; }
-          .mobile-bottomnav { display:none; }
-          .main-scroll      { padding-bottom: 0; }
-        }
-        @keyframes pulse       { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(.8)} }
-        @keyframes spin        { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }
-        @keyframes fadeSlideUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes shimmer     { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
-        @keyframes blink       { 0%,100%{opacity:1} 50%{opacity:.2} }
-      `}</style>
     </div>
   );
 }

@@ -25,11 +25,11 @@ def _rules_section() -> str:
 
 def test_rules_are_numbered_without_gaps():
     numbers = [int(a or b) for a, b in RULE_NUMBER.findall(_rules_section())]
-    assert numbers == list(range(1, 49)), numbers
+    assert numbers == list(range(1, 50)), numbers
 
 
 def test_claude_md_stays_short():
-    # The playbook's bar is "under a page"; the 48 binding rules alone are most of
+    # The playbook's bar is "under a page"; the 49 binding rules alone are most of
     # this, so the ceiling stops reference material creeping back in.
     assert len(CLAUDE_MD.splitlines()) <= 300
 
@@ -40,7 +40,7 @@ def test_context_generator_receives_every_rule():
     sys.modules["gen_ctx_eval"] = module
     spec.loader.exec_module(module)  # type: ignore[union-attr]
     context = module._load_codebase_context()
-    for n in (1, 14, 34, 39, 45, 48):
+    for n in (1, 14, 34, 39, 45, 48, 49):
         assert re.search(rf"^{n}\. ", context, re.M), f"rule {n} missing from the agent context"
 
 

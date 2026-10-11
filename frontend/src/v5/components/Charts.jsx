@@ -18,10 +18,10 @@ function EmptyChart({ height = 64, label = 'No data yet' }) {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        fontSize: 11,
-        fontFamily: 'var(--font-mono)',
+        fontSize:13,
+        fontVariantNumeric:'tabular-nums',
         color: 'var(--text-muted)',
-        border: '1px dashed rgba(255,255,255,0.08)',
+        border: '1px dashed color-mix(in oklab, var(--ink) 8%, transparent)',
         borderRadius: 10,
       }}
     >
@@ -34,7 +34,7 @@ function EmptyChart({ height = 64, label = 'No data yet' }) {
  * Sparkline — a compact filled area + line for a single numeric series.
  * @param {number[]} values
  */
-export function Sparkline({ values = [], height = 56, stroke = ACCENT, fill = 'rgba(93,162,255,0.16)', strokeWidth = 1.75 }) {
+export function Sparkline({ values = [], height = 56, stroke = ACCENT, fill = 'color-mix(in oklab, var(--accent) 16%, transparent)', strokeWidth = 1.75 }) {
   const data = (values || []).filter((v) => Number.isFinite(v));
   if (data.length < 2) return <EmptyChart height={height} />;
 
@@ -83,15 +83,15 @@ export function BarChart({ data = [], height = 120, accent = ACCENT }) {
                   width: '100%',
                   height: `${pct}%`,
                   borderRadius: '6px 6px 2px 2px',
-                  background: d.color || `linear-gradient(180deg, ${accent}, rgba(93,162,255,0.35))`,
+                  background: d.color || `linear-gradient(180deg, ${accent}, color-mix(in oklab, var(--accent) 35%, transparent))`,
                   transition: 'height 0.6s ease',
                 }}
               />
             </div>
             <span
               style={{
-                fontSize: 9,
-                fontFamily: 'var(--font-mono)',
+                fontSize:13,
+                fontVariantNumeric:'tabular-nums',
                 color: 'var(--text-muted)',
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
@@ -126,7 +126,7 @@ export function Donut({ data = [], size = 116, thickness = 14, centerLabel }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label="distribution donut">
-        <circle cx={cx} cy={cy} r={r} fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth={thickness} />
+        <circle cx={cx} cy={cy} r={r} fill="none" stroke="color-mix(in oklab, var(--ink) 6%, transparent)" strokeWidth={thickness} />
         {rows.map((d, i) => {
           const frac = d.value / total;
           const dash = frac * circ;
@@ -149,10 +149,10 @@ export function Donut({ data = [], size = 116, thickness = 14, centerLabel }) {
           offset += dash;
           return seg;
         })}
-        <text x={cx} y={cy - 2} textAnchor="middle" style={{ fontSize: 20, fontWeight: 800, fill: 'var(--text-primary)' }}>
+        <text x={cx} y={cy - 2} textAnchor="middle" style={{ fontSize: 20, fontWeight:700, fill: 'var(--text-primary)' }}>
           {total}
         </text>
-        <text x={cx} y={cy + 14} textAnchor="middle" style={{ fontSize: 9, fontFamily: 'var(--font-mono)', fill: 'var(--text-muted)', letterSpacing: '0.1em' }}>
+        <text x={cx} y={cy + 14} textAnchor="middle" style={{ fontSize: 12, fontVariantNumeric:'tabular-nums', fill: 'var(--text-muted)' }}>
           {(centerLabel || 'TOTAL').toUpperCase()}
         </text>
       </svg>
@@ -160,8 +160,8 @@ export function Donut({ data = [], size = 116, thickness = 14, centerLabel }) {
         {rows.map((d, i) => (
           <div key={d.label ?? i} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
             <span style={{ width: 9, height: 9, borderRadius: 3, background: d.color || ACCENT, flexShrink: 0 }} />
-            <span style={{ fontSize: 11, color: 'var(--text-secondary)', flex: 1 }}>{d.label}</span>
-            <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{d.value}</span>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)', flex: 1 }}>{d.label}</span>
+            <span style={{ fontSize: 12, fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)' }}>{d.value}</span>
           </div>
         ))}
       </div>
@@ -185,8 +185,8 @@ export function ExecutionTimeline({ log = [] }) {
     if (lower === 'done' || lower === 'success' || lower === 'completed') return '#4ade80';
     if (lower === 'failed' || lower === 'error') return '#f87171';
     if (lower === 'in_progress' || lower === 'running' || lower === 'todo') return 'var(--accent)';
-    if (lower === 'blocked' || lower === 'in_review') return '#facc15';
-    return '#facc15';
+    if (lower === 'blocked' || lower === 'in_review') return 'var(--warning)';
+    return 'var(--warning)';
   };
 
   return (
@@ -198,16 +198,16 @@ export function ExecutionTimeline({ log = [] }) {
         const status = e.task_status || e.status || null;
         const dotColor = statusColor(status);
         return (
-          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11 }}>
+          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
             <span style={{ flex: 1, color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
             {(e.duration_ms != null) && (
-              <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', flexShrink: 0 }}>
+              <span style={{ fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)', flexShrink: 0 }}>
                 {e.duration_ms < 1000 ? (e.duration_ms + 'ms') : ((e.duration_ms / 1000).toFixed(1) + 's')}
               </span>
             )}
             {!e.duration_ms && e.event_type && (
-              <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-muted)', flexShrink: 0, fontSize: 9 }}>{e.event_type.replace(/_/g, ' ')}</span>
+              <span style={{ fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)', flexShrink: 0, fontSize: 12 }}>{e.event_type.replace(/_/g, ' ')}</span>
             )}
           </div>
         );

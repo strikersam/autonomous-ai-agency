@@ -46,6 +46,7 @@ If you want the human-friendly product story, start with [../README.md](../READM
 - `/api/github/*`
 - `/api/sync/*`
 - `/api/tasks/*` — `POST /api/tasks/` accepts optional `goal` and `parent_task_id`. The parent must be a task the caller can open (404 otherwise), and the child inherits its `goal_chain`, which the runtime prompt shows as "Why this task exists".
+- `POST /api/tasks/{task_id}/verification` — authenticated (task owner or admin). Records an independent verdict on a task (rule 49). Body: `{verdict: "PASS"|"PASS+NOTES"|"FAIL", checked: [str], defects_found: [str], fixed: [str], evidence: [str], notes: str}`; the caller is recorded as the verifier. A passing verdict on a task in `in_review` (or `needs_clarification`) marks it `done`; `FAIL` on a task in `in_review` or `done` re-opens it as `in_progress` and re-queues it. Returns `{task, requeued}`. Every task document now carries an optional `verification` report; while `TASK_VERIFICATION_REQUIRED` is on, an agent or runtime can only move a task to `done` when that report holds `PASS`/`PASS+NOTES` (otherwise it lands in `in_review`), and a person moving a task to `done` is recorded as the verifier.
 - `/api/agents/*`
 - `/api/schedules/*`
 - `/api/routing/*`

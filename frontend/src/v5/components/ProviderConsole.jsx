@@ -36,21 +36,21 @@ import * as api from '../../api';
 /* ── Presentation constants ─────────────────────────────────────────────── */
 
 const TIER = {
-  local:    { label: 'Local',   color: '#5da2ff', hint: 'On your own hardware. No quota, no cost.' },
-  free:     { label: 'Free',    color: '#46d9a4', hint: 'Free cloud tier. Rate limits apply.' },
-  cheap:    { label: 'Cheap',   color: '#ffbd66', hint: 'Low-cost paid tier.' },
-  premium:  { label: 'Premium', color: '#ff9b6b', hint: 'Paid. Used only as a last resort.' },
-  unknown:  { label: '—',       color: '#8b93a7', hint: '' },
+  local:    { label: 'Local',   color: 'var(--accent)', hint: 'On your own hardware. No quota, no cost.' },
+  free:     { label: 'Free',    color: 'var(--success)', hint: 'Free cloud tier. Rate limits apply.' },
+  cheap:    { label: 'Cheap',   color: 'var(--warning)', hint: 'Low-cost paid tier.' },
+  premium:  { label: 'Premium', color: 'var(--warning)', hint: 'Paid. Used only as a last resort.' },
+  unknown:  { label: '—',       color: 'var(--text-muted)', hint: '' },
 };
 
 const STATE = {
-  serving:      { label: 'Serving',      color: '#46d9a4', dot: '#46d9a4', rank: 0 },
-  healthy:      { label: 'Healthy',      color: '#46d9a4', dot: '#46d9a4', rank: 1 },
-  probing:      { label: 'Probing',      color: '#ffbd66', dot: '#ffbd66', rank: 2 },
-  degraded:     { label: 'Degraded',     color: '#ffbd66', dot: '#ffbd66', rank: 3 },
-  tripped:      { label: 'Tripped',      color: '#ff6b7d', dot: '#ff6b7d', rank: 4 },
-  configured:   { label: 'Idle',         color: '#8b93a7', dot: '#5b6478', rank: 5 },
-  unconfigured: { label: 'Not set up',   color: '#5b6478', dot: '#3a4152', rank: 6 },
+  serving:      { label: 'Serving',      color: 'var(--success)', dot: 'var(--success)', rank: 0 },
+  healthy:      { label: 'Healthy',      color: 'var(--success)', dot: 'var(--success)', rank: 1 },
+  probing:      { label: 'Probing',      color: 'var(--warning)', dot: 'var(--warning)', rank: 2 },
+  degraded:     { label: 'Degraded',     color: 'var(--warning)', dot: 'var(--warning)', rank: 3 },
+  tripped:      { label: 'Tripped',      color: 'var(--danger)', dot: 'var(--danger)', rank: 4 },
+  configured:   { label: 'Idle',         color: 'var(--text-muted)', dot: 'var(--text-muted)', rank: 5 },
+  unconfigured: { label: 'Not set up',   color: 'var(--text-muted)', dot: '#3a4152', rank: 6 },
 };
 
 const STRATEGY_HINT = {
@@ -122,9 +122,9 @@ function StatePill({ state }) {
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0,
-      fontSize: 10, fontFamily: 'var(--font-mono)', letterSpacing: '0.06em',
-      textTransform: 'uppercase', padding: '3px 8px', borderRadius: 999,
-      color: cfg.color, background: `${cfg.color}12`, border: `1px solid ${cfg.color}30`,
+      fontSize:13, fontVariantNumeric:'tabular-nums',
+padding: '3px 8px', borderRadius: 999,
+      color: cfg.color, background: `color-mix(in oklab, ${cfg.color} 7%, transparent)`, border: `1px solid color-mix(in oklab, ${cfg.color} 19%, transparent)`,
     }}>
       <span style={{ width: 6, height: 6, borderRadius: '50%', background: cfg.dot, flexShrink: 0 }} />
       {cfg.label}
@@ -136,9 +136,9 @@ function TierChip({ tier }) {
   const cfg = TIER[tier] || TIER.unknown;
   return (
     <span title={cfg.hint} style={{
-      fontSize: 9, fontFamily: 'var(--font-mono)', letterSpacing: '0.10em',
-      textTransform: 'uppercase', padding: '2px 7px', borderRadius: 999,
-      color: cfg.color, background: `${cfg.color}10`, border: `1px solid ${cfg.color}25`,
+      fontSize:13, fontVariantNumeric:'tabular-nums',
+padding: '2px 7px', borderRadius: 999,
+      color: cfg.color, background: `color-mix(in oklab, ${cfg.color} 6%, transparent)`, border: `1px solid color-mix(in oklab, ${cfg.color} 15%, transparent)`,
     }}>{cfg.label}</span>
   );
 }
@@ -152,7 +152,7 @@ function Meter({ value, color, width = 54, title }) {
   return (
     <span title={title} style={{
       display: 'inline-block', width, height: 5, borderRadius: 999,
-      background: 'rgba(255,255,255,0.07)', overflow: 'hidden', verticalAlign: 'middle',
+      background: 'color-mix(in oklab, var(--ink) 7%, transparent)', overflow: 'hidden', verticalAlign: 'middle',
     }}>
       <span style={{
         display: 'block', width: `${pct * 100}%`, height: '100%',
@@ -162,20 +162,20 @@ function Meter({ value, color, width = 54, title }) {
   );
 }
 
-function StatTile({ label, value, sub, tone = '#fff', className }) {
+function StatTile({ label, value, sub, tone = 'var(--text-primary)', className }) {
   return (
     <div className={className} style={{
       flex: '1 1 96px', minWidth: 96, padding: '9px 12px', borderRadius: 12,
-      background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.07)',
+      background: 'color-mix(in oklab, var(--ink) 3.5%, transparent)', border: '1px solid color-mix(in oklab, var(--ink) 7%, transparent)',
     }}>
       <div style={{
-        fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)',
-        textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 3,
+        fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)',
+marginBottom: 3,
       }}>{label}</div>
-      <div style={{ fontSize: 17, fontWeight: 800, color: tone, letterSpacing: '-0.03em', lineHeight: 1.1 }}>
+      <div style={{ fontSize: 17, fontWeight:700, color: tone, letterSpacing: '-0.03em', lineHeight: 1.1 }}>
         {value}
       </div>
-      {sub ? <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 1 }}>{sub}</div> : null}
+      {sub ? <div style={{ fontSize:13, color: 'var(--text-tertiary)', marginTop: 1 }}>{sub}</div> : null}
     </div>
   );
 }
@@ -185,12 +185,12 @@ function Segmented({ label, hint, options, value, onChange, busy }) {
   return (
     <div style={{ flex: '1 1 220px', minWidth: 200 }}>
       <div style={{
-        fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)',
-        textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 5,
+        fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)',
+marginBottom: 5,
       }}>{label}</div>
       <div style={{
         display: 'flex', gap: 3, padding: 3, borderRadius: 10,
-        background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+        background: 'color-mix(in oklab, var(--ink) 4%, transparent)', border: '1px solid color-mix(in oklab, var(--ink) 8%, transparent)',
         opacity: busy ? 0.55 : 1,
       }}>
         {options.map(opt => {
@@ -205,9 +205,9 @@ function Segmented({ label, hint, options, value, onChange, busy }) {
               style={{
                 flex: 1, padding: '6px 10px', borderRadius: 8, border: 'none',
                 cursor: busy || active ? 'default' : 'pointer',
-                fontSize: 11.5, fontWeight: 700, letterSpacing: '-0.01em',
-                background: active ? (opt.color || 'rgba(93,162,255,0.20)') : 'transparent',
-                color: active ? '#06111f' : 'var(--text-muted)',
+                fontSize:13, fontWeight: 700, letterSpacing: '-0.01em',
+                background: active ? (opt.color || 'color-mix(in oklab, var(--accent) 20%, transparent)') : 'transparent',
+                color: active ? 'var(--on-accent)' : 'var(--text-muted)',
                 transition: 'all 0.15s',
               }}
             >{opt.label}</button>
@@ -215,7 +215,7 @@ function Segmented({ label, hint, options, value, onChange, busy }) {
         })}
       </div>
       {hint ? (
-        <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 5, lineHeight: 1.45 }}>{hint}</div>
+        <div style={{ fontSize:13, color: 'var(--text-tertiary)', marginTop: 5, lineHeight: 1.45 }}>{hint}</div>
       ) : null}
     </div>
   );
@@ -384,8 +384,8 @@ function ProviderRow({ row, expanded, onToggle, onDisable, onProbe, onEdit, onDe
   return (
     <div style={{
       borderRadius: 14,
-      border: `1px solid ${row.state === 'serving' ? 'rgba(70,217,164,0.30)' : 'rgba(255,255,255,0.07)'}`,
-      background: row.state === 'serving' ? 'rgba(70,217,164,0.045)' : 'rgba(255,255,255,0.022)',
+      border: `1px solid ${row.state === 'serving' ? 'color-mix(in oklab, var(--success) 30%, transparent)' : 'color-mix(in oklab, var(--ink) 7%, transparent)'}`,
+      background: row.state === 'serving' ? 'color-mix(in oklab, var(--success) 4.5%, transparent)' : 'color-mix(in oklab, var(--ink) 2.2%, transparent)',
       overflow: 'hidden', transition: 'all 0.18s',
     }}>
       {/* Summary line — everything you need to triage, nothing you don't. */}
@@ -399,34 +399,33 @@ function ProviderRow({ row, expanded, onToggle, onDisable, onProbe, onEdit, onDe
         }}
       >
         <span style={{
-          fontSize: 10, color: 'var(--text-muted)', flexShrink: 0, width: 9,
+          fontSize:13, color: 'var(--text-muted)', flexShrink: 0, width: 9,
           transform: expanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s',
         }}>▸</span>
 
         <span style={{ flex: '2 1 170px', minWidth: 140 }}>
           <span style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 13.5, fontWeight: 800, color: '#fff', letterSpacing: '-0.02em' }}>
+            <span style={{ fontSize: 13.5, fontWeight:700, color:'var(--text-primary)', letterSpacing: '-0.02em' }}>
               {row.name}
             </span>
             <TierChip tier={row.tier} />
             {row.state === 'serving' && (
               <span title="The provider the router would pick for the next request."
                 style={{
-                  fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700,
-                  letterSpacing: '0.08em', padding: '2px 7px', borderRadius: 999,
-                  color: '#06111f', background: '#46d9a4',
+                  fontSize:13, fontVariantNumeric:'tabular-nums', fontWeight: 700, padding: '2px 7px', borderRadius: 999,
+                  color: 'var(--on-accent)', background: 'var(--success)',
                 }}>SERVING</span>
             )}
             {row.isDefault && (
               <span title="Chat and the CEO start on this provider."
                 style={{
-                  fontSize: 9, fontFamily: 'var(--font-mono)', fontWeight: 700, padding: '2px 7px',
-                  borderRadius: 999, color: '#7c9dff', border: '1px solid rgba(124,157,255,0.35)',
+                  fontSize:13, fontVariantNumeric:'tabular-nums', fontWeight: 700, padding: '2px 7px',
+                  borderRadius: 999, color: 'var(--accent)', border: '1px solid color-mix(in oklab, var(--accent) 35%, transparent)',
                 }}>DEFAULT</span>
             )}
           </span>
           <span style={{
-            display: 'block', fontSize: 10.5, fontFamily: 'var(--font-mono)',
+            display: 'block', fontSize:13, fontVariantNumeric:'tabular-nums',
             color: 'var(--text-tertiary)', marginTop: 2, overflow: 'hidden',
             textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>
@@ -440,29 +439,29 @@ function ProviderRow({ row, expanded, onToggle, onDisable, onProbe, onEdit, onDe
         <span className="pc-metric" style={{ flex: '0 0 88px', display: 'flex', flexDirection: 'column', gap: 3 }}>
           {row.successRate !== null ? (
             <>
-              <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: cfg.color }}>
+              <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color: cfg.color }}>
                 {(row.successRate * 100).toFixed(0)}%
               </span>
               <Meter value={row.successRate} color={cfg.color}
                      title={`${row.requests || 0} requests in the rolling window`} />
             </>
           ) : (
-            <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-tertiary)' }}>—</span>
+            <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-tertiary)' }}>—</span>
           )}
         </span>
 
-        <span className="pc-metric" style={{ flex: '0 0 62px', fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+        <span className="pc-metric" style={{ flex: '0 0 62px', fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)' }}>
           {row.p95 ? `${Math.round(row.p95)}ms` : '—'}
         </span>
 
-        <span className="pc-metric" style={{ flex: '0 0 56px', fontSize: 11, fontFamily: 'var(--font-mono)',
-                       color: row.rateLimits > 0 ? '#ffbd66' : 'var(--text-tertiary)' }}
+        <span className="pc-metric" style={{ flex: '0 0 56px', fontSize:13, fontVariantNumeric:'tabular-nums',
+                       color: row.rateLimits > 0 ? 'var(--warning)' : 'var(--text-tertiary)' }}
               title="HTTP 429 responses seen from this provider">
           {isLive ? `${row.rateLimits} × 429` : '—'}
         </span>
 
-        <span className="pc-metric" style={{ flex: '0 0 58px', fontSize: 11, fontFamily: 'var(--font-mono)',
-                       color: row.keyCount ? (healthyKeys === row.keys.length || !row.keys.length ? '#46d9a4' : '#ffbd66') : 'var(--text-tertiary)' }}
+        <span className="pc-metric" style={{ flex: '0 0 58px', fontSize:13, fontVariantNumeric:'tabular-nums',
+                       color: row.keyCount ? (healthyKeys === row.keys.length || !row.keys.length ? 'var(--success)' : 'var(--warning)') : 'var(--text-tertiary)' }}
               title="Healthy keys of total configured">
           {row.keyCount ? `${row.keys.length ? healthyKeys : row.keyCount}/${row.keyCount} 🔑` : '—'}
         </span>
@@ -473,13 +472,13 @@ function ProviderRow({ row, expanded, onToggle, onDisable, onProbe, onEdit, onDe
       {/* Detail — only rendered when open, so a 20-row table stays cheap. */}
       {expanded && (
         <div style={{
-          padding: '2px 14px 14px 35px', borderTop: '1px solid rgba(255,255,255,0.055)',
+          padding: '2px 14px 14px 35px', borderTop: '1px solid color-mix(in oklab, var(--ink) 5.5%, transparent)',
           display: 'flex', flexDirection: 'column', gap: 11,
         }}>
           {row.lastError ? (
             <div style={{
-              fontSize: 11, fontFamily: 'var(--font-mono)', color: '#ff6b7d',
-              background: 'rgba(255,107,125,0.07)', border: '1px solid rgba(255,107,125,0.18)',
+              fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--danger)',
+              background: 'color-mix(in oklab, var(--danger) 7%, transparent)', border: '1px solid color-mix(in oklab, var(--danger) 18%, transparent)',
               borderRadius: 8, padding: '7px 10px', marginTop: 11,
             }}>Last error: {row.lastError}</div>
           ) : null}
@@ -500,11 +499,11 @@ function ProviderRow({ row, expanded, onToggle, onDisable, onProbe, onEdit, onDe
                 {row.keys.map(k => (
                   <span key={k.digest} title={k.last_error || (k.healthy ? 'Healthy' : 'Cooling down')}
                     style={{
-                      fontSize: 10, fontFamily: 'var(--font-mono)', padding: '3px 8px',
+                      fontSize:13, fontVariantNumeric:'tabular-nums', padding: '3px 8px',
                       borderRadius: 999,
-                      color: k.healthy ? '#46d9a4' : '#ffbd66',
-                      background: k.healthy ? 'rgba(70,217,164,0.08)' : 'rgba(255,189,102,0.08)',
-                      border: `1px solid ${k.healthy ? 'rgba(70,217,164,0.22)' : 'rgba(255,189,102,0.25)'}`,
+                      color: k.healthy ? 'var(--success)' : 'var(--warning)',
+                      background: k.healthy ? 'color-mix(in oklab, var(--success) 8%, transparent)' : 'color-mix(in oklab, var(--warning) 8%, transparent)',
+                      border: `1px solid ${k.healthy ? 'color-mix(in oklab, var(--success) 22%, transparent)' : 'color-mix(in oklab, var(--warning) 25%, transparent)'}`,
                     }}>
                     #{k.index} · {k.digest} · {k.healthy ? 'ready' : `cooling ${Math.round(k.cooling_for_sec)}s`}
                     {k.rate_limits ? ` · ${k.rate_limits}×429` : ''}
@@ -520,13 +519,13 @@ function ProviderRow({ row, expanded, onToggle, onDisable, onProbe, onEdit, onDe
               <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
                 {row.models.slice(0, 10).map(m => (
                   <span key={m} style={{
-                    fontSize: 10, fontFamily: 'var(--font-mono)', padding: '3px 8px',
+                    fontSize:13, fontVariantNumeric:'tabular-nums', padding: '3px 8px',
                     borderRadius: 6, color: 'var(--text-secondary)',
-                    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)',
+                    background: 'color-mix(in oklab, var(--ink) 4%, transparent)', border: '1px solid color-mix(in oklab, var(--ink) 8%, transparent)',
                   }}>{m}</span>
                 ))}
                 {row.models.length > 10 && (
-                  <span style={{ fontSize: 10, color: 'var(--text-tertiary)', alignSelf: 'center' }}>
+                  <span style={{ fontSize:13, color: 'var(--text-tertiary)', alignSelf: 'center' }}>
                     +{row.models.length - 10} more
                   </span>
                 )}
@@ -541,7 +540,7 @@ function ProviderRow({ row, expanded, onToggle, onDisable, onProbe, onEdit, onDe
                 <RowButton
                   onClick={() => onDisable(row.id, !row.available)}
                   disabled={busy}
-                  tone={row.available ? '#ff6b7d' : '#46d9a4'}
+                  tone={row.available ? 'var(--danger)' : 'var(--success)'}
                 >{row.available ? 'Take out of rotation' : 'Restore to rotation'}</RowButton>
               </>
             )}
@@ -561,7 +560,7 @@ function ProviderRow({ row, expanded, onToggle, onDisable, onProbe, onEdit, onDe
               </RowButton>
             )}
             {testMsg && (
-              <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>{testMsg}</span>
+              <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)' }}>{testMsg}</span>
             )}
           </div>
 
@@ -574,28 +573,28 @@ function ProviderRow({ row, expanded, onToggle, onDisable, onProbe, onEdit, onDe
           {keyOpen && row.keyEnv && (
             <div style={{
               display: 'flex', flexDirection: 'column', gap: 8, padding: '11px 12px',
-              borderRadius: 10, border: '1px solid rgba(196,181,253,0.22)', background: 'rgba(196,181,253,0.05)',
+              borderRadius: 10, border: '1px solid color-mix(in oklab, var(--violet) 22%, transparent)', background: 'color-mix(in oklab, var(--violet) 5%, transparent)',
             }}>
-              <div style={{ fontSize: 10.5, color: 'var(--text-tertiary)', lineHeight: 1.45 }}>
+              <div style={{ fontSize:13, color: 'var(--text-tertiary)', lineHeight: 1.45 }}>
                 Writes <code style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>{row.keyEnv}</code> to the
                 server environment (Render), where the live brain reads it. Takes effect on the next deploy. Admin only.
               </div>
               <input
                 type="password" value={keyVal} onChange={e => setKeyVal(e.target.value)}
                 placeholder={`New value for ${row.keyEnv}`}
-                style={{ padding: '9px 11px', borderRadius: 9, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: '#fff', fontSize: 13, fontFamily: 'var(--font-mono)', outline: 'none' }}
+                style={{ padding: '9px 11px', borderRadius: 9, background: 'color-mix(in oklab, var(--ink) 5%, transparent)', border: '1px solid color-mix(in oklab, var(--ink) 12%, transparent)', color:'var(--text-primary)', fontSize:14, fontVariantNumeric:'tabular-nums', outline: 'none' }}
               />
               <input
                 value={urlVal} onChange={e => setUrlVal(e.target.value)}
                 placeholder="Base URL (optional)"
-                style={{ padding: '9px 11px', borderRadius: 9, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.12)', color: '#fff', fontSize: 13, fontFamily: 'var(--font-mono)', outline: 'none' }}
+                style={{ padding: '9px 11px', borderRadius: 9, background: 'color-mix(in oklab, var(--ink) 5%, transparent)', border: '1px solid color-mix(in oklab, var(--ink) 12%, transparent)', color:'var(--text-primary)', fontSize:14, fontFamily: 'var(--font-mono)', outline: 'none' }}
               />
               <div style={{ display: 'flex', gap: 7, alignItems: 'center', flexWrap: 'wrap' }}>
                 <RowButton onClick={saveKey} disabled={keyBusy} tone="#c4b5fd">
                   {keyBusy ? 'Saving…' : 'Save to Render'}
                 </RowButton>
                 {keyMsg && (
-                  <span style={{ fontSize: 11, color: /fail|error|enter|unknown|disabled|not config/i.test(keyMsg) ? '#ff6b7d' : '#46d9a4' }}>
+                  <span style={{ fontSize:13, color: /fail|error|enter|unknown|disabled|not config/i.test(keyMsg) ? 'var(--danger)' : 'var(--success)' }}>
                     {keyMsg}
                   </span>
                 )}
@@ -612,11 +611,11 @@ function Detail({ label, value, mono }) {
   return (
     <div>
       <div style={{
-        fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)',
-        textTransform: 'uppercase', letterSpacing: '0.10em', marginBottom: 2,
+        fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)',
+marginBottom: 2,
       }}>{label}</div>
       <div style={{
-        fontSize: 12, color: 'var(--text-secondary)', fontWeight: 600,
+        fontSize:13, color: 'var(--text-secondary)', fontWeight: 600,
         fontFamily: mono ? 'var(--font-mono)' : 'inherit',
       }}>{String(value)}</div>
     </div>
@@ -626,8 +625,8 @@ function Detail({ label, value, mono }) {
 function SectionLabel({ children }) {
   return (
     <div style={{
-      fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)',
-      textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 6,
+      fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)',
+marginBottom: 6,
     }}>{children}</div>
   );
 }
@@ -639,11 +638,11 @@ function RowButton({ children, onClick, disabled, tone }) {
       onClick={onClick}
       disabled={disabled}
       style={{
-        padding: '5px 11px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+        padding: '5px 11px', borderRadius: 8, fontSize:13, fontWeight: 700,
         cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1,
         color: tone || 'var(--text-secondary)',
-        background: tone ? `${tone}10` : 'rgba(255,255,255,0.05)',
-        border: `1px solid ${tone ? `${tone}30` : 'rgba(255,255,255,0.10)'}`,
+        background: tone ? `color-mix(in oklab, ${tone} 6%, transparent)` : 'color-mix(in oklab, var(--ink) 5%, transparent)',
+        border: `1px solid ${tone ? `color-mix(in oklab, ${tone} 19%, transparent)` : 'color-mix(in oklab, var(--ink) 10%, transparent)'}`,
         transition: 'all 0.15s',
       }}
     >{children}</button>
@@ -756,17 +755,17 @@ export default function ProviderConsole({
 
       {/* ── Serving bar: what the router would pick right now, and why. ──── */}
       {section !== 'routing' && <div style={{
-        borderRadius: 18, padding: '15px 17px',
-        border: `1px solid ${serving ? 'rgba(70,217,164,0.26)' : 'rgba(255,255,255,0.09)'}`,
+        borderRadius:14, padding: '15px 17px',
+        border: `1px solid ${serving ? 'color-mix(in oklab, var(--success) 26%, transparent)' : 'color-mix(in oklab, var(--ink) 9%, transparent)'}`,
         background: serving
-          ? 'linear-gradient(135deg, rgba(70,217,164,0.075), rgba(70,217,164,0.02))'
-          : 'rgba(255,255,255,0.03)',
+          ? 'linear-gradient(135deg, color-mix(in oklab, var(--success) 7.5%, transparent), color-mix(in oklab, var(--success) 2%, transparent))'
+          : 'color-mix(in oklab, var(--ink) 3%, transparent)',
       }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 260px', minWidth: 240 }}>
             <div style={{
-              fontSize: 9.5, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)',
-              textTransform: 'uppercase', letterSpacing: '0.14em', marginBottom: 5,
+              fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)',
+marginBottom: 5,
             }}>Serving next request</div>
 
             {loading ? (
@@ -774,15 +773,15 @@ export default function ProviderConsole({
             ) : serving ? (
               <>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 9, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 22, fontWeight: 800, color: '#fff', letterSpacing: '-0.04em' }}>
+                  <span style={{ fontSize: 22, fontWeight:700, color:'var(--text-primary)', letterSpacing: '-0.04em' }}>
                     {serving.name}
                   </span>
-                  <span style={{ fontSize: 13, fontFamily: 'var(--font-mono)', color: '#46d9a4' }}>
+                  <span style={{ fontSize:14, fontVariantNumeric:'tabular-nums', color: 'var(--success)' }}>
                     {serving.models[0] || '—'}
                   </span>
                   <TierChip tier={serving.tier} />
                 </div>
-                <div style={{ fontSize: 11.5, color: 'var(--text-tertiary)', marginTop: 5, lineHeight: 1.5 }}>
+                <div style={{ fontSize:13, color: 'var(--text-tertiary)', marginTop: 5, lineHeight: 1.5 }}>
                   Chosen by <strong style={{ color: 'var(--text-secondary)' }}>{strategy.replace(/_/g, ' ')}</strong>
                   {serving.successRate !== null && <> · {(serving.successRate * 100).toFixed(0)}% success</>}
                   {serving.p95 ? <> · {Math.round(serving.p95)}ms p95</> : null}
@@ -790,12 +789,12 @@ export default function ProviderConsole({
                 </div>
               </>
             ) : routerOn ? (
-              <div style={{ fontSize: 13, color: '#ffbd66', lineHeight: 1.5 }}>
+              <div style={{ fontSize:14, color: 'var(--warning)', lineHeight: 1.5 }}>
                 No provider is currently healthy. Requests will still be attempted down the
                 fallback chain, but expect failures until one recovers.
               </div>
             ) : (
-              <div style={{ fontSize: 12.5, color: 'var(--text-tertiary)', lineHeight: 1.55 }}>
+              <div style={{ fontSize:13.5, color: 'var(--text-tertiary)', lineHeight: 1.55 }}>
                 {status?.reason || 'The routing layer is off; the platform is using the legacy failover path.'}
               </div>
             )}
@@ -804,7 +803,7 @@ export default function ProviderConsole({
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', flex: '2 1 380px' }}>
             <StatTile label="In rotation" value={liveCount} sub={`${rows.length} known`} />
             <StatTile label="429s seen" value={totalRateLimits}
-                      tone={totalRateLimits > 0 ? '#ffbd66' : '#fff'} sub="rolling window" />
+                      tone={totalRateLimits > 0 ? 'var(--warning)' : 'var(--text-primary)'} sub="rolling window" />
             <StatTile className="pc-metric" label="Queue" value={queue.depth ?? 0}
                       sub={queue.max_depth ? `max ${queue.max_depth}` : ''} />
             <StatTile className="pc-metric" label="Cache" value={`${Math.round((cache.overall_hit_rate || 0) * 100)}%`} sub="hit rate" />
@@ -818,7 +817,7 @@ export default function ProviderConsole({
       {/* ── Control rail: every switch that used to be its own card. ─────── */}
       {section !== 'providers' && <div style={{
         borderRadius: 16, padding: '14px 17px',
-        border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.025)',
+        border: '1px solid color-mix(in oklab, var(--ink) 8%, transparent)', background: 'color-mix(in oklab, var(--ink) 2.5%, transparent)',
         display: 'flex', gap: 18, flexWrap: 'wrap', alignItems: 'flex-start',
       }}>
         <Segmented
@@ -830,15 +829,15 @@ export default function ProviderConsole({
             ? 'Paid providers may be used when no free provider is reachable.'
             : 'Free and local providers only. Paid tiers are never auto-selected.'}
           options={[
-            { value: false, label: 'Free only', color: '#46d9a4', hint: 'Never auto-select a paid provider.' },
-            { value: true,  label: 'Paid allowed', color: '#ffbd66', hint: 'Allow paid providers as a last resort.' },
+            { value: false, label: 'Free only', color: 'var(--success)', hint: 'Never auto-select a paid provider.' },
+            { value: true,  label: 'Paid allowed', color: 'var(--warning)', hint: 'Allow paid providers as a last resort.' },
           ]}
         />
 
         <div style={{ flex: '1 1 240px', minWidth: 220 }}>
           <div style={{
-            fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)',
-            textTransform: 'uppercase', letterSpacing: '0.12em', marginBottom: 5,
+            fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)',
+marginBottom: 5,
           }}>Routing strategy</div>
           <select
             value={strategy}
@@ -846,15 +845,15 @@ export default function ProviderConsole({
             onChange={(e) => act(() => api.setLlmStrategy(e.target.value), `Strategy set to ${e.target.value}.`)}
             style={{
               width: '100%', padding: '8px 10px', borderRadius: 10,
-              background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.10)',
-              color: '#fff', fontSize: 12, fontFamily: 'var(--font-mono)',
+              background: 'color-mix(in oklab, var(--ink) 5%, transparent)', border: '1px solid color-mix(in oklab, var(--ink) 10%, transparent)',
+              color: 'var(--text-primary)', fontSize:13, fontVariantNumeric:'tabular-nums',
               outline: 'none', cursor: routerOn ? 'pointer' : 'not-allowed',
               opacity: routerOn ? 1 : 0.5,
             }}
           >
             {strategies.map(s => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
           </select>
-          <div style={{ fontSize: 10, color: 'var(--text-tertiary)', marginTop: 5, lineHeight: 1.45 }}>
+          <div style={{ fontSize:13, color: 'var(--text-tertiary)', marginTop: 5, lineHeight: 1.45 }}>
             {STRATEGY_HINT[strategy] || 'Custom strategy.'}
           </div>
         </div>
@@ -874,8 +873,8 @@ export default function ProviderConsole({
 
       {(notice || error) && (
         <div style={{
-          fontSize: 11.5, padding: '8px 12px', borderRadius: 10,
-          background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.09)',
+          fontSize:13, padding: '8px 12px', borderRadius: 10,
+          background: 'color-mix(in oklab, var(--ink) 4%, transparent)', border: '1px solid color-mix(in oklab, var(--ink) 9%, transparent)',
           color: 'var(--text-secondary)',
         }}>{notice || error}</div>
       )}
@@ -896,13 +895,13 @@ export default function ProviderConsole({
             }).length;
             return (
               <button key={f.id} type="button" onClick={() => setFilter(f.id)} style={{
-                padding: '5px 13px', borderRadius: 999, fontSize: 11.5, fontWeight: 700,
+                padding: '5px 13px', borderRadius: 999, fontSize:13, fontWeight: 700,
                 cursor: 'pointer', transition: 'all 0.15s',
-                background: active ? 'rgba(93,162,255,0.16)' : 'rgba(255,255,255,0.035)',
-                border: `1px solid ${active ? 'rgba(93,162,255,0.34)' : 'rgba(255,255,255,0.08)'}`,
-                color: active ? '#fff' : 'var(--text-muted)',
+                background: active ? 'color-mix(in oklab, var(--accent) 16%, transparent)' : 'color-mix(in oklab, var(--ink) 3.5%, transparent)',
+                border: `1px solid ${active ? 'color-mix(in oklab, var(--accent) 34%, transparent)' : 'color-mix(in oklab, var(--ink) 8%, transparent)'}`,
+                color: active ? 'var(--text-primary)' : 'var(--text-muted)',
               }}>
-                {f.label} <span style={{ opacity: 0.6, fontFamily: 'var(--font-mono)', fontSize: 10 }}>{count}</span>
+                {f.label} <span style={{ opacity: 0.6, fontVariantNumeric:'tabular-nums', fontSize:13 }}>{count}</span>
               </button>
             );
           })}
@@ -911,8 +910,7 @@ export default function ProviderConsole({
         {/* Column header — the legend for the numbers in every row. */}
         <div style={{
           display: 'flex', alignItems: 'center', gap: 12, padding: '0 14px 7px 35px',
-          fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)',
-          textTransform: 'uppercase', letterSpacing: '0.11em',
+          fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)',
         }}>
           <span style={{ flex: '2 1 170px', minWidth: 140 }}>Provider</span>
           <span className="pc-metric" style={{ flex: '0 0 88px' }}>Success</span>
@@ -926,7 +924,7 @@ export default function ProviderConsole({
           {visible.length === 0 ? (
             <div style={{
               padding: 22, textAlign: 'center', borderRadius: 14,
-              border: '1px dashed rgba(255,255,255,0.12)', color: 'var(--text-muted)', fontSize: 12.5,
+              border: '1px dashed color-mix(in oklab, var(--ink) 12%, transparent)', color: 'var(--text-muted)', fontSize:13.5,
             }}>Nothing matches this filter.</div>
           ) : visible.map(row => (
             <ProviderRow

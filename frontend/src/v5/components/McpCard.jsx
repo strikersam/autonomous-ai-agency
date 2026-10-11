@@ -37,29 +37,29 @@ import * as api from '../../api';
  */
 
 const TONES = {
-  ok: { border: '1px solid rgba(70,217,164,0.30)', background: 'rgba(70,217,164,0.10)', color: '#46d9a4' },
-  warn: { border: '1px solid rgba(255,189,102,0.30)', background: 'rgba(255,189,102,0.10)', color: '#ffbd66' },
-  bad: { border: '1px solid rgba(255,107,125,0.30)', background: 'rgba(255,107,125,0.10)', color: '#ff6b7d' },
-  idle: { border: '1px solid rgba(255,255,255,0.10)', background: 'rgba(255,255,255,0.05)', color: 'var(--text-muted)' },
+  ok: { border: '1px solid color-mix(in oklab, var(--success) 30%, transparent)', background: 'color-mix(in oklab, var(--success) 10%, transparent)', color: 'var(--success)' },
+  warn: { border: '1px solid color-mix(in oklab, var(--warning) 30%, transparent)', background: 'color-mix(in oklab, var(--warning) 10%, transparent)', color: 'var(--warning)' },
+  bad: { border: '1px solid color-mix(in oklab, var(--danger) 30%, transparent)', background: 'color-mix(in oklab, var(--danger) 10%, transparent)', color: 'var(--danger)' },
+  idle: { border: '1px solid color-mix(in oklab, var(--ink) 10%, transparent)', background: 'color-mix(in oklab, var(--ink) 5%, transparent)', color: 'var(--text-muted)' },
 };
 
 const NOTE = (tone) => ({
   marginTop: 11, display: 'flex', alignItems: 'flex-start', gap: 8,
-  borderRadius: 10, padding: '8px 11px', fontSize: 11, lineHeight: 1.55,
+  borderRadius: 10, padding: '8px 11px', fontSize:13, lineHeight: 1.55,
   ...TONES[tone],
 });
 
 const BTN = {
   display: 'inline-flex', alignItems: 'center', gap: 6, borderRadius: 10,
-  padding: '7px 12px', fontSize: 12, background: 'rgba(255,255,255,0.04)',
-  border: '1px solid rgba(255,255,255,0.10)', color: 'var(--text-secondary)',
+  padding: '7px 12px', fontSize:13, background: 'color-mix(in oklab, var(--ink) 4%, transparent)',
+  border: '1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color: 'var(--text-secondary)',
 };
 
 function Pill({ tone, children }) {
   return (
     <span style={{
-      borderRadius: 6, padding: '2px 7px', fontSize: 10, fontWeight: 600,
-      fontFamily: 'var(--font-mono)', whiteSpace: 'nowrap', ...(TONES[tone] || TONES.idle),
+      borderRadius: 6, padding: '2px 7px', fontSize:13, fontWeight: 600,
+      fontVariantNumeric:'tabular-nums', whiteSpace: 'nowrap', ...(TONES[tone] || TONES.idle),
     }}>
       {children}
     </span>
@@ -71,17 +71,17 @@ function Stage({ label, ok, okText, badText, tone = 'bad' }) {
   return (
     <div style={{
       display: 'flex', alignItems: 'flex-start', gap: 10, padding: '8px 0',
-      borderTop: '1px solid rgba(255,255,255,0.05)',
+      borderTop: '1px solid color-mix(in oklab, var(--ink) 5%, transparent)',
     }}>
       <span style={{
-        marginTop: 1, flexShrink: 0, fontSize: 12,
-        color: ok ? '#46d9a4' : (tone === 'warn' ? '#ffbd66' : '#ff6b7d'),
+        marginTop: 1, flexShrink: 0, fontSize:13,
+        color: ok ? 'var(--success)' : (tone === 'warn' ? 'var(--warning)' : 'var(--danger)'),
       }}>
         {ok ? '✓' : '✕'}
       </span>
       <div style={{ minWidth: 0 }}>
-        <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)' }}>{label}</div>
-        <div style={{ marginTop: 2, fontSize: 11, lineHeight: 1.55, color: 'var(--text-muted)' }}>
+        <div style={{ fontSize:13, fontWeight: 600, color: 'var(--text-primary)' }}>{label}</div>
+        <div style={{ marginTop: 2, fontSize:13, lineHeight: 1.55, color: 'var(--text-muted)' }}>
           {ok ? okText : badText}
         </div>
       </div>
@@ -93,8 +93,8 @@ function Stat({ label, value }) {
   return (
     <div>
       <div style={{
-        fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em',
-        fontFamily: 'var(--font-mono)', color: 'var(--text-muted)',
+        fontSize:13,
+        fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)',
       }}>
         {label}
       </div>
@@ -175,7 +175,7 @@ export default function McpCard() {
       data-testid="mcp-card"
       style={{
         padding: '16px 16px 18px', borderRadius: 16, marginBottom: 16,
-        background: 'rgba(93,162,255,0.04)', border: '1px solid rgba(93,162,255,0.18)',
+        background: 'color-mix(in oklab, var(--accent) 4%, transparent)', border: '1px solid color-mix(in oklab, var(--accent) 18%, transparent)',
       }}
     >
       <div style={{
@@ -186,7 +186,7 @@ export default function McpCard() {
           <h2 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>
             Render — platform watch
           </h2>
-          <p style={{ marginTop: 2, fontSize: 11, color: 'var(--text-muted)' }}>
+          <p style={{ marginTop: 2, fontSize:13, color: 'var(--text-muted)' }}>
             The MCP server that reports deployment failures, not just tools
           </p>
         </div>
@@ -214,10 +214,10 @@ export default function McpCard() {
 
       <div style={{
         borderRadius: 12, padding: 15,
-        background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)',
+        background: 'color-mix(in oklab, var(--ink) 2%, transparent)', border: '1px solid color-mix(in oklab, var(--ink) 8%, transparent)',
       }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>Render</span>
+          <span style={{ fontSize:14, fontWeight: 700, color: 'var(--text-primary)' }}>Render</span>
           <Pill tone={configured ? 'ok' : 'idle'}>{configured ? 'Connected' : 'Not configured'}</Pill>
           {ops?.write_allowed
             ? <Pill tone="warn">Writes allowed</Pill>
@@ -228,7 +228,7 @@ export default function McpCard() {
             </Pill>
           )}
         </div>
-        <p style={{ fontSize: 11, lineHeight: 1.6, color: 'var(--text-muted)' }}>
+        <p style={{ fontSize:13, lineHeight: 1.6, color: 'var(--text-muted)' }}>
           Platform-level view of the deployment: build failures, OOM kills, restarts, and error-log
           spikes. These never reach the application logs — the process was not alive to write them.
         </p>
@@ -263,7 +263,7 @@ export default function McpCard() {
 
         {ops && (
           <div style={{
-            marginTop: 15, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.05)',
+            marginTop: 15, paddingTop: 12, borderTop: '1px solid color-mix(in oklab, var(--ink) 5%, transparent)',
             display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(90px, 1fr))', gap: 14,
           }}>
             <Stat label="Filed" value={ops.findings_filed ?? 0} />
@@ -302,28 +302,28 @@ export default function McpCard() {
           data-testid="mcp-scan-result"
           style={{
             marginTop: 12, borderRadius: 12, padding: 15,
-            background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.08)',
+            background: 'color-mix(in oklab, var(--ink) 2%, transparent)', border: '1px solid color-mix(in oklab, var(--ink) 8%, transparent)',
           }}
         >
           <div style={{
-            marginBottom: 9, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.12em',
-            fontFamily: 'var(--font-mono)', color: 'var(--text-muted)',
+            marginBottom: 9, fontSize:13,
+            fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)',
           }}>
             Scan result — read-only, nothing filed
           </div>
           {findings.length === 0 ? (
-            <p style={{ fontSize: 12, color: '#46d9a4' }}>Render reports no platform failures right now.</p>
+            <p style={{ fontSize:13, color: 'var(--success)' }}>Render reports no platform failures right now.</p>
           ) : (
             <ul style={{ display: 'flex', flexDirection: 'column', gap: 9, listStyle: 'none' }}>
               {findings.map((f, i) => (
-                <li key={f.signature || i} style={{ fontSize: 12 }}>
+                <li key={f.signature || i} style={{ fontSize:13 }}>
                   <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
                     <Pill tone={f.severity === 'critical' ? 'bad' : 'warn'}>{f.severity || 'issue'}</Pill>
                     <span style={{ color: 'var(--text-primary)' }}>{f.title}</span>
                   </div>
                   {f.service_name && (
                     <div style={{
-                      marginTop: 2, fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)',
+                      marginTop: 2, fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)',
                     }}>
                       {f.kind} · {f.service_name}
                     </div>
@@ -338,7 +338,7 @@ export default function McpCard() {
       <Link
         to="/v5/controls"
         style={{
-          marginTop: 14, display: 'inline-block', fontSize: 11,
+          marginTop: 14, display: 'inline-block', fontSize:13,
           color: 'var(--accent)', textDecoration: 'none',
         }}
       >

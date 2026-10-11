@@ -6,9 +6,11 @@ import time
 import secrets
 from datetime import datetime
 from enum import Enum
-from typing import Any, Union
+from typing import Any, Literal, Union
 
 from pydantic import BaseModel, Field, field_validator
+
+from tasks.verification import TaskVerification
 
 
 class TaskStatus(str, Enum):
@@ -163,6 +165,10 @@ class Task(BaseModel):
     # flips this True to re-queue it. This is distinct from ``approval_checkpoints``,
     # which review COMPLETED work *after* execution.
     execution_approved: bool = False
+    # Rule 49: the independent verifier's report (verdict, what was checked,
+    # defects found, fixes, evidence). DONE requires a PASS/PASS+NOTES here
+    # while TASK_VERIFICATION_REQUIRED is on — see tasks/verification.py.
+    verification: TaskVerification | None = None
 
     # Execution tracking
     execution_log: list[ExecutionLogEntry] = Field(default_factory=list)
@@ -315,6 +321,20 @@ class ApprovalRequest(BaseModel):
     checkpoint_id: str
     approve: bool
     reason: str | None = Field(default=None, max_length=2000)
+
+
+class VerificationRequest(BaseModel):
+    """An independent verifier's verdict on a task (rule 49).
+
+    The caller is recorded as the verifier. PASS/PASS+NOTES on a task waiting
+    in review marks it done; FAIL sends it back to the agents for rework.
+    """
+    verdict: Literal["PASS", "PASS+NOTES", "FAIL"]
+    checked: list[str] = Field(default_factory=list, max_length=40)
+    defects_found: list[str] = Field(default_factory=list, max_length=40)
+    fixed: list[str] = Field(default_factory=list, max_length=40)
+    evidence: list[str] = Field(default_factory=list, max_length=40)
+    notes: str = Field(default="", max_length=4000)
 
 
 class ExecutionApprovalRequest(BaseModel):

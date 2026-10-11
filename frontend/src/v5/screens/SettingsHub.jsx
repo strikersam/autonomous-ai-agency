@@ -2,6 +2,7 @@ import React from 'react';
 import { useReportSub } from '../screenContext';
 import HubTabs from '../components/ui/HubTabs';
 import Spinner from '../components/ui/Spinner';
+import { ErrorBoundary } from '../components/ErrorBoundary';
 
 const ProvidersScreen = React.lazy(() => import('./ProvidersScreen'));
 const ControlsScreen = React.lazy(() => import('./ControlsScreen'));
@@ -41,13 +42,8 @@ export default function SettingsHub({ initialSection, isAdmin, onNavigate }) {
   useReportSub('settings', section);
   return (
     <div>
-      <div style={{ padding: '20px 16px 0', maxWidth: 1000, margin: '0 auto' }}>
-        <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--accent)', letterSpacing: '0.18em', textTransform: 'uppercase', marginBottom: 4 }}>Settings &amp; Infrastructure</div>
-        <p style={{ fontSize: 13, color: 'var(--text-tertiary)', lineHeight: 1.5, maxWidth: 560, margin: 0 }}>
-          The technical side of your agency. Nothing here is needed day to day — the everyday screens run on these settings.
-        </p>
-      </div>
-      <HubTabs tabs={visible} active={section} onChange={setSection} />
+      <HubTabs tabs={visible} active={section} onChange={setSection} label="Settings sections" />
+      <ErrorBoundary resetKey={section}>
       <React.Suspense fallback={<Spinner center />}>
         {section === 'providers' && <ProvidersScreen />}
         {section === 'controls' && <ControlsScreen />}
@@ -58,6 +54,7 @@ export default function SettingsHub({ initialSection, isAdmin, onNavigate }) {
         {section === 'loops' && <LoopsScreen />}
         {section === 'skills' && <SkillsScreen />}
       </React.Suspense>
+      </ErrorBoundary>
     </div>
   );
 }

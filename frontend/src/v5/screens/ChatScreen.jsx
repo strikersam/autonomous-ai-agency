@@ -1,5 +1,6 @@
 /* eslint-disable no-unused-vars -- some agent metadata fields are kept for future wiring */
 import React from 'react';
+import Glyph from '../components/ui/Glyph';
 import * as api from '../../api';
 
 
@@ -13,25 +14,25 @@ import * as api from '../../api';
 //   GET  /api/chat/sessions/:id → full session with messages[]
 
 const CHAT_PHASES = [
-  { id:'planning',     label:'Planning',     color:'#7c9dff' },
-  { id:'editing',      label:'Editing',      color:'#5da2ff' },
-  { id:'execution',    label:'Executing',    color:'#5da2ff' },
-  { id:'testing',      label:'Testing',      color:'#46d9a4' },
-  { id:'verifying',    label:'Verifying',    color:'#ffbd66' },
-  { id:'verification', label:'Verifying',    color:'#ffbd66' },
-  { id:'resuming',     label:'Resuming',     color:'#c4b5fd' },
-  { id:'pr',           label:'PR open',      color:'#46d9a4' },
+  { id:'planning',     label:'Planning',     color:'var(--accent)' },
+  { id:'editing',      label:'Editing',      color:'var(--accent)' },
+  { id:'execution',    label:'Executing',    color:'var(--accent)' },
+  { id:'testing',      label:'Testing',      color:'var(--success)' },
+  { id:'verifying',    label:'Verifying',    color:'var(--warning)' },
+  { id:'verification', label:'Verifying',    color:'var(--warning)' },
+  { id:'resuming',     label:'Resuming',     color:'var(--violet)' },
+  { id:'pr',           label:'PR open',      color:'var(--success)' },
 ];
 
 const AVAILABLE_AGENTS = [
-  { id:'auto',      name:'Auto-select',    icon:'◎', color:'#5da2ff',  desc:'Best agent for the task is chosen automatically' },
-  { id:'dev',       name:'Dev Agent',      icon:'⚙', color:'#5da2ff',  desc:'Code, tests, PRs — git-aware coding assistant' },
-  { id:'ceo',       name:'CEO Agent',      icon:'◎', color:'#c4b5fd',  desc:'Orchestration, planning, assessment' },
-  { id:'security',  name:'Security Agent', icon:'🔒', color:'#ffbd66', desc:'CVE scans, secrets, SAST' },
-  { id:'release',   name:'Release Agent',  icon:'◉', color:'#7c9dff',  desc:'Changelog, versioning, readiness' },
-  { id:'commerce',  name:'Commerce Agent', icon:'🛍', color:'#46d9a4', desc:'Shopify, checkout, inventory' },
-  { id:'content',   name:'Content Agent',  icon:'📄', color:'#c4b5fd', desc:'Contentful, SEO, publishing' },
-  { id:'analytics', name:'Analytics Agent',icon:'📊', color:'#5da2ff', desc:'GA4, GTM, dashboards' },
+  { id:'auto',      name:'Auto-select',    icon:'◎', color:'var(--accent)',  desc:'Best agent for the task is chosen automatically' },
+  { id:'dev',       name:'Dev Agent',      icon:'⚙', color:'var(--accent)',  desc:'Code, tests, PRs — git-aware coding assistant' },
+  { id:'ceo',       name:'CEO Agent',      icon:'◎', color:'var(--violet)',  desc:'Orchestration, planning, assessment' },
+  { id:'security',  name:'Security Agent', icon:'🔒', color:'var(--warning)', desc:'CVE scans, secrets, SAST' },
+  { id:'release',   name:'Release Agent',  icon:'◉', color:'var(--accent)',  desc:'Changelog, versioning, readiness' },
+  { id:'commerce',  name:'Commerce Agent', icon:'🛍', color:'var(--success)', desc:'Shopify, checkout, inventory' },
+  { id:'content',   name:'Content Agent',  icon:'📄', color:'var(--violet)', desc:'Contentful, SEO, publishing' },
+  { id:'analytics', name:'Analytics Agent',icon:'📊', color:'var(--accent)', desc:'GA4, GTM, dashboards' },
 ];
 
 const SUGGESTIONS = [
@@ -85,14 +86,14 @@ function AgentPicker({ selected, onSelect, onOpen, forceClose }) {
     <div style={{ position:'relative' }}>
       <button ref={btnRef} onClick={toggle} style={{
         display:'flex', alignItems:'center', gap:6, padding:'4px 10px',
-        borderRadius:999, border:`1px solid ${open?'rgba(93,162,255,0.40)':'rgba(255,255,255,0.12)'}`,
-        background:open?'rgba(93,162,255,0.10)':'rgba(255,255,255,0.04)',
-        cursor:'pointer', transition:'all 0.15s', fontSize:11, color:'var(--text-secondary)',
-        fontFamily:'var(--font-mono)', letterSpacing:'0.08em', whiteSpace:'nowrap',
+        borderRadius:999, border:`1px solid ${open?'color-mix(in oklab, var(--accent) 40%, transparent)':'color-mix(in oklab, var(--ink) 12%, transparent)'}`,
+        background:open?'color-mix(in oklab, var(--accent) 10%, transparent)':'color-mix(in oklab, var(--ink) 4%, transparent)',
+        cursor:'pointer', transition:'all 0.15s', fontSize:13, color:'var(--text-secondary)',
+        fontVariantNumeric:'tabular-nums', whiteSpace:'nowrap',
       }}>
-        <span style={{ fontSize:13 }}>{ag.icon}</span>
+        <span style={{ fontSize:14 }}><Glyph g={ag.icon}/></span>
         <span>{ag.name}</span>
-        <span style={{ fontSize:9, color:'var(--text-muted)' }}>▾</span>
+        <span style={{ fontSize:13, color:'var(--text-muted)' }}>▾</span>
       </button>
       {open && (
         <>
@@ -100,25 +101,25 @@ function AgentPicker({ selected, onSelect, onOpen, forceClose }) {
           <div style={{
             position:'absolute', left:0, zIndex:50,
             ...(placement.up ? { bottom:'calc(100% + 6px)' } : { top:'calc(100% + 6px)' }),
-            background:'rgba(12,15,20,0.98)', border:'1px solid rgba(255,255,255,0.12)',
+            background:'color-mix(in oklab, var(--bg-surface) 98%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 12%, transparent)',
             borderRadius:16, padding:8, minWidth:240, maxWidth:'min(340px, calc(100vw - 24px))', maxHeight:placement.maxH, overflowY:'auto',
-            boxShadow:'0 16px 40px rgba(0,0,0,0.55)', animation:'fadeSlideUp 0.18s ease-out',
+            boxShadow:'0 16px 40px color-mix(in oklab, var(--shade) 55%, transparent)', animation:'fadeSlideUp 0.18s ease-out',
           }}>
-            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase', padding:'4px 10px 8px' }}>Chat with</div>
+            <div style={{ fontSize:13, color:'var(--text-muted)', padding:'4px 10px 8px' }}>Chat with</div>
             {AVAILABLE_AGENTS.map(a => (
               <button key={a.id} onClick={()=>{onSelect(a.id); setOpen(false);}} style={{
                 display:'flex', alignItems:'flex-start', gap:9, width:'100%', padding:'8px 10px',
-                borderRadius:10, border:'none', background:selected===a.id?'rgba(93,162,255,0.10)':'transparent',
+                borderRadius:10, border:'none', background:selected===a.id?'color-mix(in oklab, var(--accent) 10%, transparent)':'transparent',
                 cursor:'pointer', textAlign:'left', transition:'background 0.12s',
               }}
-              onMouseEnter={e=>{if(selected!==a.id)e.currentTarget.style.background='rgba(255,255,255,0.04)';}}
+              onMouseEnter={e=>{if(selected!==a.id)e.currentTarget.style.background='color-mix(in oklab, var(--ink) 4%, transparent)';}}
               onMouseLeave={e=>{if(selected!==a.id)e.currentTarget.style.background='transparent';}}>
-                <span style={{ fontSize:15, flexShrink:0, marginTop:1 }}>{a.icon}</span>
+                <span style={{ fontSize:15, flexShrink:0, marginTop:1 }}><Glyph g={a.icon}/></span>
                 <div>
-                  <div style={{ fontSize:12, fontWeight:600, color:selected===a.id?'#fff':'var(--text-secondary)' }}>{a.name}</div>
-                  <div style={{ fontSize:11, color:'var(--text-muted)', lineHeight:1.4 }}>{a.desc}</div>
+                  <div style={{ fontSize:13, fontWeight:600, color:selected===a.id?'var(--text-primary)':'var(--text-secondary)' }}>{a.name}</div>
+                  <div style={{ fontSize:13, color:'var(--text-muted)', lineHeight:1.4 }}>{a.desc}</div>
                 </div>
-                {selected===a.id && <span style={{ marginLeft:'auto', fontSize:11, color:'var(--accent)', flexShrink:0 }}>✓</span>}
+                {selected===a.id && <span style={{ marginLeft:'auto', fontSize:13, color:'var(--accent)', flexShrink:0 }}>✓</span>}
               </button>
             ))}
           </div>
@@ -142,8 +143,8 @@ function RepoUrlInput({ onAdd }) {
   if (!open) return (
     <button onClick={() => setOpen(true)} title="Add repo URL for code tasks" style={{
       display:'inline-flex', alignItems:'center', gap:3, padding:'2px 7px', borderRadius:999,
-      background:'rgba(255,255,255,0.04)', border:'1px dashed rgba(255,255,255,0.15)',
-      cursor:'pointer', fontSize:10, color:'var(--text-muted)', fontFamily:'var(--font-mono)', flexShrink:0,
+      background:'color-mix(in oklab, var(--ink) 4%, transparent)', border:'1px dashed color-mix(in oklab, var(--ink) 15%, transparent)',
+      cursor:'pointer', fontSize:13, color:'var(--text-muted)', fontVariantNumeric:'tabular-nums', flexShrink:0,
     }}>
       <span>+</span><span>repo</span>
     </button>
@@ -153,19 +154,19 @@ function RepoUrlInput({ onAdd }) {
       <input value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => { if (e.key==='Enter') handleAdd(); if (e.key==='Escape') setOpen(false); }}
         placeholder="github.com/org/repo"
         autoFocus
-        style={{ width:160, padding:'3px 8px', borderRadius:8, background:'rgba(255,255,255,0.06)', border:'1px solid rgba(93,162,255,0.30)', color:'#fff', fontSize:10, fontFamily:'var(--font-mono)', outline:'none' }}/>
-      <button onClick={handleAdd} style={{ padding:'2px 6px', borderRadius:6, background:'rgba(93,162,255,0.15)', border:'1px solid rgba(93,162,255,0.30)', color:'var(--accent)', fontSize:10, cursor:'pointer', fontFamily:'var(--font-mono)' }}>✓</button>
-      <button onClick={() => setOpen(false)} style={{ padding:'0 4px', background:'none', border:'none', color:'var(--text-muted)', fontSize:10, cursor:'pointer' }}>✕</button>
+        style={{ width:160, padding:'3px 8px', borderRadius:8, background:'color-mix(in oklab, var(--ink) 6%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 30%, transparent)', color:'var(--text-primary)', fontSize:13, fontVariantNumeric:'tabular-nums', outline:'none' }}/>
+      <button onClick={handleAdd} style={{ padding:'2px 6px', borderRadius:6, background:'color-mix(in oklab, var(--accent) 15%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 30%, transparent)', color:'var(--accent)', fontSize:13, cursor:'pointer', fontVariantNumeric:'tabular-nums' }}>✓</button>
+      <button onClick={() => setOpen(false)} style={{ padding:'0 4px', background:'none', border:'none', color:'var(--text-muted)', fontSize:13, cursor:'pointer' }}>✕</button>
     </div>
   );
 }
 
 function ContextChip({ chip, onRemove }) {
   return (
-    <div style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 8px 4px 10px', borderRadius:999, border:'1px solid rgba(255,255,255,0.10)', background:'rgba(255,255,255,0.04)', fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-tertiary)' }}>
-      <span style={{ fontSize:12 }}>{chip.icon}</span>
+    <div style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'4px 8px 4px 10px', borderRadius:999, border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', background:'color-mix(in oklab, var(--ink) 4%, transparent)', fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--text-tertiary)' }}>
+      <span style={{ fontSize:13 }}><Glyph g={chip.icon}/></span>
       <span>{chip.label}</span>
-      <button onClick={()=>onRemove(chip.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', fontSize:11, display:'flex', alignItems:'center', padding:0 }}>✕</button>
+      <button onClick={()=>onRemove(chip.id)} style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-muted)', fontSize:13, display:'flex', alignItems:'center', padding:0 }}>✕</button>
     </div>
   );
 }
@@ -174,24 +175,24 @@ function ContextChip({ chip, onRemove }) {
 function AgentProgressPanel({ phase, elapsed, events = [], agent }) {
   const phaseObj = CHAT_PHASES.find(p => p.id === phase);
   const label = phaseObj ? phaseObj.label : (phase ? phase.charAt(0).toUpperCase() + phase.slice(1) : 'Working');
-  const color = phaseObj ? phaseObj.color : '#7c9dff';
+  const color = phaseObj ? phaseObj.color : 'var(--accent)';
   return (
-    <div style={{ margin:'8px 0', padding:'12px 14px', borderRadius:14, border:'1px solid rgba(93,162,255,0.15)', background:'rgba(93,162,255,0.04)', animation:'fadeSlideUp 0.3s ease-out', maxWidth:'84%' }}>
+    <div style={{ margin:'8px 0', padding:'12px 14px', borderRadius:14, border:'1px solid color-mix(in oklab, var(--accent) 15%, transparent)', background:'color-mix(in oklab, var(--accent) 4%, transparent)', animation:'fadeSlideUp 0.3s ease-out', maxWidth:'84%' }}>
       <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
         <div style={{ display:'flex', alignItems:'center', gap:7 }}>
           <div style={{ width:7, height:7, borderRadius:'50%', background:color, animation:'pulse 1.5s infinite' }}/>
-          <span style={{ fontSize:12, fontWeight:600, color:'#fff' }}>{label}</span>
+          <span style={{ fontSize:13, fontWeight:600, color:'var(--text-primary)' }}>{label}</span>
         </div>
-        <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>{elapsed}s</span>
+        <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--text-muted)' }}>{elapsed}s</span>
       </div>
       <div style={{ display:'flex', flexDirection:'column', gap:5 }}>
         {events.length === 0 && (
-          <div style={{ fontSize:11, color:'var(--text-muted)', fontFamily:'var(--font-mono)' }}>Agent started — waiting for the first update…</div>
+          <div style={{ fontSize:13, color:'var(--text-muted)', fontVariantNumeric:'tabular-nums' }}>Agent started — waiting for the first update…</div>
         )}
         {events.map((ev, i) => (
           <div key={i} style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
-            <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:color, width:64, flexShrink:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{ev.phase || '·'}</span>
-            <span style={{ fontSize:11, color:'var(--text-tertiary)', flex:1, lineHeight:1.5 }}>{ev.message || ''}</span>
+            <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:color, width:64, flexShrink:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{ev.phase || '·'}</span>
+            <span style={{ fontSize:13, color:'var(--text-tertiary)', flex:1, lineHeight:1.5 }}>{ev.message || ''}</span>
           </div>
         ))}
       </div>
@@ -207,10 +208,10 @@ function MessageBubble({ msg }) {
       <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-start', marginBottom:18, animation:'fadeSlideUp 0.28s ease-out' }}>
         <div style={{
           maxWidth:'84%', padding:'12px 16px', borderRadius:'4px 16px 16px 16px',
-          background:'rgba(255,107,125,0.08)', border:'1px solid rgba(255,107,125,0.25)',
-          fontSize:13, color:'#ff9aa6', lineHeight:1.6,
+          background:'color-mix(in oklab, var(--danger) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 25%, transparent)',
+          fontSize:14, color:'var(--danger)', lineHeight:1.6,
         }}>
-          <div style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'#ff6b7d', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:5 }}>Error</div>
+          <div style={{ fontSize:13, color:'var(--danger)', marginBottom:5 }}>Error</div>
           {msg.content}
         </div>
       </div>
@@ -220,15 +221,15 @@ function MessageBubble({ msg }) {
     <div style={{ display:'flex', flexDirection:'column', alignItems:isUser?'flex-end':'flex-start', marginBottom:18, animation:'fadeSlideUp 0.28s ease-out' }}>
       {!isUser && (
         <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:5 }}>
-          <div style={{ width:20, height:20, borderRadius:7, background:`${ag.color}20`, border:`1px solid ${ag.color}35`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11 }}>{ag.icon}</div>
-          <span style={{ fontSize:11, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>{ag.name}</span>
+          <div style={{ width:20, height:20, borderRadius:7, background:`color-mix(in oklab, ${ag.color} 13%, transparent)`, border:`1px solid color-mix(in oklab, ${ag.color} 21%, transparent)`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13 }}><Glyph g={ag.icon}/></div>
+          <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--text-muted)' }}>{ag.name}</span>
         </div>
       )}
       <div style={{
         maxWidth:'84%', padding:isUser?'10px 14px':'12px 16px',
         borderRadius:isUser?'16px 16px 4px 16px':'4px 16px 16px 16px',
-        background:isUser?'linear-gradient(135deg,rgba(93,162,255,0.18),rgba(93,162,255,0.10))':'rgba(255,255,255,0.04)',
-        border:`1px solid ${isUser?'rgba(93,162,255,0.22)':'rgba(255,255,255,0.08)'}`,
+        background:isUser?'linear-gradient(135deg,color-mix(in oklab, var(--accent) 18%, transparent),color-mix(in oklab, var(--accent) 10%, transparent))':'color-mix(in oklab, var(--ink) 4%, transparent)',
+        border:`1px solid ${isUser?'color-mix(in oklab, var(--accent) 22%, transparent)':'color-mix(in oklab, var(--ink) 8%, transparent)'}`,
         fontSize:14, color:isUser?'var(--text-primary)':'var(--text-secondary)', lineHeight:1.65,
         whiteSpace:'pre-wrap', wordBreak:'break-word',
       }}>
@@ -242,18 +243,18 @@ function EmptyState({ onSuggest }) {
   return (
     <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', padding:'40px 24px', gap:28 }}>
       <div style={{ textAlign:'center' }}>
-        <div style={{ width:52, height:52, borderRadius:18, margin:'0 auto 16px', background:'linear-gradient(135deg,rgba(93,162,255,0.15),rgba(93,162,255,0.05))', border:'1px solid rgba(93,162,255,0.2)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-          <span style={{ fontSize:22 }}>◎</span>
+        <div style={{ width:52, height:52, borderRadius:14, margin:'0 auto 16px', background:'var(--accent-soft)', color:'var(--accent)', display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <span style={{ fontSize:22 }}><Glyph g="◎"/></span>
         </div>
-        <div style={{ fontSize:20, fontWeight:800, color:'#fff', letterSpacing:'-0.03em', marginBottom:8 }}>How can I help?</div>
-        <div style={{ fontSize:14, color:'var(--text-tertiary)', maxWidth:360, lineHeight:1.6 }}>Ask a question about your stack, or switch on a specific agent (⚙ Dev, 🔒 Security…) to run a real task.</div>
+        <h1 style={{ fontSize:24, fontWeight:650, color:'var(--text-primary)', letterSpacing:'-0.02em', marginBottom:8 }}>How can I help?</h1>
+        <div style={{ fontSize:15, color:'var(--text-tertiary)', maxWidth:400, lineHeight:1.6 }}>Ask a question in plain words. To have your team actually do something, pick an agent and turn on “Run as a task”.</div>
       </div>
       <div style={{ display:'flex', flexDirection:'column', gap:7, width:'100%', maxWidth:400 }}>
         {SUGGESTIONS.map((s,i)=>(
-          <button key={i} onClick={()=>onSuggest(s)} style={{ padding:'10px 14px', borderRadius:12, textAlign:'left', background:'rgba(255,255,255,0.03)', border:'1px solid rgba(255,255,255,0.08)', fontSize:13, color:'var(--text-tertiary)', cursor:'pointer', transition:'all 0.15s', display:'flex', alignItems:'center', gap:9 }}
-            onMouseEnter={e=>{e.currentTarget.style.background='rgba(93,162,255,0.06)';e.currentTarget.style.borderColor='rgba(93,162,255,0.20)';e.currentTarget.style.color='var(--text-secondary)';}}
-            onMouseLeave={e=>{e.currentTarget.style.background='rgba(255,255,255,0.03)';e.currentTarget.style.borderColor='rgba(255,255,255,0.08)';e.currentTarget.style.color='var(--text-tertiary)';}}>
-            <span style={{ color:'rgba(93,162,255,0.5)', flexShrink:0 }}>›</span>{s}
+          <button key={i} onClick={()=>onSuggest(s)} style={{ padding:'10px 14px', borderRadius:12, textAlign:'left', background:'color-mix(in oklab, var(--ink) 3%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 8%, transparent)', fontSize:14, color:'var(--text-tertiary)', cursor:'pointer', transition:'all 0.15s', display:'flex', alignItems:'center', gap:9 }}
+            onMouseEnter={e=>{e.currentTarget.style.background='color-mix(in oklab, var(--accent) 6%, transparent)';e.currentTarget.style.borderColor='color-mix(in oklab, var(--accent) 20%, transparent)';e.currentTarget.style.color='var(--text-secondary)';}}
+            onMouseLeave={e=>{e.currentTarget.style.background='color-mix(in oklab, var(--ink) 3%, transparent)';e.currentTarget.style.borderColor='color-mix(in oklab, var(--ink) 8%, transparent)';e.currentTarget.style.color='var(--text-tertiary)';}}>
+            <span style={{ color:'color-mix(in oklab, var(--accent) 50%, transparent)', flexShrink:0 }}>›</span>{s}
           </button>
         ))}
       </div>
@@ -265,23 +266,23 @@ function EmptyState({ onSuggest }) {
 function HistorySidebar({ sessions, loading, activeId, onSelect, onClose }) {
   return (
     <div style={{
-      width:'min(280px, 85vw)', height:'100%', borderRight:'1px solid rgba(255,255,255,0.08)',
-      background:'rgba(6,8,12,0.96)', display:'flex', flexDirection:'column', flexShrink:0,
+      width:'min(280px, 85vw)', height:'100%', borderRight:'1px solid color-mix(in oklab, var(--ink) 8%, transparent)',
+      background:'color-mix(in oklab, var(--bg-surface) 96%, transparent)', display:'flex', flexDirection:'column', flexShrink:0,
     }}>
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 16px 10px', borderBottom:'1px solid rgba(255,255,255,0.07)' }}>
-        <span style={{ fontSize:13, fontWeight:700, color:'#fff' }}>Chat History</span>
-        <button onClick={onClose} style={{ width:26, height:26, borderRadius:7, display:'flex', alignItems:'center', justifyContent:'center', background:'rgba(255,255,255,0.05)', border:'none', cursor:'pointer', color:'var(--text-muted)', fontSize:12 }}>✕</button>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'14px 16px 10px', borderBottom:'1px solid color-mix(in oklab, var(--ink) 7%, transparent)' }}>
+        <span style={{ fontSize:14, fontWeight:700, color:'var(--text-primary)' }}>Chat History</span>
+        <button onClick={onClose} style={{ width:26, height:26, borderRadius:7, display:'flex', alignItems:'center', justifyContent:'center', background:'color-mix(in oklab, var(--ink) 5%, transparent)', border:'none', cursor:'pointer', color:'var(--text-muted)', fontSize:13 }}>✕</button>
       </div>
-      <button onClick={()=>{ onSelect(null); onClose(); }} style={{ margin:'10px 10px 0', padding:'9px 14px', borderRadius:12, background:'rgba(93,162,255,0.12)', border:'1px solid rgba(93,162,255,0.25)', color:'var(--accent)', fontSize:12, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:7 }}>
+      <button onClick={()=>{ onSelect(null); onClose(); }} style={{ margin:'10px 10px 0', padding:'9px 14px', borderRadius:12, background:'color-mix(in oklab, var(--accent) 12%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 25%, transparent)', color:'var(--accent)', fontSize:13, fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:7 }}>
         <span>＋</span> New chat
       </button>
       <div style={{ flex:1, overflowY:'auto', padding:'10px 8px' }} className="scrollbar-hide">
-        <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase', padding:'2px 8px 6px' }}>Recent</div>
+        <div style={{ fontSize:13, color:'var(--text-muted)', padding:'2px 8px 6px' }}>Recent</div>
         {loading && (
-          <div style={{ fontSize:11, color:'var(--text-muted)', padding:'8px 10px', fontFamily:'var(--font-mono)' }}>Loading…</div>
+          <div style={{ fontSize:13, color:'var(--text-muted)', padding:'8px 10px', fontVariantNumeric:'tabular-nums' }}>Loading…</div>
         )}
         {!loading && sessions.length === 0 && (
-          <div style={{ fontSize:11, color:'var(--text-muted)', padding:'8px 10px', lineHeight:1.5 }}>No conversations yet. Send a message to start one.</div>
+          <div style={{ fontSize:13, color:'var(--text-muted)', padding:'8px 10px', lineHeight:1.5 }}>No conversations yet. Send a message to start one.</div>
         )}
         {!loading && sessions.map((s) => {
           const id = s._id || s.id;
@@ -289,18 +290,18 @@ function HistorySidebar({ sessions, loading, activeId, onSelect, onClose }) {
           return (
             <button key={id} onClick={()=>{ onSelect(s); onClose(); }} style={{
               display:'block', width:'100%', padding:'9px 10px', borderRadius:11, textAlign:'left', cursor:'pointer',
-              background:active?'rgba(93,162,255,0.10)':'transparent',
-              border:`1px solid ${active?'rgba(93,162,255,0.22)':'transparent'}`,
+              background:active?'color-mix(in oklab, var(--accent) 10%, transparent)':'transparent',
+              border:`1px solid ${active?'color-mix(in oklab, var(--accent) 22%, transparent)':'transparent'}`,
               marginBottom:3, transition:'all 0.15s',
             }}
-            onMouseEnter={e=>{if(!active){e.currentTarget.style.background='rgba(255,255,255,0.04)';e.currentTarget.style.borderColor='rgba(255,255,255,0.08)';}}}
+            onMouseEnter={e=>{if(!active){e.currentTarget.style.background='color-mix(in oklab, var(--ink) 4%, transparent)';e.currentTarget.style.borderColor='color-mix(in oklab, var(--ink) 8%, transparent)';}}}
             onMouseLeave={e=>{if(!active){e.currentTarget.style.background='transparent';e.currentTarget.style.borderColor='transparent';}}}>
               <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:3 }}>
-                <span style={{ fontSize:12 }}>◎</span>
-                <span style={{ fontSize:12, fontWeight:600, color:active?'#fff':'var(--text-secondary)', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{s.title || 'Untitled chat'}</span>
-                <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', flexShrink:0 }}>{relTime(s.updated_at || s.created_at)}</span>
+                <span style={{ fontSize:13 }}><Glyph g="◎"/></span>
+                <span style={{ fontSize:13, fontWeight:600, color:active?'var(--text-primary)':'var(--text-secondary)', flex:1, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{s.title || 'Untitled chat'}</span>
+                <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--text-muted)', flexShrink:0 }}>{relTime(s.updated_at || s.created_at)}</span>
               </div>
-              {s.model && <div style={{ fontSize:11, color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', paddingLeft:18 }}>{s.model}</div>}
+              {s.model && <div style={{ fontSize:13, color:'var(--text-muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', paddingLeft:18 }}>{s.model}</div>}
             </button>
           );
         })}
@@ -368,14 +369,14 @@ function ModelPicker({ selected, onSelect, onOpen, forceClose }) {
     <div style={{ position:'relative' }}>
       <button ref={btnRef} onClick={toggle} style={{
         display:'flex', alignItems:'center', gap:6, padding:'4px 10px',
-        borderRadius:999, border:`1px solid ${open ? 'rgba(93,162,255,0.40)' : 'rgba(255,255,255,0.12)'}`,
-        background: open ? 'rgba(93,162,255,0.10)' : 'rgba(255,255,255,0.04)',
-        cursor:'pointer', transition:'all 0.15s', fontSize:11, color:'var(--text-secondary)',
-        fontFamily:'var(--font-mono)', letterSpacing:'0.08em', whiteSpace:'nowrap',
+        borderRadius:999, border:`1px solid ${open ? 'color-mix(in oklab, var(--accent) 40%, transparent)' : 'color-mix(in oklab, var(--ink) 12%, transparent)'}`,
+        background: open ? 'color-mix(in oklab, var(--accent) 10%, transparent)' : 'color-mix(in oklab, var(--ink) 4%, transparent)',
+        cursor:'pointer', transition:'all 0.15s', fontSize:13, color:'var(--text-secondary)',
+        fontVariantNumeric:'tabular-nums', whiteSpace:'nowrap',
       }}>
-        <span style={{ fontSize:13 }}>🤖</span>
+        <span style={{ fontSize:14 }}><Glyph g="🤖"/></span>
         <span>{currentLabel}</span>
-        <span style={{ fontSize:9, color:'var(--text-muted)' }}>▾</span>
+        <span style={{ fontSize:13, color:'var(--text-muted)' }}>▾</span>
       </button>
       {open && (
         <>
@@ -383,51 +384,51 @@ function ModelPicker({ selected, onSelect, onOpen, forceClose }) {
           <div style={{
             position:'absolute', left:0, zIndex:50,
             ...(placement.up ? { bottom:'calc(100% + 6px)' } : { top:'calc(100% + 6px)' }),
-            background:'rgba(12,15,20,0.98)', border:'1px solid rgba(255,255,255,0.12)',
+            background:'color-mix(in oklab, var(--bg-surface) 98%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 12%, transparent)',
             borderRadius:16, padding:8, minWidth:280, maxWidth:'min(380px, calc(100vw - 24px))', maxHeight:placement.maxH, overflowY:'auto',
-            boxShadow:'0 16px 40px rgba(0,0,0,0.55)', animation:'fadeSlideUp 0.18s ease-out',
+            boxShadow:'0 16px 40px color-mix(in oklab, var(--shade) 55%, transparent)', animation:'fadeSlideUp 0.18s ease-out',
           }}>
-            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.12em', textTransform:'uppercase', padding:'4px 10px 8px' }}>Model & Provider</div>
+            <div style={{ fontSize:13, color:'var(--text-muted)', padding:'4px 10px 8px' }}>Model & Provider</div>
             <button onClick={() => { onSelect(null); setSelProvider(null); setOpen(false); }} style={{
               display:'flex', alignItems:'center', gap:9, width:'100%', padding:'8px 10px',
-              borderRadius:10, border:'none', background: !selected?.model ? 'rgba(93,162,255,0.10)' : 'transparent',
+              borderRadius:10, border:'none', background: !selected?.model ? 'color-mix(in oklab, var(--accent) 10%, transparent)' : 'transparent',
               cursor:'pointer', textAlign:'left',
             }}>
-              <span style={{ fontSize:13 }}>◎</span>
-              <div style={{ fontSize:12, fontWeight:600, color: !selected?.model ? '#fff' : 'var(--text-secondary)' }}>Auto-select (backend picks best model)</div>
+              <span style={{ fontSize:14 }}><Glyph g="◎"/></span>
+              <div style={{ fontSize:13, fontWeight:600, color: !selected?.model ? 'var(--text-primary)' : 'var(--text-secondary)' }}>Auto-select (backend picks best model)</div>
             </button>
-            <div style={{ height:1, background:'rgba(255,255,255,0.08)', margin:'6px 0' }} />
-            <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.08em', padding:'4px 10px 6px' }}>Provider</div>
+            <div style={{ height:1, background:'color-mix(in oklab, var(--ink) 8%, transparent)', margin:'6px 0' }} />
+            <div style={{ fontSize:13, fontFamily:'var(--font-mono)', color:'var(--text-muted)', padding:'4px 10px 6px' }}>Provider</div>
             {providers.map(p => (
               <button key={p.provider_id} onClick={() => { setSelProvider(p.provider_id); }} style={{
                 display:'flex', alignItems:'center', gap:8, width:'100%', padding:'7px 10px',
                 borderRadius:8, border:'none',
-                background: selProvider === p.provider_id ? 'rgba(93,162,255,0.10)' : 'transparent',
-                cursor:'pointer', textAlign:'left', fontSize:12, color: selProvider === p.provider_id ? '#fff' : 'var(--text-secondary)',
+                background: selProvider === p.provider_id ? 'color-mix(in oklab, var(--accent) 10%, transparent)' : 'transparent',
+                cursor:'pointer', textAlign:'left', fontSize:13, color: selProvider === p.provider_id ? 'var(--text-primary)' : 'var(--text-secondary)',
               }}>
-                <span style={{ fontSize:13 }}>{selProvider === p.provider_id ? '▼' : '▸'}</span>
+                <span style={{ fontSize:14 }}>{selProvider === p.provider_id ? '▼' : '▸'}</span>
                 <span>{p.name || p.provider_id}</span>
               </button>
             ))}
             {selProvider && (
               <>
-                <div style={{ height:1, background:'rgba(255,255,255,0.06)', margin:'4px 10px' }} />
-                <div style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', letterSpacing:'0.08em', padding:'2px 10px 6px' }}>Models for {providers.find(p=>p.provider_id===selProvider)?.name || selProvider}</div>
-                {loading && <div style={{ padding:'6px 16px', fontSize:11, color:'var(--text-muted)' }}>Loading models…</div>}
+                <div style={{ height:1, background:'color-mix(in oklab, var(--ink) 6%, transparent)', margin:'4px 10px' }} />
+                <div style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--text-muted)', padding:'2px 10px 6px' }}>Models for {providers.find(p=>p.provider_id===selProvider)?.name || selProvider}</div>
+                {loading && <div style={{ padding:'6px 16px', fontSize:13, color:'var(--text-muted)' }}>Loading models…</div>}
                 {!loading && models.length === 0 && (
                   <button onClick={() => { onSelect({ provider: selProvider, model: '' }); setOpen(false); }} style={{
                     display:'block', width:'100%', padding:'7px 10px 7px 20px', borderRadius:8, border:'none',
-                    background: selected?.provider === selProvider && !selected?.model ? 'rgba(93,162,255,0.10)' : 'transparent',
-                    cursor:'pointer', textAlign:'left', fontSize:11, fontFamily:'var(--font-mono)',
-                    color: selected?.provider === selProvider && !selected?.model ? '#fff' : 'var(--text-tertiary)',
+                    background: selected?.provider === selProvider && !selected?.model ? 'color-mix(in oklab, var(--accent) 10%, transparent)' : 'transparent',
+                    cursor:'pointer', textAlign:'left', fontSize:13, fontVariantNumeric:'tabular-nums',
+                    color: selected?.provider === selProvider && !selected?.model ? 'var(--text-primary)' : 'var(--text-tertiary)',
                   }}>Default model</button>
                 )}
                 {!loading && models.slice(0, 10).map(m => (
                   <button key={m} onClick={() => { onSelect({ provider: selProvider, model: m }); setOpen(false); }} style={{
                     display:'block', width:'100%', padding:'6px 10px 6px 20px', borderRadius:8, border:'none',
-                    background: selected?.model === m && selected?.provider === selProvider ? 'rgba(93,162,255,0.10)' : 'transparent',
-                    cursor:'pointer', textAlign:'left', fontSize:11, fontFamily:'var(--font-mono)',
-                    color: selected?.model === m && selected?.provider === selProvider ? '#fff' : 'var(--text-tertiary)',
+                    background: selected?.model === m && selected?.provider === selProvider ? 'color-mix(in oklab, var(--accent) 10%, transparent)' : 'transparent',
+                    cursor:'pointer', textAlign:'left', fontSize:13, fontVariantNumeric:'tabular-nums',
+                    color: selected?.model === m && selected?.provider === selProvider ? 'var(--text-primary)' : 'var(--text-tertiary)',
                   }}>{m}</button>
                 ))}
               </>
@@ -640,52 +641,48 @@ function ChatScreen() {
 
       <div style={{ flex:1, display:'flex', flexDirection:'column', minWidth:0 }}>
         {/* Top bar: history toggle + agent picker + context */}
-        <div style={{ display:'flex', alignItems:'center', gap:8, padding:'9px 14px', borderBottom:'1px solid rgba(255,255,255,0.06)', flexShrink:0, flexWrap:'wrap', rowGap:6 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:8, padding:'9px 14px', borderBottom:'1px solid color-mix(in oklab, var(--ink) 6%, transparent)', flexShrink:0, flexWrap:'wrap', rowGap:6 }}>
           {/* History button */}
           <button onClick={()=>setShowHistory(o=>!o)} style={{
             display:'flex', alignItems:'center', gap:5, padding:'5px 11px', borderRadius:999,
-            background:showHistory?'rgba(93,162,255,0.12)':'rgba(255,255,255,0.04)',
-            border:`1px solid ${showHistory?'rgba(93,162,255,0.30)':'rgba(255,255,255,0.10)'}`,
-            cursor:'pointer', transition:'all 0.15s', fontSize:11, color:showHistory?'var(--accent)':'var(--text-muted)', fontFamily:'var(--font-mono)', letterSpacing:'0.08em', flexShrink:0,
+            background:showHistory?'color-mix(in oklab, var(--accent) 12%, transparent)':'color-mix(in oklab, var(--ink) 4%, transparent)',
+            border:`1px solid ${showHistory?'color-mix(in oklab, var(--accent) 30%, transparent)':'color-mix(in oklab, var(--ink) 10%, transparent)'}`,
+            cursor:'pointer', transition:'all 0.15s', fontSize:13, color:showHistory?'var(--accent)':'var(--text-muted)', fontVariantNumeric:'tabular-nums', flexShrink:0,
           }}>
-            <span>⏱</span><span>History</span>
+            <span><Glyph g="⏱"/></span><span>History</span>
           </button>
 
-          <div style={{ width:1, height:16, background:'rgba(255,255,255,0.10)', flexShrink:0 }}/>
 
           {/* Agent picker */}
           <AgentPicker selected={agent} onSelect={selectAgent} onOpen={() => setOpenDropdown('agent')} forceClose={openDropdown === 'model'}/>
 
-          <div style={{ width:1, height:16, background:'rgba(255,255,255,0.10)', flexShrink:0 }}/>
 
           {/* Model picker */}
           <ModelPicker selected={selectedModel} onSelect={setSelectedModel} onOpen={() => setOpenDropdown('model')} forceClose={openDropdown === 'agent'}/>
 
-          <div style={{ width:1, height:16, background:'rgba(255,255,255,0.10)', flexShrink:0 }}/>
 
           {/* Agent Mode toggle — explicit ON/OFF for running real tasks */}
-          <button onClick={()=>setAgentMode(o=>!o)} title={agentMode ? 'Agent Mode is ON — messages run as real tasks' : 'Agent Mode is OFF — direct chat'} style={{
+          <button type="button" role="switch" aria-checked={agentMode} onClick={()=>setAgentMode(o=>!o)} title={agentMode ? 'On: each message is run as a real task by your agents' : 'Off: just chat, nothing is run'} style={{
             display:'flex', alignItems:'center', gap:7, padding:'5px 11px', borderRadius:999, flexShrink:0, cursor:'pointer', transition:'all 0.15s',
-            background:agentMode?'rgba(70,217,164,0.12)':'rgba(255,255,255,0.04)',
-            border:`1px solid ${agentMode?'rgba(70,217,164,0.35)':'rgba(255,255,255,0.10)'}`,
-            color:agentMode?'var(--success)':'var(--text-muted)', fontSize:11, fontFamily:'var(--font-mono)', letterSpacing:'0.08em',
+            background:agentMode?'color-mix(in oklab, var(--success) 12%, transparent)':'color-mix(in oklab, var(--ink) 4%, transparent)',
+            border:`1px solid ${agentMode?'color-mix(in oklab, var(--success) 35%, transparent)':'color-mix(in oklab, var(--ink) 10%, transparent)'}`,
+            color:agentMode?'var(--success)':'var(--text-muted)', fontSize:13, fontVariantNumeric:'tabular-nums',
           }}>
-            <span style={{ width:26, height:15, borderRadius:999, padding:2, background:agentMode?'var(--success)':'rgba(255,255,255,0.12)', display:'flex', alignItems:'center', justifyContent:agentMode?'flex-end':'flex-start', transition:'all 0.2s' }}>
+            <span style={{ width:26, height:15, borderRadius:999, padding:2, background:agentMode?'var(--success)':'color-mix(in oklab, var(--ink) 12%, transparent)', display:'flex', alignItems:'center', justifyContent:agentMode?'flex-end':'flex-start', transition:'all 0.2s' }}>
               <span style={{ width:11, height:11, borderRadius:'50%', background:'#fff' }}/>
             </span>
-            <span>Agent Mode {agentMode ? 'ON' : 'OFF'}</span>
+            <span>Run as a task</span>
           </button>
 
-          <div style={{ width:1, height:16, background:'rgba(255,255,255,0.10)', flexShrink:0 }}/>
 
           {/* Context chips */}
-          <div style={{ display:'flex', alignItems:'center', gap:5, overflowX:'auto', flex:1 }} className="scrollbar-hide">
-            <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', flexShrink:0 }}>Context:</span>
+          <div style={{ display:'flex', alignItems:'center', gap:6, overflowX:'auto', flex:'1 1 220px', minWidth:0 }} className="scrollbar-hide">
+            <span style={{ fontSize:13, color:'var(--text-muted)', flexShrink:0 }}>Context</span>
             {chips.map(chip => <ContextChip key={chip.id} chip={chip} onRemove={id=>{
               setChips(p=>p.filter(c=>c.id!==id));
               if (id === 'repo') { try { localStorage.removeItem('v5_chat_repo_url'); } catch {} }
             }}/>)}
-            {chips.length === 0 && <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)', flexShrink:0 }}>none</span>}
+            {chips.length === 0 && <span style={{ fontSize:13, color:'var(--text-muted)', flexShrink:0 }}>none</span>}
             {/* Repo URL quick-add input */}
             <RepoUrlInput onAdd={(repoUrl) => {
               try { localStorage.setItem('v5_chat_repo_url', repoUrl); } catch {}
@@ -697,9 +694,9 @@ function ChatScreen() {
 
         {/* Agent context tip */}
         {agentMode && (
-          <div style={{ margin:'8px 14px 0', padding:'7px 12px', borderRadius:10, background:`${currentAgent.color}08`, border:`1px solid ${currentAgent.color}20`, fontSize:12, color:'var(--text-tertiary)', display:'flex', alignItems:'center', gap:8 }}>
+          <div style={{ margin:'8px 14px 0', padding:'7px 12px', borderRadius:10, background:`color-mix(in oklab, ${currentAgent.color} 3%, transparent)`, border:`1px solid color-mix(in oklab, ${currentAgent.color} 13%, transparent)`, fontSize:13, color:'var(--text-tertiary)', display:'flex', alignItems:'center', gap:8 }}>
             <span style={{ fontSize:14 }}>{agent === 'auto' ? '◎' : currentAgent.icon}</span>
-            <span>Agent Mode <strong style={{ color:'var(--success)' }}>ON</strong> — <strong style={{ color:'#fff' }}>{agent === 'auto' ? 'the best agent' : currentAgent.name}</strong> will plan and run a real task. <button style={{ background:'none', border:'none', cursor:'pointer', color:'var(--accent)', fontSize:12 }} onClick={()=>setAgentMode(false)}>Switch to direct chat →</button></span>
+            <span><strong style={{ color:'var(--success)' }}>Run as a task is on.</strong> <strong style={{ color:'var(--text-primary)' }}>{agent === 'auto' ? 'the best agent' : currentAgent.name}</strong> will plan and run a real task. <button style={{ background:'none', border:'none', cursor:'pointer', color:'var(--accent)', fontSize:13 }} onClick={()=>setAgentMode(false)}>Just chat instead</button></span>
           </div>
         )}
 
@@ -716,8 +713,8 @@ function ChatScreen() {
               )}
               {sending && !agentPhase && (
                 <div style={{ display:'flex', alignItems:'flex-start', gap:8, marginBottom:18, animation:'fadeSlideUp 0.2s ease-out' }}>
-                  <div style={{ width:20, height:20, borderRadius:7, background:`${currentAgent.color}20`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, flexShrink:0, marginTop:4 }}>{currentAgent.icon}</div>
-                  <div style={{ padding:'10px 14px', borderRadius:'4px 16px 16px 16px', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)' }}>
+                  <div style={{ width:20, height:20, borderRadius:7, background:`color-mix(in oklab, ${currentAgent.color} 13%, transparent)`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, flexShrink:0, marginTop:4 }}><Glyph g={currentAgent.icon}/></div>
+                  <div style={{ padding:'10px 14px', borderRadius:'4px 16px 16px 16px', background:'color-mix(in oklab, var(--ink) 4%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 8%, transparent)' }}>
                     <div style={{ display:'flex', gap:4 }}>
                       {[0,1,2].map(i=><div key={i} style={{ width:6, height:6, borderRadius:'50%', background:'var(--accent)', animation:`blink 1.4s ease-in-out ${i*0.2}s infinite` }}/>)}
                     </div>
@@ -730,26 +727,26 @@ function ChatScreen() {
         </div>
 
         {/* Composer */}
-        <div style={{ padding:'10px 14px 12px', borderTop:'1px solid rgba(255,255,255,0.08)', background:'rgba(8,10,14,0.7)', backdropFilter:'blur(12px)', flexShrink:0 }}>
-          <div style={{ display:'flex', alignItems:'flex-end', gap:9, padding:'10px 14px', background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.10)', borderRadius:18 }}>
+        <div style={{ padding:'10px 14px 12px', borderTop:'1px solid color-mix(in oklab, var(--ink) 8%, transparent)', background:'color-mix(in oklab, var(--bg-surface) 70%, transparent)', backdropFilter:'blur(12px)', flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'flex-end', gap:9, padding:'10px 14px', background:'color-mix(in oklab, var(--ink) 4%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', borderRadius:14 }}>
             <textarea ref={textareaRef} value={input}
               onChange={e=>{setInput(e.target.value);adjustTextarea();}}
               onKeyDown={handleKey}
               placeholder={!agentMode ? 'Ask anything…' : (agent==='auto' ? 'Describe a task to run…' : `Tell ${currentAgent.name} what to do…`)}
               rows={1}
               style={{ flex:1, background:'transparent', border:'none', outline:'none', resize:'none', fontSize:14, color:'var(--text-primary)', fontFamily:'var(--font-main)', lineHeight:1.6, minHeight:24, padding:0, overflow:'hidden' }}/>
-            <button onClick={handleSend} disabled={!input.trim()||sending} style={{ width:34, height:34, borderRadius:10, flexShrink:0, background:input.trim()&&!sending?'var(--accent)':'rgba(255,255,255,0.08)', border:'none', cursor:input.trim()&&!sending?'pointer':'not-allowed', display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.2s', boxShadow:input.trim()&&!sending?'0 4px 12px rgba(93,162,255,0.25)':'none' }}>
+            <button onClick={handleSend} disabled={!input.trim()||sending} style={{ width:34, height:34, borderRadius:10, flexShrink:0, background:input.trim()&&!sending?'var(--accent)':'color-mix(in oklab, var(--ink) 8%, transparent)', border:'none', cursor:input.trim()&&!sending?'pointer':'not-allowed', display:'flex', alignItems:'center', justifyContent:'center', transition:'all 0.2s', boxShadow:input.trim()&&!sending?'0 4px 12px color-mix(in oklab, var(--accent) 25%, transparent)':'none' }}>
               {sending
-                ? <div style={{ width:14,height:14,borderRadius:'50%',border:'2px solid rgba(255,255,255,0.3)',borderTopColor:'#fff',animation:'spin 0.8s linear infinite' }}/>
-                : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={input.trim()?'#06111f':'var(--text-muted)'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                ? <div style={{ width:14,height:14,borderRadius:'50%',border:'2px solid color-mix(in oklab, var(--ink) 30%, transparent)',borderTopColor:'currentColor',animation:'spin 0.8s linear infinite' }}/>
+                : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={input.trim()?'var(--on-accent)':'var(--text-muted)'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
               }
             </button>
           </div>
           <div style={{ display:'flex', justifyContent:'space-between', marginTop:6 }}>
-            <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>
-              {!agentMode ? 'Direct chat · toggle Agent Mode to run a real task' : `Agent Mode · ${agent === 'auto' ? 'auto-select' : currentAgent.name}`}
+            <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--text-muted)' }}>
+              {!agentMode ? 'Just chatting. Turn on “Run as a task” to have your agents do the work.' : `Running as a task · ${agent === 'auto' ? 'best agent picked for you' : currentAgent.name}`}
             </span>
-            <span style={{ fontSize:10, fontFamily:'var(--font-mono)', color:'var(--text-muted)' }}>⌘↵</span>
+            <span style={{ fontSize:13, color:'var(--text-muted)' }} aria-hidden="true">⌘ Enter</span>
           </div>
         </div>
       </div>

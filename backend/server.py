@@ -8305,7 +8305,11 @@ async def _autonomy_bg_cycle():
                         finally:
                             _wo._BYPASS.reset(_bypass_token)
                         task.result = result.output
-                        task.status = "done" if result.success else "failed"
+                        if result.success:
+                            from tasks.verification import settle_success
+                            settle_success(task, (result.metadata or {}).get("raw_result"), actor="runtime:internal_agent")
+                        else:
+                            task.status = "failed"
                         task.error_message = None if result.success else "Execution failed"
                         await store.update(task)
                         dispatch_status["ran"] = True
@@ -9011,7 +9015,11 @@ async def autonomy_tick(request: Request) -> dict[str, object]:
                                 adapter.execute(spec), timeout=float(os.environ.get("AGENCY_TASK_TIMEOUT_SEC", "40"))
                             )
                             task.result = exec_result.output
-                            task.status = "done" if exec_result.success else "failed"
+                            if exec_result.success:
+                                from tasks.verification import settle_success
+                                settle_success(task, (exec_result.metadata or {}).get("raw_result"), actor="runtime:internal_agent")
+                            else:
+                                task.status = "failed"
                             task.error_message = None if exec_result.success else "Execution failed"
                             await store.update(task)
                             result["dispatch"]["ran"] = True

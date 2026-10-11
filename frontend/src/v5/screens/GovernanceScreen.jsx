@@ -23,30 +23,31 @@
 //   GET  /api/governance/grants     active session approval grants
 //   DELETE /api/governance/grants/{id}
 import React from 'react';
+import Glyph from '../components/ui/Glyph';
 import * as api from '../../api';
 
 const DECISION_COLOR = {
-  allow: '#46d9a4',
-  require_approval: '#ffbd66',
-  deny: '#ff6b7d',
+  allow: 'var(--success)',
+  require_approval: 'var(--warning)',
+  deny: 'var(--danger)',
 };
 
 // Isolation strength, honestly ranked. `local` is red on purpose: a dashboard
 // that renders "no isolation" in a calm neutral grey is a dashboard that lets
 // an operator believe agents are contained when they are not.
 const BACKEND_META = {
-  e2b:    { color: '#46d9a4', label: 'E2B micro-VM',   hint: 'Firecracker micro-VM — per-sandbox kernel' },
-  docker: { color: '#7ed957', label: 'Docker',          hint: 'Shared kernel, hardened per profile' },
-  local:  { color: '#ff6b7d', label: 'None (in-process)', hint: 'No hard boundary — in-process policy only' },
-  unknown:{ color: '#6e7786', label: 'Unknown',         hint: 'Backend probe did not complete' },
+  e2b:    { color: 'var(--success)', label: 'E2B micro-VM',   hint: 'Firecracker micro-VM — per-sandbox kernel' },
+  docker: { color: 'var(--success)', label: 'Docker',          hint: 'Shared kernel, hardened per profile' },
+  local:  { color: 'var(--danger)', label: 'None (in-process)', hint: 'No hard boundary — in-process policy only' },
+  unknown:{ color: 'var(--text-muted)', label: 'Unknown',         hint: 'Backend probe did not complete' },
 };
 
 function Badge({ children, color, title }) {
   return (
     <span title={title} style={{
       display: 'inline-block', padding: '2px 8px', borderRadius: 999,
-      fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
-      color, background: `${color}1a`, border: `1px solid ${color}33`,
+      fontSize:13, fontWeight: 700, fontVariantNumeric:'tabular-nums',
+      color, background: `color-mix(in oklab, ${color} 10%, transparent)`, border: `1px solid color-mix(in oklab, ${color} 20%, transparent)`,
       whiteSpace: 'nowrap',
     }}>{children}</span>
   );
@@ -72,19 +73,19 @@ function PostureHeader({ status, metrics }) {
   const wouldBlock = metrics?.audit?.would_block ?? 0;
   const backendId = status?.sandbox?.backend || 'unknown';
   const backend = BACKEND_META[backendId] || BACKEND_META.unknown;
-  const modeColor = enforcing ? '#46d9a4' : '#ffbd66';
+  const modeColor = enforcing ? 'var(--success)' : 'var(--warning)';
 
   return (
     <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 18 }}>
       {/* Mode */}
       <div style={{
-        borderRadius: 16, border: `1px solid ${modeColor}40`, background: `${modeColor}0d`,
+        borderRadius: 16, border: `1px solid color-mix(in oklab, ${modeColor} 25%, transparent)`, background: `color-mix(in oklab, ${modeColor} 5%, transparent)`,
         padding: '18px 22px', minWidth: 170,
       }}>
-        <div style={{ fontSize: 26, fontWeight: 900, color: modeColor, lineHeight: 1.1 }}>
+        <div style={{ fontSize: 26, fontWeight:700, color: modeColor, lineHeight: 1.1 }}>
           {enforcing ? 'ENFORCING' : 'OBSERVE'}
         </div>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 6 }}>
+        <div style={{ fontSize:13, color: 'var(--text-muted)', fontVariantNumeric:'tabular-nums', marginTop: 6 }}>
           {enforcing ? 'verdicts are acted on' : 'nothing is blocked'}
         </div>
       </div>
@@ -94,14 +95,14 @@ function PostureHeader({ status, metrics }) {
         title="Decisions that blocked, or would have blocked in enforce mode. Sustained zero means the rules only catch what you meant them to catch."
         style={{
           borderRadius: 16, border: '1px solid var(--border)',
-          background: 'rgba(255,255,255,0.02)', padding: '18px 22px', minWidth: 170,
+          background: 'color-mix(in oklab, var(--ink) 2%, transparent)', padding: '18px 22px', minWidth: 170,
         }}
       >
         <div style={{
           fontSize: 34, fontWeight: 900, lineHeight: 1,
-          color: wouldBlock > 0 ? '#ffbd66' : '#46d9a4',
+          color: wouldBlock > 0 ? 'var(--warning)' : 'var(--success)',
         }}>{wouldBlock}</div>
-        <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 6 }}>
+        <div style={{ fontSize:13, color: 'var(--text-muted)', fontVariantNumeric:'tabular-nums', marginTop: 6 }}>
           would-block {enforcing ? '(blocked)' : '(if enforcing)'}
         </div>
       </div>
@@ -109,26 +110,26 @@ function PostureHeader({ status, metrics }) {
       {/* Sandbox isolation — reported honestly, including "none" */}
       <div style={{
         flex: 1, minWidth: 260, borderRadius: 16,
-        border: `1px solid ${backend.color}33`, background: 'rgba(255,255,255,0.02)',
+        border: `1px solid color-mix(in oklab, ${backend.color} 20%, transparent)`, background: 'color-mix(in oklab, var(--ink) 2%, transparent)',
         padding: '14px 18px',
       }}>
-        <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+        <div style={{ fontSize:13, color: 'var(--text-muted)' }}>
           Sandbox isolation
         </div>
         <div style={{ marginTop: 6, marginBottom: 6 }}>
           <Badge color={backend.color} title={backend.hint}>{backend.label}</Badge>
         </div>
-        <div style={{ fontSize: 11, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
+        <div style={{ fontSize:13, color: 'var(--text-tertiary)', lineHeight: 1.5 }}>
           {backend.hint}
           {backendId === 'local' && (
             // Say what to do, not the same sentence again — the line above
             // already states there is no boundary.
-            <div style={{ color: '#ff6b7d', marginTop: 4, fontWeight: 700 }}>
+            <div style={{ color: 'var(--danger)', marginTop: 4, fontWeight: 700 }}>
               Set E2B_ENABLED + E2B_API_KEY, or run a Docker daemon, to get one.
             </div>
           )}
         </div>
-        <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 8 }}>
+        <div style={{ fontSize:13, color: 'var(--text-muted)', fontVariantNumeric:'tabular-nums', marginTop: 8 }}>
           policy v{status?.policy_version ?? '—'} · {status?.groups?.length ?? 0} groups
           {status?.auto_approve ? ' · ⚠ auto-approve ON' : ''}
         </div>
@@ -146,38 +147,38 @@ function canGrant(a) {
 }
 
 const STICKY_BTN = {
-  padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700,
-  background: 'rgba(70,217,164,0.06)', border: '1px solid rgba(70,217,164,0.25)',
-  color: '#46d9a4',
+  padding: '6px 10px', borderRadius: 8, fontSize:13, fontWeight: 700,
+  background: 'color-mix(in oklab, var(--success) 6%, transparent)', border: '1px solid color-mix(in oklab, var(--success) 25%, transparent)',
+  color: 'var(--success)',
 };
 
 function Approvals({ approvals, onResolve, busyId, grantsEnabled }) {
   if (!approvals.length) return null;
   return (
     <div style={{ marginBottom: 20 }}>
-      <h2 style={{ fontSize: 14, fontWeight: 800, marginBottom: 8 }}>
+      <h2 style={{ fontSize: 14, fontWeight:700, marginBottom: 8 }}>
         Awaiting your decision ({approvals.length})
       </h2>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {approvals.map((a, i) => (
           <div key={a.approval_id} style={{
-            borderRadius: 12, border: '1px solid rgba(255,189,102,0.30)',
-            background: 'rgba(255,189,102,0.06)', padding: '12px 14px',
+            borderRadius: 12, border: '1px solid color-mix(in oklab, var(--warning) 30%, transparent)',
+            background: 'color-mix(in oklab, var(--warning) 6%, transparent)', padding: '12px 14px',
             display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap',
           }}>
             <div style={{ flex: 1, minWidth: 220 }}>
-              <div style={{ fontWeight: 700, fontSize: 13 }}>
+              <div style={{ fontWeight: 700, fontSize:14 }}>
                 {approvals.length > 1 && (
-                  <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginRight: 6 }}>
+                  <span style={{ fontSize:13, color: 'var(--text-muted)', fontVariantNumeric:'tabular-nums', marginRight: 6 }}>
                     {i + 1} of {approvals.length}
                   </span>
                 )}
                 {a.agent_id} → <code style={{ fontFamily: 'var(--font-mono)' }}>{a.action}</code>
               </div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3 }}>
+              <div style={{ fontSize:13, color: 'var(--text-muted)', marginTop: 3 }}>
                 {a.reason}
               </div>
-              <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 3 }}>
+              <div style={{ fontSize:13, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 3 }}>
                 rule {a.rule_id} · expires in {Math.round(a.seconds_remaining)}s
               </div>
             </div>
@@ -186,9 +187,9 @@ function Approvals({ approvals, onResolve, busyId, grantsEnabled }) {
                 onClick={() => onResolve(a.approval_id, true)}
                 disabled={busyId === a.approval_id}
                 style={{
-                  padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
-                  background: 'rgba(70,217,164,0.12)', border: '1px solid rgba(70,217,164,0.35)',
-                  color: '#46d9a4', cursor: busyId === a.approval_id ? 'default' : 'pointer',
+                  padding: '6px 14px', borderRadius: 8, fontSize:13, fontWeight: 700,
+                  background: 'color-mix(in oklab, var(--success) 12%, transparent)', border: '1px solid color-mix(in oklab, var(--success) 35%, transparent)',
+                  color: 'var(--success)', cursor: busyId === a.approval_id ? 'default' : 'pointer',
                 }}
               >Approve</button>
               {grantsEnabled && canGrant(a) && (
@@ -211,9 +212,9 @@ function Approvals({ approvals, onResolve, busyId, grantsEnabled }) {
                 onClick={() => onResolve(a.approval_id, false)}
                 disabled={busyId === a.approval_id}
                 style={{
-                  padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
-                  background: 'rgba(255,107,125,0.12)', border: '1px solid rgba(255,107,125,0.35)',
-                  color: '#ff6b7d', cursor: busyId === a.approval_id ? 'default' : 'pointer',
+                  padding: '6px 14px', borderRadius: 8, fontSize:13, fontWeight: 700,
+                  background: 'color-mix(in oklab, var(--danger) 12%, transparent)', border: '1px solid color-mix(in oklab, var(--danger) 35%, transparent)',
+                  color: 'var(--danger)', cursor: busyId === a.approval_id ? 'default' : 'pointer',
                 }}
               >Deny</button>
             </div>
@@ -229,23 +230,23 @@ function Grants({ grants, onRevoke, busyId }) {
   if (!grants.length) return null;
   return (
     <div style={{ marginBottom: 20 }}>
-      <h2 style={{ fontSize: 14, fontWeight: 800, marginBottom: 8 }}>
+      <h2 style={{ fontSize: 14, fontWeight:700, marginBottom: 8 }}>
         Active approval grants ({grants.length})
       </h2>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {grants.map((g) => (
           <div key={g.grant_id} style={{
-            borderRadius: 10, border: '1px solid rgba(70,217,164,0.25)',
-            background: 'rgba(70,217,164,0.05)', padding: '8px 12px',
+            borderRadius: 10, border: '1px solid color-mix(in oklab, var(--success) 25%, transparent)',
+            background: 'color-mix(in oklab, var(--success) 5%, transparent)', padding: '8px 12px',
             display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap',
           }}>
-            <div style={{ flex: 1, minWidth: 220, fontSize: 12 }}>
+            <div style={{ flex: 1, minWidth: 220, fontSize:13 }}>
               <code style={{ fontFamily: 'var(--font-mono)' }}>{g.session_id}</code>
               {' · '}
               {g.scope === 'session'
                 ? 'all approval-gated actions'
                 : <code style={{ fontFamily: 'var(--font-mono)' }}>{g.surface}:{g.action}</code>}
-              <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
+              <div style={{ fontSize:13, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 2 }}>
                 by {g.granted_by} · expires in {Math.round(g.seconds_remaining)}s
               </div>
             </div>
@@ -253,9 +254,9 @@ function Grants({ grants, onRevoke, busyId }) {
               onClick={() => onRevoke(g.grant_id)}
               disabled={busyId === g.grant_id}
               style={{
-                padding: '5px 12px', borderRadius: 8, fontSize: 11, fontWeight: 700,
-                background: 'rgba(255,107,125,0.12)', border: '1px solid rgba(255,107,125,0.35)',
-                color: '#ff6b7d', cursor: busyId === g.grant_id ? 'default' : 'pointer',
+                padding: '5px 12px', borderRadius: 8, fontSize:13, fontWeight: 700,
+                background: 'color-mix(in oklab, var(--danger) 12%, transparent)', border: '1px solid color-mix(in oklab, var(--danger) 35%, transparent)',
+                color: 'var(--danger)', cursor: busyId === g.grant_id ? 'default' : 'pointer',
               }}
             >Revoke</button>
           </div>
@@ -276,13 +277,13 @@ function AuditTable({ events, filter, onFilter }) {
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 8 }}>
-        <h2 style={{ fontSize: 14, fontWeight: 800 }}>Recent decisions</h2>
+        <h2 style={{ fontSize: 14, fontWeight:700 }}>Recent decisions</h2>
         <div style={{ display: 'flex', gap: 6 }}>
           {FILTERS.map((f) => (
             <button key={f.id || 'all'} onClick={() => onFilter(f.id)} style={{
-              padding: '4px 10px', borderRadius: 7, fontSize: 11, fontWeight: 700,
-              background: filter === f.id ? 'rgba(93,162,255,0.14)' : 'transparent',
-              border: `1px solid ${filter === f.id ? 'rgba(93,162,255,0.35)' : 'var(--border)'}`,
+              padding: '4px 10px', borderRadius: 7, fontSize:13, fontWeight: 700,
+              background: filter === f.id ? 'color-mix(in oklab, var(--accent) 14%, transparent)' : 'transparent',
+              border: `1px solid ${filter === f.id ? 'color-mix(in oklab, var(--accent) 35%, transparent)' : 'var(--border)'}`,
               color: filter === f.id ? 'var(--accent)' : 'var(--text-muted)', cursor: 'pointer',
             }}>{f.label}</button>
           ))}
@@ -290,7 +291,7 @@ function AuditTable({ events, filter, onFilter }) {
       </div>
 
       {events.length === 0 ? (
-        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>
+        <div style={{ fontSize:14, color: 'var(--text-muted)' }}>
           No decisions recorded yet. Agent activity will appear here as it happens.
         </div>
       ) : (
@@ -298,40 +299,39 @@ function AuditTable({ events, filter, onFilter }) {
           <div style={{ minWidth: 700 }}>
             <div style={{
               display: 'grid', gridTemplateColumns: '0.8fr 1.3fr 1.6fr 1.4fr 0.7fr',
-              gap: 8, padding: '10px 14px', background: 'rgba(255,255,255,0.03)',
-              fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)',
-              textTransform: 'uppercase', letterSpacing: '0.08em',
+              gap: 8, padding: '10px 14px', background: 'color-mix(in oklab, var(--ink) 3%, transparent)',
+              fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)',
             }}>
               <div>Verdict</div><div>Agent</div><div>Action</div><div>Rule</div><div>When</div>
             </div>
             {events.map((e) => {
-              const color = DECISION_COLOR[e.decision] || '#6e7786';
+              const color = DECISION_COLOR[e.decision] || 'var(--text-muted)';
               return (
                 <div key={e.event_id} style={{
                   display: 'grid', gridTemplateColumns: '0.8fr 1.3fr 1.6fr 1.4fr 0.7fr',
                   gap: 8, padding: '10px 14px', alignItems: 'center',
-                  borderTop: '1px solid var(--border-soft)', fontSize: 12,
+                  borderTop: '1px solid var(--border-soft)', fontSize:13,
                 }}>
                   <div><Badge color={color}>{e.decision}</Badge></div>
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {e.display_name || e.agent_id}
                     </div>
-                    <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                    <div style={{ fontSize:13, color: 'var(--text-muted)', fontVariantNumeric:'tabular-nums' }}>
                       {e.policy_group}
                     </div>
                   </div>
                   <div style={{ minWidth: 0 }}>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontVariantNumeric:'tabular-nums', fontSize:13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {e.tool ? `${e.tool} · ` : ''}{e.action}
                     </div>
-                    <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>{e.surface}</div>
+                    <div style={{ fontSize:13, color: 'var(--text-muted)' }}>{e.surface}</div>
                   </div>
                   <div title={e.reason} style={{
-                    fontSize: 10, fontFamily: 'var(--font-mono)', color: 'var(--text-tertiary)',
+                    fontSize:13, fontFamily: 'var(--font-mono)', color: 'var(--text-tertiary)',
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   }}>{e.rule_id}</div>
-                  <div style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                  <div style={{ fontSize:13, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
                     {relTime(e.timestamp)}
                   </div>
                 </div>
@@ -393,7 +393,7 @@ function PolicyEditor() {
 
   const dirty = text !== null && text !== original;
   const btn = (bg, brd, col) => ({
-    padding: '7px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700,
+    padding: '7px 16px', borderRadius: 8, fontSize:13, fontWeight: 700,
     background: bg, border: `1px solid ${brd}`, color: col,
     cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.6 : 1,
   });
@@ -403,20 +403,20 @@ function PolicyEditor() {
       <button
         onClick={() => setOpen((v) => !v)}
         style={{
-          width: '100%', textAlign: 'left', padding: '14px 18px', background: 'var(--surface-2, rgba(255,255,255,0.02))',
+          width: '100%', textAlign: 'left', padding: '14px 18px', background: 'var(--surface-2, color-mix(in oklab, var(--ink) 2%, transparent))',
           border: 'none', borderBottom: open ? '1px solid var(--border)' : 'none', color: 'var(--text)',
           fontSize: 14, fontWeight: 800, letterSpacing: '-0.01em', cursor: 'pointer',
           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
         }}
       >
         <span>Edit policy &amp; propose a change</span>
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{open ? '▾' : '▸'}</span>
+        <span style={{ fontSize:13, color: 'var(--text-muted)' }}>{open ? '▾' : '▸'}</span>
       </button>
 
       {open && (
         <div style={{ padding: 18 }}>
           {text === null ? (
-            <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading policy…</div>
+            <div style={{ fontSize:14, color: 'var(--text-muted)' }}>Loading policy…</div>
           ) : (
             <>
               <textarea
@@ -424,7 +424,7 @@ function PolicyEditor() {
                 onChange={(e) => { setText(e.target.value); setResult(null); setProposed(null); }}
                 spellCheck={false}
                 style={{
-                  width: '100%', minHeight: 320, fontFamily: 'var(--font-mono)', fontSize: 12.5,
+                  width: '100%', minHeight: 320, fontVariantNumeric:'tabular-nums', fontSize:13.5,
                   lineHeight: 1.55, padding: 14, borderRadius: 10, resize: 'vertical',
                   background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)',
                 }}
@@ -434,19 +434,19 @@ function PolicyEditor() {
                 onChange={(e) => setReason(e.target.value)}
                 placeholder="Why this change? (goes in the PR description)"
                 style={{
-                  width: '100%', marginTop: 10, padding: '9px 12px', borderRadius: 8, fontSize: 12.5,
+                  width: '100%', marginTop: 10, padding: '9px 12px', borderRadius: 8, fontSize:13.5,
                   background: 'var(--bg)', color: 'var(--text)', border: '1px solid var(--border)',
                 }}
               />
               <div style={{ display: 'flex', gap: 10, marginTop: 12, flexWrap: 'wrap' }}>
-                <button onClick={validate} disabled={busy} style={btn('rgba(93,162,255,0.10)', 'rgba(93,162,255,0.30)', 'var(--accent)')}>
+                <button onClick={validate} disabled={busy} style={btn('color-mix(in oklab, var(--accent) 10%, transparent)', 'color-mix(in oklab, var(--accent) 30%, transparent)', 'var(--accent)')}>
                   {busy ? '…' : 'Validate'}
                 </button>
                 <button
                   onClick={propose}
                   disabled={busy || !dirty || (result && !result.ok)}
                   title={!dirty ? 'No changes to propose' : (result && !result.ok ? 'Fix validation errors first' : 'Open a PR with this policy')}
-                  style={btn('rgba(126,231,135,0.10)', 'rgba(126,231,135,0.30)', '#7ee787')}
+                  style={btn('color-mix(in oklab, var(--success) 10%, transparent)', 'color-mix(in oklab, var(--success) 30%, transparent)', 'var(--success)')}
                 >
                   {busy ? '…' : 'Propose changes (opens PR)'}
                 </button>
@@ -456,27 +456,27 @@ function PolicyEditor() {
               </div>
 
               {err && (
-                <div style={{ marginTop: 12, padding: 12, borderRadius: 10, border: '1px solid rgba(255,107,125,0.30)', background: 'rgba(255,107,125,0.06)', color: '#ff6b7d', fontSize: 12.5, whiteSpace: 'pre-wrap' }}>{err}</div>
+                <div style={{ marginTop: 12, padding: 12, borderRadius: 10, border: '1px solid color-mix(in oklab, var(--danger) 30%, transparent)', background: 'color-mix(in oklab, var(--danger) 6%, transparent)', color: 'var(--danger)', fontSize:13.5, whiteSpace: 'pre-wrap' }}>{err}</div>
               )}
 
               {result && !err && (
-                <div style={{ marginTop: 12, fontSize: 12.5 }}>
-                  <div style={{ fontWeight: 700, color: result.ok ? '#7ee787' : '#ff6b7d' }}>
+                <div style={{ marginTop: 12, fontSize:13.5 }}>
+                  <div style={{ fontWeight: 700, color: result.ok ? 'var(--success)' : 'var(--danger)' }}>
                     {result.ok ? '✓ Valid — safe to propose' : '✗ Invalid — fix before proposing'}
                   </div>
                   {(result.errors || []).map((e, i) => (
-                    <div key={`e${i}`} style={{ color: '#ff6b7d', marginTop: 4 }}>• {e}</div>
+                    <div key={`e${i}`} style={{ color: 'var(--danger)', marginTop: 4 }}>• {e}</div>
                   ))}
                   {(result.warnings || []).map((w, i) => (
-                    <div key={`w${i}`} style={{ color: '#f0b866', marginTop: 4 }}>⚠ {w}</div>
+                    <div key={`w${i}`} style={{ color: '#f0b866', marginTop: 4 }}><Glyph g="⚠"/> {w}</div>
                   ))}
                 </div>
               )}
 
               {proposed?.pr_url && (
-                <div style={{ marginTop: 12, padding: 12, borderRadius: 10, border: '1px solid rgba(126,231,135,0.30)', background: 'rgba(126,231,135,0.06)', color: '#7ee787', fontSize: 12.5 }}>
+                <div style={{ marginTop: 12, padding: 12, borderRadius: 10, border: '1px solid color-mix(in oklab, var(--success) 30%, transparent)', background: 'color-mix(in oklab, var(--success) 6%, transparent)', color: 'var(--success)', fontSize:13.5 }}>
                   Pull request opened:{' '}
-                  <a href={proposed.pr_url} target="_blank" rel="noreferrer" style={{ color: '#7ee787', fontWeight: 700 }}>
+                  <a href={proposed.pr_url} target="_blank" rel="noreferrer" style={{ color: 'var(--success)', fontWeight: 700 }}>
                     {proposed.pr_url}
                   </a>
                   {' '}— review and merge it to apply.
@@ -574,14 +574,14 @@ export default function GovernanceScreen() {
   return (
     <div style={{ padding: '22px 26px', height: '100%', overflowY: 'auto' }} className="scrollbar-hide">
       <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6, flexWrap: 'wrap', gap: 8 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 900, letterSpacing: '-0.02em' }}>Governance</h1>
+        <h1 style={{ fontSize: 22, fontWeight:700, letterSpacing: '-0.02em' }}>Governance</h1>
         <button onClick={load} disabled={loading} style={{
-          padding: '6px 14px', borderRadius: 8, fontSize: 12, fontWeight: 700,
-          background: 'rgba(93,162,255,0.10)', border: '1px solid rgba(93,162,255,0.30)',
+          padding: '6px 14px', borderRadius: 8, fontSize:13, fontWeight: 700,
+          background: 'color-mix(in oklab, var(--accent) 10%, transparent)', border: '1px solid color-mix(in oklab, var(--accent) 30%, transparent)',
           color: 'var(--accent)', cursor: loading ? 'default' : 'pointer',
         }}>{loading ? '…' : '↻ Refresh'}</button>
       </div>
-      <p style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 18, maxWidth: 720, lineHeight: 1.6 }}>
+      <p style={{ fontSize:14, color: 'var(--text-tertiary)', marginBottom: 18, maxWidth: 720, lineHeight: 1.6 }}>
         Identity, policy, approvals, and the audit trail for every agent action. Policy lives in
         <code> config/agent_policy.yaml</code>. Edit it below and <b>Propose</b> — that validates the change
         and opens a pull request; it never rewrites the live file, so every change is still reviewed in git.
@@ -591,20 +591,20 @@ export default function GovernanceScreen() {
 
       {error && (
         <div style={{
-          padding: 14, borderRadius: 12, border: '1px solid rgba(255,107,125,0.30)',
-          background: 'rgba(255,107,125,0.06)', color: '#ff6b7d', fontSize: 13, marginBottom: 16,
+          padding: 14, borderRadius: 12, border: '1px solid color-mix(in oklab, var(--danger) 30%, transparent)',
+          background: 'color-mix(in oklab, var(--danger) 6%, transparent)', color: 'var(--danger)', fontSize:14, marginBottom: 16,
         }}>{error}</div>
       )}
 
       {notice && (
         <div style={{
-          padding: 12, borderRadius: 12, border: '1px solid rgba(255,189,102,0.30)',
-          background: 'rgba(255,189,102,0.06)', color: '#ffbd66', fontSize: 12, marginBottom: 16,
+          padding: 12, borderRadius: 12, border: '1px solid color-mix(in oklab, var(--warning) 30%, transparent)',
+          background: 'color-mix(in oklab, var(--warning) 6%, transparent)', color: 'var(--warning)', fontSize:13, marginBottom: 16,
         }}>{notice}</div>
       )}
 
       {loading && !status && (
-        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Loading governance state…</div>
+        <div style={{ fontSize:14, color: 'var(--text-muted)' }}>Loading governance state…</div>
       )}
 
       {status && <PostureHeader status={status} metrics={metrics} />}

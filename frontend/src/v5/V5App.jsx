@@ -11,31 +11,13 @@ import { setScreen } from './screenContext';
 import ActivationGate from './screens/ActivationGate';
 import AssistantHub from './screens/AssistantHub';
 import Spinner from './components/ui/Spinner';
+import { ErrorBoundary } from './components/ErrorBoundary';
 const DashboardScreen = React.lazy(() => import('./screens/DashboardScreen'));
 const WorkHub = React.lazy(() => import('./screens/WorkHub'));
 const CompanyHub = React.lazy(() => import('./screens/CompanyHub'));
 const InsightsHub = React.lazy(() => import('./screens/InsightsHub'));
 const SettingsHub = React.lazy(() => import('./screens/SettingsHub'));
 
-/* Structural styles only. All design tokens (colors, fonts, radii) come from
-   the single :root block in index.css — this used to redeclare them, and the
-   two copies drifted. */
-const V5_THEME = `
-.v5-root {
-  position:fixed; inset:0; z-index:1000;
-  background:radial-gradient(circle at top, rgba(93,162,255,0.10), transparent 30%), linear-gradient(180deg,#050608 0%,#020304 100%);
-  color:var(--text-primary); font-family:var(--font-main); font-size:16px;
-  overflow:hidden; -webkit-font-smoothing:antialiased;
-}
-.v5-root *, .v5-root *::before, .v5-root *::after { box-sizing:border-box; margin:0; padding:0; }
-.v5-root button { touch-action:manipulation; font-family:inherit; }
-.v5-root a { color:var(--accent); }
-.v5-root .scrollbar-hide { -ms-overflow-style:none; scrollbar-width:none; }
-.v5-root .scrollbar-hide::-webkit-scrollbar { display:none; }
-.v5-root ::-webkit-scrollbar { width:5px; height:5px; }
-.v5-root ::-webkit-scrollbar-track { background:transparent; }
-.v5-root ::-webkit-scrollbar-thumb { background:rgba(255,255,255,0.12); border-radius:999px; }
-`;
 
 /**
  * Six destinations, organised around what the user is doing — not around the
@@ -117,7 +99,7 @@ export default function V5App() {
   }, [location.pathname, navigate]);
 
   const screens = {
-    home: <DashboardScreen dashboardState="healthy" />,
+    home: <DashboardScreen onNavigate={go} />,
     assistant: <AssistantHub initialMode={current.sub === 'voice' ? 'voice' : 'chat'} />,
     work: <WorkHub initialTab={current.sub} isAdmin={isAdmin} />,
     company: <CompanyHub initialTab={current.sub} onNavigate={go} isAdmin={isAdmin} />,
@@ -132,18 +114,20 @@ export default function V5App() {
   return (
     <ActivationGate>
       <div className="v5-root">
-        <style>{V5_THEME}</style>
-        <AppShell activeScreen={current.screen} onNavigate={go} agentRunning={agentRunning} isAdmin={isAdmin}>
+        <AppShell activeScreen={current.screen} onNavigate={go} agentRunning={agentRunning} isAdmin={isAdmin}
+          headerActions={<><QuickNotesFAB visible={true} /><AlertsBell onNavigate={go} /></>}>
           <React.Suspense fallback={<ScreenLoading />}>
             {/* keyed on the sub-target so /v5/schedules → Work opens the
                 right tab even when Work is already mounted */}
-            <div key={`${current.screen}:${current.sub || ''}`} style={{ height: '100%', minHeight: 0 }}>
-              {screens[current.screen] || screens.home}
+            <div key={`${current.screen}:${current.sub || ''}`} className="v5-screen">
+              <div className="v5-screen-guard">
+                <ErrorBoundary resetKey={`${current.screen}:${current.sub || ''}`}>
+                  {screens[current.screen] || screens.home}
+                </ErrorBoundary>
+              </div>
             </div>
           </React.Suspense>
         </AppShell>
-        <AlertsBell onNavigate={go} />
-        <QuickNotesFAB visible={true} />
         <SamAvatar onNavigate={go} />
       </div>
     </ActivationGate>

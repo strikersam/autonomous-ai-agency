@@ -8,6 +8,7 @@
  * Admins are persistent, so the banner renders nothing for them.
  */
 import React from 'react';
+import Glyph from '../components/ui/Glyph';
 import { getAccountLifecycle } from '../../api';
 
 function formatRemaining(expiresAt) {
@@ -67,17 +68,17 @@ export default function EphemeralBanner({ isAdmin }) {
         width: 'min(680px, calc(100vw - 24px))',
         display: 'flex', alignItems: 'flex-start', gap: 12,
         padding: '12px 14px', borderRadius: 14,
-        background: 'rgba(28,20,10,0.96)', backdropFilter: 'blur(12px)',
-        border: '1px solid rgba(255,189,102,0.35)',
-        boxShadow: '0 10px 30px rgba(0,0,0,0.45)',
+        background: 'color-mix(in oklab, var(--bg-surface) 96%, transparent)', backdropFilter: 'blur(12px)',
+        border: '1px solid color-mix(in oklab, var(--warning) 35%, transparent)',
+        boxShadow: '0 10px 30px color-mix(in oklab, var(--shade) 45%, transparent)',
       }}
     >
-      <span style={{ fontSize: 18, lineHeight: 1.2, flexShrink: 0 }}>⏳</span>
+      <span style={{ fontSize: 18, lineHeight: 1.2, flexShrink: 0 }}><Glyph g="⏳"/></span>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: '#ffce8a', marginBottom: 3 }}>
+        <div style={{ fontSize:14, fontWeight: 700, color: 'var(--warning)', marginBottom: 3 }}>
           Temporary agency{remaining ? ` — ${remaining}` : ''}
         </div>
-        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.72)', lineHeight: 1.5 }}>
+        <div style={{ fontSize:13, color: 'color-mix(in oklab, var(--ink) 72%, transparent)', lineHeight: 1.5 }}>
           {info.note || (
             `Running an agency beyond ${hours} hours needs real compute, and this ` +
             `platform is currently hosted on a free Render backend — so we can't ` +
@@ -92,8 +93,8 @@ export default function EphemeralBanner({ isAdmin }) {
         title="Dismiss"
         style={{
           flexShrink: 0, width: 26, height: 26, borderRadius: 8, cursor: 'pointer',
-          background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.12)',
-          color: 'rgba(255,255,255,0.7)', fontSize: 14, lineHeight: 1,
+          background: 'color-mix(in oklab, var(--ink) 6%, transparent)', border: '1px solid color-mix(in oklab, var(--ink) 12%, transparent)',
+          color: 'color-mix(in oklab, var(--ink) 70%, transparent)', fontSize: 14, lineHeight: 1,
         }}
       >
         ×
