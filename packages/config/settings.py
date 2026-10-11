@@ -435,6 +435,18 @@ class Settings:
         self.task_verification_required_raw: str = os.environ.get(
             "TASK_VERIFICATION_REQUIRED", "true"
         ).strip().lower()
+        # Agents run byte-compile + the matching tests on every step's change
+        # (inside the E2B sandbox when one is attached); without an executed
+        # check a judge approval is not proof (rule 49). On by default.
+        self.agent_empirical_verify_raw: str = os.environ.get(
+            "AGENT_EMPIRICAL_VERIFY", "true"
+        ).strip().lower()
+        self.agent_empirical_verify_timeout: int = _env_int("AGENT_EMPIRICAL_VERIFY_TIMEOUT", 120)
+        # Screenshot changed pages with the browser and attach them to the
+        # task's verification report as proof for UI changes.
+        self.agent_ui_evidence_raw: str = os.environ.get(
+            "AGENT_UI_EVIDENCE", "true"
+        ).strip().lower()
         # Backpressure rather than resource exhaustion once many agents run
         # at once — see the multi-agent scaling notes in docs/governance.
         self.governance_max_sandboxes: int = _env_int("GOVERNANCE_MAX_SANDBOXES", 8)
@@ -466,6 +478,16 @@ class Settings:
     def task_verification_required(self) -> bool:
         """When True, DONE needs a PASS/PASS+NOTES verdict from an independent verifier."""
         return self.task_verification_required_raw in {"1", "true", "yes", "on"}
+
+    @property
+    def agent_empirical_verify(self) -> bool:
+        """When True, agents execute compile + scoped tests before a step counts."""
+        return self.agent_empirical_verify_raw in {"1", "true", "yes", "on"}
+
+    @property
+    def agent_ui_evidence(self) -> bool:
+        """When True, UI changes are screenshotted as verification evidence."""
+        return self.agent_ui_evidence_raw in {"1", "true", "yes", "on"}
 
     @property
     def is_testing(self) -> bool:

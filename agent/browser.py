@@ -24,7 +24,10 @@ pointed at it — rule 14.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -236,43 +239,142 @@ class BrowserSession:
 # ── stateless helper for the agent capability tool ─────────────────────────────
 
 
+# After the browser fails to start (Browserbase 5xx/403, Chromium crash), skip
+# it for this long and serve fetch_url text instead: retrying a dead backend
+# on every call burned agent steps until the stuck detector tripped.
+BROWSER_COOLDOWN_S = 600.0
+_down_until = 0.0
+_KEY_RE = re.compile(r"(apiKey=)[^&\s'\"]+", re.IGNORECASE)
+
+
+def _scrub(text: str) -> str:
+    """Strip a Browserbase key from an error message (rule 6)."""
+    return _KEY_RE.sub(r"\1***", text)
+
+
+def browser_cooling_down() -> bool:
+    """True while a recent start failure keeps the browser switched off."""
+    return time.monotonic() < _down_until
+
+
+def _mark_down(reason: str) -> None:
+    global _down_until
+    _down_until = time.monotonic() + BROWSER_COOLDOWN_S
+    log.warning("browse_page: browser unavailable (%s); using fetch_url for %ds",
+                reason, int(BROWSER_COOLDOWN_S))
+
+
+async def _fetch_fallback(url: str, why: str) -> dict[str, Any]:
+    """Read *url* with the plain fetch chain when the browser cannot run."""
+    from agent.web_reach import get_web_reach
+
+    try:
+        res = await asyncio.to_thread(get_web_reach().fetch_page, url)
+    except Exception as exc:  # noqa: BLE001 - a tool must never break the loop
+        log.warning("browse_page fallback failed for %s: %s", url, exc)
+        res = {"ok": False, "url": url, "error": f"fetch failed: {exc}"}
+    out = dict(res)
+    out["backend"] = "fetch_fallback"
+    out["note"] = (
+        f"Real browser unavailable ({why}); this is the page's plain text from "
+        "fetch_url, so content rendered by JavaScript may be missing."
+    )
+    return out
+
+
 async def browse_page(url: str, *, text_limit: int = 4000) -> dict[str, Any]:
     """Open *url* in a real browser, return its rendered text, and close.
 
     Fail-soft: always returns a dict the model can read — never raises. Uses the
     Browserbase remote browser when configured (no local Chromium), else a local
     headless one. The SSRF screen in :meth:`BrowserSession.navigate` still runs.
+    When the browser is off, missing, or failed to start recently, the page is
+    read with ``fetch_url`` instead and the result says so.
+    """
+    session = BrowserSession()
+    if not session.available:
+        return await _fetch_fallback(url, "browser automation is off or Playwright is missing")
+    if browser_cooling_down():
+        return await _fetch_fallback(url, "the browser failed to start recently")
+    backend = session.backend
+    try:
+        try:
+            await session.start()
+        except Exception as exc:  # noqa: BLE001 - connect/launch failure
+            why = _scrub(str(exc))[:300]
+            _mark_down(why)
+            return await _fetch_fallback(url, f"{backend} failed to start: {why}")
+        return await _read_page(session, url, backend, text_limit)
+    except Exception as exc:  # noqa: BLE001 - a tool must never break the loop
+        log.warning("browse_page failed for %s: %s", url, _scrub(str(exc)))
+        return {"ok": False, "url": url, "error": _scrub(str(exc)), "backend": backend}
+    finally:
+        await session.stop()
+
+
+async def _read_page(session: "BrowserSession", url: str, backend: str, text_limit: int) -> dict[str, Any]:
+    nav = await session.navigate(url)
+    if not nav.success:
+        return {"ok": False, "url": url, "error": nav.result, "backend": backend}
+    state = await session.get_state()
+    if state is None:
+        return {"ok": False, "url": url, "error": "could not read page state", "backend": backend}
+    text = state.content_preview
+    try:
+        full = await session._page.evaluate("document.body?.innerText || ''")  # noqa: SLF001
+        text = str(full)[:text_limit]
+    except Exception:  # noqa: BLE001 - preview is an acceptable fallback
+        pass
+    return {"ok": True, "url": state.url, "title": state.title, "text": text, "backend": backend}
+
+
+# Screenshots are evidence in a verification report, stored in the database:
+# JPEG at a laptop viewport keeps one well under a megabyte.
+_SHOT_VIEWPORT = {"width": 1280, "height": 800}
+MAX_SHOT_BYTES = 1_500_000
+
+
+async def screenshot_page(url: str) -> dict[str, Any]:
+    """Open *url* in the real browser and return a JPEG screenshot.
+
+    Returns ``{ok, url, title, image (bytes), backend}`` or ``{ok: False,
+    error}``; never raises. Unlike :func:`browse_page` there is no text
+    fallback: a screenshot is proof only if a browser rendered the page.
     """
     session = BrowserSession()
     if not session.available:
         return {"ok": False, "url": url, "error": _INSTALL_HINT, "backend": "stub"}
+    if browser_cooling_down():
+        return {"ok": False, "url": url, "error": "browser failed to start recently", "backend": session.backend}
     backend = session.backend
     try:
-        await session.start()
-        nav = await session.navigate(url)
-        if not nav.success:
-            return {"ok": False, "url": url, "error": nav.result, "backend": backend}
-        state = await session.get_state()
-        if state is None:
-            return {"ok": False, "url": url, "error": "could not read page state", "backend": backend}
-        text = state.content_preview
         try:
-            full = await session._page.evaluate("document.body?.innerText || ''")  # noqa: SLF001
-            text = str(full)[:text_limit]
-        except Exception:  # noqa: BLE001 - preview is an acceptable fallback
-            pass
-        return {
-            "ok": True,
-            "url": state.url,
-            "title": state.title,
-            "text": text,
-            "backend": backend,
-        }
-    except Exception as exc:  # noqa: BLE001 - a tool must never break the loop
-        log.warning("browse_page failed for %s: %s", url, exc)
-        return {"ok": False, "url": url, "error": str(exc), "backend": backend}
+            await session.start()
+        except Exception as exc:  # noqa: BLE001 - connect/launch failure
+            why = _scrub(str(exc))[:300]
+            _mark_down(why)
+            return {"ok": False, "url": url, "error": f"{backend} failed to start: {why}", "backend": backend}
+        return await _capture(session, url, backend)
+    except Exception as exc:  # noqa: BLE001 - evidence capture must never break the run
+        log.warning("screenshot_page failed for %s: %s", url, _scrub(str(exc)))
+        return {"ok": False, "url": url, "error": _scrub(str(exc)), "backend": backend}
     finally:
         await session.stop()
+
+
+async def _capture(session: "BrowserSession", url: str, backend: str) -> dict[str, Any]:
+    try:
+        await session._page.set_viewport_size(_SHOT_VIEWPORT)  # noqa: SLF001
+    except Exception:  # noqa: BLE001 - a remote browser may fix the viewport
+        pass
+    nav = await session.navigate(url)
+    if not nav.success:
+        return {"ok": False, "url": url, "error": nav.result, "backend": backend}
+    image = await session._page.screenshot(type="jpeg", quality=70, full_page=False)  # noqa: SLF001
+    if len(image) > MAX_SHOT_BYTES:
+        return {"ok": False, "url": url, "error": "screenshot too large", "backend": backend}
+    title = await session._page.title()  # noqa: SLF001
+    return {"ok": True, "url": session._page.url, "title": title, "image": image, "backend": backend}  # noqa: SLF001
 
 
 def _not_started() -> str:

@@ -48,11 +48,13 @@ _FALSY = {"0", "false", "no", "off"}
 # verifier step).
 _DEFAULT_TEMPLATE = "base"
 
-# Default E2B sandbox lifetime. 300s matches the default
-# ``TaskSpec.timeout_sec``; long enough for a plan→execute→verify cycle on the
-# free NVIDIA brain, short enough that a leaked sandbox is reaped before the
-# E2B free-tier quota is exhausted.
-_DEFAULT_TIMEOUT_SEC = 300
+# Default E2B sandbox lifetime. It must outlast one task attempt
+# (TASK_EXECUTION_TIMEOUT_SEC, 600s by default): at 300s the sandbox died
+# mid-run, the task timed out and was re-queued, and the loop repeated for
+# hours. The session also refreshes this lifetime on every tool call
+# (E2BSandboxSession.call_tool), so it is an idle limit, not a hard cap, and a
+# leaked sandbox is still reaped 11 minutes after its last use.
+_DEFAULT_TIMEOUT_SEC = 660
 
 
 @dataclass(frozen=True)
@@ -62,7 +64,7 @@ class E2BConfig:
     Attributes:
         api_key: E2B API key (``e2b_...``). Secret — never serialised.
         template: Sandbox template id (default ``base``).
-        timeout_sec: Sandbox hard timeout (default 300s).
+        timeout_sec: Sandbox idle lifetime (default 660s).
         metadata: Optional metadata dict passed to ``AsyncSandbox.create``.
     """
 

@@ -92,7 +92,7 @@ this PR changes.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `AGENT_EMPIRICAL_VERIFY` | `false` | Run compile + scoped pytest on the agent's own changes before accepting a step |
+| `AGENT_EMPIRICAL_VERIFY` | `true` | Run compile + scoped pytest on the agent's own changes before accepting a step (in the E2B sandbox when attached) |
 | `AGENT_EMPIRICAL_VERIFY_TIMEOUT` | `120` | Timeout (seconds) for the empirical verification subprocess |
 | `AGENT_SPEC_PERSIST` | `true` | Persist plans as reviewable markdown specs |
 | `AGENT_SPEC_APPROVAL_REQUIRED` | `false` | Block execution until a human approves the spec via `/api/specs` |

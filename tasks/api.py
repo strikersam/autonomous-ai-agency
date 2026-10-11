@@ -11,7 +11,7 @@ from typing import Any
 from collections.abc import Mapping
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 
 from tasks.models import (
     ApprovalRequest,
@@ -530,6 +530,43 @@ async def approve_checkpoint(task_id: str, body: ApprovalRequest, request: Reque
     return {"task": task.as_dict()}
 
 
+@task_router.get("/{task_id}/screenshots/{shot_id}")
+async def get_verification_screenshot(
+    task_id: str, shot_id: str, request: Request, user: Any = Depends(_current_user),
+) -> Response:
+    """Serve a screenshot cited as evidence by the task's verification report.
+
+    Only ids the report itself cites are served, so access follows the task's.
+    """
+    from tasks.screenshots import cited_shot_ids, get_screenshot
+
+    task, _store, _actor = await _load_task(request, task_id, user)
+    if shot_id not in cited_shot_ids(task):
+        raise HTTPException(status_code=404, detail="Screenshot not found")
+    try:
+        shot = await get_screenshot(shot_id)
+    except Exception as exc:
+        log.exception("Screenshot read failed")
+        raise HTTPException(status_code=503, detail="Screenshot unavailable") from exc
+    if not shot:
+        raise HTTPException(status_code=404, detail="Screenshot not found")
+    media = shot.get("media_type") if shot.get("media_type") in {"image/jpeg", "image/png"} else "image/jpeg"
+    return Response(content=bytes(shot["image"]), media_type=media, headers={"Cache-Control": "private, no-store"})
+
+
+def _own_evidence_only(task: Task, fields: dict[str, Any]) -> dict[str, Any]:
+    """Drop screenshot citations of other tasks' screenshots: the screenshot
+    endpoint trusts a report's citations for access."""
+    from tasks.screenshots import EVIDENCE_RE, cited_shot_ids
+
+    own = cited_shot_ids(task)
+    fields["evidence"] = [
+        e for e in fields.get("evidence") or []
+        if not (m := EVIDENCE_RE.match(str(e).strip())) or m.group(1) in own
+    ]
+    return fields
+
+
 @task_router.post("/{task_id}/verification")
 async def record_verification(
     task_id: str,
@@ -549,7 +586,7 @@ async def record_verification(
     if task.status not in verifiable:
         # A verdict on unfinished work would later complete it unchecked.
         raise HTTPException(status_code=409, detail="Nothing to verify yet: the task has not finished")
-    task.verification = TaskVerification(verifier=actor, **body.model_dump())
+    task.verification = TaskVerification(verifier=actor, **_own_evidence_only(task, body.model_dump()))
     task.add_log(
         f"Independent verification {body.verdict} recorded by {actor}",
         event_type="verification_recorded",

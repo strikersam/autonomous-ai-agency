@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { getMe, login as apiLogin, logout as apiLogout } from './api';
+import { clearSafeDataCache } from './v5/hooks/useSafeData';
 
 const AuthContext = createContext(null);
 
@@ -30,6 +31,7 @@ export function AuthProvider({ children }) {
 
   const login = async (email, password) => {
     const { data } = await apiLogin(email, password);
+    clearSafeDataCache();
     localStorage.setItem('access_token', data.access_token);
     localStorage.setItem('refresh_token', data.refresh_token);
     setUser({ id: data.id, email: data.email, name: data.name, role: data.role });
@@ -37,7 +39,11 @@ export function AuthProvider({ children }) {
   };
 
   const logout = async () => {
+    // Cached screen data belongs to this account; never show it to the next one.
+    clearSafeDataCache();
     await apiLogout();
+    // Again after the await: a request in flight at sign-out may have refilled it.
+    clearSafeDataCache();
     setUser(false);
   };
 

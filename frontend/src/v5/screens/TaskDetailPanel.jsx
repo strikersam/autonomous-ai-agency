@@ -278,9 +278,11 @@ function TaskDetailPanel({ taskId, onClose, onTaskUpdated }) {
               background: `color-mix(in oklab, ${statusColor} 9%, transparent)`, border: `1px solid color-mix(in oklab, ${statusColor} 25%, transparent)`, color: statusColor,
               flexShrink: 0,
             }}>{task.status.replace(/_/g, ' ')}</span>
-            <button onClick={onClose} style={{
+            <button type="button" onClick={onClose} aria-label="Close task" style={{
               background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer',
-              fontSize: 18, lineHeight: 1, padding: '0 2px', flexShrink: 0,
+              fontSize: 18, lineHeight: 1, flexShrink: 0,
+              minWidth: 44, minHeight: 44, margin: '-12px -12px -12px 0', borderRadius: 'var(--radius-sm)',
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
             }}>✕</button>
           </div>
           <div style={{ fontSize:13, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 4 }}>
