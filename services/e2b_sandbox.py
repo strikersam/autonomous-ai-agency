@@ -462,6 +462,47 @@ class E2BSandboxSession:
         self._seeded = True
         return _json.dumps({"cloned": True, "branch": branch})
 
+    async def checkout_pull_request(self, repo_url: str, number: int, token: str | None = None) -> dict[str, Any]:
+        """Clone *repo_url* and check out pull request *number* for verification.
+
+        Returns ``{changed_files, diff}`` against the default branch. The token
+        is used for the clone and fetch only, then scrubbed from the remote and
+        from any error text. Raises :class:`MCPUnavailableError` on failure.
+        """
+        if not self.is_open:
+            raise MCPUnavailableError("E2B sandbox not open")
+        await self._keepalive(self._sandbox)
+        authed_url, clean_url = _inject_token(repo_url, token)
+        w, n = SANDBOX_WORKDIR, int(number)
+        script = (
+            f"rm -rf {w} && git clone -q --depth=50 {authed_url} {w} && cd {w} && "
+            f"git fetch -q --depth=50 origin pull/{n}/head:verify-pr-{n} && "
+            f"git checkout -q verify-pr-{n}; rc=$?; "
+            # Always drop the token from the remote, even when the fetch failed.
+            f"git -C {w} remote set-url origin {clean_url} 2>/dev/null; exit $rc"
+        )
+        out = await self._shell(script, 180)
+        if out["exit_code"] != 0:
+            raise MCPUnavailableError(f"PR checkout failed: {_scrub_token(out['stderr'], token).strip()[:400]}")
+        self._seeded = True
+        base = f"$(git -C {w} merge-base origin/HEAD HEAD 2>/dev/null || git -C {w} rev-parse HEAD~1)"
+        names = await self._shell(f"git -C {w} diff --name-only {base} HEAD", 30)
+        diff = await self._shell(f"git -C {w} diff {base} HEAD | head -c 12000", 30)
+        files = [f.strip() for f in names["stdout"].splitlines() if f.strip()]
+        return {"changed_files": files, "diff": diff["stdout"]}
+
+    async def _shell(self, cmd: str, timeout: int) -> dict[str, Any]:
+        """Run *cmd* and return its result whatever the exit code."""
+        try:
+            r = await self._sandbox.commands.run(cmd, timeout=timeout)
+        except Exception as exc:
+            if getattr(exc, "exit_code", None) is None:
+                raise MCPUnavailableError(f"sandbox command failed: {exc}") from exc
+            r = exc
+        text = lambda v: (v.decode(errors="replace") if isinstance(v, bytes) else (v or ""))  # noqa: E731
+        return {"stdout": text(getattr(r, "stdout", "")), "stderr": text(getattr(r, "stderr", "")),
+                "exit_code": getattr(r, "exit_code", 0) or 0}
+
     async def _git_commit(self, sb: Any, args: dict[str, Any]) -> str:
         message = str(args.get("message", "agent commit"))
         paths = args.get("paths")

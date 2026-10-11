@@ -1527,6 +1527,27 @@ class TaskExecutionCoordinator:
             )
             return None
 
+    async def _independent_check(self, task: Task, result: TaskResult, raw_result: Any) -> Any:
+        """Rule 49 for runtimes with no judge of their own: run the independent
+        verifier (tasks/independent_verifier.py) and use its result instead."""
+        from tasks import independent_verifier as iv
+
+        if not (iv.enabled() and iv.needs_independent_check(result.runtime_id, raw_result)):
+            return raw_result
+        checked = await iv.verify(task, result)
+        if checked is None:
+            return raw_result
+        gap = checked.get("verifier_gap")
+        task.add_log(
+            f"Independent verifier checked the {result.runtime_id} run"
+            + (f" ({gap})" if gap else ""),
+            event_type="verification_run",
+            actor=iv.VERIFIER,
+            task_status=task.status,
+            metadata={"pr_url": checked.get("pr_url"), "verdict": checked["judge"].get("verdict")},
+        )
+        return checked
+
     async def _apply_result(self, task: Task, agent: AgentDefinition | None, result: TaskResult) -> None:
         metadata = result.metadata or {}
         actor = f"agent:{agent.agent_id}" if agent else f"runtime:{result.runtime_id}"
@@ -1571,8 +1592,11 @@ class TaskExecutionCoordinator:
 
         # Only this run's verdict counts; anything already on the task was about
         # earlier work.
-        task.verification = verification_from_run(metadata.get("raw_result"))
-        note = unbacked_note(metadata.get("raw_result"))
+        raw_result = await self._independent_check(task, result, metadata.get("raw_result"))
+        task.verification = verification_from_run(raw_result)
+        if task.verification is not None and raw_result is not metadata.get("raw_result"):
+            task.verification.verifier = "agent:verifier"
+        note = unbacked_note(raw_result)
         if note:
             task.add_log(note, event_type="verification_unbacked", actor=actor, task_status=task.status)
 
