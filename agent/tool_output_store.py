@@ -8,11 +8,12 @@ store the cut text is gone for good. The store keeps the full result under an
 unguessable ref so the model can page it back in with ``read_tool_output``.
 
 Memory is the hot-path cache: bounded (entries and total characters, LRU) and
-TTL-limited. When ``AGENCY_STATE_PERSISTENCE_ENABLED`` is on, each new entry is
-also written, asynchronously and *after* ``redact_secrets``, to the
-``tool_output_offload`` collection (TTL index on ``expires_at``), and
-:meth:`ToolOutputStore.read_async` falls back to it on a memory miss, so a ref
-survives a restart and resolves on any worker. A ref
+TTL-limited. When ``AGENCY_STATE_PERSISTENCE_ENABLED`` is on, each new entry that
+has an owner is also written, asynchronously and *after* ``redact_secrets``, to
+the ``tool_output_offload`` collection (TTL index on ``expires_at``), and
+:meth:`ToolOutputStore.read_async` falls back to it on a memory miss. Owners are
+per ``AgentRunner``, so in practice that fallback serves the same run after LRU
+eviction or a restart, not a different worker (which never holds the run). A ref
 is generated with ``secrets`` and never derived from the content. Each entry is
 also bound to an *owner* (one agent run); a read from a different owner is
 refused, so a ref leaked into another run's context is useless there.
@@ -42,6 +43,7 @@ OFFLOAD_COLLECTION = "tool_output_offload"
 # Per-entry ceiling for the DB copy (Mongo documents cap at 16 MB); larger
 # outputs stay memory-only.
 MAX_PERSIST_CHARS = 2_000_000
+_DB_TIMEOUT_S = 2.0  # a slow DB reads as an unknown ref
 
 _REF_PREFIX = "out_"
 
@@ -162,7 +164,7 @@ class ToolOutputStore:
             self._by_digest[key] = ref
             self._total += len(text)
             self._evict()
-        if self.persist and _persist.persistence_enabled():
+        if self.persist and owner is not None and _persist.persistence_enabled():
             _persist.fire_and_forget(self._write(ref, text, owner))
         return ref
 
@@ -186,7 +188,7 @@ class ToolOutputStore:
                 upsert=True,
             )
         except Exception as exc:  # noqa: BLE001 - memory copy still serves this worker
-            log.warning("tool output %s not persisted: %s", ref, exc)
+            _persist.warn_limited("offload-write", "tool output %s not persisted: %s", ref, exc)
 
     def read(
         self,
@@ -231,12 +233,15 @@ class ToolOutputStore:
         if col is None:
             return result
         try:
-            doc = await col.find_one({"_id": ref, "expires_at": {"$gt": datetime.now(timezone.utc)}})
+            doc = await asyncio.wait_for(
+                col.find_one({"_id": ref, "expires_at": {"$gt": datetime.now(timezone.utc)}}),
+                _DB_TIMEOUT_S,
+            )
             if not doc or doc.get("owner") != owner or not isinstance(doc.get("text"), str):
                 return result
             return _page(ref, doc["text"], *window)
         except Exception as exc:  # noqa: BLE001 - a DB error reads as unknown ref
-            log.warning("tool output DB read failed: %s", exc)
+            _persist.warn_limited("offload-read", "tool output DB read failed: %s", exc)
             return result
 
     def __len__(self) -> int:

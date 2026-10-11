@@ -466,7 +466,7 @@ def build_governance_router(get_current_user: Callable[..., Any]) -> APIRouter:
         _require_admin(user)
         from packages.governance.approvals import get_grant_store
 
-        grants = get_grant_store().list_grants()
+        grants = await get_grant_store().list_grants_async()
         return {"grants": grants, "count": len(grants)}
 
     @router.delete("/grants/{grant_id}")

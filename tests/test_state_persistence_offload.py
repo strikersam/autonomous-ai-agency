@@ -150,10 +150,11 @@ def test_persistence_control_registered_and_override_is_live():
     assert spec is not None and spec.live and spec.default == "true"
     applied = dict(control_overrides._applied)
     try:
+        control_overrides.apply_overrides({"AGENCY_STATE_PERSISTENCE_ENABLED": "true"})
+        assert persistence_enabled() is True  # conftest defaults it off; an override turns it on
         control_overrides.apply_overrides({"AGENCY_STATE_PERSISTENCE_ENABLED": "false"})
         assert persistence_enabled() is False
-        control_overrides.apply_overrides({})
-        assert persistence_enabled() is True
     finally:
+        control_overrides.apply_overrides({})
         control_overrides._applied.clear()
         control_overrides._applied.update(applied)

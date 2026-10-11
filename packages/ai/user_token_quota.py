@@ -73,6 +73,9 @@ _overflow_logged = False
 # DB total per user as of the last refresh. It already includes this worker's
 # flushed writes, so the effective figure is max(local, remote), never the sum.
 _remote: dict[str, int] = {}
+# This worker's local count at the moment `_remote` was read. Tokens recorded here
+# since then are not in `_remote` yet, so they are added on top (never less than local).
+_local_at_refresh: dict[str, int] = {}
 _refreshed: dict[str, float] = {}
 
 
@@ -94,6 +97,7 @@ def _roll_day() -> None:
         _overflowed.clear()
         _remote.clear()
         _refreshed.clear()
+        _local_at_refresh.clear()
 
 
 def _counted(user_id: str | None) -> str | None:
@@ -116,6 +120,13 @@ def user_scope(user_id: str | None) -> Iterator[None]:
         _current_user.reset(token)
 
 
+def _local_locked(user_id: str) -> int:
+    """This worker's own count (overflow-aware); caller holds ``_lock``."""
+    if user_id in _ledger:
+        return _ledger[user_id]
+    return _ledger.get(_OVERFLOW, 0) if user_id in _overflowed else 0
+
+
 def tokens_used_today(user_id: str) -> int:
     """Tokens recorded for *user_id* so far today (UTC).
 
@@ -124,10 +135,11 @@ def tokens_used_today(user_id: str) -> int:
     """
     with _lock:
         _roll_day()
-        remote = _remote.get(user_id, 0)
-        if user_id in _ledger:
-            return max(_ledger[user_id], remote)
-        return max(_ledger.get(_OVERFLOW, 0) if user_id in _overflowed else 0, remote)
+        local = _local_locked(user_id)
+        if user_id not in _remote:
+            return local
+        since = max(local - _local_at_refresh.get(user_id, 0), 0)
+        return max(local, _remote[user_id] + since)
 
 
 def user_quota_refusal(user_id: str | None) -> str | None:
@@ -170,7 +182,7 @@ async def _persist_tokens(day: str, uid: str, count: int) -> None:
             upsert=True,
         )
     except Exception as exc:  # noqa: BLE001 - the cache keeps enforcing
-        log.warning("user token ledger write failed (cache still enforces): %s", exc)
+        _persist.warn_limited("quota-write", "user token ledger write failed (cache still enforces): %s", exc)
 
 
 async def refresh_user_total(user_id: str) -> int | None:
@@ -185,15 +197,17 @@ async def refresh_user_total(user_id: str) -> int | None:
     with _lock:
         _roll_day()
         day = _day
+        before = _local_locked(user_id)  # later local growth is added on top of the DB total
     try:
         doc = await asyncio.wait_for(col.find_one({"_id": _doc_id(day, user_id)}), _DB_TIMEOUT_S)
         total = _safe_count((doc or {}).get("tokens"))
     except Exception as exc:  # noqa: BLE001 - fall back to the cache
-        log.warning("user token ledger read failed (using cache): %s", exc)
+        _persist.warn_limited("quota-read", "user token ledger read failed (using cache): %s", exc)
         return None
     with _lock:
         if _day == day:
             _remote[user_id] = total
+            _local_at_refresh[user_id] = before
             _refreshed[user_id] = time.monotonic()
     return total
 
@@ -250,7 +264,7 @@ def record_user_tokens(tokens: int) -> None:
             uid = _OVERFLOW
         _ledger[uid] = _ledger.get(uid, 0) + count
         day = _day
-    if count:
+    if count and _persist.persistence_enabled():
         _persist.fire_and_forget(_persist_tokens(day, current_user() or uid, count))
 
 
@@ -278,4 +292,5 @@ def reset() -> None:
         _overflow_logged = False
         _remote.clear()
         _refreshed.clear()
+        _local_at_refresh.clear()
         _day = ""

@@ -32,8 +32,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import secrets
 import threading
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -44,6 +46,8 @@ from packages.storage import state_persistence as _persist
 log = logging.getLogger("governance.approvals")
 
 GRANTS_COLLECTION = "governance_grants"
+_DB_TIMEOUT_S = 2.0  # a slow DB reads as "no grant", never as a hung approval
+_MAX_REVOKED = 1000  # revoked ids remembered so a late async write cannot resurrect one
 
 
 class ApprovalStatus(str, Enum):
@@ -399,13 +403,27 @@ class SessionGrant:
         return doc
 
     @classmethod
-    def from_doc(cls, doc: dict[str, Any]) -> SessionGrant | None:
-        """Rebuild a grant from its persisted form; ``None`` if expired or malformed."""
+    def from_doc(
+        cls, doc: dict[str, Any],
+        excluded: frozenset[str] = DEFAULT_GRANT_EXCLUDED_SURFACES,
+    ) -> SessionGrant | None:
+        """Rebuild a grant from its persisted form; ``None`` if expired or invalid.
+
+        Re-applies the issue-time rules, so a forged or corrupt row can never
+        be wider than :meth:`GrantStore.grant` would have allowed.
+        """
         try:
+            if doc.get("scope") not in ("action", "session") or _is_anonymous(str(doc.get("session_id"))):
+                return None
+            if str(doc.get("surface")) in excluded or not doc.get("granted_by"):
+                return None
+            if doc.get("agent_id") == "agent:unknown" and doc.get("owner") == "system":
+                return None
             expires = doc["expires_at"]
             if expires.tzinfo is None:  # Motor returns naive UTC datetimes
                 expires = expires.replace(tzinfo=timezone.utc)
             remaining = (expires - datetime.now(timezone.utc)).total_seconds()
+            remaining = min(remaining, float(doc.get("ttl_s") or remaining))  # never outlive its own TTL
             if remaining <= 0:
                 return None
             return cls(
@@ -459,6 +477,7 @@ class GrantStore:
         self._excluded = frozenset(excluded_surfaces)
         self._counter = 0
         self._persisted: set[str] = set()  # grant ids whose DB write has landed
+        self._revoked: OrderedDict[str, None] = OrderedDict()
 
     def grant(
         self,
@@ -491,7 +510,7 @@ class GrantStore:
         with self._lock:
             self._prune_locked()
             self._counter += 1
-            grant_id = f"gnt_{int(time.time()):x}_{self._counter:04d}"
+            grant_id = f"gnt_{secrets.token_hex(8)}"  # random: per-process counters collide across workers
             grant = SessionGrant(
                 grant_id=grant_id, session_id=session_id, scope=scope,
                 surface=str(surface), action=str(action), granted_by=granted_by,
@@ -511,17 +530,43 @@ class GrantStore:
         return grant
 
     async def _write_grant(self, grant: SessionGrant) -> None:
-        """Mirror an issued grant to the DB. Never raises."""
+        """Mirror an issued grant to the DB. Never raises.
+
+        A grant revoked before this write ran is not written; one revoked while
+        the write was in flight is deleted again, so it cannot resurrect.
+        """
         col = _persist.collection(GRANTS_COLLECTION)
-        if col is None:
+        if col is None or grant.grant_id in self._revoked:
             return
         try:
             await _persist.ensure_ttl_index(GRANTS_COLLECTION, col, "expires_at")
             await _persist.ensure_index(GRANTS_COLLECTION, col, "session_id")
             await col.replace_one({"_id": grant.grant_id}, grant.to_doc(), upsert=True)
-            self._persisted.add(grant.grant_id)
+            with self._lock:
+                live = grant.grant_id in self._grants
+                if live:
+                    self._persisted.add(grant.grant_id)
+            if not live:
+                await col.delete_one({"_id": grant.grant_id})
         except Exception as exc:  # noqa: BLE001 - grant stays valid on this worker only
-            log.warning("Grant %s not persisted (this worker only): %s", grant.grant_id, exc)
+            _persist.warn_limited("grant-write", "Grant %s not persisted (this worker only): %s",
+                                  grant.grant_id, exc)
+
+    def _mark_revoked_locked(self, grant_id: str) -> None:
+        self._revoked[grant_id] = None
+        while len(self._revoked) > _MAX_REVOKED:
+            self._revoked.popitem(last=False)
+
+    def _adopt(self, grant: SessionGrant) -> None:
+        """Cache a grant found in the DB so this worker can revoke it by id."""
+        with self._lock:
+            self._prune_locked()
+            self._grants[grant.grant_id] = grant
+            self._persisted.add(grant.grant_id)
+            while len(self._grants) > self._capacity:
+                oldest = min(self._grants.values(), key=lambda g: g.created_at)
+                self._grants.pop(oldest.grant_id, None)
+                self._persisted.discard(oldest.grant_id)
 
     async def has_grant_async(
         self,
@@ -535,28 +580,37 @@ class GrantStore:
 
         Memory is checked first; a memory hit whose DB copy has landed is
         re-checked against the DB so a revoke on another worker takes effect.
-        Fail closed: any DB error yields ``None``. Expired rows are never honoured.
+        Fail closed: any DB error or a lookup slower than 2s yields ``None``.
+        Expired rows are never honoured.
         """
         local = self.has_grant(session_id, surface, action, agent_id, owner)
         col = _persist.collection(GRANTS_COLLECTION)
         if col is None:
             return local
         try:
-            now = datetime.now(timezone.utc)
-            if local is not None:
-                if local.grant_id not in self._persisted:
-                    return local
-                doc = await col.find_one({"_id": local.grant_id, "expires_at": {"$gt": now}})
-                if doc is not None:
-                    return local
-                with self._lock:
-                    self._grants.pop(local.grant_id, None)
-                    self._persisted.discard(local.grant_id)
-                return None
-            return await self._remote_grant(col, now, session_id, surface, action, agent_id, owner)
-        except Exception as exc:  # noqa: BLE001 - fail closed: no grant
-            log.warning("Grant DB lookup failed, treating as no grant: %s", exc)
+            return await asyncio.wait_for(
+                self._db_lookup(col, local, session_id, surface, action, agent_id, owner),
+                _DB_TIMEOUT_S,
+            )
+        except Exception as exc:  # noqa: BLE001 - includes TimeoutError; fail closed
+            _persist.warn_limited("grant-read", "Grant DB lookup failed, treating as no grant: %s", exc)
             return None
+
+    async def _db_lookup(
+        self, col: Any, local: SessionGrant | None, session_id: str, surface: str,
+        action: str, agent_id: str | None, owner: str | None,
+    ) -> SessionGrant | None:
+        now = datetime.now(timezone.utc)
+        if local is None:
+            return await self._remote_grant(col, now, session_id, surface, action, agent_id, owner)
+        if local.grant_id not in self._persisted:
+            return local
+        if await col.find_one({"_id": local.grant_id, "expires_at": {"$gt": now}}) is not None:
+            return local
+        with self._lock:
+            self._grants.pop(local.grant_id, None)
+            self._persisted.discard(local.grant_id)
+        return None
 
     async def _remote_grant(
         self, col: Any, now: datetime, session_id: str, surface: str, action: str,
@@ -569,10 +623,29 @@ class GrantStore:
             {"session_id": session_id, "expires_at": {"$gt": now}}
         ).to_list(length=100)
         for row in rows:
-            grant = SessionGrant.from_doc(row)
+            grant = SessionGrant.from_doc(row, self._excluded)
             if grant is not None and grant.matches(session_id, str(surface), str(action), agent_id, owner):
+                self._adopt(grant)
                 return grant
         return None
+
+    async def list_grants_async(self) -> list[dict[str, Any]]:
+        """Memory plus unexpired DB rows, so an admin sees other workers' grants."""
+        merged = {g["grant_id"]: g for g in self.list_grants()}
+        col = _persist.collection(GRANTS_COLLECTION)
+        if col is not None:
+            try:
+                rows = await asyncio.wait_for(
+                    col.find({"expires_at": {"$gt": datetime.now(timezone.utc)}}).to_list(length=500),
+                    _DB_TIMEOUT_S,
+                )
+                for row in rows:
+                    grant = SessionGrant.from_doc(row, self._excluded)
+                    if grant is not None:
+                        merged.setdefault(grant.grant_id, grant.to_dict())
+            except Exception as exc:  # noqa: BLE001 - memory-only listing
+                _persist.warn_limited("grant-list", "Grant DB listing failed, showing local grants: %s", exc)
+        return sorted(merged.values(), key=lambda g: g["created_at"])
 
     async def revoke_grant_async(self, grant_id: str) -> SessionGrant | None:
         """Revoke here and in the DB so no worker honours the grant again.
@@ -582,15 +655,17 @@ class GrantStore:
         with self._lock:
             removed = self._grants.pop(grant_id, None)
             self._persisted.discard(grant_id)
+            self._mark_revoked_locked(grant_id)
         col = _persist.collection(GRANTS_COLLECTION)
         if col is not None:
             try:
                 if removed is None:
-                    doc = await col.find_one({"_id": grant_id})
-                    removed = SessionGrant.from_doc(doc) if doc else None
-                await col.delete_one({"_id": grant_id})
+                    doc = await asyncio.wait_for(col.find_one({"_id": grant_id}), _DB_TIMEOUT_S)
+                    removed = SessionGrant.from_doc(doc, self._excluded) if doc else None
+                await asyncio.wait_for(col.delete_one({"_id": grant_id}), _DB_TIMEOUT_S)
             except Exception as exc:  # noqa: BLE001 - other workers may still honour it
-                log.warning("Grant %s revoked locally but not in the DB: %s", grant_id, exc)
+                _persist.warn_limited("grant-revoke", "Grant %s revoked locally but not in the DB: %s",
+                                      grant_id, exc)
         if removed is not None:
             log.info("Approval grant %s revoked", grant_id)
         return removed
@@ -602,7 +677,8 @@ class GrantStore:
         try:
             await col.delete_one({"_id": grant_id})
         except Exception as exc:  # noqa: BLE001 - TTL still bounds it
-            log.warning("Grant %s revoked locally but not in the DB: %s", grant_id, exc)
+            _persist.warn_limited("grant-revoke", "Grant %s revoked locally but not in the DB: %s",
+                                  grant_id, exc)
 
     def has_grant(
         self,
@@ -641,10 +717,11 @@ class GrantStore:
         with self._lock:
             removed = self._grants.pop(grant_id, None)
             self._persisted.discard(grant_id)
+            self._mark_revoked_locked(grant_id)
         if removed is not None:
             log.info("Approval grant %s revoked", grant_id)
-            if _persist.persistence_enabled():
-                _persist.fire_and_forget(self._delete_grant(grant_id))
+        if _persist.persistence_enabled():  # also covers grants this worker never held
+            _persist.fire_and_forget(self._delete_grant(grant_id))
         return removed
 
     def revoke(self, grant_id: str) -> bool:
