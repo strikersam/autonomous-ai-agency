@@ -1,0 +1,13 @@
+desktop-assistant            diff_pixels=      8 (0.001%) bbox=(33, 25, 42, 28)
+desktop-company              diff_pixels=      0 (0.000%) bbox=None
+desktop-home                 diff_pixels=      0 (0.000%) bbox=None
+desktop-insights             diff_pixels=      0 (0.000%) bbox=None
+desktop-login                diff_pixels=      0 (0.000%) bbox=None
+desktop-settings             diff_pixels=      0 (0.000%) bbox=None
+desktop-work                 diff_pixels=      0 (0.000%) bbox=None
+mobile-assistant             diff_pixels=      0 (0.000%) bbox=None
+mobile-company               diff_pixels=      0 (0.000%) bbox=None
+mobile-home                  diff_pixels=      0 (0.000%) bbox=None
+mobile-insights              diff_pixels=      0 (0.000%) bbox=None
+mobile-login                 diff_pixels=      0 (0.000%) bbox=None
+mobile-work                  diff_pixels=      0 (0.000%) bbox=None
