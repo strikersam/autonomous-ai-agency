@@ -20,7 +20,8 @@ person, so it is exempt: capping it would silently halt every scheduled job.
 Memory is the hot-path cache, per process and per UTC day. Each recorded call
 is also pushed (asynchronously, never blocking the caller) as an atomic ``$inc``
 upsert to the ``user_token_usage`` collection, one document per (user, UTC day)
-with a TTL (on SQLite an atomic single-statement upsert and a periodic purge),
+with a TTL (on SQLite an atomic single-statement upsert, and expired rows are
+purged on write at most every 5 min),
 unless ``AGENCY_STATE_PERSISTENCE_ENABLED`` is off or no DB is
 reachable. The pre-run check (``user_quota_refusal_async``) reads that
 authoritative total so the cap holds across workers and restarts; per-call checks

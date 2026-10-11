@@ -162,3 +162,35 @@ async def test_ensure_ttl_index_noop_on_sqlite_and_purge_throttled(store):
     await sp.ensure_ttl_index("governance_grants", col, "expires_at")  # inside the throttle window
     assert await col.find_one({"_id": "old2"}) is not None
     assert not sp._indexed
+
+
+def test_id_equality_is_pushed_to_the_primary_key():
+    from packages.storage.sqlite import _push_down_where
+
+    where, params = _push_down_where("tool_output_offload", {"_id": "ref1", "owner": "o1"})
+    assert where == " WHERE id = ?" and params == ["ref1"]
+
+
+async def test_find_by_id_does_not_decode_every_row(store, monkeypatch):
+    import packages.storage.sqlite as sq
+
+    col = store.tool_output_offload
+    for i in range(50):
+        await col.insert_one({"_id": f"r{i}", "owner": "o1", "text": "x" * 10_000})
+    decoded = 0
+    real_loads = sq.json.loads
+
+    def counting_loads(s, *a, **k):
+        nonlocal decoded
+        decoded += 1
+        return real_loads(s, *a, **k)
+
+    monkeypatch.setattr(sq.json, "loads", counting_loads)
+    doc = await col.find_one({"_id": "r7", "owner": "o1"})
+    assert doc is not None and doc["_id"] == "r7"
+    assert decoded == 1
+
+
+async def test_atomic_increment_rejects_empty_inc(store):
+    with pytest.raises(ValueError):
+        await atomic_increment(store.user_token_usage, "d:u", {})

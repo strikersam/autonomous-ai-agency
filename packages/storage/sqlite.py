@@ -299,12 +299,12 @@ def _push_down_where(name: str, query: dict) -> tuple[str, list[str]]:
     arbitrary caller input — a query key is only used after confirming it is a
     declared indexed column for this table.
     """
-    indexed = set(_INDEXED_FIELDS.get(name, []))
-    if not indexed:
-        return "", []
+    # ``_id`` is the ``id`` primary key on every table (stored as str(_id)).
+    indexed = set(_INDEXED_FIELDS.get(name, [])) | {"_id"}
     clauses: list[str] = []
     params: list[str] = []
     for key, val in query.items():
+        col = "id" if key == "_id" else key
         if key not in indexed:
             # Not an indexed column (or an operator like $or/$and) — leave it to
             # the Python _match pass.
@@ -317,12 +317,12 @@ def _push_down_where(name: str, query: dict) -> tuple[str, list[str]]:
                         and all(_is_pushable_scalar(v) for v in operand)):
                     placeholders = ", ".join("?" * len(operand))
                     # nosec B608 — `key` is a whitelisted indexed column name
-                    clauses.append(f"{key} IN ({placeholders})")
+                    clauses.append(f"{col} IN ({placeholders})")
                     params.extend(str(v) for v in operand)
             continue
         if _is_pushable_scalar(val):
             # nosec B608 — `key` is a whitelisted indexed column name
-            clauses.append(f"{key} = ?")
+            clauses.append(f"{col} = ?")
             params.append(str(val))
     if not clauses:
         return "", []

@@ -145,3 +145,18 @@ async def test_orchestrator_pre_run_check_uses_db_total(monkeypatch):
     run = await orch.execute(ExecutionRequest(request="x", auto_approve=True, user_id="max"))
     assert run.status == "failed"
     assert run.error == f"UserTokenQuotaExceeded: {q.REFUSAL_MESSAGE}"
+
+
+async def test_legacy_row_without_expires_at_ts_is_counted_and_incremented(monkeypatch):
+    """Rows written before expires_at_ts existed must keep their total on Mongo."""
+    db = install(monkeypatch)
+    day = q._today()
+    _usage(db).docs[f"{day}:erin"] = {
+        "_id": f"{day}:erin", "user_id": "erin", "day": day, "tokens": 400,
+        "expires_at": datetime.now(timezone.utc) + timedelta(days=2),
+    }
+    assert await q.refresh_user_total("erin") == 400
+    with q.user_scope("erin"):
+        q.record_user_tokens(100)
+    await drain()
+    assert _usage(db).docs[f"{day}:erin"]["tokens"] == 500

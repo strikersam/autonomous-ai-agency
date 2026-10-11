@@ -17,12 +17,9 @@ validated as bare identifiers; every value is bound as a parameter.
 from __future__ import annotations
 
 import json
-import logging
 import re
 from datetime import datetime, timezone
 from typing import Any
-
-log = logging.getLogger("qwen-proxy")
 
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -50,6 +47,8 @@ async def atomic_increment(
     A single SQL statement, so concurrent callers never lose an increment.
     ``set_on_insert`` fields are written only when the document is created.
     """
+    if not inc:
+        raise ValueError("atomic_increment needs at least one field")
     _checked(*inc)
     now = datetime.now(timezone.utc).isoformat()
     seed = {**(set_on_insert or {}), **inc, "_id": doc_id, "created_at": now, "updated_at": now}
