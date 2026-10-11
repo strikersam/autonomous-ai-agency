@@ -114,4 +114,18 @@ describe('landing page at "/"', () => {
     expect((await call('/favicon.ico', env)).status).toBe(404);
     expect((await call('/login', env)).status).toBe(200);
   });
+
+  test('the Worker adds security headers; only the landing page gets the CSP', async () => {
+    const env = { ASSETS: assets({ '/home': 'LANDING', '/': 'APP_SHELL' }) };
+    const landing = await call('/', env);
+    expect(landing.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(landing.headers.get('x-frame-options')).toBe('DENY');
+    expect(landing.headers.get('referrer-policy')).toBe('strict-origin-when-cross-origin');
+    expect(landing.headers.get('strict-transport-security')).toContain('max-age=');
+    expect(landing.headers.get('content-security-policy')).toContain("frame-ancestors 'none'");
+    const shell = await call('/login', env);
+    expect(shell.headers.get('x-frame-options')).toBe('DENY');
+    expect(shell.headers.get('content-security-policy')).toBeNull();
+    expect((await call('/home', env)).headers.get('x-content-type-options')).toBe('nosniff');
+  });
 });

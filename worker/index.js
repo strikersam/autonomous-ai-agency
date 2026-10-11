@@ -36,8 +36,24 @@ function needsProxy(pathname) {
   return PROXY_PREFIXES.some((p) => pathname === p || pathname.startsWith(p + "/"));
 }
 
-export default {
-  async fetch(request, env) {
+const CSP_LANDING = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+  "font-src https://fonts.gstatic.com; img-src 'self' data:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+
+// Security headers for everything the Worker serves itself (API responses come from the
+// backend, which sets its own). Rebuilds the Response because asset and redirect
+// responses have immutable headers. The CSP is only for the static landing page: the
+// app shell needs a wider policy and would break under this one.
+function withSecurityHeaders(response, url, landing = false) {
+  const headers = new Headers(response.headers);
+  headers.set("X-Content-Type-Options", "nosniff");
+  headers.set("X-Frame-Options", "DENY");
+  headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  if (url.protocol === "https:") headers.set("Strict-Transport-Security", "max-age=31536000");
+  if (landing) headers.set("Content-Security-Policy", CSP_LANDING);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+async function handle(request, env) {
     const url = new URL(request.url);
 
     if (needsProxy(url.pathname)) {
@@ -61,7 +77,7 @@ export default {
     // (/home, /home/, /home.html) is a permanent redirect so crawlers never see
     // a duplicate that canonicalises elsewhere.
     if (LANDING_ALIASES.includes(url.pathname) && (request.method === "GET" || request.method === "HEAD")) {
-      return Response.redirect(new URL("/" + url.search, url.origin).toString(), 301);
+      return withSecurityHeaders(Response.redirect(new URL("/" + url.search, url.origin).toString(), 301), url);
     }
 
     // "/" is the public landing page (frontend/public/home.html): static HTML that
@@ -70,7 +86,7 @@ export default {
     if (url.pathname === "/" && (request.method === "GET" || request.method === "HEAD")) {
       const landing = await env.ASSETS.fetch(new Request(new URL("/home", url.origin), request));
       if (landing.status === 200) {
-        return landing;
+        return withSecurityHeaders(landing, url, true);
       }
     }
 
@@ -80,18 +96,18 @@ export default {
     // for SPA client-side routing — BUT only for non-API paths (API paths
     // are handled by needsProxy above and should NEVER reach here).
     if (assetResponse.status === 200) {
-      return assetResponse;
+      return withSecurityHeaders(assetResponse, url);
     }
     // Pass asset redirects (e.g. a trailing-slash 307/308) through. Treating them
     // as "not found" served the noindex app shell, with no H1 and no links, at
     // URLs that should have redirected to a real page.
     if (assetResponse.status >= 300 && assetResponse.status < 400) {
-      return assetResponse;
+      return withSecurityHeaders(assetResponse, url);
     }
     // A missing file (/favicon.ico, /old.png) is a real 404, not the app shell:
     // client-side routes never contain a file extension, and a 200 here is a soft-404.
     if (/\.[A-Za-z0-9]{1,8}$/.test(url.pathname)) {
-      return new Response("Not found", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+      return withSecurityHeaders(new Response("Not found", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" } }), url);
     }
     // SPA fallback: serve index.html for client-side routes like /login,
     // /dashboard, etc. This replaces the "single-page-application"
@@ -103,12 +119,15 @@ export default {
     // random paths (only at "/" where it belongs).
     const spaHeaders = new Headers(indexResponse.headers);
     spaHeaders.set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
-    return new Response(indexResponse.body, {
+    return withSecurityHeaders(new Response(indexResponse.body, {
       status: 200,
       statusText: "OK",
       headers: spaHeaders,
-    });
-  },
+    }), url);
+}
+
+export default {
+  fetch: handle,
 
   async scheduled(event, env, ctx) {
     // Cloudflare Cron fires every minute. Two pings run in PARALLEL:
