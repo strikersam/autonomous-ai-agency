@@ -1071,6 +1071,18 @@ _GOVERNANCE: tuple[ControlSpec, ...] = (
         risk=RISK_HIGH,
     ),
     _toggle(
+        "TASK_INDEPENDENT_VERIFIER",
+        "Independent verifier for every runtime",
+        "governance",
+        "true",
+        "When a runtime without its own reviewer (Claude Code, Hermes, Goose, Aider) "
+        "finishes a task, a separate verifier checks out the pull request it opened "
+        "in an E2B sandbox, runs the matching tests, screenshots changed pages with "
+        "Browserbase and has a reviewer model judge the change. Off: such tasks wait "
+        "for a person.",
+        live=True,
+    ),
+    _toggle(
         "TASK_VERIFICATION_REQUIRED",
         "Independent verification before done",
         "governance",

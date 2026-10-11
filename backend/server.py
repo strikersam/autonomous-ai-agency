@@ -130,6 +130,18 @@ def clear_error_log_buffer() -> None:
 
 _ensure_error_log_capture()
 
+_scheduler_slot: tuple[Any, asyncio.Semaphore] | None = None
+
+
+def _scheduler_run_slot() -> asyncio.Semaphore:
+    """The one-at-a-time slot for scheduled runs, bound to the running loop."""
+    global _scheduler_slot
+    loop = asyncio.get_running_loop()
+    if _scheduler_slot is None or _scheduler_slot[0] is not loop:
+        _scheduler_slot = (loop, asyncio.Semaphore(1))
+    return _scheduler_slot[1]
+
+
 async def _scheduler_on_fire(job) -> None:
     """Called by APScheduler when a cron fires. Dispatches to the orchestrator.
 
@@ -148,17 +160,21 @@ async def _scheduler_on_fire(job) -> None:
     """
     from services.workflow_orchestrator import get_workflow_orchestrator, ExecutionRequest
 
-    try:
-        orch = get_workflow_orchestrator()
-        req = ExecutionRequest(
-            request=job.instruction,
-            auto_approve=True,
-            user_id="scheduler",
-        )
-        run = await orch.execute(req)
-        log.info("Scheduler fired job %s → run %s", job.job_id, run.run_id)
-    except Exception as exc:
-        log.error("Scheduler on_fire failed for %s: %s", job.job_id, exc)
+    # One scheduled run at a time: every agency directive is a run-once job on
+    # a every-minute cron, so a backlog would otherwise fire all at once and
+    # exhaust the 512MB instance. Later jobs wait their turn here.
+    async with _scheduler_run_slot():
+        try:
+            orch = get_workflow_orchestrator()
+            req = ExecutionRequest(
+                request=job.instruction,
+                auto_approve=True,
+                user_id="scheduler",
+            )
+            run = await orch.execute(req)
+            log.info("Scheduler fired job %s → run %s", job.job_id, run.run_id)
+        except Exception as exc:
+            log.error("Scheduler on_fire failed for %s: %s", job.job_id, exc)
 
 SCHEDULER = AgentScheduler(on_fire=_scheduler_on_fire)
 set_scheduler(SCHEDULER)

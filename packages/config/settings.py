@@ -435,6 +435,11 @@ class Settings:
         self.task_verification_required_raw: str = os.environ.get(
             "TASK_VERIFICATION_REQUIRED", "true"
         ).strip().lower()
+        # Runtimes with no judge of their own (Claude Code, Hermes, ...) get an
+        # independent verifier: their PR is run in E2B and reviewed (rule 49).
+        self.task_independent_verifier_raw: str = os.environ.get(
+            "TASK_INDEPENDENT_VERIFIER", "true"
+        ).strip().lower()
         # Agents run byte-compile + the matching tests on every step's change
         # (inside the E2B sandbox when one is attached); without an executed
         # check a judge approval is not proof (rule 49). On by default.
@@ -478,6 +483,11 @@ class Settings:
     def task_verification_required(self) -> bool:
         """When True, DONE needs a PASS/PASS+NOTES verdict from an independent verifier."""
         return self.task_verification_required_raw in {"1", "true", "yes", "on"}
+
+    @property
+    def task_independent_verifier(self) -> bool:
+        """When True, runs from runtimes without a judge are independently verified."""
+        return self.task_independent_verifier_raw in {"1", "true", "yes", "on"}
 
     @property
     def agent_empirical_verify(self) -> bool:
