@@ -135,6 +135,14 @@ def test_a_judge_fail_sends_work_back_with_the_defects_as_a_comment():
     assert any("breaks login" in c.body for c in task.comments)
 
 
+def test_a_fail_logs_its_defects(caplog):
+    caplog.set_level("INFO", logger="qwen-proxy")
+    task = _task()
+    task.verification = _reject()
+    TaskWorkflowService(store=TaskStore()).transition(task, TaskStatus.DONE, actor="agent:dev")
+    assert "Verification FAIL for" in caplog.text and "breaks login" in caplog.text
+
+
 def test_repeated_fails_park_for_a_person_instead_of_looping():
     wf = TaskWorkflowService(store=TaskStore())
     task = _task()
