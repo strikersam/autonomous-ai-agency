@@ -1082,6 +1082,20 @@ _GOVERNANCE: tuple[ControlSpec, ...] = (
         risk=RISK_HIGH,
     ),
     _toggle(
+        "AGENCY_REVIEW_AUTOPILOT",
+        "Verifier clears the review queue",
+        "autonomy",
+        "true",
+        "Instead of waiting for you, a verifier works through the review queue every "
+        "few minutes. Tasks waiting to run are approved unless the reviewer finds them "
+        "sloppy (vague, contradictory, invented names, destructive); those stay for you "
+        "with the reason as a comment. Finished tasks are completed only when the "
+        "independent verifier passes them; others get one fresh run. Deploys, releases "
+        "and external writes always stay with you. Off: everything waits for you again.",
+        live=True,
+        risk=RISK_HIGH,
+    ),
+    _toggle(
         "TASK_INDEPENDENT_VERIFIER",
         "Independent verifier for every runtime",
         "governance",

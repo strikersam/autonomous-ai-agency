@@ -136,6 +136,9 @@ class TaskDispatcher:
         from tasks.autonomy_triage import triage_gated_tasks
 
         await triage_gated_tasks(self.store)
+        from tasks import review_autopilot
+
+        review_autopilot.schedule(self.store)  # in the background; it can take minutes
         # The alerts feed lives in backend.server; only read it where that app is
         # already loaded — importing it from the proxy process would boot it.
         if "backend.server" not in sys.modules:
