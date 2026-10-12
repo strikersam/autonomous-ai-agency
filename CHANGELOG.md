@@ -3,6 +3,8 @@
      move the gate to root. -->
 
 ## [Unreleased]
+### Fixed
+- `tests/test_brain_config_store.py` — Fixed test isolation by clearing provider API key environment variables (`CEREBRAS_API_KEY`, `GROQ_API_KEY`, `NVIDIA_API_KEY`, `TOKENIN_API_KEY`, `OMNIROUTE_API_KEY`) in the `_isolated_store` fixture. This ensures `test_get_never_raises_on_total_failure` and other tests get deterministic `recommended_brain_config()` results regardless of CI environment state.
 ### Added
 
 - **A verifier clears the review queue instead of you** (2026-10-12). The operator had become the agency's bottleneck: tasks waited on them both before running ("To be approved") and after ("Review"). New `tasks/review_autopilot.py`, run in the background on the CEO-triage cadence: parked tasks are read by a reviewer model and approved unless sloppy (vague, contradictory, invented names, destructive), declined ones stay with the person with the reason as a comment; finished tasks are completed only when they already hold a passing verdict or the independent verifier passes their pull request, otherwise they get one fresh run (also clearing tasks parked by the 2026-10-11 judge bug). Deploys, releases and external writes always stay with a person. Every decision is logged on the task. New live control `AGENCY_REVIEW_AUTOPILOT` (default on). Files: `tasks/review_autopilot.py`, `tasks/dispatcher.py`, `tasks/verification.py`, `packages/config/{settings,control_catalogue}.py`, docs, `tests/test_review_autopilot.py` (14 tests).

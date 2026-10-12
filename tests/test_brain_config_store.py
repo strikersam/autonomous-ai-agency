@@ -49,8 +49,10 @@ def _isolated_store(monkeypatch, tmp_path):
     # Clear env vars that would change role resolution.
     for v in ("AGENT_PLANNER_MODEL", "AGENT_EXECUTOR_MODEL", "AGENT_VERIFIER_MODEL", "AGENT_JUDGE_MODEL", "NVIDIA_DEFAULT_MODEL"):
         monkeypatch.delenv(v, raising=False)
+    # Clear provider API keys so recommended_brain_config() is deterministic.
+    for v in ("CEREBRAS_API_KEY", "GROQ_API_KEY", "NVIDIA_API_KEY", "TOKENIN_API_KEY", "OMNIROUTE_API_KEY"):
+        monkeypatch.delenv(v, raising=False)
     yield
-
 
 # ── Defaults ────────────────────────────────────────────────────────────────
 
