@@ -292,6 +292,8 @@ def _automatic_failures(task: Any) -> int:
     for entry in reversed(list(getattr(task, "execution_log", []) or [])):
         if is_human_actor(getattr(entry, "actor", None)):
             break
+        if getattr(entry, "event_type", "") == "review_autopilot_requeued":
+            break  # the review autopilot's fresh run gets a fresh rework budget
         if getattr(entry, "event_type", "") == "verification_failed":
             n += 1
     return n

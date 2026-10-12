@@ -440,6 +440,11 @@ class Settings:
         self.task_independent_verifier_raw: str = os.environ.get(
             "TASK_INDEPENDENT_VERIFIER", "true"
         ).strip().lower()
+        # A verifier clears the review queue: approves parked tasks that are not
+        # sloppy and completes finished ones it verifies (tasks/review_autopilot.py).
+        self.agency_review_autopilot_raw: str = os.environ.get(
+            "AGENCY_REVIEW_AUTOPILOT", "true"
+        ).strip().lower()
         # Agents run byte-compile + the matching tests on every step's change
         # (inside the E2B sandbox when one is attached); without an executed
         # check a judge approval is not proof (rule 49). On by default.
@@ -493,6 +498,11 @@ class Settings:
     def task_independent_verifier(self) -> bool:
         """When True, runs from runtimes without a judge are independently verified."""
         return self.task_independent_verifier_raw in {"1", "true", "yes", "on"}
+
+    @property
+    def agency_review_autopilot(self) -> bool:
+        """When True, a verifier approves/completes review-queue tasks instead of a person."""
+        return self.agency_review_autopilot_raw in {"1", "true", "yes", "on"}
 
     @property
     def agent_empirical_verify(self) -> bool:
