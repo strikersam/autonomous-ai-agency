@@ -188,3 +188,40 @@ async def test_schedule_runs_one_pass_at_a_time_in_the_background(monkeypatch):
     assert started == [1]
     gate.set()
     await asyncio.sleep(0)
+
+
+async def test_a_person_deciding_mid_check_wins(store, monkeypatch):
+    # Verifier finding 2026-10-12: the judge call takes minutes; a person who
+    # rejected the task meanwhile must not be overwritten by a stale approval.
+    from tasks.service import TaskWorkflowService
+
+    task = await store.create(_parked())
+
+    async def judge(t):
+        fresh = await store.get(t.task_id)
+        TaskWorkflowService(store=store).approve_execution(fresh, actor="priya@x.com", approved=False)
+        await store.update(fresh)
+        return {"verdict": "APPROVED", "notes": "fine"}
+
+    monkeypatch.setattr(ra, "_judge_plan", judge)
+    result = await ra.run_review_autopilot(store)
+    saved = await store.get(task.task_id)
+    assert saved.status is TaskStatus.WONT_DO and not saved.execution_approved
+    assert result.approved == 0
+
+
+async def test_a_person_acting_during_verification_wins(store, monkeypatch):
+    from tasks import independent_verifier as iv
+
+    task = await store.create(_in_review(result=f"Opened {PR}"))
+
+    async def verify(t, r):
+        fresh = await store.get(t.task_id)
+        fresh.add_log("looked at it", event_type="comment_added", actor="priya@x.com")
+        await store.update(fresh)
+        return {"judge": {"verdict": "APPROVED"}, "steps": [{"status": "applied", "changed_files": ["a.py"],
+                "executed_checks": ["pytest: passed"]}], "ui_evidence": [], "commits": []}
+
+    monkeypatch.setattr(iv, "verify", verify)
+    await ra.run_review_autopilot(store)
+    assert (await store.get(task.task_id)).status is TaskStatus.IN_REVIEW

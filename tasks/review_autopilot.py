@@ -4,8 +4,9 @@ The operator asked for this: tasks waiting on them ("To be approved" before a
 run, "Review" after one) had become the agency's bottleneck. Each pass, gated
 by the live ``AGENCY_REVIEW_AUTOPILOT`` control (default on):
 
-1. **Before a run.** A task parked at the approval gate that CEO triage left
-   for a person is read by a reviewer model. It is approved unless it is
+1. **Before a run.** Every task parked at the approval gate (CEO triage takes
+   its share first) is read by a reviewer model, including ones created gated:
+   the operator asked for all of them. It is approved unless it is
    sloppy: vague, contradictory, not actionable, inventing names or URLs, or
    asking for something destructive or irreversible. A declined task stays
    for the person, with the reviewer's reason as a comment, and is not asked
@@ -27,7 +28,7 @@ import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from tasks.models import Task, TaskComment, TaskStatus
 from tasks.service import TaskWorkflowService, _is_outward_facing
@@ -110,25 +111,48 @@ async def _judge_plan(task: Task) -> dict[str, Any] | None:
     return None
 
 
-async def _decide_gated(task: Task, workflow: TaskWorkflowService, result: AutopilotResult) -> bool:
-    """Approve or decline one parked task. True when a decision was recorded."""
+Apply = Callable[[Task], None]
+
+
+async def _save_if_unchanged(store: TaskStore, seen: Task, apply: Apply) -> bool:
+    """Apply a decision to the stored task only if nobody touched it meanwhile.
+
+    Judging and verifying take minutes; a person may approve, reject or edit
+    the task in that time. Their change wins: the decision is dropped.
+    """
+    fresh = await store.get(seen.task_id)
+    if fresh is None or (fresh.status, fresh.execution_approved, len(fresh.execution_log)) != (
+        seen.status, seen.execution_approved, len(seen.execution_log)
+    ):
+        log.info("Review autopilot: %s changed while it was being checked; left as it is", seen.task_id)
+        return False
+    apply(fresh)
+    await store.update(fresh)
+    return True
+
+
+def _decline(why: str, prefix: str) -> Apply:
+    def apply(task: Task) -> None:
+        task.comments.append(TaskComment(author=ACTOR, body=f"{prefix}: {why}"))
+        task.add_log(f"Review autopilot left this for a person: {why}", event_type=DECLINED,
+                     actor=ACTOR, task_status=task.status)
+    return apply
+
+
+async def _decide_gated(task: Task, workflow: TaskWorkflowService) -> tuple[str, Apply] | None:
+    """The decision on one parked task, or None when no reviewer answered."""
     verdict = await _judge_plan(task)
     if verdict is None:
-        return False
+        return None
     notes = str(verdict.get("notes") or "")[:600]
-    if str(verdict.get("verdict", "")).upper().startswith("APPROVED"):
-        workflow.approve_execution(task, actor=ACTOR, approved=True)
-        task.add_log(f"Approved by the review autopilot: {notes}", event_type="review_autopilot_approved",
-                     actor=ACTOR, task_status=task.status)
-        result.approved += 1
-    else:
-        task.comments.append(TaskComment(author=ACTOR, body=f"Not approved automatically: {notes}"))
-        task.add_log(f"Review autopilot left this for a person: {notes}", event_type=DECLINED,
-                     actor=ACTOR, task_status=task.status)
-        result.declined += 1
-    log.info("Review autopilot: %s %s (%s)", "approved" if task.execution_approved else "declined",
-             task.task_id, notes[:200])
-    return True
+    if not str(verdict.get("verdict", "")).upper().startswith("APPROVED"):
+        return "declined", _decline(notes, "Not approved automatically")
+
+    def approve(t: Task) -> None:
+        workflow.approve_execution(t, actor=ACTOR, approved=True)
+        t.add_log(f"Approved by the review autopilot: {notes}", event_type="review_autopilot_approved",
+                  actor=ACTOR, task_status=t.status)
+    return "approved", approve
 
 
 async def _gate_pass(store: TaskStore, workflow: TaskWorkflowService, result: AutopilotResult) -> None:
@@ -136,8 +160,10 @@ async def _gate_pass(store: TaskStore, workflow: TaskWorkflowService, result: Au
     todo = [t for t in parked if not _is_outward_facing(t) and not _logged(t, DECLINED)]
     for task in todo[:_PLAN_CHECKS_PER_PASS]:
         try:
-            if await _decide_gated(task, workflow, result):
-                await store.update(task)
+            decision = await _decide_gated(task, workflow)
+            if decision and await _save_if_unchanged(store, task, decision[1]):
+                setattr(result, decision[0], getattr(result, decision[0]) + 1)
+                log.info("Review autopilot: %s %s", decision[0], task.task_id)
         except Exception:
             log.exception("Review autopilot: gate decision failed for %s", task.task_id)
 
@@ -157,52 +183,49 @@ def _pull_request_linked(task: Task) -> bool:
     return bool(_PR_RE.search(_RecordedRun(task).output))
 
 
-async def _verify_run(task: Task, workflow: TaskWorkflowService, result: AutopilotResult) -> bool:
-    """Run the independent verifier on a finished task's PR; done on PASS."""
+def _complete(workflow: TaskWorkflowService, message: str, verdict: Any = None) -> Apply:
+    def apply(task: Task) -> None:
+        if verdict is not None:
+            task.verification = verdict
+        workflow.transition(task, TaskStatus.DONE, actor=ACTOR, message=message)
+    return apply
+
+
+async def _verify_run(task: Task, workflow: TaskWorkflowService) -> tuple[str, Apply]:
+    """Run the independent verifier on a finished task's PR; complete it on PASS."""
     from tasks import independent_verifier as iv
     from tasks.verification import verification_from_run
 
-    run = await iv.verify(task, _RecordedRun(task))
-    verdict = verification_from_run(run)
+    verdict = verification_from_run(await iv.verify(task, _RecordedRun(task)))
     if verdict is None or not verdict.passed:
         why = (verdict.notes if verdict else "the verifier gave no verdict")[:400]
-        task.comments.append(TaskComment(author=ACTOR, body=f"Not completed automatically: {why}"))
-        task.add_log(f"Review autopilot left this for a person: {why}", event_type=DECLINED,
-                     actor=ACTOR, task_status=task.status)
-        result.declined += 1
-        return True
+        return "declined", _decline(why, "Not completed automatically")
     verdict.verifier = ACTOR
-    task.verification = verdict
-    workflow.transition(task, TaskStatus.DONE, actor=ACTOR, message="Verified and completed by the review autopilot")
-    result.completed += 1
-    return True
+    return "completed", _complete(workflow, "Verified and completed by the review autopilot", verdict)
 
 
-def _requeue(task: Task, workflow: TaskWorkflowService, result: AutopilotResult) -> None:
+def _requeue(workflow: TaskWorkflowService) -> Apply:
     """One fresh run, verified by the agent loop's judge."""
-    task.add_log("Review autopilot sent this back for one fresh, verified run", event_type=REQUEUED,
-                 actor=ACTOR, task_status=task.status)
-    workflow.transition(task, TaskStatus.IN_PROGRESS, actor=ACTOR,
-                        message="Re-run requested by the review autopilot", pending_agent_run=True)
-    result.requeued += 1
+    def apply(task: Task) -> None:
+        task.add_log("Review autopilot sent this back for one fresh, verified run", event_type=REQUEUED,
+                     actor=ACTOR, task_status=task.status)
+        workflow.transition(task, TaskStatus.IN_PROGRESS, actor=ACTOR,
+                            message="Re-run requested by the review autopilot", pending_agent_run=True)
+    return apply
 
 
-async def _review_one(task: Task, workflow: TaskWorkflowService, result: AutopilotResult,
-                      budget: dict[str, int]) -> bool:
-    """Handle one in-review task; True when it changed."""
+async def _review_one(task: Task, workflow: TaskWorkflowService,
+                      budget: dict[str, int]) -> tuple[str, Apply] | None:
+    """The decision on one in-review task, or None to leave it."""
     if task.verification is not None and task.verification.passed:
-        workflow.transition(task, TaskStatus.DONE, actor=ACTOR,
-                            message="Already verified; completed by the review autopilot")
-        result.completed += 1
-        return True
+        return "completed", _complete(workflow, "Already verified; completed by the review autopilot")
     if _pull_request_linked(task) and budget["runs"] > 0:
         budget["runs"] -= 1
-        return await _verify_run(task, workflow, result)
+        return await _verify_run(task, workflow)
     if not _logged(task, REQUEUED) and task.agent_id and budget["requeues"] > 0:
         budget["requeues"] -= 1
-        _requeue(task, workflow, result)
-        return True
-    return False
+        return "requeued", _requeue(workflow)
+    return None
 
 
 async def _review_pass(store: TaskStore, workflow: TaskWorkflowService, result: AutopilotResult) -> None:
@@ -212,8 +235,10 @@ async def _review_pass(store: TaskStore, workflow: TaskWorkflowService, result: 
         if _is_outward_facing(task) or _logged(task, DECLINED):
             continue
         try:
-            if await _review_one(task, workflow, result, budget):
-                await store.update(task)
+            decision = await _review_one(task, workflow, budget)
+            if decision and await _save_if_unchanged(store, task, decision[1]):
+                setattr(result, decision[0], getattr(result, decision[0]) + 1)
+                log.info("Review autopilot: %s %s", decision[0], task.task_id)
         except Exception:
             log.exception("Review autopilot: review decision failed for %s", task.task_id)
 
