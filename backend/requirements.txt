@@ -26,7 +26,7 @@ lxml>=6.1.3           # HTML parser for BeautifulSoup (seo_audit.py uses bs4 "lx
 #   - dnspython: the MX/NS/TXT/CNAME analysis (_analyze_dns) that yields the
 #     ~11 "no-browser-needed" systems (Akamai, Microsoft 365, Salesforce, …).
 curl_cffi>=0.16.3
-dnspython>=2.8.0
+dnspython>=2.9.0
 
 # Headless-browser rendering for the website scanner (JS-rendered / bot-protected
 # sites). The Chromium binary is installed in the Docker image (see Dockerfile.backend);
