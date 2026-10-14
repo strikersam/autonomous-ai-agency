@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from urllib.parse import urlparse
 from typing import Any, List, Optional, Dict, Tuple
-from datetime import datetime
+from datetime import datetime, UTC
 import logging
 import asyncio
 import secrets
@@ -322,7 +322,7 @@ class CompanyGraphService:
             Updated CompanyGraph instance
         """
         # Update timestamps
-        graph.updated_at = datetime.utcnow()
+        graph.updated_at = datetime.now(UTC)
         # Calculate completeness score
         graph.completeness_score = self._calculate_completeness_score(graph)
         graph.is_complete = graph.completeness_score >= 0.8
@@ -674,7 +674,7 @@ class CompanyGraphService:
             runtime=runtime,
             system_types=system_types or [],
             is_provisioned=True,
-            provisioned_at=datetime.utcnow(),
+            provisioned_at=datetime.now(UTC),
             status="available",
             **kwargs
         )

@@ -4,6 +4,10 @@
 
 ## [Unreleased]
 ### Fixed
+- Fixed deprecation warnings for `datetime.datetime.utcnow()` across the codebase by replacing with `datetime.datetime.now(datetime.UTC)` for timezone-aware UTC timestamps.
+- Files fixed: `voice/memory_kernel.py`, `services/company_agency.py`, `backend/company_api.py`, `services/company_graph.py`, `services/company_graph_store.py`, `models/company_graph.py`, `tests/test_autonomous_agency_e2e.py`.
+- This resolves the `DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version` warnings seen in test runs.
+### Fixed
 - `tests/test_brain_config_store.py` — Fixed test isolation by clearing provider API key environment variables (`CEREBRAS_API_KEY`, `GROQ_API_KEY`, `NVIDIA_API_KEY`, `TOKENIN_API_KEY`, `OMNIROUTE_API_KEY`) in the `_isolated_store` fixture. This ensures `test_get_never_raises_on_total_failure` and other tests get deterministic `recommended_brain_config()` results regardless of CI environment state.
 ### Added
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Path, Body, Request, Response, status
 from typing import List, Optional, Any
-from datetime import datetime
+from datetime import datetime, UTC
 import json
 import logging
 import os
@@ -776,7 +776,7 @@ async def sync_company_graph(
                     updated = website.model_copy(update={
                         "inferred_stack": result.inferred_stack,
                         "detected_systems": result.detected_systems,
-                        "last_scanned": datetime.utcnow(),
+                        "last_scanned": datetime.now(UTC),
                         "scan_status": "success",
                     })
                     await store.update_website(updated, company.id)
@@ -788,7 +788,7 @@ async def sync_company_graph(
                 if result.status == "success" and result.inferred_stack:
                     updated = repo.model_copy(update={
                         "inferred_stack": result.inferred_stack,
-                        "last_scanned": datetime.utcnow(),
+                        "last_scanned": datetime.now(UTC),
                         "scan_status": "success",
                     })
                     await store.update_repo(updated)
@@ -873,7 +873,7 @@ async def scan_website_endpoint(
                     is_primary=len(existing_websites) == 0,  # First website is primary
                     inferred_stack=result.inferred_stack,
                     detected_systems=result.detected_systems,
-                    last_scanned=result.completed_at or datetime.utcnow(),
+                    last_scanned=result.completed_at or datetime.now(UTC),
                     scan_status="success",
                     confidence_scores=confidence,
                 )
@@ -885,7 +885,7 @@ async def scan_website_endpoint(
                         updated_website = existing.model_copy(update={
                             "inferred_stack": result.inferred_stack,
                             "detected_systems": result.detected_systems,
-                            "last_scanned": result.completed_at or datetime.utcnow(),
+                            "last_scanned": result.completed_at or datetime.now(UTC),
                             "scan_status": "success",
                             "confidence_scores": confidence,
                         })
@@ -956,7 +956,7 @@ async def scan_repo_endpoint(
                 name=request.repo_url.split('/')[-1],
                 full_name=request.repo_url,
                 inferred_stack=result.inferred_stack,
-                last_scanned=result.completed_at or datetime.utcnow()
+                last_scanned=result.completed_at or datetime.now(UTC)
             )
             await store.create_repo(repo)
             log.info(f"Created repo {request.repo_url} for company {company_id}")
@@ -966,7 +966,7 @@ async def scan_repo_endpoint(
                 if existing.url == request.repo_url:
                     updated_repo = existing.model_copy(update={
                         "inferred_stack": result.inferred_stack,
-                        "last_scanned": result.completed_at or datetime.utcnow()
+                        "last_scanned": result.completed_at or datetime.now(UTC)
                     })
                     await store.update_repo(updated_repo)
                     log.info(f"Updated repo {request.repo_url} for company {company_id}")

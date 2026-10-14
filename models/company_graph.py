@@ -15,7 +15,7 @@ Design Principles:
 
 from __future__ import annotations
 from typing import Any, Literal, Optional, List
-from datetime import datetime
+from datetime import datetime, UTC
 from pydantic import BaseModel, Field, field_validator
 from bson import ObjectId
 import re
@@ -165,7 +165,7 @@ class StackInference(BaseModel):
         description="Confidence scores for each detection (0.0-1.0)"
     )
     detected_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the stack inference was performed"
     )
     source: str = Field(
@@ -244,11 +244,11 @@ class Connector(BaseModel):
         description="OAuth scopes or permissions granted"
     )
     created_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the connector was created"
     )
     updated_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the connector was last updated"
     )
     
@@ -306,11 +306,11 @@ class KnowledgeItem(BaseModel):
         description="Whether this knowledge is currently relevant"
     )
     created_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the knowledge was created"
     )
     updated_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the knowledge was last updated"
     )
     last_accessed: datetime | None = Field(
@@ -387,11 +387,11 @@ class ApprovalPolicy(BaseModel):
         description="Who to escalate to if not approved in time"
     )
     created_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the policy was created"
     )
     updated_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the policy was last updated"
     )
     
@@ -441,7 +441,7 @@ class DetectedSystem(BaseModel):
         description="Whether this system is currently in use"
     )
     last_detected: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When this system was last detected"
     )
     connectors: List[str] = Field(
@@ -539,11 +539,11 @@ class Website(BaseModel):
         description="Important pages identified on the website"
     )
     created_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the website was added to the company graph"
     )
     updated_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the website was last updated"
     )
     
@@ -645,11 +645,11 @@ class Repo(BaseModel):
         description="Error message if connection failed"
     )
     created_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the repository was added to the company graph"
     )
     updated_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the repository was last updated"
     )
     
@@ -711,7 +711,7 @@ class DeliveryPolicy(BaseModel):
         description="True once the operator has approved the first unattended merge on this repo",
     )
     detected_at: datetime = Field(
-        default_factory=datetime.utcnow, description="When the policy was detected"
+        default_factory=lambda: datetime.now(UTC), description="When the policy was detected"
     )
 
 
@@ -740,7 +740,7 @@ class RepoConnection(BaseModel):
         default=None, description="Detected delivery policy for this repo"
     )
     connected_at: datetime = Field(
-        default_factory=datetime.utcnow, description="When the repo was connected"
+        default_factory=lambda: datetime.now(UTC), description="When the repo was connected"
     )
 
     @field_validator("owner", "repo", mode="before")
@@ -832,11 +832,11 @@ class BusinessSystem(BaseModel):
         description="URL to system admin interface"
     )
     created_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the system was added to the company graph"
     )
     updated_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the system was last updated"
     )
     
@@ -943,11 +943,11 @@ class Specialist(BaseModel):
         description="Repository IDs this specialist can access"
     )
     created_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the specialist was created"
     )
     updated_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the specialist was last updated"
     )
     
@@ -992,7 +992,7 @@ class WorkflowAssignment(BaseModel):
         description="Status of this assignment"
     )
     assigned_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the specialist was assigned"
     )
     started_at: datetime | None = Field(
@@ -1092,11 +1092,11 @@ class Workflow(BaseModel):
         description="Tags for categorization"
     )
     created_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the workflow was created"
     )
     updated_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the workflow was last updated"
     )
     last_executed: datetime | None = Field(
@@ -1307,11 +1307,11 @@ class Company(BaseModel):
     )
     # Timestamps
     created_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the company was created"
     )
     updated_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the company was last updated"
     )
     last_activity: datetime | None = Field(
@@ -1443,11 +1443,11 @@ class CompanyGraph(BaseModel):
     
     # Timestamps
     created_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the graph was created"
     )
     updated_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the graph was last updated"
     )
     last_synced: datetime | None = Field(
@@ -1535,7 +1535,7 @@ class CompanyGraphSnapshot(BaseModel):
         description="User ID who created this snapshot"
     )
     created_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the snapshot was created"
     )
     
@@ -1611,7 +1611,7 @@ class WebsiteScanResult(BaseModel):
         description="Overall scan status"
     )
     started_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the scan started"
     )
     completed_at: datetime | None = Field(
@@ -1750,7 +1750,7 @@ class OnboardingProgress(BaseModel):
         description="When onboarding completed"
     )
     last_updated: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When onboarding progress was last updated"
     )
 
@@ -1841,7 +1841,7 @@ class SpecialistProvisionResult(BaseModel):
         description="Warnings during provisioning"
     )
     provisioned_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When the specialist was provisioned"
     )
 
@@ -1970,7 +1970,7 @@ class WorkflowExecutionResult(BaseModel):
         description="Warnings during execution"
     )
     started_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(UTC),
         description="When execution started"
     )
     completed_at: datetime | None = Field(

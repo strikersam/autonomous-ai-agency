@@ -33,7 +33,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Any
 
 from models.company_graph import SpecialistFamily
@@ -331,7 +331,7 @@ class CompanyAgencyService:
             "company_id": company_id,
             "company_name": company.name,
             "status": "activating",
-            "activated_at": datetime.utcnow().isoformat(),
+            "activated_at": datetime.now(UTC).isoformat(),
             "specialists": [],
             "runtimes_started": [],
             "runtime_errors": [],
@@ -358,7 +358,7 @@ class CompanyAgencyService:
             try:
                 updated = specialist.model_copy(update={
                     "runtime": best_runtime,
-                    "updated_at": datetime.utcnow(),
+                    "updated_at": datetime.now(UTC),
                 })
                 await store.update_specialist(updated)
                 result["specialists"].append({

@@ -175,14 +175,14 @@ class MemoryKernel:
             return await asyncio.get_event_loop().run_in_executor(None, self._export_markdown_sync)
 
     def _export_markdown_sync(self) -> str:
+        import datetime
         conn = self._get_conn()
         rows = conn.execute(
             "SELECT * FROM facts ORDER BY confidence DESC, updated_at DESC LIMIT 200"
         ).fetchall()
-        import datetime
         lines = [
             "# CEO Memory Kernel", "",
-            f"_Last updated: {datetime.datetime.utcnow().isoformat()}Z_",
+            f"_Last updated: {datetime.datetime.now(datetime.UTC).isoformat()}Z_",
             f"_Facts: {len(rows)}_", "",
             "| ID | Content | Source | Confidence | Reinforcements |",
             "|----|---------|--------|------------|----------------|",

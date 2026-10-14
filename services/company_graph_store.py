@@ -15,7 +15,7 @@ Usage:
 
 from __future__ import annotations
 from typing import Any, List, Optional, Dict
-from datetime import datetime
+from datetime import datetime, UTC
 import logging
 import os
 import json
@@ -481,7 +481,7 @@ class MongoDBStore:
         """Update a company in MongoDB."""
         db = self._get_db()
         doc = self._prepare_doc(company)
-        doc["updated_at"] = datetime.utcnow().isoformat()
+        doc["updated_at"] = datetime.now(UTC).isoformat()
         await db.companies.update_one(
             {"_id": self._to_object_id(company.id)},
             {"$set": doc}
@@ -549,7 +549,7 @@ class MongoDBStore:
             {
                 "$set": {
                     "graph_id": graph.id,
-                    "updated_at": datetime.utcnow().isoformat()
+                    "updated_at": datetime.now(UTC).isoformat()
                 }
             }
         )
@@ -612,7 +612,7 @@ class MongoDBStore:
         """Update a company graph in MongoDB."""
         db = self._get_db()
         graph_doc = self._prepare_doc(graph)
-        graph_doc["updated_at"] = datetime.utcnow().isoformat()
+        graph_doc["updated_at"] = datetime.now(UTC).isoformat()
         await db.company_graphs.update_one(
             {"_id": self._to_object_id(graph.id)},
             {"$set": graph_doc}
@@ -674,7 +674,7 @@ class MongoDBStore:
         when ``company_id`` is supplied (otherwise it is left untouched)."""
         db = self._get_db()
         doc = self._prepare_doc(website)
-        doc["updated_at"] = datetime.utcnow().isoformat()
+        doc["updated_at"] = datetime.now(UTC).isoformat()
         if company_id is not None:
             doc["company_id"] = company_id
         await db.websites.update_one(
@@ -754,7 +754,7 @@ class MongoDBStore:
         """Update a repository in MongoDB."""
         db = self._get_db()
         doc = self._prepare_doc(repo)
-        doc["updated_at"] = datetime.utcnow().isoformat()
+        doc["updated_at"] = datetime.now(UTC).isoformat()
         await db.repos.update_one(
             {"_id": self._to_object_id(repo.id)},
             {"$set": doc}
@@ -804,7 +804,7 @@ class MongoDBStore:
         """Update a specialist in MongoDB."""
         db = self._get_db()
         doc = self._prepare_doc(specialist)
-        doc["updated_at"] = datetime.utcnow().isoformat()
+        doc["updated_at"] = datetime.now(UTC).isoformat()
         await db.specialists.update_one(
             {"_id": self._to_object_id(specialist.id)},
             {"$set": doc}
@@ -863,7 +863,7 @@ class MongoDBStore:
         """Update a knowledge item in MongoDB."""
         db = self._get_db()
         doc = self._prepare_doc(item)
-        doc["updated_at"] = datetime.utcnow().isoformat()
+        doc["updated_at"] = datetime.now(UTC).isoformat()
         await db.knowledge_items.update_one(
             {"_id": self._to_object_id(item.id)},
             {"$set": doc}
@@ -1369,7 +1369,7 @@ class SQLiteStore:
             """,
             (
                 system.id, company_id, system.system_type, system.name,
-                system.model_dump_json(), datetime.utcnow().isoformat(),
+                system.model_dump_json(), datetime.now(UTC).isoformat(),
             ),
         )
         await conn.commit()
