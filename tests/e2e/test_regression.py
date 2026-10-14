@@ -305,8 +305,8 @@ class TestDashboard:
 
     def test_navigate_from_dashboard(self, page: Page):
         page.goto(f"{BASE_URL}/", wait_until="networkidle", timeout=15000)
-        # Click any nav link
-        links = page.locator("nav a, [role='navigation'] a, a[href]")
+        # Click any nav link (skip accessibility "skip to content" link)
+        links = page.locator("nav a:not(.skip-link), [role=navigation] a:not(.skip-link), a[href]:not(.skip-link)")
         if links.count() > 0:
             first_link = links.first
             href = first_link.get_attribute("href") or ""
@@ -315,7 +315,6 @@ class TestDashboard:
             Report.ok(f"Dashboard: navigation click → {href[:40]}")
         else:
             Report.ok("Dashboard: navigation present")
-
 
 class TestProviders:
     """Provider CRUD: create, list, test connection, delete."""
