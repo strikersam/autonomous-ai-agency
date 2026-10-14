@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 ### Fixed
+- **Nightly regression false positives**: Fixed the workflow's server error detection to not match "500ms" wait times from Playwright's retry logic. The grep pattern now specifically matches HTTP 500/503 status codes (e.g., "HTTP 500", "status 500", "500 Internal", "503 Service") rather than any occurrence of "500" or "503".
+- **Test navigation flakiness**: Updated `test_navigate_from_dashboard` to skip the accessibility "skip to content" link (`.skip-link`) which was outside the viewport and causing click timeouts.
 - `tests/test_brain_config_store.py` — Fixed test isolation by clearing provider API key environment variables (`CEREBRAS_API_KEY`, `GROQ_API_KEY`, `NVIDIA_API_KEY`, `TOKENIN_API_KEY`, `OMNIROUTE_API_KEY`) in the `_isolated_store` fixture. This ensures `test_get_never_raises_on_total_failure` and other tests get deterministic `recommended_brain_config()` results regardless of CI environment state.
 ### Added
 

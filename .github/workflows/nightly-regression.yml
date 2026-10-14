@@ -255,7 +255,9 @@ jobs:
           # avoids ever mixing two stdout streams into one variable.
           CONSOLE_ERRORS=$(grep -c "console error" "$FAILURE_LOG" 2>/dev/null) || CONSOLE_ERRORS=0
           CRUD_FAILURES=$(grep -c "could not create\|could not find\|navigation error\|empty page" "$FAILURE_LOG" 2>/dev/null) || CRUD_FAILURES=0
-          SERVER_ERRORS=$(grep -c "500\|503\|Internal Server Error" "$FAILURE_LOG" 2>/dev/null) || SERVER_ERRORS=0
+          # Match HTTP 500/503 status codes specifically, not "500ms" wait times
+          # Pattern matches: " 500 ", " 500\n", "500 Internal", "503 Service", "HTTP 500", "status 500"
+          SERVER_ERRORS=$(grep -cE "(^|[^0-9])(500|503)( |$| Internal| Service)" "$FAILURE_LOG" 2>/dev/null) || SERVER_ERRORS=0
 
           echo "console_errors=$CONSOLE_ERRORS" >> $GITHUB_OUTPUT
           echo "crud_failures=$CRUD_FAILURES" >> $GITHUB_OUTPUT
