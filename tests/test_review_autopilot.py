@@ -129,13 +129,49 @@ async def test_a_linked_pr_that_the_verifier_passes_is_completed(store, monkeypa
     assert saved.verification.verdict == "PASS" and saved.verification.verifier == ra.ACTOR
 
 
-async def test_a_linked_pr_without_proof_stays_for_a_person(store, monkeypatch):
+async def test_a_linked_pr_without_proof_leaves_review_as_failed(store, monkeypatch):
     _verifier(monkeypatch, "APPROVED", tests_passed=False)  # approval with no tests run is not proof
     task = await store.create(_in_review(result=f"Opened {PR}"))
     await ra.run_review_autopilot(store)
     saved = await store.get(task.task_id)
-    assert saved.status is TaskStatus.IN_REVIEW
-    assert any(c.body.startswith("Not completed automatically") for c in saved.comments)
+    assert saved.status is TaskStatus.FAILED
+    assert saved.error_message.startswith("The independent verifier did not pass it")
+
+
+async def test_a_failed_verdict_never_stays_in_review(store):
+    # Operator 2026-10-15: tasks the verifier failed were stuck in "Review".
+    task = _in_review()
+    task.verification = TaskVerification(verdict="FAIL", verifier="agent:judge", defects_found=["breaks login"])
+    await store.create(task)
+    result = await ra.run_review_autopilot(store)
+    saved = await store.get(task.task_id)
+    assert saved.status is TaskStatus.FAILED and "breaks login" in saved.error_message
+    assert result.failed == 1
+
+
+async def test_a_task_an_earlier_pass_left_in_review_is_moved_out(store):
+    task = _in_review()
+    task.add_log("left for a person", event_type=ra.DECLINED, actor=ra.ACTOR)
+    await store.create(task)
+    await ra.run_review_autopilot(store)
+    assert (await store.get(task.task_id)).status is TaskStatus.FAILED
+
+
+async def test_nothing_to_verify_and_no_agent_is_failed(store):
+    task = _in_review()
+    task.agent_id = None
+    await store.create(task)
+    await ra.run_review_autopilot(store)
+    saved = await store.get(task.task_id)
+    assert saved.status is TaskStatus.FAILED and "nothing the verifier can check" in saved.error_message
+
+
+async def test_outward_facing_review_tasks_stay_with_a_person(store):
+    task = _in_review(task_type="deploy")
+    task.verification = TaskVerification(verdict="FAIL", verifier="agent:judge", defects_found=["x"])
+    await store.create(task)
+    await ra.run_review_autopilot(store)
+    assert (await store.get(task.task_id)).status is TaskStatus.IN_REVIEW
 
 
 async def test_a_review_task_with_nothing_to_check_gets_one_fresh_run(store):
@@ -149,6 +185,8 @@ async def test_a_review_task_with_nothing_to_check_gets_one_fresh_run(store):
     await store.update(saved)
     result = await ra.run_review_autopilot(store)
     assert result.requeued == 0
+    after = await store.get(task.task_id)
+    assert after.status is TaskStatus.FAILED and "still unverified after a fresh run" in after.error_message
 
 
 async def test_the_fresh_run_gets_a_fresh_rework_budget():

@@ -2980,11 +2980,61 @@ class AgentRunner:
             return []
         return [sha] if sha else []
 
+    async def _judge_diff(self, step_results: list[dict[str, Any]], commits: list[str]) -> str:
+        """The change for the judge: the git diff where the edits live, plus the
+        current content of any changed file the diff does not show.
+
+        Production 2026-10-12..15: every sandbox run reached the judge as
+        "Diff: (unavailable)" and was rejected, so no task could ever pass.
+        """
+        from agent import empirical_verify as ev
+        from agent.pr_gate import resolve_base, review_diff
+
+        diff = ""
+        if commits:
+            try:
+                base = await asyncio.to_thread(resolve_base, self.tools.root, self.base_branch, len(commits))
+                diff = await asyncio.to_thread(review_diff, self.tools.root, base)
+            except Exception:
+                log.warning("Could not build the judge diff", exc_info=True)
+        if ev.is_sandbox(self._mcp):
+            # The edits live in the sandbox; the host diff holds at most the plan file.
+            diff = "\n".join(d for d in (diff, await ev.sandbox_diff(self._mcp)) if d)
+        changed = list(dict.fromkeys(
+            str(f).removeprefix("./") for s in step_results if s.get("status") == "applied"
+            for f in (s.get("changed_files") or [])
+        ))
+        missing = [f for f in changed if f"b/{f}" not in diff]
+        extra, shown = await self._changed_content(missing)
+        log.info("Judge brief: %d changed file(s), git diff %d chars, %d shown as content",
+                 len(changed), len(diff), shown)
+        return "\n".join(d for d in (diff, extra) if d)
+
+    async def _changed_content(self, paths: list[str], limit: int = 3000) -> tuple[str, int]:
+        """Current content of changed files git could not diff (no baseline), and how many."""
+        from agent import empirical_verify as ev
+
+        parts: list[str] = []
+        # Only repo-relative paths: this content goes to a model, and the
+        # sandbox resolver does not clamp absolute or "../" paths.
+        safe = [p for p in paths if p and not p.startswith(("/", "~")) and ".." not in p.split("/")]
+        for path in safe[:5]:
+            try:
+                if ev.is_sandbox(self._mcp):
+                    text = await self._mcp.call_tool("read_file", {"path": path})
+                else:
+                    text = await asyncio.to_thread(self._safe_read, path)
+            except Exception:  # noqa: BLE001 - an unreadable file is just not shown
+                continue
+            if text:
+                parts.append(f"--- {path} (current content; no git baseline to diff against)\n{text[:limit]}")
+        return "\n".join(parts), len(parts)
+
     async def _judge_brief(
         self, plan: AgentPlan, step_results: list[dict[str, Any]], commits: list[str]
     ) -> str:
         """What the judge reviews: goal, plan, and the actual diff (not a step count)."""
-        from agent.pr_gate import resolve_base, review_diff, review_policy
+        from agent.pr_gate import review_policy
 
         planned = sorted({f for s in plan.steps for f in s.files})
         lines = [
@@ -2994,18 +3044,7 @@ class AgentRunner:
             f" of {len(step_results)}",
             f"Risky review required: {plan.requires_risky_review}",
         ]
-        diff = ""
-        if commits:
-            try:
-                base = await asyncio.to_thread(resolve_base, self.tools.root, self.base_branch, len(commits))
-                diff = await asyncio.to_thread(review_diff, self.tools.root, base)
-            except Exception:
-                log.warning("Could not build the judge diff", exc_info=True)
-        from agent import empirical_verify as ev
-
-        if ev.is_sandbox(self._mcp):
-            # The edits live in the sandbox; the host diff holds at most the plan file.
-            diff = "\n".join(d for d in (diff, await ev.sandbox_diff(self._mcp)) if d)
+        diff = await self._judge_diff(step_results, commits)
         lines.append(f"Diff:\n```diff\n{diff}\n```" if diff else "Diff: (unavailable)")
         policy = await asyncio.to_thread(review_policy, self.tools.root)
         if policy:

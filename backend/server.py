@@ -8322,11 +8322,13 @@ async def _autonomy_bg_cycle():
                             _wo._BYPASS.reset(_bypass_token)
                         task.result = result.output
                         if result.success:
+                            # Cleared first: a verification FAIL sets the defects as the error.
+                            task.error_message = None
                             from tasks.verification import settle_success
                             settle_success(task, (result.metadata or {}).get("raw_result"), actor="runtime:internal_agent")
                         else:
                             task.status = "failed"
-                        task.error_message = None if result.success else "Execution failed"
+                            task.error_message = "Execution failed"
                         await store.update(task)
                         dispatch_status["ran"] = True
                         dispatch_status["result_status"] = task.status
@@ -9032,11 +9034,13 @@ async def autonomy_tick(request: Request) -> dict[str, object]:
                             )
                             task.result = exec_result.output
                             if exec_result.success:
+                                # Cleared first: a verification FAIL sets the defects as the error.
+                                task.error_message = None
                                 from tasks.verification import settle_success
                                 settle_success(task, (exec_result.metadata or {}).get("raw_result"), actor="runtime:internal_agent")
                             else:
                                 task.status = "failed"
-                            task.error_message = None if exec_result.success else "Execution failed"
+                                task.error_message = "Execution failed"
                             await store.update(task)
                             result["dispatch"]["ran"] = True
                             result["dispatch"]["result_status"] = task.status

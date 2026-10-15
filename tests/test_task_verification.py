@@ -143,7 +143,9 @@ def test_a_fail_logs_its_defects(caplog):
     assert "Verification FAIL for" in caplog.text and "breaks login" in caplog.text
 
 
-def test_repeated_fails_park_for_a_person_instead_of_looping():
+def test_repeated_fails_end_failed_not_in_review():
+    # Operator 2026-10-15: work the verifier failed must never sit in the
+    # review lane; after the rework budget it is FAILED, with the defects.
     wf = TaskWorkflowService(store=TaskStore())
     task = _task()
     for _ in range(2):
@@ -152,8 +154,17 @@ def test_repeated_fails_park_for_a_person_instead_of_looping():
         assert task.status is TaskStatus.IN_PROGRESS
     task.verification = _reject()
     wf.transition(task, TaskStatus.DONE, actor="agent:dev")
-    assert task.status is TaskStatus.IN_REVIEW
-    assert "needs a person" in task.review_reason
+    assert task.status is TaskStatus.FAILED
+    assert task.review_reason is None
+    assert "breaks login" in task.error_message
+
+
+def test_settle_success_never_parks_a_failed_run_in_review():
+    task = _task()
+    rejected = {"steps": [], "judge": {"verdict": "REJECTED", "notes": "wrong file"}}
+    for _ in range(3):
+        settle_success(task, rejected, actor="runtime:internal_agent")
+    assert task.status is TaskStatus.FAILED and "wrong file" in task.error_message
 
 
 def test_a_person_acting_resets_the_rework_budget():
@@ -341,3 +352,17 @@ def test_software_actors_are_never_counted_as_the_human_verifier(actor):
 def test_people_and_relayed_human_approvals_count(actor):
     from tasks.verification import is_human_actor
     assert is_human_actor(actor) is True
+
+
+def test_ceo_dispatch_does_not_wipe_the_defects_settle_success_records():
+    # Codex review on #1761: both direct-dispatch paths in backend/server.py
+    # cleared error_message after settle_success, losing a FAIL's defects.
+    import re
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1].joinpath("backend", "server.py").read_text()
+    calls = [m.start() for m in re.finditer(r"settle_success\(task,", src)]
+    assert len(calls) >= 2
+    for at in calls:
+        after = src[at:at + 400]
+        assert "error_message = None if" not in after

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import shlex
 import subprocess  # nosec B404 - list-form argv only, no shell
 import sys
@@ -143,14 +144,20 @@ async def ensure_dependencies(session: Any) -> str | None:
     return note or None
 
 
-# Everything changed since the sandbox was seeded (its root commit), including
-# commits made inside the sandbox and new files the agent created.
-_SANDBOX_DIFF_CMD = (
-    "base=$(git rev-list --max-parents=0 HEAD 2>/dev/null | tail -n 1); "
-    "git diff --stat --patch ${base:-HEAD}; "
+# Everything changed since the sandbox was seeded, including commits made
+# inside the sandbox and new files the agent created. The base is the commit
+# recorded at seed time; never the root commit, which on a shallow clone is an
+# arbitrary old commit and showed the judge weeks of unrelated history.
+_UNTRACKED_DIFF = (
     "git ls-files -z --others --exclude-standard | "
     "xargs -0 -r -n 1 git diff --no-index -- /dev/null; true"
 )
+
+
+def _sandbox_diff_cmd(session: Any) -> str:
+    base = getattr(session, "_base_sha", None)
+    base = base if isinstance(base, str) and re.fullmatch(r"[0-9a-f]{40}", base) else "HEAD"
+    return f"git diff --stat --patch {base}; {_UNTRACKED_DIFF}"
 
 
 async def sandbox_diff(session: Any, max_chars: int = 12000) -> str:
@@ -161,7 +168,7 @@ async def sandbox_diff(session: Any, max_chars: int = 12000) -> str:
     rejected every sandbox run. Returns "" when the diff cannot be read.
     """
     try:
-        raw = await session.call_tool("run_command", {"cmd": _SANDBOX_DIFF_CMD, "timeout": 60})
+        raw = await session.call_tool("run_command", {"cmd": _sandbox_diff_cmd(session), "timeout": 60})
         out = json.loads(raw).get("stdout") or ""
     except Exception as exc:  # noqa: BLE001 - no diff is a gap, not a crash
         log.warning("empirical verify: could not read the sandbox diff: %s", exc)
