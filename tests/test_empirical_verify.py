@@ -322,3 +322,18 @@ def test_judge_sees_changed_files_content_when_git_has_no_diff(tmp_path, monkeyp
     brief = asyncio.run(runner._judge_brief(plan, steps, []))
     assert "(unavailable)" not in brief
     assert "--- mymod.py (current content" in brief and "def fixed()" in brief
+
+
+def test_judge_never_reads_files_outside_the_repo(tmp_path, monkeypatch):
+    runner = _sandbox_runner(tmp_path, monkeypatch, [("git diff", 0, "")])
+    read: list = []
+
+    async def call_tool(name, args, _orig=runner._mcp.call_tool):
+        if name == "read_file":
+            read.append(args["path"])
+            return "secret"
+        return await _orig(name, args)
+
+    runner._mcp.call_tool = call_tool
+    out, shown = asyncio.run(runner._changed_content(["/etc/passwd", "../../x", "a/../../b", "~/.ssh/id", "ok.py"]))
+    assert read == ["ok.py"] and "ok.py" in out and shown == 1

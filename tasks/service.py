@@ -1601,7 +1601,8 @@ class TaskExecutionCoordinator:
             task.add_log(note, event_type="verification_unbacked", actor=actor, task_status=task.status)
 
         next_status = metadata.get("task_status")
-        if task.requires_approval and next_status in (None, TaskStatus.DONE.value):
+        failed_verdict = task.verification is not None and not task.verification.passed
+        if task.requires_approval and next_status in (None, TaskStatus.DONE.value) and not failed_verdict:
             next_status = TaskStatus.IN_REVIEW.value
             metadata.setdefault("review_reason", "Awaiting approval before completion")
 
