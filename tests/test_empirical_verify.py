@@ -406,3 +406,36 @@ def test_judge_never_reads_files_outside_the_repo(tmp_path, monkeypatch):
     runner._mcp.call_tool = call_tool
     out, shown = asyncio.run(runner._changed_content(["/etc/passwd", "../../x", "a/../../b", "~/.ssh/id", "ok.py"]))
     assert read == ["ok.py"] and "ok.py" in out and shown == 1
+
+
+def _git(root, *args):
+    import subprocess
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", *args], cwd=root,
+                   check=True, capture_output=True)
+
+
+def test_host_run_without_commits_gives_the_judge_a_real_diff(tmp_path, monkeypatch):
+    # Production 2026-10-15: host runs write files but make no commits, so every
+    # brief logged "git diff 0 chars" and the judge saw content, never a diff.
+    from agent.models import AgentPlan, AgentStep
+
+    runner = _make_runner(tmp_path)
+    root = Path(runner.tools.root)
+    (root / "mymod.py").write_text("def answer():\n    return 41\n", encoding="utf-8")
+    _git(root, "init", "-q")
+    _git(root, "add", "mymod.py")
+    _git(root, "commit", "-qm", "base")
+    (root / "mymod.py").write_text("def answer():\n    return 42\n", encoding="utf-8")
+    (root / "notes.md").write_text("new file\n", encoding="utf-8")
+    plan = AgentPlan(goal="fix answer", steps=[AgentStep(id=1, description="d", files=["mymod.py"], type="edit")])
+    steps = [{"status": "applied", "changed_files": ["mymod.py", "notes.md"]}]
+    brief = asyncio.run(runner._judge_brief(plan, steps, []))
+    assert "-    return 41" in brief and "+    return 42" in brief
+    assert "+new file" in brief and "current content" not in brief
+
+
+def test_host_run_outside_git_still_shows_content(tmp_path):
+    runner = _make_runner(tmp_path)
+    (Path(runner.tools.root) / "mymod.py").write_text("x = 1\n", encoding="utf-8")
+    diff = asyncio.run(runner._judge_diff([{"status": "applied", "changed_files": ["mymod.py"]}], []))
+    assert "--- mymod.py (current content" in diff
