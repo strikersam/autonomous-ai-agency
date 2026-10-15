@@ -76,3 +76,25 @@ def test_cli_runs_as_a_script(repo):
                            "--files", "calc.py"], capture_output=True, text=True, timeout=120)
     assert proc.returncode == 0, proc.stderr[-2000:]
     assert json.loads(proc.stdout)["checks_ok"] is True
+
+
+def test_missing_requested_file_is_not_silently_dropped(repo):
+    (repo / "calc.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+    code, result = _run(repo, "calc.py", "gone.py")
+    assert code == 2 and not result["checks_ok"]
+    missing = [c for c in result["report"]["checks"] if c["check_id"] == "static:exists:gone.py"]
+    assert missing and missing[0]["status"] == "unavailable"
+
+
+def test_file_rewritten_during_the_checks_invalidates_them(repo):
+    """A check binds to the content it ran on; a test that rewrites the source
+    leaves passes that prove nothing about the final content."""
+    (repo / "calc.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+    (repo / "tests" / "test_calc.py").write_text(
+        TEST + "\n\ndef test_rewrite():\n    import pathlib\n"
+        "    p = pathlib.Path(__file__).resolve().parent.parent / 'calc.py'\n"
+        "    p.write_text(p.read_text() + '\\n# changed\\n')\n", encoding="utf-8")
+    code, result = _run(repo, "calc.py")
+    assert code == 2
+    assert any(c["status"] == "untrusted" and "changed while the checks ran" in c["reason"]
+               for c in result["report"]["checks"])
