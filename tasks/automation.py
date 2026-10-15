@@ -34,6 +34,12 @@ class TaskAutomationService:
         job_tags = list(getattr(job, "tags", []) or [])
         if await self._discard_if_company_gone(job, job_tags):
             return None
+        from tasks.improvement_throttle import skip_reason
+        reason = await skip_reason(self.store, job.name, job_tags)
+        if reason:
+            log.info("Scheduler: not creating a task for %s (%s): %s",
+                     getattr(job, "job_id", "?"), job.name, reason)
+            return None
 
         task = Task(
             owner_id=self.owner_id,
