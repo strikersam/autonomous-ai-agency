@@ -403,7 +403,7 @@ def _git_out(argv: list[str], root: Path) -> str:
     """Full stdout of a git command (``_run`` keeps only the tail); "" on error."""
     try:
         return subprocess.run(  # nosec B603 B607 - fixed git argv, list form
-            argv, cwd=root, capture_output=True, text=True, timeout=60,
+            argv, cwd=root, capture_output=True, text=True, timeout=60, check=False,
         ).stdout
     except (subprocess.TimeoutExpired, OSError):
         return ""
