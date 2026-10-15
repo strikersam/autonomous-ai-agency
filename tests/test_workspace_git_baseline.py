@@ -45,3 +45,19 @@ def test_secret_files_never_enter_the_baseline(tmp_path):
         assert tracked == ["app.py", "secrets_store.py"]
     finally:
         InternalAgentAdapter._remove_worktree(str(ws), wt, tmp)
+
+
+def test_global_git_signing_does_not_break_the_baseline(tmp_path, monkeypatch):
+    # Verifier finding: commit.gpgsign=true with no usable key failed the commit.
+    cfg = tmp_path / "gitconfig"
+    cfg.write_text("[commit]\n\tgpgsign = true\n[gpg]\n\tprogram = false\n", encoding="utf-8")
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(cfg))
+    ws = tmp_path / "workspace"
+    ws.mkdir()
+    (ws / "a.py").write_text("x\n", encoding="utf-8")
+    wt, tmp = InternalAgentAdapter._create_worktree(str(ws), "task_sig")
+    try:
+        assert _git(wt, "ls-files").split() == ["a.py"]
+        assert _git(wt, "rev-parse", "HEAD").strip()
+    finally:
+        InternalAgentAdapter._remove_worktree(str(ws), wt, tmp)

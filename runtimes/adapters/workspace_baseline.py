@@ -17,7 +17,8 @@ log = logging.getLogger("qwen-proxy")
 # Never committed, so never seeded into a sandbox or shown to a model.
 BASELINE_EXCLUDES = (".env", ".env.*", "*.env", "*.pem", "*.key", "*.p12", "id_rsa*", "credentials.json")
 
-_IDENTITY = ["-c", "user.email=agent@localhost", "-c", "user.name=Agent", "-c", "core.hooksPath=/dev/null"]
+_IDENTITY = ["-c", "user.email=agent@localhost", "-c", "user.name=Agent", "-c", "core.hooksPath=/dev/null",
+             "-c", "commit.gpgsign=false"]
 
 
 def git_baseline(path: str) -> bool:
