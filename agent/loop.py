@@ -2980,13 +2980,13 @@ class AgentRunner:
             for f in (s.get("changed_files") or [])
         ))
         missing = [f for f in changed if f"b/{f}" not in diff]
-        extra = await self._changed_content(missing)
+        extra, shown = await self._changed_content(missing)
         log.info("Judge brief: %d changed file(s), git diff %d chars, %d shown as content",
-                 len(changed), len(diff), len(missing))
+                 len(changed), len(diff), shown)
         return "\n".join(d for d in (diff, extra) if d)
 
-    async def _changed_content(self, paths: list[str], limit: int = 3000) -> str:
-        """Current content of changed files git could not diff (no baseline)."""
+    async def _changed_content(self, paths: list[str], limit: int = 3000) -> tuple[str, int]:
+        """Current content of changed files git could not diff (no baseline), and how many."""
         from agent import empirical_verify as ev
 
         parts: list[str] = []
@@ -3003,7 +3003,7 @@ class AgentRunner:
                 continue
             if text:
                 parts.append(f"--- {path} (current content; no git baseline to diff against)\n{text[:limit]}")
-        return "\n".join(parts)
+        return "\n".join(parts), len(parts)
 
     async def _judge_brief(
         self, plan: AgentPlan, step_results: list[dict[str, Any]], commits: list[str]

@@ -335,5 +335,5 @@ def test_judge_never_reads_files_outside_the_repo(tmp_path, monkeypatch):
         return await _orig(name, args)
 
     runner._mcp.call_tool = call_tool
-    out = asyncio.run(runner._changed_content(["/etc/passwd", "../../x", "a/../../b", "~/.ssh/id", "ok.py"]))
-    assert read == ["ok.py"] and "ok.py" in out
+    out, shown = asyncio.run(runner._changed_content(["/etc/passwd", "../../x", "a/../../b", "~/.ssh/id", "ok.py"]))
+    assert read == ["ok.py"] and "ok.py" in out and shown == 1
