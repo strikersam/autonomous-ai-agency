@@ -331,3 +331,29 @@ def test_sandbox_failure_confirmed_on_rerun_stays_failed(tmp_path, monkeypatch):
     assert sum("pytest -x" in c for c in runner._mcp.cmds) == 2  # confirmed once, not retried until green
     unit = [r for r in runner._last_check_results if r["strategy"] == "unit"]
     assert unit[0]["status"] == "failed"
+
+
+def test_confirmation_rerun_timeout_keeps_the_first_failure(tmp_path, monkeypatch):
+    """A failing test whose confirmation re-run times out is still a failure, not a timeout."""
+    import subprocess as sp
+
+    from agent import empirical_verify as ev
+
+    calls = {"n": 0}
+
+    def fake_run(argv, **kw):
+        calls["n"] += 1
+        if "py_compile" in argv:
+            return sp.CompletedProcess(argv, 0, "", "")
+        if calls["n"] == 2:
+            return sp.CompletedProcess(argv, 1, "FAILED test_x - assert 1 == 2\n1 failed", "")
+        raise sp.TimeoutExpired(argv, 1)
+
+    root = tmp_path / "repo"
+    (root / "tests").mkdir(parents=True)
+    (root / "tests" / "test_mod.py").write_text("def test_x():\n    assert 1 == 2\n", encoding="utf-8")
+    monkeypatch.setattr(ev.subprocess, "run", fake_run)
+    outcome = ev.verify_on_host(root, ["mod.py"], {})
+    unit = [r for r in outcome.results if r["strategy"] == "unit"]
+    assert [r["status"] for r in unit] == ["failed"]
+    assert outcome.issues and "tests failed" in outcome.issues[0]

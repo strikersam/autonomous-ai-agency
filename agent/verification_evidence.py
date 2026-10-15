@@ -47,9 +47,30 @@ _MAX_TEXT = 2000
 
 
 def _redact(text: Any, limit: int = _MAX_TEXT) -> str:
+    """Redact, then keep the tail (output: the failure is at the end)."""
     from packages.security.redact import redact_secrets
 
     return redact_secrets(str(text or ""))[-limit:]
+
+
+def _clean(text: Any, limit: int) -> str:
+    """Redact, then keep the head. Redacting first means a secret cut in half
+    by the limit is still recognised and removed."""
+    from packages.security.redact import redact_secrets
+
+    return redact_secrets(str(text or ""))[:limit]
+
+
+def _clean_list(v: Any) -> list[str]:
+    return [_clean(x, 600) for x in list(v or [])[:200]]
+
+
+def _clean_keys(v: Any) -> dict[str, str]:
+    return {_clean(k, 600): _clean(val, 64) for k, val in dict(v or {}).items()}
+
+
+def _is_py(path: Any) -> bool:
+    return str(path).lower().endswith(".py")
 
 
 def fingerprint_content(content: str) -> str:
@@ -79,6 +100,21 @@ class CheckResult(BaseModel):
     def _short(cls, v: Any) -> str:
         return _redact(v, 600)
 
+    @field_validator("check_id", "strategy", mode="before")
+    @classmethod
+    def _ident(cls, v: Any) -> str:
+        return _clean(v, 300)
+
+    @field_validator("files", mode="before")
+    @classmethod
+    def _paths(cls, v: Any) -> list[str]:
+        return _clean_list(v)
+
+    @field_validator("fingerprints", mode="before")
+    @classmethod
+    def _prints(cls, v: Any) -> dict[str, str]:
+        return _clean_keys(v)
+
     @field_validator("output_tail", mode="before")
     @classmethod
     def _tail(cls, v: Any) -> str:
@@ -96,7 +132,12 @@ class Finding(BaseModel):
     @field_validator("message", mode="before")
     @classmethod
     def _msg(cls, v: Any) -> str:
-        return _redact(v, 800)
+        return _clean(v, 800)
+
+    @field_validator("criterion_id", "check_id", mode="before")
+    @classmethod
+    def _ident(cls, v: Any) -> str | None:
+        return None if v is None else _clean(v, 300)
 
 
 class CriterionResult(BaseModel):
@@ -104,6 +145,11 @@ class CriterionResult(BaseModel):
     status: Literal["passed", "failed", "unverified"]
     check_ids: list[str] = Field(default_factory=list)
     note: str = ""
+
+    @field_validator("check_ids", mode="before")
+    @classmethod
+    def _ids(cls, v: Any) -> list[str]:
+        return _clean_list(v)
 
 
 class EvidenceReport(BaseModel):
@@ -139,7 +185,17 @@ class EvidenceReport(BaseModel):
                      "limitations", "reasons", mode="before")
     @classmethod
     def _lines(cls, v: Any) -> list[str]:
-        return [_redact(x, 600) for x in list(v or [])[:60]]
+        return [_clean(x, 600) for x in list(v or [])[:60]]
+
+    @field_validator("commits", "changed_files", "models_used", mode="before")
+    @classmethod
+    def _idents(cls, v: Any) -> list[str]:
+        return _clean_list(v)
+
+    @field_validator("file_fingerprints", mode="before")
+    @classmethod
+    def _prints(cls, v: Any) -> dict[str, str]:
+        return _clean_keys(v)
 
     def defects(self) -> list[str]:
         """Actionable lines for the agent that has to fix the work."""
@@ -209,10 +265,10 @@ def _step_findings(steps: list[dict[str, Any]]) -> list[Finding]:
         if step.get("status") != "failed":
             continue
         sid = step.get("step_id")
-        issues = "; ".join(str(i)[:300] for i in (step.get("issues") or [])[:3]) or "no detail"
+        issues = "; ".join(_clean(i, 300) for i in (step.get("issues") or [])[:3]) or "no detail"
         out.append(Finding(
             kind=_classify_step_failure(step), criterion_id=f"step-{sid}",
-            message=f"Step {sid} '{str(step.get('description') or '')[:120]}' failed "
+            message=f"Step {sid} '{_clean(step.get('description'), 120)}' failed "
                     f"{step.get('failure_phase') or 'execution'}: {issues}",
         ))
     return out
@@ -260,10 +316,17 @@ def _judge_findings(judge: dict[str, Any], defects: list[Finding]) -> list[Findi
 
 # ── coverage ──────────────────────────────────────────────────────────────────
 
-def _passing(checks: list[CheckResult], strategy: str, step_id: Any, files: list[str]) -> list[CheckResult]:
-    """Passing checks of *strategy* for this step, or later ones that cover all its files."""
+def _passing(checks: list[CheckResult], strategy: str, files: list[str],
+             final: dict[str, str]) -> list[CheckResult]:
+    """Passing checks of *strategy* that cover every one of *files* on its final content.
+
+    Matching on files rather than step ids, and on content fingerprints when
+    the run recorded them, means a check of some other file, or of an older
+    version of this one, never stands in for the check this step needed.
+    """
     return [c for c in checks if c.strategy == strategy and c.status == "passed"
-            and (c.step_id == step_id or set(files) <= set(c.files))]
+            and set(files) <= set(c.files)
+            and all(c.fingerprints.get(f) == final[f] for f in files if f in final)]
 
 
 def _gap_reason(checks: list[CheckResult], strategy: str, step_id: Any) -> str:
@@ -274,7 +337,7 @@ def _gap_reason(checks: list[CheckResult], strategy: str, step_id: Any) -> str:
 
 
 def _coverage(contract: VerificationContract, steps: list[dict[str, Any]],
-              checks: list[CheckResult]) -> tuple[list[str], list[Finding]]:
+              checks: list[CheckResult], final: dict[str, str]) -> tuple[list[str], list[Finding]]:
     """Mandatory per-step strategies (static, unit) that produced no passing result."""
     mandatory = set(contract.mandatory_strategies()) & {"static", "unit"}
     gaps: list[str] = []
@@ -282,12 +345,12 @@ def _coverage(contract: VerificationContract, steps: list[dict[str, Any]],
     for step in steps:
         if step.get("status") != "applied":
             continue
-        py = [f for f in step.get("changed_files") or [] if str(f).endswith(".py")]
+        py = [str(f) for f in step.get("changed_files") or [] if _is_py(f)]
         if not py:
             continue
         sid = step.get("step_id")
         for strategy in sorted(mandatory):
-            if _passing(checks, strategy, sid, py):
+            if _passing(checks, strategy, py, final):
                 continue
             why = _gap_reason(checks, strategy, sid)
             gaps.append(f"Step {sid}: mandatory {strategy} check has no passing result ({why})")
@@ -330,7 +393,7 @@ def _verdict(findings: list[Finding], criteria: list[CriterionResult]) -> FinalV
 def _untested_files(steps: list[dict[str, Any]], checks: list[CheckResult]) -> list[str]:
     covered = {f for c in checks if c.strategy == "unit" and c.status == "passed" for f in c.files}
     changed = {f for s in steps if s.get("status") == "applied" for f in s.get("changed_files") or []}
-    return sorted(f for f in changed if f.endswith(".py") and f not in covered)
+    return sorted(f for f in changed if _is_py(f) and f not in covered)
 
 
 def _run_findings(steps: list[dict[str, Any]], planned: int, budget_hit: bool, ui_gap: str | None) -> list[Finding]:
@@ -357,7 +420,7 @@ def build_report(
     final = _final_fingerprints(steps)
     _mark_stale(checks, final)
     defects = _step_findings(steps) + _check_findings(checks)
-    gaps, gap_findings = _coverage(contract, steps, checks)
+    gaps, gap_findings = _coverage(contract, steps, checks, final)
     planned = sum(1 for c in contract.criteria if c.source == "step")
     findings = (defects + gap_findings + _judge_findings(judge, defects)
                 + _run_findings(steps, planned, time_budget_exceeded, ui_gap))

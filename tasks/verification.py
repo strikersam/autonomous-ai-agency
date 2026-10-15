@@ -254,21 +254,45 @@ def evidence_policy_enforced() -> bool:
         return True
 
 
+_VERDICT_RANK = {"VERIFIED": 0, "INCONCLUSIVE": 1, "BLOCKED": 2, "FAILED": 3}
+
+
 def evidence_decision(raw: dict[str, Any] | None) -> tuple[str, dict[str, Any]] | None:
     """(verdict, report) from a run's evidence report, or None when the run has none.
 
-    A report that is not bound to the run's contract is INCONCLUSIVE: evidence
-    for some other contract proves nothing about this one.
+    The stored report is validated and its verdict recomputed from the run's
+    own steps and judge; the stricter of the two wins, so an edited verdict
+    cannot loosen anything. A report that is unreadable, or not bound to the
+    run's contract, is INCONCLUSIVE. Never raises.
     """
     if not isinstance(raw, dict) or not isinstance(raw.get("verification_report"), dict):
         return None
-    from agent.verification_evidence import check_binding
+    try:
+        return _decide_evidence(raw)
+    except Exception as exc:  # noqa: BLE001 - a broken record is not evidence, and must not crash the gate
+        log.warning("evidence report unusable: %s", type(exc).__name__)
+        return "INCONCLUSIVE", {"reasons": [f"evidence report unusable: {type(exc).__name__}"]}
 
-    report = raw["verification_report"]
-    unbound = check_binding(report, raw.get("verification_contract"))
+
+def _decide_evidence(raw: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    from agent.verification_contract import VerificationContract
+    from agent.verification_evidence import EvidenceReport, build_report, check_binding
+
+    unbound = check_binding(raw["verification_report"], raw.get("verification_contract"))
     if unbound:
-        return "INCONCLUSIVE", {**report, "reasons": [unbound]}
-    return str(report.get("verdict") or "INCONCLUSIVE"), report
+        return "INCONCLUSIVE", {"reasons": [unbound]}
+    stored = EvidenceReport.model_validate(raw["verification_report"]).model_dump()
+    contract = VerificationContract.model_validate(raw["verification_contract"])
+    steps = raw.get("steps") if isinstance(raw.get("steps"), list) else []
+    judge = raw.get("judge") if isinstance(raw.get("judge"), dict) else {}
+    again = build_report(contract, steps=steps, judge=judge,
+                         time_budget_exceeded=bool(raw.get("time_budget_exceeded")),
+                         ui_gap=_ui_proof_gap(raw)).model_dump()
+    pick = again if _VERDICT_RANK[again["verdict"]] > _VERDICT_RANK[stored["verdict"]] else stored
+    if pick is again:
+        again = {**again, "report_id": stored["report_id"], "source_revision": stored["source_revision"]}
+        pick = again
+    return pick["verdict"], pick
 
 
 def _evidence_line(report: dict[str, Any], verdict: str) -> str:

@@ -265,3 +265,94 @@ def test_report_build_failure_fails_closed(monkeypatch, tmp_path):
            "verification_report": report}
     assert tv.evidence_decision(raw)[0] == "INCONCLUSIVE"
     assert tv.verification_from_run(raw) is None  # approval withheld
+
+
+# ── Regressions from the independent verification round (2026-10-15) ─────────
+
+
+@pytest.mark.parametrize("requires_approval,task_status", [(False, None), (True, None), (False, "in_review")])
+def test_apply_result_tags_high_risk_on_every_review_path(requires_approval, task_status):
+    """A verified high-risk task headed to review by another route (requires_approval,
+    an explicit in_review) was left untagged, so the review autopilot completed it."""
+    import asyncio
+
+    from runtimes.base import TaskResult
+    from tasks.service import TaskExecutionCoordinator, TaskWorkflowService, _is_outward_facing
+
+    class Store:
+        async def save(self, *a, **k):
+            return None
+
+    path = "packages/auth/admin.py"
+    raw = _raw(_contract([path]), [_step(files=[path])])
+    coordinator = object.__new__(TaskExecutionCoordinator)
+    coordinator.workflow = TaskWorkflowService(store=Store())
+
+    async def no_independent_check(task, result, rr):
+        return rr
+
+    coordinator._independent_check = no_independent_check
+    task = Task(owner_id="u", title="x", status=TaskStatus.IN_PROGRESS, requires_approval=requires_approval)
+    metadata = {"raw_result": raw, **({"task_status": task_status} if task_status else {})}
+    result = TaskResult(task_id=task.task_id, success=True, output="ok", runtime_id="internal_agent", metadata=metadata)
+    asyncio.run(coordinator._apply_result(task, None, result))
+    assert task.status == TaskStatus.IN_REVIEW
+    assert tv.HIGH_RISK_TAG in task.tags and _is_outward_facing(task)
+
+
+@pytest.mark.parametrize("bad", [{"checks": 5}, {"findings": 5}, {"verdict": "FAILED", "findings": 5},
+                                 {"verdict": 3}, {"contract_fingerprint": None}])
+def test_malformed_report_never_raises_and_withholds_approval(bad):
+    contract = _contract()
+    raw = _raw(contract, [_step()])
+    raw["verification_report"] = {**raw["verification_report"], **bad}
+    verdict = tv.verification_from_run(raw)  # must not raise
+    assert verdict is None or not verdict.passed
+
+
+def test_edited_verdict_cannot_loosen_the_decision():
+    """The stored verdict is recomputed from the run's own steps: editing it to
+    VERIFIED does not hide a failed step."""
+    bad = _step(sid=2, status="failed", checks=[_check("unit", "failed", ["calc.py"], sid=2)],
+                failure_phase="empirical_verification", issues=["1 failed"])
+    raw = _raw(_contract(steps=2), [_step(), bad])
+    raw["verification_report"]["verdict"] = "VERIFIED"
+    raw["verification_report"]["findings"] = []
+    assert tv.evidence_decision(raw)[0] == "FAILED"
+    assert tv.verification_from_run(raw).verdict == "FAIL"
+
+
+def test_secret_cut_by_the_length_limit_is_still_redacted():
+    # Cut at 300 chars before redaction, the key kept only 11 characters, below the
+    # redactor's 16-character minimum, so the fragment leaked.
+    key = "sk-" + "A1b2C3d4E5" * 4
+    step = _step(status="failed", checks=[], failure_phase="execution", issues=["x" * 286 + " " + key])
+    report = build_report(_contract(), steps=[step], judge=APPROVED)
+    assert "sk-A1b2C3d4E" not in str(report.model_dump())
+
+
+def test_identifier_fields_are_redacted():
+    token = "ghp_" + "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8"
+    check = CheckResult(check_id=f"unit:{token}", strategy="unit", status="passed",
+                        files=[f"dir/{token}.py"], fingerprints={f"dir/{token}.py": "h"})
+    step = {**_step(), "check_results": [check.model_dump()], "models": {"executor": token}}
+    report = build_report(_contract(), steps=[step], judge=APPROVED)
+    assert token not in str(report.model_dump())
+
+
+def test_check_of_another_file_does_not_cover_this_step():
+    other = [_check("static", "passed", ["a.py"]), _check("unit", "passed", ["a.py"])]
+    report = build_report(_contract(["b.py"]), steps=[_step(files=["b.py"], checks=other)], judge=APPROVED)
+    assert report.verdict == "INCONCLUSIVE"
+
+
+def test_check_without_content_binding_does_not_count():
+    unbound = [CheckResult(check_id="s", strategy="static", status="passed", step_id=1, files=["calc.py"]).model_dump(),
+               CheckResult(check_id="u", strategy="unit", status="passed", step_id=1, files=["calc.py"]).model_dump()]
+    report = build_report(_contract(), steps=[_step(checks=unbound)], judge=APPROVED)
+    assert report.verdict == "INCONCLUSIVE"
+
+
+def test_upper_case_python_extension_still_needs_checks():
+    report = build_report(_contract(["calc.PY"]), steps=[_step(files=["calc.PY"], checks=[])], judge=APPROVED)
+    assert report.verdict == "INCONCLUSIVE"

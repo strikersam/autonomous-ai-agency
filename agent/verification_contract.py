@@ -144,7 +144,7 @@ def classify_risk(paths: list[str]) -> tuple[RiskTier, list[str]]:
 
 
 def _has(paths: list[str], suffixes: tuple[str, ...]) -> bool:
-    return any(p.endswith(suffixes) for p in paths)
+    return any(p.lower().endswith(suffixes) for p in paths)
 
 
 def select_strategies(tier: str, paths: list[str], goal: str = "") -> list[StrategySelection]:

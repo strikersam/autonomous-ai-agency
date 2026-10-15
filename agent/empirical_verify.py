@@ -198,8 +198,12 @@ async def verify_in_sandbox(session: Any, py_files: list[str]) -> CheckOutcome:
     code, out = await _sh(session, cmd, limit)
     if code != 0 and not tests_not_runnable(code, out):
         # Confirm a failure once on identical code: pass-after-fail is flakiness,
-        # which is neither proof nor a defect in the change.
-        code2, out2 = await _sh(session, cmd, limit)
+        # which is neither proof nor a defect in the change. A confirmation that
+        # cannot finish leaves the first, real failure standing.
+        try:
+            code2, _ = await _sh(session, cmd, limit)
+        except Exception:  # noqa: BLE001 - the first failure is the evidence
+            code2 = code
         if code2 == 0:
             _record_flaky(result, py_files, targets, f"pytest -x {' '.join(targets)} (E2B sandbox)", out, began)
             return result
@@ -285,7 +289,10 @@ def verify_on_host(root: Path, py_files: list[str], env: dict[str, str]) -> Chec
         argv = [sys.executable, "-m", "pytest", "-x", "-q", *targets]
         code, out = run(argv)
         if code != 0 and not tests_not_runnable(code, out):
-            code2, _ = run(argv)
+            try:
+                code2, _ = run(argv)
+            except (subprocess.TimeoutExpired, OSError):
+                code2 = code  # the confirmation could not finish: the first failure stands
             if code2 == 0:
                 _record_flaky(result, py_files, targets, f"pytest -x {' '.join(targets)}", out, began)
                 return result
