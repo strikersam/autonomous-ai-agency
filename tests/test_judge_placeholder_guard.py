@@ -33,8 +33,9 @@ def test_a_real_change_keeps_its_verdict():
 
 
 def test_the_judge_is_told_to_reject_stubs():
-    import inspect
+    # The code judge's prompt lives in agent/judge_brief.py; a run that changed
+    # files (where stubs appear) always gets it.
+    from agent import judge_brief
 
-    from agent import loop
-
-    assert "placeholder" in inspect.getsource(loop.AgentRunner).split("You are a code-review judge")[1][:1500]
+    assert "REJECT placeholder work" in judge_brief.CODE_JUDGE_SYSTEM
+    assert judge_brief.judge_system([{"changed_files": ["tasks/task_1.py"]}]) == judge_brief.CODE_JUDGE_SYSTEM
