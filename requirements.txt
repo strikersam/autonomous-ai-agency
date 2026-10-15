@@ -32,7 +32,7 @@ pyasn1>=0.6.4
 setuptools>=84.0.0
 oauthlib>=4.0.0
 PyYAML>=6.0.3  # config/models.yaml catalog loader (packages/ai/brain_config.py)
-zipp>=3.23.1
+zipp>=4.1.1
 wheel>=0.48.0
 boto3>=1.43.111
 anthropic>=1.13.0
@@ -47,4 +47,4 @@ reportlab>=5.0.1,<6  # CTO-level PDF export for SEO/GEO/AEO/AIO audit reports
 # E2B Firecracker micro-VM sandbox (roadmap ★5). Optional — imports are guarded
 # so the deploy works without it; install to enable sandboxed agent execution.
 # Auto-on when E2B_API_KEY is set; kill-switch E2B_ENABLED=false.
-e2b-code-interpreter>=2.10.1,<3.0.0
+e2b-code-interpreter>=2.10.5,<3.0.0
