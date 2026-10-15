@@ -410,7 +410,7 @@ def test_judge_never_reads_files_outside_the_repo(tmp_path, monkeypatch):
 
 def _git(root, *args):
     import subprocess
-    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", *args], cwd=root,
+    subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", *args], cwd=root,  # nosec - test-only, fixed git argv, list form
                    check=True, capture_output=True)
 
 
