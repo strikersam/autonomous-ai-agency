@@ -352,3 +352,17 @@ def test_software_actors_are_never_counted_as_the_human_verifier(actor):
 def test_people_and_relayed_human_approvals_count(actor):
     from tasks.verification import is_human_actor
     assert is_human_actor(actor) is True
+
+
+def test_ceo_dispatch_does_not_wipe_the_defects_settle_success_records():
+    # Codex review on #1761: both direct-dispatch paths in backend/server.py
+    # cleared error_message after settle_success, losing a FAIL's defects.
+    import re
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1].joinpath("backend", "server.py").read_text()
+    calls = [m.start() for m in re.finditer(r"settle_success\(task,", src)]
+    assert len(calls) >= 2
+    for at in calls:
+        after = src[at:at + 400]
+        assert "error_message = None if" not in after
