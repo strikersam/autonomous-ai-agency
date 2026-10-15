@@ -37,6 +37,7 @@ EventType = Literal[
     # Empirical verification / spec-approval gate events
     "empirical_verify_failed",
     "spec_awaiting_approval",
+    "verification_failed",
 ]
 
 

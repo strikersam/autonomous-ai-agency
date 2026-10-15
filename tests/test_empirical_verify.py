@@ -288,3 +288,46 @@ def test_a_dead_sandbox_gives_no_diff_instead_of_raising():
             raise RuntimeError("sandbox gone")
 
     assert asyncio.run(ev.sandbox_diff(Dead([]))) == ""
+
+
+# ── Structured check results: not-run and could-not-run are never a pass ─────
+
+
+def test_disabled_verification_records_not_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "agent_empirical_verify_raw", "false")
+    runner = _make_runner(tmp_path)
+    assert asyncio.run(runner._empirical_verify_async(["mymod.py"])) == []
+    statuses = {r["strategy"]: r["status"] for r in runner._last_check_results}
+    assert statuses == {"static": "not_run", "unit": "not_run"}
+
+
+def test_dead_sandbox_records_unavailable_not_pass(tmp_path, monkeypatch):
+    runner = _sandbox_runner(tmp_path, monkeypatch, [])
+
+    async def boom(name, args):
+        raise ConnectionError("sandbox gone")
+
+    runner._mcp.call_tool = boom
+    assert asyncio.run(runner._empirical_verify_async(["mymod.py"])) == []
+    assert [r["status"] for r in runner._last_check_results] == ["unavailable"]
+    assert runner._last_executed_checks == []
+
+
+def test_host_records_passed_and_missing_tests(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "agent_empirical_verify_raw", "true")
+    runner = _make_runner(tmp_path)
+    (Path(runner.tools.root) / "clean.py").write_text("VALUE = 1\n", encoding="utf-8")
+    assert runner._empirical_verify(["clean.py"]) == []
+    statuses = {r["check_id"]: r["status"] for r in runner._last_check_results}
+    assert statuses == {"static:py_compile": "passed", "unit:pytest": "not_run"}
+
+
+def test_sandbox_failure_confirmed_on_rerun_stays_failed(tmp_path, monkeypatch):
+    runner = _sandbox_runner(tmp_path, monkeypatch, [
+        ("ls -1", 0, "tests/test_mymod.py\n"),
+        ("pytest -x", 1, "1 failed"),
+    ])
+    asyncio.run(runner._empirical_verify_async(["mymod.py"]))
+    assert sum("pytest -x" in c for c in runner._mcp.cmds) == 2  # confirmed once, not retried until green
+    unit = [r for r in runner._last_check_results if r["strategy"] == "unit"]
+    assert unit[0]["status"] == "failed"

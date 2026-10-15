@@ -34,8 +34,11 @@ from typing import Any, Callable
 
 log = logging.getLogger("qwen-proxy")
 
+# verification_failed is the evidence report's non-VERIFIED verdict
+# (agent/verification_runtime.py); clustering it by failure class files an
+# issue for a person, it never changes a verification rule on its own.
 _FRICTION_EVENT_TYPES = frozenset(
-    {"empirical_verify_failed", "spec_awaiting_approval"}
+    {"empirical_verify_failed", "spec_awaiting_approval", "verification_failed"}
 )
 
 
@@ -69,6 +72,8 @@ def _signature(event_type: str, payload: dict[str, Any]) -> str:
         return f"empirical_verify_failed:{first}"
     if event_type == "spec_awaiting_approval":
         return "spec_awaiting_approval"
+    if event_type == "verification_failed":
+        return f"verification_failed:{payload.get('verdict', '?')}:{payload.get('failure_phase', 'unknown')}"
     return f"{event_type}:{str(payload)[:80]}"
 
 

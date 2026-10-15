@@ -12,7 +12,9 @@ from agents.store import AgentDefinition, AgentStore, get_agent_store
 from runtimes.base import RuntimeUnavailableError, TaskResult, TaskSpec
 from runtimes.manager import RuntimeManager, get_runtime_manager
 from tasks.verification import (
+    HIGH_RISK_TAG,
     WAITING_REASON,
+    approval_reason,
     has_passing_verdict,
     human_acceptance,
     is_human_actor,
@@ -1604,6 +1606,14 @@ class TaskExecutionCoordinator:
         if task.requires_approval and next_status in (None, TaskStatus.DONE.value):
             next_status = TaskStatus.IN_REVIEW.value
             metadata.setdefault("review_reason", "Awaiting approval before completion")
+        hold = approval_reason(raw_result) if task.verification is not None and task.verification.passed else None
+        if hold and next_status in (None, TaskStatus.DONE.value):
+            # Verification is not authorization: a verified high-risk change waits
+            # for a person, tagged so the review autopilot leaves it alone.
+            next_status = TaskStatus.IN_REVIEW.value
+            metadata["review_reason"] = hold
+            if HIGH_RISK_TAG not in (task.tags or []):
+                task.tags = [*(task.tags or []), HIGH_RISK_TAG]
 
         if next_status == TaskStatus.BLOCKED.value:
             self.workflow.transition(

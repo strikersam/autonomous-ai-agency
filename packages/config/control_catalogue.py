@@ -1120,6 +1120,21 @@ _GOVERNANCE: tuple[ControlSpec, ...] = (
         risk=RISK_HIGH,
     ),
     _toggle(
+        "VERIFICATION_POLICY_ENFORCED",
+        "Evidence-driven verification",
+        "governance",
+        "true",
+        "Each agent run ends with an evidence report: every check it ran, whether "
+        "it passed, failed, could not run or timed out, judged against the "
+        "acceptance criteria fixed before the work began. On: failed checks turn "
+        "a reviewer's approval into a FAIL, missing or untrustworthy evidence "
+        "keeps the task in review, and a verified high-risk change (auth, "
+        "secrets, governance, deployment) still waits for a person. Off: the "
+        "report is recorded but does not change the verdict.",
+        live=True,
+        risk=RISK_HIGH,
+    ),
+    _toggle(
         "AGENCY_STATE_PERSISTENCE_ENABLED",
         "Durable shared state",
         "platform_ops",

@@ -50,7 +50,24 @@ def _db() -> Any:
     return get_db()
 
 
-def plan_to_markdown(goal: str, steps: list[dict[str, Any]], risks: list[str]) -> str:
+def _contract_markdown(contract: dict[str, Any]) -> list[str]:
+    """The verification contract section: criteria, risk, strategies, assumptions."""
+    lines = ["## Verification contract", "",
+             f"- Risk tier: **{contract.get('risk_tier', 'medium')}**"
+             + (f" ({'; '.join(contract.get('risk_reasons') or [])})" if contract.get("risk_reasons") else ""),
+             "", "### Acceptance criteria", ""]
+    lines += [f"- `{c.get('criterion_id')}` {c.get('description')}" for c in contract.get("criteria") or []]
+    lines += ["", "### Strategies", ""]
+    lines += [f"- {s.get('name')} ({'mandatory' if s.get('mandatory') else 'advisory'}): {s.get('reason')}"
+              for s in contract.get("strategies") or []]
+    if contract.get("assumptions"):
+        lines += ["", "### Assumptions", ""] + [f"- {a}" for a in contract["assumptions"]]
+    return lines + [""]
+
+
+def plan_to_markdown(
+    goal: str, steps: list[dict[str, Any]], risks: list[str], contract: dict[str, Any] | None = None,
+) -> str:
     """Render a plan as a reviewable markdown spec (goal, steps, files, verification)."""
     lines = [f"# Spec: {goal}", "", "## Steps", ""]
     for step in steps:
@@ -73,6 +90,8 @@ def plan_to_markdown(goal: str, steps: list[dict[str, Any]], risks: list[str]) -
         "- Matching scoped tests must pass when empirical verification is enabled.",
         "",
     ]
+    if contract:
+        lines += _contract_markdown(contract)
     return "\n".join(lines)
 
 
@@ -83,8 +102,13 @@ async def persist_plan_spec(
     steps: list[dict[str, Any]],
     risks: list[str] | None = None,
     requires_risky_review: bool = False,
+    contract: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Persist a plan as a spec artifact. Returns the stored doc, or None."""
+    """Persist a plan as a spec artifact. Returns the stored doc, or None.
+
+    *contract* is the run's ``VerificationContract`` (agent/verification_contract.py),
+    stored with the plan so evidence reports can be checked against it.
+    """
     if not spec_persist_enabled():
         return None
     risks = risks or []
@@ -96,7 +120,10 @@ async def persist_plan_spec(
         "steps": steps,
         "risks": risks,
         "requires_risky_review": requires_risky_review,
-        "markdown": plan_to_markdown(goal, steps, risks),
+        "markdown": plan_to_markdown(goal, steps, risks, contract),
+        "contract": contract,
+        "contract_history": [],
+        "evidence_reports": [],
         "status": status,
         "decided_by": None if status == "pending" else "auto",
         "created_at": _now_iso(),
@@ -152,3 +179,50 @@ async def await_spec_approval(spec_id: str, poll_seconds: float = 2.0) -> bool:
         await asyncio.sleep(poll_seconds)
     log.warning("Spec %s not approved within %ss — refusing to execute", spec_id, timeout)
     return False
+
+
+_MAX_REPORTS_PER_SPEC = 20
+
+
+async def record_evidence(spec_id: str, report: dict[str, Any]) -> bool:
+    """Append a run's evidence report to its spec. True when stored.
+
+    ``$push`` with ``$slice`` appends atomically, so concurrent or repeated runs
+    never overwrite each other's reports, and the list stays bounded.
+    """
+    result = await _db().agent_specs.update_one(
+        {"spec_id": spec_id},
+        {
+            "$push": {"evidence_reports": {"$each": [report], "$slice": -_MAX_REPORTS_PER_SPEC}},
+            "$set": {"latest_verdict": report.get("verdict"), "updated_at": _now_iso()},
+        },
+    )
+    return getattr(result, "matched_count", 0) > 0
+
+
+async def amend_spec_contract(
+    spec_id: str, *, actor: str, reason: str, criteria: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Replace a spec's acceptance criteria with a new contract version.
+
+    Only a person may amend (``amend_contract`` raises ``PermissionError`` for an
+    agent); the previous contract is kept in ``contract_history``.
+    """
+    from agent.verification_contract import AcceptanceCriterion, VerificationContract, amend_contract
+
+    doc = await get_spec(spec_id)
+    if doc is None or not doc.get("contract"):
+        return None
+    current = VerificationContract.model_validate(doc["contract"])
+    amended = amend_contract(
+        current, actor=actor, reason=reason,
+        criteria=[AcceptanceCriterion.model_validate(c) for c in criteria],
+    )
+    await _db().agent_specs.update_one(
+        {"spec_id": spec_id},
+        {
+            "$push": {"contract_history": doc["contract"]},
+            "$set": {"contract": amended.model_dump(), "updated_at": _now_iso()},
+        },
+    )
+    return await get_spec(spec_id)
