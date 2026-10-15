@@ -731,6 +731,54 @@ class AgentScheduler:
             log.warning("Force-cleanup failed: %s", exc)
         return summary
 
+    async def _tagged_job_ids(self, tag: str) -> set[str]:
+        """Ids of every job carrying ``tag``, in memory AND in the durable store.
+
+        The durable store is read too because ``list()`` only sees what this
+        process has loaded: a row that was never hydrated (or was re-persisted by
+        an in-flight ``_fire``) is invisible to it yet survives into the next boot.
+        """
+        ids = {j.job_id for j in self._jobs.values() if tag in (j.tags or [])}
+        if self._store is not None:
+            result = self._store.load_all()
+            docs = (await result) if inspect.isawaitable(result) else result
+            for doc in docs:
+                if tag in (doc.get("tags") or []):
+                    ids.add(doc.get("job_id") or doc.get("id") or "")
+        ids.discard("")
+        return ids
+
+    async def delete_by_tag(self, tag: str) -> dict[str, int]:
+        """Durably remove every job carrying ``tag``; used by company teardown.
+
+        Unlike ``delete()`` (fire and forget, store errors swallowed) each
+        removal is awaited, so the summary says how many rows are really gone.
+        ``failed`` > 0 means rows remain and the caller must not call it clean.
+        """
+        await self._ensure_store()
+        ids = await self._tagged_job_ids(tag)
+        summary = {"removed": 0, "failed": 0}
+        for job_id in ids:
+            if self._store is None:
+                self._deregister_and_forget(job_id)
+                summary["removed"] += 1
+            elif await self._remove_job(job_id, reason=f"tag {tag}"):
+                summary["removed"] += 1
+            else:
+                summary["failed"] += 1
+        return summary
+
+    async def tag_values(self, prefix: str) -> set[str]:
+        """Distinct tags starting with ``prefix`` across memory and the store."""
+        await self._ensure_store()
+        tags = {t for j in self._jobs.values() for t in (j.tags or []) if t.startswith(prefix)}
+        if self._store is not None:
+            result = self._store.load_all()
+            docs = (await result) if inspect.isawaitable(result) else result
+            for doc in docs:
+                tags.update(t for t in (doc.get("tags") or []) if t.startswith(prefix))
+        return tags
+
     async def purge_all(self) -> dict[str, int]:
         """Delete EVERY schedule from the durable store and in-memory state.
 
