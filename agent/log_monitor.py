@@ -64,6 +64,16 @@ _OPERATIONAL_PATTERNS: tuple[str, ...] = (
     "service unavailable", "bad gateway", "gateway timeout",
 )
 
+# An agency task's own failure, reported by the runtime that ran it. The task
+# system already owns that outcome (rework, then FAILED, then the reconciler),
+# so it is neither a code bug nor an incident: counting it filed "task failed"
+# incidents whose fix tasks failed in turn, a loop that ran all day on
+# 2026-10-15 and sent agents hunting for a hermes_server package that does not
+# exist. Matched case-insensitively and dropped entirely.
+_TASK_OUTCOME_PATTERNS: tuple[str, ...] = (
+    "hermes_server: task ", "runtimeexecutionerror",
+)
+
 
 class _ErrorCaptureHandler(logging.Handler):
     """Logging handler that forwards ERROR/CRITICAL records to LogMonitor."""
@@ -141,6 +151,8 @@ class LogMonitor:
         # agent/operational_incidents.py for the threshold/cooldown/cap bounds
         # that keep this from becoming the storm this branch guards against.
         msg_l = (message or "").lower()
+        if any(p in msg_l for p in _TASK_OUTCOME_PATTERNS):
+            return
         if any(p in msg_l for p in _OPERATIONAL_PATTERNS):
             _record_operational(logger_name, message)
             return

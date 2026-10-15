@@ -956,20 +956,10 @@ class AgentRunner:
             if step_results:
                 # Call-time resolution: requested → BrainConfig (DB) → env → safe default.
                 judge_model = _resolve_role_model("judge", requested_model)
+                from agent.judge_brief import judge_system
                 judge_messages = [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a code-review judge. Review the diff against the goal and the "
-                            "plan. REJECT when the diff does not accomplish the goal, removes or "
-                            "rewrites working code the goal did not ask to change, touches files the "
-                            "plan did not name, or adds URLs, names, contacts or identifiers that do "
-                            "not appear elsewhere in the repository. Respond with ONLY a JSON object "
-                            "with keys: verdict (APPROVED, APPROVED_WITH_CONDITIONS, or REJECTED), "
-                            "security (PASS, WARN, or FAIL), correctness (PASS, WARN, or FAIL), "
-                            "notes (string)."
-                        ),
-                    },
+                    # A run that changed no files is judged on its findings (agent/judge_brief.py).
+                    {"role": "system", "content": judge_system(step_results)},
                     {
                         "role": "user",
                         "content": await self._judge_brief(plan, step_results, commits),
@@ -3013,6 +3003,7 @@ class AgentRunner:
     async def _changed_content(self, paths: list[str], limit: int = 3000) -> tuple[str, int]:
         """Current content of changed files git could not diff (no baseline), and how many."""
         from agent import empirical_verify as ev
+        from agent.judge_brief import clip_content
 
         parts: list[str] = []
         # Only repo-relative paths: this content goes to a model, and the
@@ -3027,7 +3018,7 @@ class AgentRunner:
             except Exception:  # noqa: BLE001 - an unreadable file is just not shown
                 continue
             if text:
-                parts.append(f"--- {path} (current content; no git baseline to diff against)\n{text[:limit]}")
+                parts.append(clip_content(path, text, limit))
         return "\n".join(parts), len(parts)
 
     async def _judge_brief(
@@ -3044,8 +3035,12 @@ class AgentRunner:
             f" of {len(step_results)}",
             f"Risky review required: {plan.requires_risky_review}",
         ]
-        diff = await self._judge_diff(step_results, commits)
-        lines.append(f"Diff:\n```diff\n{diff}\n```" if diff else "Diff: (unavailable)")
+        from agent.judge_brief import changed_nothing, findings
+        if changed_nothing(step_results):
+            lines.append(f"Findings (no files were changed):\n{findings(step_results)}")
+        else:
+            diff = await self._judge_diff(step_results, commits)
+            lines.append(f"Diff:\n```diff\n{diff}\n```" if diff else "Diff: (unavailable)")
         policy = await asyncio.to_thread(review_policy, self.tools.root)
         if policy:
             lines.append(f"Review policy (REVIEW.md in this repository):\n{policy}")
