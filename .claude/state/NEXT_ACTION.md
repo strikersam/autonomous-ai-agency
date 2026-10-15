@@ -1,6 +1,6 @@
 # NEXT_ACTION — updated 2026-10-15 (evidence-driven verification)
 
-Branch `claude/evidence-driven-verification` → PR to master. Merge when CI is green (squash).
+#1765 merged 2026-10-15. Follow-up PR from the same branch carries the CodeRabbit fixes and restores the Bandit baseline (303).
 
 1. After deploy, watch for tasks held with review reason "High-risk change verified; a person must approve it" (tag `risk:high-change`): verified agent changes to auth, secrets, governance, deploy, CI or migration paths no longer complete on their own. `VERIFICATION_POLICY_ENFORCED=false` restores the old verdicts while keeping the reports.
 2. Follow-ups: produce an `EvidenceReport` from `tasks/independent_verifier.py` (non-loop runtimes) and from `_maybe_run_parallel`; record per-run token cost in the report.
