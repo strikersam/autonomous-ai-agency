@@ -98,3 +98,26 @@ def test_file_rewritten_during_the_checks_invalidates_them(repo):
     assert code == 2
     assert any(c["status"] == "untrusted" and "changed while the checks ran" in c["reason"]
                for c in result["report"]["checks"])
+
+
+def test_from_report_keeps_a_still_missing_file_in_scope(repo):
+    """A rerun from a report must not silently drop a requested file that is missing."""
+    (repo / "calc.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+    _, first = _run(repo, "calc.py", "gone.py")
+    assert "gone.py" in first["report"]["changed_files"]
+    (repo / "prior.json").write_text(json.dumps(first), encoding="utf-8")
+    code = verify_change.main(["--root", str(repo), "--from-report", str(repo / "prior.json"),
+                               "--out", str(repo / "again.json")])
+    again = json.loads((repo / "again.json").read_text(encoding="utf-8"))
+    assert code == 2
+    assert any(c["check_id"] == "static:exists:gone.py" for c in again["report"]["checks"])
+
+
+def test_file_deleted_during_the_checks_is_reported_not_raised(repo):
+    (repo / "calc.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+    (repo / "tests" / "test_calc.py").write_text(
+        TEST + "\n\ndef test_zz_delete():\n    import pathlib\n"
+        "    (pathlib.Path(__file__).resolve().parent.parent / 'calc.py').unlink()\n", encoding="utf-8")
+    code, result = _run(repo, "calc.py")  # must still produce a report
+    assert code == 2
+    assert any(c["status"] == "untrusted" for c in result["report"]["checks"])
