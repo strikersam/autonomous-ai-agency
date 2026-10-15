@@ -435,6 +435,13 @@ class Settings:
         self.task_verification_required_raw: str = os.environ.get(
             "TASK_VERIFICATION_REQUIRED", "true"
         ).strip().lower()
+        # The agent loop's evidence report (agent/verification_evidence.py) can only
+        # make a task's verdict stricter: failed checks turn an approval into FAIL,
+        # missing or untrustworthy evidence withholds it, and a verified high-risk
+        # change waits for a person. Off: the report is still recorded, not enforced.
+        self.verification_policy_enforced_raw: str = os.environ.get(
+            "VERIFICATION_POLICY_ENFORCED", "true"
+        ).strip().lower()
         # Runtimes with no judge of their own (Claude Code, Hermes, ...) get an
         # independent verifier: their PR is run in E2B and reviewed (rule 49).
         self.task_independent_verifier_raw: str = os.environ.get(
@@ -493,6 +500,11 @@ class Settings:
     def task_verification_required(self) -> bool:
         """When True, DONE needs a PASS/PASS+NOTES verdict from an independent verifier."""
         return self.task_verification_required_raw in {"1", "true", "yes", "on"}
+
+    @property
+    def verification_policy_enforced(self) -> bool:
+        """When True, the run's evidence decision gates the task verdict and high-risk approval."""
+        return self.verification_policy_enforced_raw in {"1", "true", "yes", "on"}
 
     @property
     def task_independent_verifier(self) -> bool:
