@@ -2990,7 +2990,10 @@ class AgentRunner:
         from agent import empirical_verify as ev
 
         parts: list[str] = []
-        for path in paths[:5]:
+        # Only repo-relative paths: this content goes to a model, and the
+        # sandbox resolver does not clamp absolute or "../" paths.
+        safe = [p for p in paths if p and not p.startswith(("/", "~")) and ".." not in p.split("/")]
+        for path in safe[:5]:
             try:
                 if ev.is_sandbox(self._mcp):
                     text = await self._mcp.call_tool("read_file", {"path": path})
