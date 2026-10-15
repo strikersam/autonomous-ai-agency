@@ -218,11 +218,15 @@ async def amend_spec_contract(
         current, actor=actor, reason=reason,
         criteria=[AcceptanceCriterion.model_validate(c) for c in criteria],
     )
-    await _db().agent_specs.update_one(
-        {"spec_id": spec_id},
+    # Conditional on the version read, so two people amending at once cannot
+    # silently overwrite each other's criteria.
+    result = await _db().agent_specs.update_one(
+        {"spec_id": spec_id, "contract.version": current.version},
         {
             "$push": {"contract_history": doc["contract"]},
             "$set": {"contract": amended.model_dump(), "updated_at": _now_iso()},
         },
     )
+    if getattr(result, "matched_count", 0) == 0:
+        raise RuntimeError("The contract was amended concurrently; reload it and retry")
     return await get_spec(spec_id)

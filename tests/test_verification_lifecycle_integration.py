@@ -36,6 +36,14 @@ PLAN = ('{"goal":"Fix add in calc.py","steps":[{"id":1,"description":"Make add r
 JUDGE = '{"verdict":"APPROVED","security":"PASS","correctness":"PASS","notes":"Looks correct."}'
 
 
+def _field(row: dict[str, Any], key: str) -> Any:
+    """Resolve a Mongo dotted key ("contract.version") against a row."""
+    value: Any = row
+    for part in key.split("."):
+        value = value.get(part) if isinstance(value, dict) else None
+    return value
+
+
 class FakeSpecs:
     """Enough of a motor collection for spec_store: insert, find_one, $set/$push/$slice."""
 
@@ -47,11 +55,11 @@ class FakeSpecs:
         self.rows.append(dict(doc))
 
     async def find_one(self, query):
-        return next((dict(r) for r in self.rows if all(r.get(k) == v for k, v in query.items())), None)
+        return next((dict(r) for r in self.rows if all(_field(r, k) == v for k, v in query.items())), None)
 
     async def update_one(self, query, update):
         async with self._lock:
-            row = next((r for r in self.rows if all(r.get(k) == v for k, v in query.items())), None)
+            row = next((r for r in self.rows if all(_field(r, k) == v for k, v in query.items())), None)
             if row is None:
                 return SimpleNamespace(matched_count=0)
             await asyncio.sleep(0)  # yield, so concurrent writers interleave
@@ -66,7 +74,9 @@ class FakeSpecs:
 
 
 def _git(root: Path, *args: str) -> str:
-    return subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True).stdout.strip()
+    return subprocess.run(  # nosec B603 B607 - constant git argv in a temp repo, list form
+        ["git", *args], cwd=root, check=True, capture_output=True, text=True,
+    ).stdout.strip()
 
 
 @pytest.fixture
@@ -256,3 +266,31 @@ def test_flaky_test_is_detected_on_a_real_rerun(tmp_path: Path, monkeypatch):
     assert unit[0]["status"] == "untrusted" and unit[0]["attempts"] == 2
     assert outcome.issues and "flaky" in outcome.issues[0]
     assert outcome.checks == []  # a flaky pass is never recorded as an executed check
+
+
+def test_concurrent_contract_amendment_is_refused(specs):
+    from agent.models import AgentPlan, AgentStep
+    from agent.verification_contract import build_contract
+
+    contract = build_contract(AgentPlan(goal="g", steps=[AgentStep(id=1, description="s", files=["a.py"], type="edit")]))
+    crit = [{"criterion_id": "goal", "description": "narrowed", "source": "goal"}]
+
+    async def go():
+        doc = await spec_store.persist_plan_spec(session_id="s", goal="g", steps=[], contract=contract.model_dump())
+        stale = await spec_store.get_spec(doc["spec_id"])
+        await spec_store.amend_spec_contract(doc["spec_id"], actor="a@example.com", reason="first", criteria=crit)
+        original_get = spec_store.get_spec
+
+        async def stale_read(spec_id):  # the second amender read version 1 before the first wrote
+            return stale
+
+        spec_store.get_spec = stale_read
+        try:
+            with pytest.raises(RuntimeError, match="concurrently"):
+                await spec_store.amend_spec_contract(doc["spec_id"], actor="b@example.com", reason="second", criteria=crit)
+        finally:
+            spec_store.get_spec = original_get
+        return await spec_store.get_spec(doc["spec_id"])
+
+    final = asyncio.run(go())
+    assert final["contract"]["version"] == 2 and len(final["contract_history"]) == 1

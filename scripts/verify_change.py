@@ -74,6 +74,17 @@ def _parse_checks(root: Path, files: list[str]) -> list[dict[str, Any]]:
     return outcome.results
 
 
+def _missing_checks(missing: list[str]) -> list[dict[str, Any]]:
+    """A requested file that does not exist is a check that could not run, never a skip."""
+    from agent.empirical_verify import CheckOutcome
+
+    outcome = CheckOutcome()
+    for name in missing:
+        outcome.record(f"static:exists:{name}", "static", "unavailable", files=[name],
+                       reason="requested file does not exist")
+    return outcome.results
+
+
 def run_plan(root: Path, files: list[str], goal: str) -> dict[str, Any]:
     """Run the change's verification plan; return the report plus the harness summary."""
     from agent import empirical_verify as ev
@@ -83,25 +94,37 @@ def run_plan(root: Path, files: list[str], goal: str) -> dict[str, Any]:
     from agent.verification_evidence import build_report, fingerprint_content
 
     existing = [f for f in files if (root / f).is_file()]
+    missing = [f for f in files if f not in existing]
     plan = AgentPlan(goal=goal, steps=[AgentStep(id=1, description=goal[:200], files=existing, type="edit")])
     contract = build_contract(plan)
-    py = [f for f in existing if f.endswith(".py")]
+
+    def snapshot() -> dict[str, str]:
+        return {f: fingerprint_content((root / f).read_text(encoding="utf-8", errors="replace")) for f in existing}
+
+    # Bind checks to the content they ran on: hash before, compare after.
+    prints = snapshot()
+    py = [f for f in existing if f.lower().endswith(".py")]
     results = ev.verify_on_host(root, py, _check_env()).results if py else []
     results += _parse_checks(root, existing)
-    prints = {f: fingerprint_content((root / f).read_text(encoding="utf-8", errors="replace")) for f in existing}
+    after = snapshot()
+    changed = sorted(f for f in existing if after[f] != prints[f])
     for r in results:
         r["fingerprints"] = {f: prints[f] for f in r.get("files") or [] if f in prints}
+        if changed and r["status"] == "passed":
+            r["status"], r["reason"] = "untrusted", f"stale: {', '.join(changed[:5])} changed while the checks ran"
+    results += _missing_checks(missing)
     failed = any(r["status"] == "failed" for r in results)
     step = {"step_id": 1, "description": goal[:200], "changed_files": existing,
             "status": "failed" if failed else "applied", "failure_phase": "empirical_verification",
-            "check_results": results, "file_fingerprints": prints}
+            "check_results": results, "file_fingerprints": after}
     head = subprocess.run(  # nosec B603 B607 - constant git argv
         ["git", "rev-parse", "HEAD"], cwd=root, capture_output=True, text=True,
     ).stdout.strip() or None
     report = build_report(contract, steps=[step], judge={}, source_revision=head).model_dump()
     findings = [f for f in report["findings"] if f["kind"] != "verifier_infrastructure"]
     kinds = {f["kind"] for f in findings}
-    exit_code = 1 if kinds & {"implementation_defect", "contract_violation"} else (2 if findings else 0)
+    unrunnable = any(r["status"] in {"unavailable", "timed_out", "untrusted"} for r in results)
+    exit_code = 1 if kinds & {"implementation_defect", "contract_violation"} else (2 if findings or unrunnable else 0)
     return {"checks_ok": exit_code == 0, "exit_code": exit_code, "files": existing,
             "contract": contract.model_dump(), "report": report}
 

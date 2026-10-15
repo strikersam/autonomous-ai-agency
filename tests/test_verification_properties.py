@@ -34,7 +34,7 @@ _JUDGES = [{"verdict": "APPROVED"}, {"verdict": "APPROVED_WITH_CONDITIONS"}, {"v
 
 
 def _run_for(seed: int) -> tuple[VerificationContract, list[dict[str, Any]], dict[str, Any], bool]:
-    rng = random.Random(seed)
+    rng = random.Random(seed)  # nosec B311 - seeded test-input generator, not crypto
     clean = rng.random() < 0.4  # mostly-green runs, so VERIFIED is actually exercised
     n = rng.randint(1, 4)
     plan_steps, steps = [], []
@@ -129,7 +129,7 @@ def test_differential_evidence_policy_is_never_looser_than_the_legacy_rule():
 
 
 def test_property_secrets_never_reach_the_report():
-    rng = random.Random(7)
+    rng = random.Random(7)  # nosec B311 - seeded test-input generator, not crypto
     alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
     for i in range(200):
         token = "ghp_" + "".join(rng.choice(alphabet) for _ in range(36))
@@ -146,7 +146,7 @@ def test_property_secrets_never_reach_the_report():
 
 def test_property_rework_budget_is_never_exceeded():
     for seed in range(50):
-        rng = random.Random(seed)
+        rng = random.Random(seed)  # nosec B311 - seeded test-input generator, not crypto
         task = Task(owner_id="o", title="t", status=TaskStatus.IN_PROGRESS)
         reworks = 0
         for _ in range(rng.randint(1, 8)):
@@ -162,7 +162,7 @@ def test_property_rework_budget_is_never_exceeded():
 
 def test_property_no_machine_actor_can_amend_criteria():
     contract = build_contract(AgentPlan(goal="g", steps=[AgentStep(id=1, description="s", files=["a.py"], type="edit")]))
-    rng = random.Random(11)
+    rng = random.Random(11)  # nosec B311 - seeded test-input generator, not crypto
     prefixes = ["agent:", "runtime:", "system:", "verifier:", "judge:", "ceo:", "workflow:", "service:"]
     for _ in range(100):
         actor = rng.choice(prefixes) + "".join(rng.choice("abcxyz-_") for _ in range(rng.randint(1, 10)))

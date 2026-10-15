@@ -40,7 +40,7 @@ plan ──► contract ──► execute steps ──► checks per step ──
 7. **Task gate.** `tasks/verification.py::apply_evidence` combines the judge's
    verdict with the evidence decision. It can only make the verdict stricter.
    Then the existing gate applies: a FAIL is sent back for rework (at most
-   `MAX_AUTO_REWORK` = 2 times in a row, then parked for a person), a missing
+   `MAX_AUTO_REWORK` = 2 times in a row, then marked `FAILED`), a missing
    verdict waits in review, a PASS completes, and a verified high-risk change
    waits for a person.
 
