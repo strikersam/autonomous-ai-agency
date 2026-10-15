@@ -12,6 +12,8 @@ taking every other model on it offline. These tests lock in the fix:
 
 from __future__ import annotations
 
+import time
+
 import httpx
 import pytest
 
@@ -235,3 +237,38 @@ async def test_provider_without_a_catalogue_entry_is_still_benched_when_all_dead
         )
     assert await is_provider_on_cooldown("my-gateway") is True
 
+
+
+@pytest.mark.anyio
+async def test_404_model_is_called_once_then_skipped(monkeypatch):
+    """A model id the provider does not serve (bare 404) is not retried.
+
+    NVIDIA's catalogue still lists ``nvidia/llama-3.1-nemotron-ultra-253b-v1``
+    but chat-completions answers 404. The router treated 404 as retryable, so
+    with the default ``max_retries=2`` every agent turn spent three calls on it
+    (Process Quick Note on #1757, 2026-10-14). It is now called once, marked
+    dead for a short window, and skipped on the next request.
+    """
+    tried: list[str] = []
+
+    async def fake_post_chat(self, provider, payload, timeout_sec):
+        tried.append(payload["model"])
+        if payload["model"] == "listed/but-404":
+            return httpx.Response(404, text="")
+        return httpx.Response(200, json={"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr(ProviderRouter, "_post_chat", fake_post_chat)
+    router = ProviderRouter([_nvidia()])
+    payload = {"model": "listed/but-404", "messages": [{"role": "user", "content": "hi"}]}
+
+    first = await router.chat_completion(dict(payload))
+    assert first.model == "meta/llama-3.3-70b-instruct"
+    assert tried == ["listed/but-404", "meta/llama-3.3-70b-instruct"]
+    assert await is_provider_on_cooldown("nvidia") is False
+    assert _is_model_dead("nvidia", "listed/but-404") is True
+    # Shorter hold than a 410: a 404 can be catalogue drift.
+    assert get_dead_models()["nvidia/listed/but-404"] - time.time() <= 30 * 60 + 5
+
+    tried.clear()
+    await router.chat_completion(dict(payload))
+    assert tried == ["meta/llama-3.3-70b-instruct"]
