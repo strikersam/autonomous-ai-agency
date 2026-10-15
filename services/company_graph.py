@@ -168,48 +168,84 @@ class CompanyGraphService:
         Returns:
             True if deleted, False otherwise
         """
-        await self._teardown_company_agency(company_id)
-        return await self.store.delete_company(company_id)
+        # Recorded first, so the orphan sweep can tell this company is gone even
+        # when it was the last one and part of the teardown below fails.
+        from services.company_cleanup import record_company_deleted
+        await record_company_deleted(company_id)
+        errors = await self._teardown_company_agency(company_id)
+        deleted = await self.store.delete_company(company_id)
+        if errors:
+            # The rows are gone, so the orphan sweep in services.company_cleanup
+            # (run by the ephemeral reaper loop) will finish what failed here.
+            log.error(
+                "delete_company: teardown incomplete for %s (%s); "
+                "the orphan reaper will retry",
+                company_id, "; ".join(errors),
+            )
+        return deleted
 
-    async def _teardown_company_agency(self, company_id: str) -> None:
-        """Stop schedules and remove the registered agents for a company.
+    async def _teardown_company_agency(self, company_id: str) -> list[str]:
+        """Stop schedules, cancel tasks and remove the registered agents of a company.
 
-        Best-effort: a failure here must never prevent the company rows from
-        being deleted, so every step is guarded and logged rather than raised.
+        Every step runs even if an earlier one failed, and each is idempotent.
+        Returns the failures as strings (empty when fully clean) instead of
+        raising, so a teardown problem can never block the row delete but is
+        always reported by the caller.
         """
-        # 1. Deactivate the running agency: removes company-tagged schedules
-        #    and clears in-memory agency state.
+        errors: list[str] = []
+        await self._teardown_schedules(company_id, errors)
+        await self._teardown_tasks(company_id, errors)
+        await self._teardown_agents(company_id, errors)
+        return errors
+
+    async def _teardown_schedules(self, company_id: str, errors: list[str]) -> None:
+        # Deactivate the running agency (company-tagged schedules in memory and
+        # agency state), then sweep the durable store too: deactivate only sees
+        # jobs this process loaded, and unloaded rows come back on the next boot.
         try:
             from services.company_agency import get_company_agency_service
             await get_company_agency_service().deactivate_company(company_id)
-        except Exception:
-            log.exception(
-                "delete_company: failed to deactivate agency for %s", company_id
-            )
+        except Exception as exc:
+            log.exception("delete_company: failed to deactivate agency for %s", company_id)
+            errors.append(f"deactivate agency: {exc}")
+        try:
+            from services.company_cleanup import purge_company_schedules
+            res = await purge_company_schedules(company_id)
+            if res["failed"]:
+                errors.append(f"{res['failed']} schedule(s) could not be removed")
+        except Exception as exc:
+            log.exception("delete_company: failed to purge schedules for %s", company_id)
+            errors.append(f"purge schedules: {exc}")
 
-        # 2. Delete the specialist agents registered in the AgentStore. They are
-        #    owned by the company (owner_id == company_id), so a per-owner list
-        #    finds every one regardless of its public flag or tags.
+    async def _teardown_tasks(self, company_id: str, errors: list[str]) -> None:
+        try:
+            from services.company_cleanup import cancel_company_tasks
+            res = await cancel_company_tasks(company_id)
+            if res["cancelled"]:
+                log.info("delete_company: cancelled %d task(s) for %s", res["cancelled"], company_id)
+            if res["failed"]:
+                errors.append(f"{res['failed']} task(s) could not be cancelled")
+        except Exception as exc:
+            log.exception("delete_company: failed to cancel tasks for %s", company_id)
+            errors.append(f"cancel tasks: {exc}")
+
+    async def _teardown_agents(self, company_id: str, errors: list[str]) -> None:
+        # Specialists registered in the AgentStore are owned by the company
+        # (owner_id == company_id), so a per-owner list finds every one
+        # regardless of its public flag or tags.
         try:
             from agents.store import get_agent_store
             agent_store = get_agent_store()
-            agents = await agent_store.list_for_user(
-                company_id, include_public=False
-            )
+            agents = await agent_store.list_for_user(company_id, include_public=False)
             removed = 0
             for agent in agents:
                 if await agent_store.delete(agent.agent_id):
                     removed += 1
             if removed:
-                log.info(
-                    "delete_company: removed %d registered agent(s) for %s",
-                    removed, company_id,
-                )
-        except Exception:
-            log.exception(
-                "delete_company: failed to delete registered agents for %s",
-                company_id,
-            )
+                log.info("delete_company: removed %d registered agent(s) for %s", removed, company_id)
+        except Exception as exc:
+            log.exception("delete_company: failed to delete registered agents for %s", company_id)
+            errors.append(f"delete agents: {exc}")
 
     async def list_companies(
         self,

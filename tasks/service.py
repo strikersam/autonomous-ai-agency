@@ -1602,6 +1602,11 @@ class TaskExecutionCoordinator:
 
         next_status = metadata.get("task_status")
         failed_verdict = task.verification is not None and not task.verification.passed
+        if failed_verdict and next_status in (None, TaskStatus.DONE.value, TaskStatus.IN_REVIEW.value):
+            # A failed verdict goes through the rule-49 gate (rework, then FAILED)
+            # even when the runtime asked for review: the internal agent does so
+            # for every requires_approval task (Codex review on #1762).
+            next_status = TaskStatus.DONE.value
         if task.requires_approval and next_status in (None, TaskStatus.DONE.value) and not failed_verdict:
             next_status = TaskStatus.IN_REVIEW.value
             metadata.setdefault("review_reason", "Awaiting approval before completion")
