@@ -24,6 +24,19 @@ from tasks.models import Task, TaskStatus
 from tasks.store import TaskStore
 
 
+class _ActivityLog:
+    """Stand-in for the activity_log collection the deletion record goes to."""
+
+    def __init__(self) -> None:
+        self.docs: list[dict] = []
+
+    async def insert_one(self, doc: dict) -> None:
+        self.docs.append(dict(doc))
+
+    async def find_one(self, query: dict) -> dict | None:
+        return next((d for d in self.docs if all(d.get(k) == v for k, v in query.items())), None)
+
+
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     """Isolated company store, durable schedule store, scheduler and task store."""
@@ -49,6 +62,8 @@ def env(tmp_path, monkeypatch):
 
     tasks = TaskStore()
     monkeypatch.setattr("tasks.store._global_store", tasks)
+    activity = _ActivityLog()
+    monkeypatch.setattr(company_cleanup, "_activity_log", lambda: activity)
     monkeypatch.setattr(agent_store_module, "_store", AgentStore())
 
     class Env:
@@ -56,6 +71,7 @@ def env(tmp_path, monkeypatch):
 
     e = Env()
     e.companies, e.durable, e.sched, e.tasks, e.fired = companies, durable, sched, tasks, fired
+    e.activity = activity
     e.service = CompanyGraphService(store=companies)
     yield e
     sched.shutdown()
@@ -248,3 +264,137 @@ def test_company_id_from_tags_ignores_the_agency_marker_tag():
     assert company_cleanup.company_id_from_tags(["company-agency", "company:abc", "x"]) == "abc"
     assert company_cleanup.company_id_from_tags(["company-agency", "company:"]) is None
     assert company_cleanup.company_id_from_tags(None) is None
+
+
+# ── Review findings on #1764 ──────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_last_company_with_failed_teardown_is_still_reaped(env, monkeypatch):
+    """Codex P1: deleting the only company left its orphans live forever."""
+    only = await _company(env, "Kyndryl")
+    await _schedule(env, only.id, "health-scan")
+    task = await _task(env, only.id)
+
+    async def boom(_company_id):
+        raise RuntimeError("store unavailable")
+
+    real_cancel = company_cleanup.cancel_company_tasks
+    monkeypatch.setattr(company_cleanup, "cancel_company_tasks", boom)
+    assert await env.service.delete_company(only.id) is True
+    monkeypatch.setattr(company_cleanup, "cancel_company_tasks", real_cancel)
+    assert await env.companies.list_companies(limit=1) == []  # no company left
+
+    await company_cleanup.reap_orphaned_company_state()
+
+    assert (await env.tasks.get(task.task_id)).status is TaskStatus.WONT_DO
+
+
+@pytest.mark.asyncio
+async def test_stale_worker_save_after_delete_is_cancelled_before_it_runs(env):
+    """CodeRabbit: a worker holding a stale model re-saves the task as runnable."""
+    only = await _company(env, "Kyndryl")
+    task = await _task(env, only.id, TaskStatus.IN_PROGRESS)
+    stale = await env.tasks.get(task.task_id)  # the worker loaded it before the delete
+
+    await env.service.delete_company(only.id)
+    stale.status, stale.pending_agent_run = TaskStatus.TODO, True  # transient failure path
+    await env.tasks.update(stale)
+
+    pending = await env.tasks.list_pending()
+    assert await company_cleanup.filter_orphaned_tasks(env.tasks, pending) == []
+    assert (await env.tasks.get(task.task_id)).status is TaskStatus.WONT_DO
+
+
+@pytest.mark.asyncio
+async def test_store_that_swallows_a_remove_error_is_reported_as_failed(env, monkeypatch):
+    """Codex P2: ScheduleStore.remove() caught the error, so the purge claimed success."""
+    doomed = await _company(env, "Kyndryl")
+    job = await _schedule(env, doomed.id, "health-scan")
+
+    real_remove = type(env.durable).remove
+
+    def remove(self, job_id):  # the real method, against a backend that raises
+        good, self._sqlite = self._sqlite, _Broken()
+        try:
+            return real_remove(self, job_id)
+        finally:
+            self._sqlite = good
+
+    monkeypatch.setattr(type(env.durable), "remove", remove)
+    result = await company_cleanup.purge_company_schedules(doomed.id)
+
+    assert result == {"removed": 0, "failed": 1}
+    assert _memory_ids(env, doomed.id) == {job.job_id}  # not forgotten while the row lives
+    assert _durable_ids(env, doomed.id) == {job.job_id}
+
+
+class _Broken:
+    def execute(self, *_a, **_k):
+        raise RuntimeError("sqlite locked")
+
+
+@pytest.mark.asyncio
+async def test_durable_read_failure_still_removes_in_memory_jobs(env, monkeypatch):
+    """CodeRabbit: a load_all() error skipped even the jobs already in memory."""
+    doomed = await _company(env, "Kyndryl")
+    job = await _schedule(env, doomed.id, "health-scan")
+
+    def boom():
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(env.durable, "load_all", boom)
+    result = await env.sched.delete_by_tag(f"company:{doomed.id}")
+
+    assert result == {"removed": 1, "failed": 1}  # failed: the store could not be read
+    assert job.job_id not in {j.job_id for j in env.sched.list()}
+
+
+@pytest.mark.asyncio
+async def test_api_process_without_the_worker_store_still_purges_durable_rows(env, monkeypatch):
+    """Codex P2: with RUN_BACKGROUND_IN_WEB=false the API scheduler read the wrong store."""
+    doomed, _ = await _company(env, "Kyndryl"), await _company(env, "Keeper")
+    await _schedule(env, doomed.id, "health-scan")  # persisted by the worker's scheduler
+    api_sched = AgentScheduler(persistence=None)
+
+    class OtherCollection:  # what _ensure_store() picks in the API process
+        def load_all(self):
+            return []
+
+        def remove(self, _job_id):
+            return None
+
+    api_sched._store = OtherCollection()
+    monkeypatch.setattr(scheduler_module, "_scheduler_instance", api_sched)
+    try:
+        assert await env.service.delete_company(doomed.id) is True
+    finally:
+        api_sched.shutdown()
+
+    assert _durable_ids(env, doomed.id) == set()
+
+
+@pytest.mark.asyncio
+async def test_deletion_record_uses_the_real_store_without_booting_the_web_app(tmp_path, monkeypatch):
+    """The record must work in the worker: no backend.server import, scheduler untouched."""
+    import sys
+
+    import db
+
+    monkeypatch.setenv("STORAGE_BACKEND", "sqlite")
+    import packages.storage.sqlite as sqlite_module
+
+    monkeypatch.setattr(sqlite_module, "_SQLITE_DB_PATH", str(tmp_path / "app.db"))
+    monkeypatch.setattr(db, "_store", None)
+    worker_sched = AgentScheduler()
+    monkeypatch.setattr(scheduler_module, "_scheduler_instance", worker_sched)
+    monkeypatch.delitem(sys.modules, "backend.server", raising=False)
+    try:
+        assert await company_cleanup.record_company_deleted("co_gone") is True
+        assert await company_cleanup._was_deleted("co_gone") is True
+        assert await company_cleanup._was_deleted("co_alive") is False
+        assert "backend.server" not in sys.modules
+        assert scheduler_module.get_scheduler() is worker_sched
+    finally:
+        worker_sched.shutdown()
+        monkeypatch.setattr(db, "_store", None)
