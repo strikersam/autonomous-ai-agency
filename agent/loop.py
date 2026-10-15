@@ -964,7 +964,10 @@ class AgentRunner:
                             "plan. REJECT when the diff does not accomplish the goal, removes or "
                             "rewrites working code the goal did not ask to change, touches files the "
                             "plan did not name, or adds URLs, names, contacts or identifiers that do "
-                            "not appear elsewhere in the repository. Respond with ONLY a JSON object "
+                            "not appear elsewhere in the repository. REJECT placeholder work: stub "
+                            "or empty files, files named after a task id, code that only exists to "
+                            "make an error go away, or notes and logs when the goal asks for a code "
+                            "change. Respond with ONLY a JSON object "
                             "with keys: verdict (APPROVED, APPROVED_WITH_CONDITIONS, or REJECTED), "
                             "security (PASS, WARN, or FAIL), correctness (PASS, WARN, or FAIL), "
                             "notes (string)."
@@ -994,6 +997,7 @@ class AgentRunner:
                         "notes": "Judge produced no valid output after 3 attempts.",
                         "failure_phase": "judge",
                     }
+                judge = self._reject_placeholders(judge, step_results)
                 log.info("Agent judge: %s (%s)", judge.get("verdict"), str(judge.get("notes") or "")[:300])
 
             # Rule 49 evidence for UI changes: screenshot the changed pages,
@@ -2988,7 +2992,7 @@ class AgentRunner:
         "Diff: (unavailable)" and was rejected, so no task could ever pass.
         """
         from agent import empirical_verify as ev
-        from agent.pr_gate import resolve_base, review_diff
+        from agent.pr_gate import resolve_base, review_diff, worktree_diff
 
         diff = ""
         if commits:
@@ -2997,18 +3001,37 @@ class AgentRunner:
                 diff = await asyncio.to_thread(review_diff, self.tools.root, base)
             except Exception:
                 log.warning("Could not build the judge diff", exc_info=True)
-        if ev.is_sandbox(self._mcp):
-            # The edits live in the sandbox; the host diff holds at most the plan file.
-            diff = "\n".join(d for d in (diff, await ev.sandbox_diff(self._mcp)) if d)
         changed = list(dict.fromkeys(
             str(f).removeprefix("./") for s in step_results if s.get("status") == "applied"
             for f in (s.get("changed_files") or [])
         ))
+        if ev.is_sandbox(self._mcp):
+            # The edits live in the sandbox; the host diff holds at most the plan file.
+            diff = "\n".join(d for d in (diff, await ev.sandbox_diff(self._mcp)) if d)
+        else:
+            # Host runs often leave their edits uncommitted.
+            unseen = [f for f in changed if f"b/{f}" not in diff]
+            extra = await asyncio.to_thread(worktree_diff, self.tools.root, unseen)
+            diff = "\n".join(d for d in (diff, extra) if d)
         missing = [f for f in changed if f"b/{f}" not in diff]
         extra, shown = await self._changed_content(missing)
         log.info("Judge brief: %d changed file(s), git diff %d chars, %d shown as content",
                  len(changed), len(diff), shown)
         return "\n".join(d for d in (diff, extra) if d)
+
+    @staticmethod
+    def _reject_placeholders(judge: dict[str, Any], step_results: list[dict[str, Any]]) -> dict[str, Any]:
+        """Overrule an approval of files named after a task id: those are stubs, not fixes."""
+        from agent.pr_gate import placeholder_files
+
+        if not str(judge.get("verdict", "")).upper().startswith("APPROVED"):
+            return judge
+        changed = [f for s in step_results if s.get("status") == "applied" for f in (s.get("changed_files") or [])]
+        stubs = placeholder_files(changed)
+        if not stubs:
+            return judge
+        return {**judge, "verdict": "REJECTED", "correctness": "FAIL",
+                "notes": f"Placeholder files named after a task id, not a fix: {', '.join(stubs[:5])}"}
 
     async def _changed_content(self, paths: list[str], limit: int = 3000) -> tuple[str, int]:
         """Current content of changed files git could not diff (no baseline), and how many."""
