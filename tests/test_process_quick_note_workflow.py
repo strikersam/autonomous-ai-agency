@@ -370,3 +370,23 @@ class TestImplementerQueueSkipsReportOnlyIssues:
             assert repr(label) in src or f'"{label}"' in src, (
                 f"autonomous_agent.py must skip {label!r} so it never implements a report"
             )
+
+
+class TestRetryDoesNotReopenAnIssueClosedMidRun:
+    """#1757 was closed as completed at 20:05 (root cause found, fix already
+    on master), but a run picked at 19:49 failed and reopened it at 20:19: the
+    in-flight guard only covered not_planned closures. The pick step now
+    records the issue's state, and the retry handler leaves alone any issue
+    that was open at pick time and is closed now, whatever the reason."""
+
+    def test_pick_records_the_state_at_pick_time(self, job: dict) -> None:
+        run = _step(job, "Find next pending")["run"]
+        assert "state_at_pick=" in run
+
+    def test_retry_compares_against_the_state_at_pick(self, job: dict) -> None:
+        step = _step(job, "Handle failure")
+        assert step["env"]["STATE_AT_PICK"] == "${{ steps.pick.outputs.state_at_pick }}"
+        run = step["run"]
+        guard_at = run.index('"$STATE_AT_PICK" = "OPEN"')
+        assert all(guard_at < m.start() for m in re.finditer(r"gh issue reopen", run))
+        assert "exit 0" in run[guard_at:guard_at + 300]

@@ -123,6 +123,10 @@ jobs:
           else
             echo "found=true" >> "$GITHUB_OUTPUT"
             echo "number=$NUM" >> "$GITHUB_OUTPUT"
+            # Read by the retry handler: an issue that was open here and is
+            # closed by the time it runs was closed by someone else mid-run.
+            STATE_AT_PICK=$(gh issue view "$NUM" --repo "$REPO" --json state -q .state 2>/dev/null || echo "")
+            echo "state_at_pick=$STATE_AT_PICK" >> "$GITHUB_OUTPUT"
           fi
 
       # ── 2b. Automation-test short-circuit ──────────────────────────────────
@@ -1062,6 +1066,7 @@ jobs:
           REPO: ${{ github.repository }}
           ISSUE_RETRY: ${{ steps.issue.outputs.retry }}
           ISSUE_NUM: ${{ steps.issue.outputs.number }}
+          STATE_AT_PICK: ${{ steps.pick.outputs.state_at_pick }}
         run: |
           RETRY="$ISSUE_RETRY"
           NEW_RETRY=$((RETRY + 1))
@@ -1085,6 +1090,15 @@ jobs:
           CUR_REASON=$(echo "$CURRENT" | jq -r '.stateReason // empty')
           if [ "$CUR_STATE" = "CLOSED" ] && [ "$CUR_REASON" = "NOT_PLANNED" ]; then
             echo "Issue #$ISSUE was closed not_planned while this run was in flight — respecting that decision, not reopening."
+            exit 0
+          fi
+          # The same holds for a completed closure. #1757 was closed as
+          # resolved at 20:05 (root cause found, fix already on master) and a
+          # run picked at 19:49 reopened it at 20:19. Only an issue that was
+          # open when this run picked it counts: a manual re-run on an issue
+          # that was already closed still reopens it on failure, as before.
+          if [ "$CUR_STATE" = "CLOSED" ] && [ "$STATE_AT_PICK" = "OPEN" ]; then
+            echo "Issue #$ISSUE was closed ($CUR_REASON) while this run was in flight — respecting that decision, not reopening."
             exit 0
           fi
 

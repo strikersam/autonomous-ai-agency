@@ -83,17 +83,21 @@ def _dead_model_key(provider_id: str, model: str) -> str:
     return f"{provider_id}/{model}"
 
 
-def _mark_model_dead(provider_id: str, model: str) -> None:
-    """Remember that (provider, model) returned 410 Gone; skip it until it expires."""
+# A bare 404 on chat-completions means this key cannot call the model id, but it
+# can be catalogue drift rather than a retirement, so it is held out for less
+# time than a 410. Matches packages.ai.model_discovery.DEAD_TTL_UNKNOWN_SEC.
+_UNKNOWN_MODEL_COOLDOWN_SECONDS: int = 30 * 60
+
+
+def _mark_model_dead(
+    provider_id: str, model: str, *, ttl_sec: int | None = None, reason: str = "410 Gone"
+) -> None:
+    """Remember that (provider, model) cannot be called; skip it until it expires."""
     if not model:
         return
-    _dead_models[_dead_model_key(provider_id, model)] = (
-        time.time() + _DEAD_MODEL_COOLDOWN_SECONDS
-    )
-    log.warning(
-        "Model %s/%s returned 410 Gone — skipping for %ds",
-        provider_id, model, _DEAD_MODEL_COOLDOWN_SECONDS,
-    )
+    ttl = _DEAD_MODEL_COOLDOWN_SECONDS if ttl_sec is None else ttl_sec
+    _dead_models[_dead_model_key(provider_id, model)] = time.time() + ttl
+    log.warning("Model %s/%s returned %s — skipping for %ds", provider_id, model, reason, ttl)
 
 
 def _catalogue_models(provider: "ProviderConfig") -> list[str]:
@@ -1421,6 +1425,18 @@ class ProviderRouter:
                         _mark_model_dead(provider.provider_id, model)
                         _extend_with_live_catalogue(provider, candidates)
                         break  # stop retrying this model; try next candidate
+                    if response.status_code == 404:
+                        # The provider does not serve this model id (NVIDIA's
+                        # catalogue still lists ids that 404 on call). Retrying
+                        # the same id cannot succeed, and before this every turn
+                        # of an agent run spent three calls on it.
+                        last_status = 404
+                        _mark_model_dead(
+                            provider.provider_id, model,
+                            ttl_sec=_UNKNOWN_MODEL_COOLDOWN_SECONDS, reason="404 Not Found",
+                        )
+                        _extend_with_live_catalogue(provider, candidates)
+                        break
                     if response.status_code == 419:
                         # NVIDIA NIM per-model concurrency limit:
                         # this specific model is exhausted, but another model
@@ -1471,7 +1487,7 @@ class ProviderRouter:
                 # advanced to the next candidate above.
                 break
         # Apply failure-type-aware cooldown: auth errors last longer than transient failures.
-        if last_status == 410 and _live_models(provider, candidates):
+        if last_status in (404, 410) and _live_models(provider, candidates):
             # Only the model is gone and it is already marked dead; the provider
             # still has live models, so it must not be benched. A stale
             # default_model used to cool NVIDIA, the main free brain, for 300s on
@@ -1896,6 +1912,8 @@ class ProviderRouter:
         # NOTE: 429 and 410 are handled specially in _try_one_provider (immediate
         # failover + Retry-After-aware cooldown), so they never reach the same-provider
         # retry path. 410 Gone means the endpoint/model is permanently removed.
+        # 404 is likewise handled there (the model id is not served), so it never
+        # reaches this check from the chat loop.
         return status_code in (404, 408, 409, 425) or status_code >= 500
 
     @staticmethod
