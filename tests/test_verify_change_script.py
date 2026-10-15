@@ -72,7 +72,7 @@ def test_from_report_reproduces_the_same_files(repo):
 
 def test_cli_runs_as_a_script(repo):
     (repo / "calc.py").write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
-    proc = subprocess.run([sys.executable, str(Path(verify_change.__file__)), "--root", str(repo),
+    proc = subprocess.run([sys.executable, str(Path(verify_change.__file__)), "--root", str(repo),  # nosec B603 - fixed interpreter argv
                            "--files", "calc.py"], capture_output=True, text=True, timeout=120)
     assert proc.returncode == 0, proc.stderr[-2000:]
     assert json.loads(proc.stdout)["checks_ok"] is True

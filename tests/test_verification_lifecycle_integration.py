@@ -74,7 +74,9 @@ class FakeSpecs:
 
 
 def _git(root: Path, *args: str) -> str:
-    return subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True).stdout.strip()
+    return subprocess.run(  # nosec B603 B607 - constant git argv in a temp repo, list form
+        ["git", *args], cwd=root, check=True, capture_output=True, text=True,
+    ).stdout.strip()
 
 
 @pytest.fixture
