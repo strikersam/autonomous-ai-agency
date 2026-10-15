@@ -184,7 +184,10 @@ class TaskDispatcher:
         # Over-fetch so tasks this dispatcher is already running don't hide
         # queued work behind them.
         candidates = await self.store.list_pending(limit=self.max_concurrency * 2)
-        tasks = [t for t in candidates if t.task_id not in self._running][:free]
+        candidates = [t for t in candidates if t.task_id not in self._running]
+        # Tasks of a deleted company are cancelled here, never run.
+        from services.company_cleanup import filter_orphaned_tasks
+        tasks = (await filter_orphaned_tasks(self.store, candidates))[:free]
 
         # Emit periodic queue-depth diagnostic
         if self._poll_count % _QUEUE_DEPTH_LOG_EVERY == 0:

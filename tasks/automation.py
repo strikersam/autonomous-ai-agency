@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import logging
+
 from tasks.models import TaskStatus
 from tasks.models import Task
 from tasks.service import TaskWorkflowService
 from tasks.store import TaskStore, get_task_store
+
+
+log = logging.getLogger("qwen-proxy")
 
 
 class TaskAutomationService:
@@ -22,11 +27,13 @@ class TaskAutomationService:
         self.workflow = workflow or TaskWorkflowService(store=self.store)
         self.owner_id = owner_id
 
-    async def handle_scheduled_job(self, job) -> Task:
+    async def handle_scheduled_job(self, job) -> Task | None:
         # Job tags (including "company:{id}" and "specialist-family:{family}")
         # are forwarded into the Task so _select_agent can route to the
         # right specialist.
         job_tags = list(getattr(job, "tags", []) or [])
+        if await self._discard_if_company_gone(job, job_tags):
+            return None
 
         task = Task(
             owner_id=self.owner_id,
@@ -48,6 +55,28 @@ class TaskAutomationService:
             goal=(getattr(job, "description", None) or None),
         )
         return await self.workflow.create_task(task, actor=f"scheduler:{job.job_id}")
+
+    @staticmethod
+    async def _discard_if_company_gone(job, job_tags: list[str]) -> bool:
+        """Skip a job whose company was deleted, and reap that company's schedules.
+
+        Self heals a schedule that survived the delete (rehydrated from the
+        durable store, or created by a directive racing the delete).
+        """
+        from services.company_cleanup import (
+            company_id_from_tags, company_is_gone, purge_company_schedules,
+        )
+
+        cid = company_id_from_tags(job_tags)
+        if not cid or not await company_is_gone(cid):
+            return False
+        log.warning("Scheduler: job %s (%s) belongs to deleted company %s; not firing, removing its schedules",
+                    getattr(job, "job_id", "?"), getattr(job, "name", "?"), cid)
+        try:
+            await purge_company_schedules(cid)
+        except Exception:  # noqa: BLE001 - the periodic reaper retries
+            log.exception("Scheduler: could not purge schedules of deleted company %s", cid)
+        return True
 
     async def create_playbook_task(
         self,
