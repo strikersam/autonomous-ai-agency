@@ -356,3 +356,8 @@ def test_check_without_content_binding_does_not_count():
 def test_upper_case_python_extension_still_needs_checks():
     report = build_report(_contract(["calc.PY"]), steps=[_step(files=["calc.PY"], checks=[])], judge=APPROVED)
     assert report.verdict == "INCONCLUSIVE"
+
+
+@pytest.mark.parametrize("verdict", ["APPROVED?", "APPROVED_BUT_NOT", "approved-ish"])
+def test_only_exact_approval_counts(verdict):
+    assert build_report(_contract(), steps=[_step()], judge={"verdict": verdict}).verdict == "BLOCKED"

@@ -303,7 +303,7 @@ def _judge_findings(judge: dict[str, Any], defects: list[Finding]) -> list[Findi
     if verdict in {"REJECTED"}:
         return [Finding(kind="implementation_defect", criterion_id="goal",
                         message=f"The independent reviewer rejected the change: {notes or 'no reason given'}")]
-    if verdict.startswith("APPROVED"):
+    if verdict in {"APPROVED", "APPROVED_WITH_CONDITIONS"}:
         broken = [d for d in defects if d.kind in _FAILING]
         if broken:
             return [Finding(kind="contract_violation", criterion_id="goal",
