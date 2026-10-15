@@ -157,7 +157,9 @@ async def test_a_rejected_requires_approval_task_is_not_parked_in_review(coordin
     task = Task(owner_id="user1", title="t", source="test", status=TaskStatus.IN_PROGRESS,
                 requires_approval=True, execution_approved=True)
     result = _make_result(success=True, output="done")
-    result.metadata = {"raw_result": {"steps": [], "judge": {"verdict": "REJECTED", "notes": "wrong file"}}}
+    # The internal agent asks for review on every requires_approval task.
+    result.metadata = {"raw_result": {"steps": [], "judge": {"verdict": "REJECTED", "notes": "wrong file"}},
+                       "task_status": "in_review", "review_reason": "Awaiting human approval"}
 
     async def passthrough(t, r, raw):
         return raw
