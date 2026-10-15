@@ -382,6 +382,45 @@ def review_diff(root: str | Path, base_ref: str | None, max_chars: int = 12000) 
     return out if len(out) <= max_chars else out[:max_chars] + f"\n… diff truncated ({len(out)} chars total)"
 
 
+def worktree_diff(root: str | Path, paths: list[str], max_chars: int = 12000) -> str:
+    """Uncommitted edits to *paths* against HEAD, new files included; "" outside git.
+
+    Host runs often change files without committing (production 2026-10-15:
+    every judge brief logged "git diff 0 chars"), so a commit-range diff is empty.
+    """
+    root = Path(root)
+    safe = [p for p in paths if p and not p.startswith(("/", "~")) and ".." not in p.split("/")]
+    if not safe or _run(["git", "rev-parse", "--verify", "HEAD"], root)[0] != 0:
+        return ""
+    out = _git_out(["git", "diff", "--relative", "--stat", "--patch", "HEAD", "--", *safe], root)
+    untracked = _git_out(["git", "ls-files", "--others", "--exclude-standard", "--", *safe], root)
+    for path in untracked.splitlines():
+        out += _git_out(["git", "diff", "--no-index", "--", os.devnull, path], root)
+    return out if len(out) <= max_chars else out[:max_chars] + f"\n… diff truncated ({len(out)} chars total)"
+
+
+def _git_out(argv: list[str], root: Path) -> str:
+    """Full stdout of a git command (``_run`` keeps only the tail); "" on error."""
+    try:
+        return subprocess.run(  # nosec B603 B607 - fixed git argv, list form
+            argv, cwd=root, capture_output=True, text=True, timeout=60, check=False,
+        ).stdout
+    except (subprocess.TimeoutExpired, OSError):
+        return ""
+
+
+_TASK_ID_FILE = re.compile(r"(^|/)task_[0-9a-f]{16}(\.[\w.]+)?$")
+
+
+def placeholder_files(paths: list[str]) -> list[str]:
+    """Changed files named after a task id: stubs made to look like progress.
+
+    Production 2026-10-15: the judge approved ``tasks/task_4a47fb5d8ac50c34.py``,
+    a "minimal valid task file" an agent wrote to make a timeout go away.
+    """
+    return [p for p in paths if _TASK_ID_FILE.search(str(p))]
+
+
 def render_pr_body(
     goal: str,
     plan: object | None,
