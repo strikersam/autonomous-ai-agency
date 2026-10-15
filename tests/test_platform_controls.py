@@ -591,3 +591,19 @@ def test_agent_evidence_controls_are_live_and_take_effect(clean_overrides):
 
     control_overrides.apply_overrides({})
     assert empirical_verify.enabled() and ui_evidence.enabled()
+
+
+def test_verification_policy_control_is_live_and_takes_effect(clean_overrides):
+    from packages.config import settings
+    from tasks import verification
+
+    control = get_control("VERIFICATION_POLICY_ENFORCED")
+    assert control.live is True
+    assert verification.evidence_policy_enforced() is True
+
+    control_overrides.apply_overrides({"VERIFICATION_POLICY_ENFORCED": "false"})
+    assert settings.verification_policy_enforced is False
+    assert verification.evidence_policy_enforced() is False
+
+    control_overrides.apply_overrides({})
+    assert verification.evidence_policy_enforced() is True

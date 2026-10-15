@@ -174,6 +174,7 @@ def unbacked_note(raw: dict[str, Any] | None) -> str | None:
         reason = _unbacked_reason(raw)
         if reason:
             return f"The reviewing agent approved the change, but {reason}"
+        return _evidence_note(raw)
     return None
 
 
@@ -195,8 +196,14 @@ def verification_from_run(raw: dict[str, Any] | None) -> TaskVerification | None
 
     The judge is a separate role that reviews the finished run, so its verdict
     is the independent one. The per-step lines and screenshots are the
-    evidence behind it.
+    evidence behind it. When the run carries an evidence report
+    (agent/verification_evidence.py), its deterministic decision can only make
+    the verdict stricter: see ``apply_evidence``.
     """
+    return apply_evidence(_judge_report(raw), raw)
+
+
+def _judge_report(raw: dict[str, Any] | None) -> TaskVerification | None:
     if not isinstance(raw, dict):
         return None
     judge = raw.get("judge") or {}
@@ -232,6 +239,150 @@ def verification_from_run(raw: dict[str, Any] | None) -> TaskVerification | None
     )
 
 
+EVIDENCE_VERIFIER = "verifier:evidence"
+HIGH_RISK_TAG = "risk:high-change"
+
+
+def evidence_policy_enforced() -> bool:
+    """Read the live ``VERIFICATION_POLICY_ENFORCED`` control; default on."""
+    try:
+        from packages.config import settings
+
+        return bool(getattr(settings, "verification_policy_enforced", True))
+    except Exception:
+        log.warning("verification policy control unreadable; enforcing it", exc_info=True)
+        return True
+
+
+_VERDICT_RANK = {"VERIFIED": 0, "INCONCLUSIVE": 1, "BLOCKED": 2, "FAILED": 3}
+
+
+def evidence_decision(raw: dict[str, Any] | None) -> tuple[str, dict[str, Any]] | None:
+    """(verdict, report) from a run's evidence report, or None when the run has none.
+
+    The stored report is validated and its verdict recomputed from the run's
+    own steps and judge; the stricter of the two wins, so an edited verdict
+    cannot loosen anything. A report that is unreadable, or not bound to the
+    run's contract, is INCONCLUSIVE. Never raises.
+    """
+    if not isinstance(raw, dict) or not isinstance(raw.get("verification_report"), dict):
+        return None
+    try:
+        return _decide_evidence(raw)
+    except Exception as exc:  # noqa: BLE001 - a broken record is not evidence, and must not crash the gate
+        log.warning("evidence report unusable: %s", type(exc).__name__)
+        return "INCONCLUSIVE", {"reasons": [f"evidence report unusable: {type(exc).__name__}"]}
+
+
+def _decide_evidence(raw: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    from agent.verification_contract import VerificationContract
+    from agent.verification_evidence import EvidenceReport, build_report, check_binding
+
+    unbound = check_binding(raw["verification_report"], raw.get("verification_contract"))
+    if unbound:
+        return "INCONCLUSIVE", {"reasons": [unbound]}
+    stored = EvidenceReport.model_validate(raw["verification_report"]).model_dump()
+    contract = VerificationContract.model_validate(raw["verification_contract"])
+    steps = raw.get("steps") if isinstance(raw.get("steps"), list) else []
+    judge = raw.get("judge") if isinstance(raw.get("judge"), dict) else {}
+    again = build_report(contract, steps=steps, judge=judge,
+                         time_budget_exceeded=bool(raw.get("time_budget_exceeded")),
+                         ui_gap=_ui_proof_gap(raw)).model_dump()
+    pick = again if _VERDICT_RANK[again["verdict"]] > _VERDICT_RANK[stored["verdict"]] else stored
+    if pick is again:
+        again = {**again, "report_id": stored["report_id"], "source_revision": stored["source_revision"]}
+        pick = again
+    return pick["verdict"], pick
+
+
+def _evidence_line(report: dict[str, Any], verdict: str) -> str:
+    rev = str(report.get("source_revision") or "uncommitted")[:12]
+    return (f"Evidence report {str(report.get('report_id') or '?')[:12]}: {verdict}, "
+            f"{len(report.get('checks') or [])} check(s), contract "
+            f"{report.get('contract_fingerprint', '?')} v{report.get('contract_version', '?')}, revision {rev}")
+
+
+def apply_evidence(legacy: TaskVerification | None, raw: dict[str, Any] | None) -> TaskVerification | None:
+    """Combine the reviewer's verdict with the evidence decision; never loosen it.
+
+    * FAILED evidence turns an approval into FAIL (the approval contradicts the
+      evidence) and adds its classified defects to a FAIL. With no usable
+      review at all, FAILED evidence alone is a FAIL.
+    * BLOCKED or INCONCLUSIVE evidence withholds an approval: the task waits
+      for a person, with ``unbacked_note`` saying why.
+    * VERIFIED evidence leaves the reviewer's verdict as it is.
+    """
+    decided = evidence_decision(raw) if evidence_policy_enforced() else None
+    if decided is None:
+        return legacy
+    verdict, report = decided
+    line = _evidence_line(report, verdict)
+    defects = [f"[{f.get('kind')}] {f.get('message')}" for f in report.get("findings") or [] if isinstance(f, dict)]
+    if legacy is None:
+        # No usable review, but the checks prove the work is broken: FAIL sends it
+        # back through the bounded rework cycle (rework_or_park) with the defects.
+        if verdict != "FAILED":
+            return None
+        return TaskVerification(verdict="FAIL", verifier=EVIDENCE_VERIFIER, defects_found=defects,
+                                evidence=[line], checked=_checked_lines(report))
+    if verdict == "FAILED":
+        note = "" if not legacy.passed else "The reviewer approved, but the executed checks contradict it. "
+        return legacy.model_copy(update={
+            "verdict": "FAIL",
+            "verifier": legacy.verifier if not legacy.passed else EVIDENCE_VERIFIER,
+            "defects_found": _clip(legacy.defects_found + defects),
+            "evidence": _clip(legacy.evidence + [line]),
+            "notes": (note + legacy.notes)[:4000],
+        })
+    if verdict != "VERIFIED" and legacy.passed:
+        return None
+    return legacy.model_copy(update={"evidence": _clip(legacy.evidence + [line])})
+
+
+def _checked_lines(report: dict[str, Any]) -> list[str]:
+    return [f"Ran {c.get('check_id')} ({c.get('command') or c.get('strategy')}): {c.get('status')}"
+            for c in report.get("checks") or [] if isinstance(c, dict)]
+
+
+def _evidence_note(raw: dict[str, Any] | None) -> str | None:
+    decided = evidence_decision(raw) if evidence_policy_enforced() else None
+    if decided is None or decided[0] in {"VERIFIED", "FAILED"}:
+        return None
+    verdict, report = decided
+    why = "; ".join(str(r)[:200] for r in (report.get("reasons") or [])[:3]) or "missing evidence"
+    return (f"The reviewing agent approved the change, but the evidence report is {verdict} ({why}), "
+            "so it is not verified yet (rule 49). Check the result yourself.")
+
+
+def approval_reason(raw: dict[str, Any] | None) -> str | None:
+    """Why a verified result still needs a person's approval (high risk), or None.
+
+    Verification is not authorization: a high-risk change (auth, secrets,
+    governance, deployment) that passed every check still waits for a person.
+    """
+    decided = evidence_decision(raw) if evidence_policy_enforced() else None
+    if decided is None or not decided[1].get("requires_human_approval"):
+        return None
+    return "High-risk change verified; a person must approve it before it is done"
+
+
+def hold_for_approval(task: Any, reason: str, *, actor: str) -> None:
+    """Park a verified high-risk task in review, out of the review autopilot's reach.
+
+    The autopilot skips any task tagged ``risk:*`` (``_is_outward_facing``), so
+    tagging it keeps the decision with a person.
+    """
+    from tasks.models import TaskStatus
+
+    if HIGH_RISK_TAG not in (task.tags or []):
+        task.tags = [*(task.tags or []), HIGH_RISK_TAG]
+    task.status = TaskStatus.IN_REVIEW
+    task.review_reason = reason
+    task.pending_agent_run = False
+    task.add_log(f"Held for approval by {actor}: {reason}", event_type="status_changed",
+                 actor=actor, task_status=TaskStatus.IN_REVIEW)
+
+
 def verification_required() -> bool:
     """Read the live ``TASK_VERIFICATION_REQUIRED`` control; default on."""
     try:
@@ -262,6 +413,10 @@ def settle_success(task: Any, raw_result: dict[str, Any] | None, *, actor: str) 
     # earlier work (these paths re-run tasks without going through transition).
     task.verification = verification_from_run(raw_result)
     if not verification_required() or has_passing_verdict(task):
+        hold = approval_reason(raw_result) if has_passing_verdict(task) else None
+        if hold:
+            hold_for_approval(task, hold, actor=actor)
+            return
         task.status = TaskStatus.DONE
         return
     if task.verification is not None:  # FAIL
@@ -302,7 +457,10 @@ def _automatic_failures(task: Any) -> int:
 def rework_or_park(task: Any, actor: str) -> tuple[Any, str | None, str]:
     """A FAIL verdict sends the work back to the agents, with the defects as a
     comment the next run reads, up to MAX_AUTO_REWORK times in a row; after
-    that it parks in review for a person instead of looping forever.
+    that it is FAILED, with the defects as its error, instead of looping
+    forever. Work a verifier failed never parks in review: the review lane is
+    for decisions only a person can make (operator, 2026-10-15). FAILED tasks
+    are retried by the dispatcher's capped, cooled-down reconciler.
 
     Returns (status, review_reason, log message).
     """
@@ -326,5 +484,6 @@ def rework_or_park(task: Any, actor: str) -> tuple[Any, str | None, str]:
     )
     if prior + 1 <= MAX_AUTO_REWORK:
         return TaskStatus.IN_PROGRESS, None, f"Verification failed; sent back for rework (attempt {prior + 1} of {MAX_AUTO_REWORK})"
-    reason = f"Failed independent verification {prior + 1} times in a row; needs a person"
-    return TaskStatus.IN_REVIEW, reason, reason
+    reason = f"Failed independent verification {prior + 1} times in a row"
+    task.error_message = f"{reason}:\n{problems}"[:4000]
+    return TaskStatus.FAILED, None, reason

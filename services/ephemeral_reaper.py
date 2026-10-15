@@ -11,7 +11,9 @@ defensive — a transient store error never stops it.
 
 The same loop also runs ``reap_orphaned_agents`` each cycle, which cleans up
 specialist agents left registered by company deletions that predate the
-agency-teardown fix in ``CompanyGraphService.delete_company``.
+agency-teardown fix in ``CompanyGraphService.delete_company``, and
+``services.company_cleanup.reap_orphaned_company_state`` to remove the schedules
+and open tasks of companies that no longer exist.
 """
 
 from __future__ import annotations
@@ -211,4 +213,14 @@ async def ephemeral_reaper_loop() -> None:
             raise
         except Exception:  # noqa: BLE001
             log.exception("Orphan-agent reaper cycle error")
+        # Schedules and tasks left behind by company deletions that predate the
+        # full cascade (or that failed part way). Also runs on the first cycle,
+        # so orphans already persisted are removed shortly after boot.
+        try:
+            from services.company_cleanup import reap_orphaned_company_state
+            await reap_orphaned_company_state()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            log.exception("Orphan company-state reaper cycle error")
         await asyncio.sleep(_env_float("EPHEMERAL_REAPER_SWEEP_SEC", _DEFAULT_SWEEP_SEC))

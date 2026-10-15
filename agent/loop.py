@@ -692,6 +692,7 @@ class AgentRunner:
         # Reset per-run state trackers so a reused AgentRunner instance doesn't
         # carry over halter counts from a prior run.
         self._adaptive_halter = AdaptiveHalter()
+        self._applied_content: dict[str, str] = {}
         # Budget clock starts before planning: on a slow free model planning
         # alone can take two minutes, and the coordinator's hard timeout
         # counts it. _execute_step reads these to cut its tool loop short.
@@ -758,6 +759,11 @@ class AgentRunner:
             from services.spec_store import spec_approval_required
             approval_required = spec_approval_required()
             spec_doc = None
+            # The verification contract (acceptance criteria, risk tier, required
+            # checks) is fixed here, before any file changes, and persisted with
+            # the spec so the end-of-run evidence report is judged against it.
+            from agent.verification_contract import build_contract
+            contract = build_contract(plan, session_id=session_id, time_budget_s=self._run_budget_s)
             try:
                 from services.spec_store import persist_plan_spec
                 spec_doc = await persist_plan_spec(
@@ -766,6 +772,7 @@ class AgentRunner:
                     steps=[s.model_dump() for s in plan.steps],
                     risks=plan.risks,
                     requires_risky_review=plan.requires_risky_review,
+                    contract=contract.model_dump(),
                 )
             except Exception as exc:
                 if approval_required:
@@ -999,6 +1006,17 @@ class AgentRunner:
                 except Exception:
                     log.warning("UI evidence capture failed (non-fatal)", exc_info=True)
 
+            # Evidence report: what actually ran, against the contract, decided
+            # deterministically (agent/verification_evidence.py). tasks/verification.py
+            # consults it so a reviewer's approval is never stronger than the evidence.
+            from agent.verification_runtime import finalize_verification
+            verification_report = await finalize_verification(
+                root=Path(self.tools.root), contract=contract,
+                spec_id=(spec_doc or {}).get("spec_id"), steps=step_results, judge=judge,
+                ui_evidence=ui_evidence, commits=commits, time_budget_exceeded=time_budget_exceeded,
+                log_event=self._log_event, session_id=session_id,
+            )
+
             # Push and open a PR when auto_commit produced local commits and we have
             # a GitHub repo URL to target. Gated behind AGENT_AUTO_PR_ENABLED (default
             # off) so this new agent-initiated GitHub write path is opt-in and has a
@@ -1014,8 +1032,11 @@ class AgentRunner:
             ):
                 from agent.pr_gate import judge_blockers
 
+                from agent.verification_runtime import pr_blockers as evidence_blockers
+
                 pr_blockers = await self._pr_blockers(step_results, plan, commits)
                 pr_blockers += judge_blockers(judge)
+                pr_blockers += evidence_blockers(verification_report)
                 if not pr_blockers:
                     pr_url = await self._auto_push_and_pr(
                         commits, self._current_session_id, plan.goal, plan=plan, judge=judge
@@ -1079,6 +1100,8 @@ class AgentRunner:
                 "ui_evidence": ui_evidence,
                 "pr_url": pr_url,
                 "pr_blockers": pr_blockers,
+                "verification_contract": contract.model_dump(),
+                "verification_report": verification_report,
             }
         finally:
             # ── Durable checkpoint: snapshot on error for crash-recovery ──
@@ -1640,6 +1663,8 @@ class AgentRunner:
                     changed_files.append(out_path)
                     context_items.append({"tool": "apply_diff", "result": diff_result})
                     file_applied = True
+                    # Evidence binds to the bytes applied: in a sandbox the host copy lags.
+                    self._applied_content = {**getattr(self, "_applied_content", {}), out_path: new_content}
                     resolved_issues.extend(pending_fixes)
                     # Adaptive Loop Halting: track confidence for early exit
                     if "_confidence_scores" not in step:
@@ -1706,6 +1731,7 @@ class AgentRunner:
                 "changed_files": changed_files,
                 "observations": observations,
                 "models": {"executor": executor_model, "verifier": verifier_model},
+                **self._step_evidence(changed_files),
             }
 
         return {
@@ -1715,6 +1741,7 @@ class AgentRunner:
             "changed_files": changed_files,
             "resolved_issues": resolved_issues[:20],
             "executed_checks": list(getattr(self, "_last_executed_checks", [])),
+            **self._step_evidence(changed_files),
             "observations": observations,
             "models": {"executor": executor_model, "verifier": verifier_model},
         }
@@ -2773,12 +2800,24 @@ class AgentRunner:
 
     async def _empirical_verify_async(self, changed_files: list[str]) -> list[str]:
         """Run the empirical checks where the edits live: in the attached E2B
-        sandbox, else on the host workspace in a worker thread."""
+        sandbox, else on the host workspace in a worker thread.
+
+        Structured per-check results (passed / failed / not_run / unavailable /
+        timed_out / untrusted) land in ``self._last_check_results`` for the
+        run's evidence report (agent/verification_evidence.py)."""
         from agent import empirical_verify as ev
 
         self._last_executed_checks = []
+        self._last_check_results: list[dict[str, Any]] = []
         py_files = [f for f in changed_files if f.endswith(".py")]
-        if not ev.enabled() or not py_files:
+        if not py_files:
+            return []
+        if not ev.enabled():
+            outcome = ev.CheckOutcome()
+            for kind in ("static", "unit"):
+                outcome.record(f"{kind}:disabled", kind, "not_run", files=py_files,
+                               reason="AGENT_EMPIRICAL_VERIFY is off")
+            self._last_check_results = outcome.results
             return []
         if not ev.is_sandbox(self._mcp):
             return await asyncio.to_thread(self._empirical_verify, changed_files)
@@ -2786,8 +2825,13 @@ class AgentRunner:
             outcome = await ev.verify_in_sandbox(self._mcp, py_files)
         except Exception as exc:  # noqa: BLE001 - a dead sandbox is not a failed change
             log.warning("Empirical verification in the sandbox unavailable: %s", exc)
+            outcome = ev.CheckOutcome()
+            outcome.record("sandbox:run_command", "unit", "unavailable", files=py_files,
+                           reason=f"sandbox unavailable: {type(exc).__name__}")
+            self._last_check_results = outcome.results
             return []
         self._last_executed_checks = outcome.checks
+        self._last_check_results = outcome.results
         return outcome.issues
 
     def _empirical_verify(self, changed_files: list[str]) -> list[str]:
@@ -2802,6 +2846,7 @@ class AgentRunner:
         # Tests that actually ran and passed: a task's rule-49 report only counts
         # as PASS when a test run backs the review ("it compiles" is not proof).
         self._last_executed_checks: list[str] = []
+        self._last_check_results = []
         from agent import empirical_verify as ev
 
         if not ev.enabled():
@@ -2809,45 +2854,25 @@ class AgentRunner:
         py_files = [f for f in changed_files if f.endswith(".py")]
         if not py_files:
             return []
-        issues: list[str] = []
-        timeout = ev.timeout_s()
-        root = Path(self.tools.root)
+        outcome = ev.verify_on_host(Path(self.tools.root), py_files, _check_env())
+        self._last_executed_checks = outcome.checks
+        self._last_check_results = outcome.results
+        return outcome.issues
 
-        def _run(argv: list[str]) -> tuple[int, str]:
-            proc = subprocess.run(  # nosec B603 - fixed interpreter argv, list form (no shell)
-                argv, cwd=root, capture_output=True, text=True, timeout=timeout,
-                env=_check_env(),
-            )
-            return proc.returncode, (proc.stdout + proc.stderr)[-4000:]
+    def _step_evidence(self, changed_files: list[str]) -> dict[str, Any]:
+        """This step's structured check results, bound to the content they checked."""
+        from agent.verification_evidence import fingerprint_content
 
-        try:
-            rc, out = _run([sys.executable, "-m", "py_compile", *py_files])
-            if rc != 0:
-                issues.append(f"Changed files fail to byte-compile:\n{out}")
-                return issues
-
-            test_targets: list[str] = []
-            for f in py_files:
-                name = Path(f).name
-                if name.startswith("test_"):
-                    test_targets.append(f)
-                else:
-                    test_targets.extend(
-                        str(p.relative_to(root)) for p in root.glob(f"tests/test_{Path(f).stem}*.py")
-                    )
-            if test_targets:
-                rc, out = _run([sys.executable, "-m", "pytest", "-x", "-q", *dict.fromkeys(test_targets)])
-                if rc != 0:
-                    issues.append(f"Scoped tests failed for this change:\n{out}")
-                else:
-                    self._last_executed_checks.append(
-                        f"pytest -x {' '.join(dict.fromkeys(test_targets))}: passed"
-                    )
-        except subprocess.TimeoutExpired:
-            issues.append(f"Empirical verification timed out after {timeout}s.")
-        except (OSError, FileNotFoundError) as exc:
-            log.debug("Empirical verification unavailable: %s", exc)
-        return issues
+        applied = getattr(self, "_applied_content", {}) or {}
+        prints = {
+            f: fingerprint_content(applied[f] if f in applied else self._safe_read(f))
+            for f in dict.fromkeys(changed_files)
+        }
+        results = []
+        for raw in getattr(self, "_last_check_results", []) or []:
+            covered = [f for f in raw.get("files") or [] if f in prints]
+            results.append({**raw, "fingerprints": {f: prints[f] for f in covered}})
+        return {"check_results": results, "file_fingerprints": prints}
 
     def _review_step_result(self, *, step: dict[str, Any], changed_files: list[str]) -> list[str]:
         issues: list[str] = []
@@ -2955,11 +2980,61 @@ class AgentRunner:
             return []
         return [sha] if sha else []
 
+    async def _judge_diff(self, step_results: list[dict[str, Any]], commits: list[str]) -> str:
+        """The change for the judge: the git diff where the edits live, plus the
+        current content of any changed file the diff does not show.
+
+        Production 2026-10-12..15: every sandbox run reached the judge as
+        "Diff: (unavailable)" and was rejected, so no task could ever pass.
+        """
+        from agent import empirical_verify as ev
+        from agent.pr_gate import resolve_base, review_diff
+
+        diff = ""
+        if commits:
+            try:
+                base = await asyncio.to_thread(resolve_base, self.tools.root, self.base_branch, len(commits))
+                diff = await asyncio.to_thread(review_diff, self.tools.root, base)
+            except Exception:
+                log.warning("Could not build the judge diff", exc_info=True)
+        if ev.is_sandbox(self._mcp):
+            # The edits live in the sandbox; the host diff holds at most the plan file.
+            diff = "\n".join(d for d in (diff, await ev.sandbox_diff(self._mcp)) if d)
+        changed = list(dict.fromkeys(
+            str(f).removeprefix("./") for s in step_results if s.get("status") == "applied"
+            for f in (s.get("changed_files") or [])
+        ))
+        missing = [f for f in changed if f"b/{f}" not in diff]
+        extra, shown = await self._changed_content(missing)
+        log.info("Judge brief: %d changed file(s), git diff %d chars, %d shown as content",
+                 len(changed), len(diff), shown)
+        return "\n".join(d for d in (diff, extra) if d)
+
+    async def _changed_content(self, paths: list[str], limit: int = 3000) -> tuple[str, int]:
+        """Current content of changed files git could not diff (no baseline), and how many."""
+        from agent import empirical_verify as ev
+
+        parts: list[str] = []
+        # Only repo-relative paths: this content goes to a model, and the
+        # sandbox resolver does not clamp absolute or "../" paths.
+        safe = [p for p in paths if p and not p.startswith(("/", "~")) and ".." not in p.split("/")]
+        for path in safe[:5]:
+            try:
+                if ev.is_sandbox(self._mcp):
+                    text = await self._mcp.call_tool("read_file", {"path": path})
+                else:
+                    text = await asyncio.to_thread(self._safe_read, path)
+            except Exception:  # noqa: BLE001 - an unreadable file is just not shown
+                continue
+            if text:
+                parts.append(f"--- {path} (current content; no git baseline to diff against)\n{text[:limit]}")
+        return "\n".join(parts), len(parts)
+
     async def _judge_brief(
         self, plan: AgentPlan, step_results: list[dict[str, Any]], commits: list[str]
     ) -> str:
         """What the judge reviews: goal, plan, and the actual diff (not a step count)."""
-        from agent.pr_gate import resolve_base, review_diff, review_policy
+        from agent.pr_gate import review_policy
 
         planned = sorted({f for s in plan.steps for f in s.files})
         lines = [
@@ -2969,18 +3044,7 @@ class AgentRunner:
             f" of {len(step_results)}",
             f"Risky review required: {plan.requires_risky_review}",
         ]
-        diff = ""
-        if commits:
-            try:
-                base = await asyncio.to_thread(resolve_base, self.tools.root, self.base_branch, len(commits))
-                diff = await asyncio.to_thread(review_diff, self.tools.root, base)
-            except Exception:
-                log.warning("Could not build the judge diff", exc_info=True)
-        from agent import empirical_verify as ev
-
-        if ev.is_sandbox(self._mcp):
-            # The edits live in the sandbox; the host diff holds at most the plan file.
-            diff = "\n".join(d for d in (diff, await ev.sandbox_diff(self._mcp)) if d)
+        diff = await self._judge_diff(step_results, commits)
         lines.append(f"Diff:\n```diff\n{diff}\n```" if diff else "Diff: (unavailable)")
         policy = await asyncio.to_thread(review_policy, self.tools.root)
         if policy:

@@ -1,3 +1,11 @@
+# NEXT_ACTION — updated 2026-10-15 (evidence-driven verification)
+
+#1765 merged 2026-10-15. Follow-up PR from the same branch carries the CodeRabbit fixes and restores the Bandit baseline (303).
+
+1. After deploy, watch for tasks held with review reason "High-risk change verified; a person must approve it" (tag `risk:high-change`): verified agent changes to auth, secrets, governance, deploy, CI or migration paths no longer complete on their own. `VERIFICATION_POLICY_ENFORCED=false` restores the old verdicts while keeping the reports.
+2. Follow-ups: produce an `EvidenceReport` from `tasks/independent_verifier.py` (non-loop runtimes) and from `_maybe_run_parallel`; record per-run token cost in the report.
+3. Local runs without MongoDB: use `SKIP_DB_TESTS=1` (the pre-push hook sets it automatically).
+
 # NEXT_ACTION — updated 2026-10-11 (durable state on SQLite)
 
 Merged: #1719 (durable token ledger, sticky grants, tool-output offload on MongoDB), #1722 (docs), #1724 (same three stores on `STORAGE_BACKEND=sqlite`: numeric `expires_at_ts`, atomic single-statement increment, purge on write, `_id` primary-key lookups). This closes the "ledgers are in-memory per process" item in the 2026-10-10 Octop entry below. Follow-up branch `fix/sqlite-atomic-bandit-nosec` restores the Bandit count to 303 (the Security Gate is not a required check, so #1724 merged with 305).

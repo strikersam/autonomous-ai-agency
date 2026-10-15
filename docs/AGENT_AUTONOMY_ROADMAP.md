@@ -39,6 +39,7 @@ closed each gap.
 | G6 | Cost data existed but wasn't broken down by task type | `packages/ai/cost_tracker.py` gained a `by_tag` breakdown (task category, not just model); surfaced as a "Spend by Task Type" table on the Observability page |
 | G7 | No self-audit of the repo's own agent-readiness | `scripts/agent_readiness_audit.py`: scores 8 pillars (style/validation, build system, testing, docs, dev environment, observability, security, task discovery); `make agent-readiness` |
 | G8 | No independent cross-verification or racing for high-stakes changes | `agent/verification_strategies.py`: `cross_verify` (independent re-check) and `race` (N concurrent attempts, reward-scored winner); auto-triggered for risky-module changes via `services/ceo_dispatcher.py`, gated by `AGENT_CROSS_VERIFY_ENABLED` |
+| G9 | Verification evidence was collapsed and unbound: a check that could not run vanished, a reviewer approval outranked a failed step, a pass on content a later step changed still counted, and criteria were never fixed before execution | `agent/verification_{contract,evidence,runtime}.py`: a persisted verification contract per run (criteria, risk tier, strategies, retry budget), six-status check results bound to content hashes, a deterministic evidence report (`VERIFIED`/`FAILED`/`BLOCKED`/`INCONCLUSIVE`) that `tasks/verification.py` uses to tighten, never loosen, the task verdict; high-risk verified changes wait for a person; `scripts/verify_change.py` harness. Gated by `VERIFICATION_POLICY_ENFORCED`. See [`docs/verification.md`](verification.md), including what it does not cover yet |
 
 ## Proactive rate-limit pacing (free-tier reliability)
 
@@ -104,6 +105,7 @@ this PR changes.
 | `SESSION_RETRO_LOOKBACK` | `50` | Most recent sessions scanned per cycle |
 | `SESSION_RETRO_MIN_CLUSTER` | `3` | Occurrences before a friction cluster is filed as an issue |
 | `AGENT_CROSS_VERIFY_ENABLED` | `false` | Auto-trigger independent cross-verification for risky-module changes |
+| `VERIFICATION_POLICY_ENFORCED` | `true` | The run's evidence report gates the task verdict and holds verified high-risk changes for a person (G9) |
 | `<PROVIDER_ID>_MAX_RPM` | unset | Enable proactive rate-limit pacing for that provider (e.g. `CEREBRAS_MAX_RPM=28`) |
 | `LLM_ROUTING_STRATEGY` | `priority` | Traffic distribution across providers: `priority`, `weighted-shuffle`, `least-busy`, `usage-based`, `latency-based` |
 | `<PROVIDER_ID>_MAX_TPM` | unset | Tokens/minute ceiling used by the pre-call budget check |

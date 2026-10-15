@@ -288,3 +288,121 @@ def test_a_dead_sandbox_gives_no_diff_instead_of_raising():
             raise RuntimeError("sandbox gone")
 
     assert asyncio.run(ev.sandbox_diff(Dead([]))) == ""
+
+
+# ── Structured check results: not-run and could-not-run are never a pass ─────
+
+
+def test_disabled_verification_records_not_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "agent_empirical_verify_raw", "false")
+    runner = _make_runner(tmp_path)
+    assert asyncio.run(runner._empirical_verify_async(["mymod.py"])) == []
+    statuses = {r["strategy"]: r["status"] for r in runner._last_check_results}
+    assert statuses == {"static": "not_run", "unit": "not_run"}
+
+
+def test_dead_sandbox_records_unavailable_not_pass(tmp_path, monkeypatch):
+    runner = _sandbox_runner(tmp_path, monkeypatch, [])
+
+    async def boom(name, args):
+        raise ConnectionError("sandbox gone")
+
+    runner._mcp.call_tool = boom
+    assert asyncio.run(runner._empirical_verify_async(["mymod.py"])) == []
+    assert [r["status"] for r in runner._last_check_results] == ["unavailable"]
+    assert runner._last_executed_checks == []
+
+
+def test_host_records_passed_and_missing_tests(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "agent_empirical_verify_raw", "true")
+    runner = _make_runner(tmp_path)
+    (Path(runner.tools.root) / "clean.py").write_text("VALUE = 1\n", encoding="utf-8")
+    assert runner._empirical_verify(["clean.py"]) == []
+    statuses = {r["check_id"]: r["status"] for r in runner._last_check_results}
+    assert statuses == {"static:py_compile": "passed", "unit:pytest": "not_run"}
+
+
+def test_sandbox_failure_confirmed_on_rerun_stays_failed(tmp_path, monkeypatch):
+    runner = _sandbox_runner(tmp_path, monkeypatch, [
+        ("ls -1", 0, "tests/test_mymod.py\n"),
+        ("pytest -x", 1, "1 failed"),
+    ])
+    asyncio.run(runner._empirical_verify_async(["mymod.py"]))
+    assert sum("pytest -x" in c for c in runner._mcp.cmds) == 2  # confirmed once, not retried until green
+    unit = [r for r in runner._last_check_results if r["strategy"] == "unit"]
+    assert unit[0]["status"] == "failed"
+
+
+def test_confirmation_rerun_timeout_keeps_the_first_failure(tmp_path, monkeypatch):
+    """A failing test whose confirmation re-run times out is still a failure, not a timeout."""
+    import subprocess as sp
+
+    from agent import empirical_verify as ev
+
+    calls = {"n": 0}
+
+    def fake_run(argv, **kw):
+        calls["n"] += 1
+        if "py_compile" in argv:
+            return sp.CompletedProcess(argv, 0, "", "")
+        if calls["n"] == 2:
+            return sp.CompletedProcess(argv, 1, "FAILED test_x - assert 1 == 2\n1 failed", "")
+        raise sp.TimeoutExpired(argv, 1)
+
+    root = tmp_path / "repo"
+    (root / "tests").mkdir(parents=True)
+    (root / "tests" / "test_mod.py").write_text("def test_x():\n    assert 1 == 2\n", encoding="utf-8")
+    monkeypatch.setattr(ev.subprocess, "run", fake_run)
+    outcome = ev.verify_on_host(root, ["mod.py"], {})
+    unit = [r for r in outcome.results if r["strategy"] == "unit"]
+    assert [r["status"] for r in unit] == ["failed"]
+    assert outcome.issues and "tests failed" in outcome.issues[0]
+
+
+def test_sandbox_diff_uses_the_commit_recorded_at_seed_time():
+    # A shallow clone's "root" commit is arbitrary; the judge saw weeks of
+    # unrelated history (production 2026-10-15). The seed-time HEAD is the base.
+    from agent import empirical_verify as ev
+
+    session = E2BSandboxSession([("git diff", 0, "diff --git a/x.py b/x.py\n+y\n")])
+    session._base_sha = "a" * 40
+    asyncio.run(ev.sandbox_diff(session))
+    assert session.cmds[0].startswith("git diff --stat --patch " + "a" * 40)
+    unknown = E2BSandboxSession([])
+    asyncio.run(ev.sandbox_diff(unknown))
+    assert unknown.cmds[0].startswith("git diff --stat --patch HEAD") and "max-parents" not in unknown.cmds[0]
+
+
+def test_judge_sees_changed_files_content_when_git_has_no_diff(tmp_path, monkeypatch):
+    # Production 2026-10-12..15: "Diff: (unavailable)" on every sandbox run, so
+    # every task was rejected. A changed file git cannot diff is shown as content.
+    from agent.models import AgentPlan, AgentStep
+
+    runner = _sandbox_runner(tmp_path, monkeypatch, [("git diff", 0, "")])
+
+    async def call_tool(name, args, _orig=runner._mcp.call_tool):
+        if name == "read_file":
+            return "def fixed():\n    return 1\n"
+        return await _orig(name, args)
+
+    runner._mcp.call_tool = call_tool
+    plan = AgentPlan(goal="fix mymod", steps=[AgentStep(id=1, description="d", files=["mymod.py"], type="edit")])
+    steps = [{"status": "applied", "changed_files": ["./mymod.py"]}]
+    brief = asyncio.run(runner._judge_brief(plan, steps, []))
+    assert "(unavailable)" not in brief
+    assert "--- mymod.py (current content" in brief and "def fixed()" in brief
+
+
+def test_judge_never_reads_files_outside_the_repo(tmp_path, monkeypatch):
+    runner = _sandbox_runner(tmp_path, monkeypatch, [("git diff", 0, "")])
+    read: list = []
+
+    async def call_tool(name, args, _orig=runner._mcp.call_tool):
+        if name == "read_file":
+            read.append(args["path"])
+            return "secret"
+        return await _orig(name, args)
+
+    runner._mcp.call_tool = call_tool
+    out, shown = asyncio.run(runner._changed_content(["/etc/passwd", "../../x", "a/../../b", "~/.ssh/id", "ok.py"]))
+    assert read == ["ok.py"] and "ok.py" in out and shown == 1
