@@ -168,6 +168,10 @@ class CompanyGraphService:
         Returns:
             True if deleted, False otherwise
         """
+        # Recorded first, so the orphan sweep can tell this company is gone even
+        # when it was the last one and part of the teardown below fails.
+        from services.company_cleanup import record_company_deleted
+        await record_company_deleted(company_id)
         errors = await self._teardown_company_agency(company_id)
         deleted = await self.store.delete_company(company_id)
         if errors:

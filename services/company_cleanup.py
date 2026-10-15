@@ -19,8 +19,10 @@ Three entry points share the helpers here:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
+from datetime import datetime, timezone
 from typing import Any, Iterable
 
 log = logging.getLogger("qwen-proxy")
@@ -28,6 +30,46 @@ log = logging.getLogger("qwen-proxy")
 COMPANY_TAG_PREFIX = "company:"
 _ACTOR = "system:company-cleanup"
 _PAGE = 200
+# Marker row written to the existing activity_log collection when a company is
+# deleted, so "gone" can be proven even after the last company is deleted.
+TOMBSTONE_CATEGORY = "company_deleted"
+
+
+def _activity_log() -> Any:
+    # db.get_store() is the singleton backend.server.get_db() returns. Never
+    # import backend.server here: these helpers run in the worker and proxy,
+    # where importing it boots the web app and replaces their scheduler.
+    from db import get_store
+
+    return get_store().activity_log
+
+
+async def record_company_deleted(company_id: str) -> bool:
+    """Durably record that ``company_id`` was deleted. Best effort, never raises."""
+    try:
+        await _activity_log().insert_one({
+            "category": TOMBSTONE_CATEGORY,
+            "company_id": company_id,
+            "message": f"Company {company_id} deleted; its schedules and tasks are removed",
+            "user_id": None,
+            "meta": {"company_id": company_id},
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return True
+    except Exception:  # noqa: BLE001 - the non-empty-store rule still applies
+        log.exception("company cleanup: could not record deletion of %s", company_id)
+        return False
+
+
+async def _was_deleted(company_id: str) -> bool:
+    try:
+        doc = await _activity_log().find_one(
+            {"category": TOMBSTONE_CATEGORY, "company_id": company_id}
+        )
+        return doc is not None
+    except Exception:  # noqa: BLE001 - unknown reads as "no record"
+        log.exception("company cleanup: deletion record lookup failed for %s", company_id)
+        return False
 
 
 def company_id_from_tags(tags: Iterable[str] | None) -> str | None:
@@ -45,9 +87,10 @@ def company_id_from_tags(tags: Iterable[str] | None) -> str | None:
 async def company_is_gone(company_id: str, cache: dict[str, bool] | None = None) -> bool:
     """True only when the company store positively reports the company missing.
 
-    Fails safe: a lookup error, or a store that holds no companies at all (a
-    wiped or not yet bootstrapped store cannot tell us anything), reads as "not
-    gone" so a storage hiccup can never delete live work.
+    Missing counts as gone when its deletion was recorded, or when the store
+    still holds other companies. Fails safe: a lookup error, or an empty store
+    with no deletion record (a wiped or not yet bootstrapped store cannot tell
+    us anything), reads as "not gone" so a storage hiccup never deletes live work.
     """
     if cache is not None and company_id in cache:
         return cache[company_id]
@@ -57,7 +100,7 @@ async def company_is_gone(company_id: str, cache: dict[str, bool] | None = None)
 
         store = get_company_graph_store()
         if await store.get_company(company_id) is None:
-            gone = bool(await store.list_companies(limit=1))
+            gone = await _was_deleted(company_id) or bool(await store.list_companies(limit=1))
     except Exception:  # noqa: BLE001 - never delete on a lookup error
         log.exception("company cleanup: lookup failed for %s; treating it as alive", company_id)
     if cache is not None:
@@ -65,11 +108,50 @@ async def company_is_gone(company_id: str, cache: dict[str, bool] | None = None)
     return gone
 
 
+def _owns_durable_store(sched: Any) -> bool:
+    """False in the API process when a separate worker owns ``agent_schedules``.
+
+    Its scheduler then lazily picks a different collection the worker never reads.
+    """
+    from agent.schedule_store import ScheduleStore
+
+    return isinstance(getattr(sched, "_store", None), ScheduleStore)
+
+
+def _purge_durable_rows_sync(tag: str) -> dict[str, int]:
+    from agent.schedule_store import ScheduleStore
+
+    store = ScheduleStore()
+    summary = {"removed": 0, "failed": 0}
+    for doc in store.load_all():
+        job_id = doc.get("job_id")
+        if job_id and tag in (doc.get("tags") or []):
+            summary["removed" if store.remove(job_id) else "failed"] += 1
+    return summary
+
+
 async def purge_company_schedules(company_id: str) -> dict[str, int]:
-    """Remove all ``company:<id>`` schedules from memory, APScheduler and the store."""
+    """Remove all ``company:<id>`` schedules from memory, APScheduler and the store.
+
+    With ``RUN_BACKGROUND_IN_WEB=false`` the API process that serves the delete
+    does not own the durable ``agent_schedules`` store (the worker does), so its
+    scheduler alone would find nothing. The durable rows are then removed
+    directly; the worker's fire-time guard drops its in-memory copies.
+    """
     from packages.scheduler.scheduler import get_scheduler
 
-    return await get_scheduler().delete_by_tag(f"{COMPANY_TAG_PREFIX}{company_id}")
+    tag = f"{COMPANY_TAG_PREFIX}{company_id}"
+    summary = {"removed": 0, "failed": 0}
+    try:
+        sched = get_scheduler()
+    except RuntimeError:  # no scheduler in this process
+        sched = None
+    if sched is not None:
+        summary = await sched.delete_by_tag(tag)
+        if _owns_durable_store(sched):
+            return summary
+    durable = await asyncio.to_thread(_purge_durable_rows_sync, tag)
+    return {k: summary[k] + durable[k] for k in summary}
 
 
 def _task_company_id(task: Any) -> str | None:

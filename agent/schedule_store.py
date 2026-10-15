@@ -198,15 +198,21 @@ class ScheduleStore:
                 return
         self._mem[job_id] = clean
 
-    def remove(self, job_id: str) -> None:
-        """Delete a persisted schedule."""
+    def remove(self, job_id: str) -> bool:
+        """Delete a persisted schedule.
+
+        Returns False when the backend raised, so a caller that must know the
+        row is really gone (company teardown) can report it instead of a row
+        silently surviving into the next boot's rehydration. Callers that do
+        not care can ignore the result, as before.
+        """
         if self._mode == "mongo":
             try:
                 self._collection.delete_one({"job_id": job_id})
-                return
+                return True
             except Exception as exc:
                 log.warning("ScheduleStore.remove(%s) failed: %s", job_id, exc)
-                return
+                return False
         if self._mode == "sqlite":
             try:
                 with self._lock:
@@ -215,11 +221,12 @@ class ScheduleStore:
                         (job_id,)
                     )
                     self._sqlite.commit()
-                return
+                return True
             except Exception as exc:
                 log.warning("ScheduleStore.remove(%s) sqlite failed: %s", job_id, exc)
-                return
+                return False
         self._mem.pop(job_id, None)
+        return True
 
     def delete_if_unfired_run_once(self, job_id: str) -> bool:
         """Atomically delete a run-once row only while it is still unfired.
