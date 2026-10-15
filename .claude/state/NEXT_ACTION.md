@@ -2,7 +2,7 @@
 
 Shipped: #1761/#1762/#1763 (failed verification goes to FAILED, never Review; review autopilot moved 136 stuck tasks out at 10:49 UTC). Branch `claude/judge-diff-and-stubs`: the judge gets a real working-tree diff on host runs, and stubs named after a task id are rejected.
 
-1. After deploy, Render logs should show "Judge brief: … git diff N chars" with N > 0 for host runs that changed tracked or new files (ignored files such as logs are still shown as content).
+1. Root cause of the empty diff (found after #1768 shipped): `/app` has no `.git`, so task copies had no baseline and the E2B seed failed. Branch `claude/workspace-git-baseline` gives the copy a baseline commit. After deploy, Render logs should show "E2B sandbox seeded from /tmp/llm-task-copy-…" and "Judge brief: … git diff N chars" with N > 0 for host runs that changed tracked or new files (ignored files such as logs are still shown as content).
 2. Many runs change nothing (0 changed files) and fail honestly; Failed will grow rather than Done. If that persists, the next lever is the planner/executor, not the verifier.
 3. Operator: rotate the Browserbase key that was shared in chat on 2026-10-15.
 

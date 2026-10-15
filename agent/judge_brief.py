@@ -40,6 +40,19 @@ NO_CHANGE_JUDGE_SYSTEM = (
     "the findings support)."
 )
 
+# Tools that only read. A run whose tool calls were all from this set changed
+# nothing even if no step reported changed_files; any other tool (write_file,
+# run_command, a commit, a subagent, an unknown registry tool) may have written,
+# so that run keeps the code judge and its diff.
+READ_ONLY_TOOLS: frozenset[str] = frozenset({
+    "finish", "error", "read_file", "head_file", "file_index", "list_files", "search_code",
+    "get_overview", "get_context", "get_risk", "get_why", "recall_memory", "git_status", "git_diff",
+    "github_read_repo_file", "github_list_repos", "github_list_branches", "github_get_issue",
+    "fetch_url", "web_search", "fetch_rss", "browse_page", "youtube_transcript", "read_tool_output",
+    "code_trace", "code_search", "code_impact", "recommend_skills", "get_current_time", "check_delegation",
+    "time_budget", "stuck_detector",  # loop signals the runner records, not tool calls
+})
+
 _PER_RESULT_CHARS = 800
 _FINDINGS_CHARS = 9000
 
@@ -53,11 +66,15 @@ def changed_nothing(step_results: list[dict[str, Any]], plan: Any = None) -> boo
     """True for a research run: steps ran, none changed a file, and none was meant to.
 
     A plan with an edit or create step stays with the code judge, so a code
-    goal whose edits were skipped or failed is never judged as research.
+    goal whose edits were skipped or failed is never judged as research. So
+    does a run that called any tool outside READ_ONLY_TOOLS: an analyze step's
+    tool loop can call write_file while the step still reports no changed files.
     """
     if plan is not None and planned_a_change(plan):
         return False
-    return bool(step_results) and not any(s.get("changed_files") for s in step_results)
+    tools = {o.get("tool") for s in step_results for o in s.get("observations") or [] if isinstance(o, dict)}
+    return (bool(step_results) and not any(s.get("changed_files") for s in step_results)
+            and tools <= READ_ONLY_TOOLS)
 
 
 def judge_system(step_results: list[dict[str, Any]], plan: Any = None) -> str:

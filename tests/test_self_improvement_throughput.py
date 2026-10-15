@@ -206,3 +206,18 @@ def test_a_real_bug_wrapped_by_the_runtime_still_files_a_fix_task(monkeypatch):
         "runtimes.base.RuntimeExecutionError: Runtime 'internal_agent' execution error")
 
     assert len(dispatched) == 1
+
+
+def test_an_analyze_step_that_called_a_writing_tool_keeps_the_code_judge():
+    """CodeRabbit on #1772: an analyze step can call write_file yet report no changed files."""
+    wrote = [{**_RESEARCH[0], "observations": _RESEARCH[0]["observations"] + [
+        {"tool": "write_file", "args": {"path": "notes.md"}, "result": "ok"}]}]
+    assert not judge_brief.changed_nothing(wrote)
+    ran = [{**_RESEARCH[0], "observations": [{"tool": "run_command", "result": "ok"}]}]
+    unknown = [{**_RESEARCH[0], "observations": [{"tool": "some_new_registry_tool", "result": "ok"}]}]
+    assert not judge_brief.changed_nothing(ran) and not judge_brief.changed_nothing(unknown)
+    assert judge_brief.changed_nothing(_RESEARCH)  # read-only research still qualifies
+    # The tool prompt tells the model to call get_current_time first; that is a read.
+    timed = [{**_RESEARCH[0], "observations": [{"tool": "get_current_time", "result": "now"}]
+              + _RESEARCH[0]["observations"]}]
+    assert judge_brief.changed_nothing(timed)

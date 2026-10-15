@@ -24,6 +24,7 @@ from agent.delegation import task_meta as delegation_task_meta
 from agent.loop import AgentRunner
 from packages.ai.router import ProviderConfig, _normalize_nvidia_base_url
 from runtimes.adapters.delivery import assess_delivery, clone_repo_workspace
+from runtimes.adapters.workspace_baseline import git_baseline
 from runtimes.base import (
     IntegrationMode,
     RuntimeAdapter,
@@ -744,6 +745,7 @@ class InternalAgentAdapter(RuntimeAdapter):
             tmp.cleanup()
             return workspace, None
         _log.debug("Workspace copied to %s for task %s", tmp.name, task_id)
+        git_baseline(tmp.name)
         return tmp.name, tmp
 
     @staticmethod
