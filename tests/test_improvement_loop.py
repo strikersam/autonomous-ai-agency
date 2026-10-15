@@ -220,3 +220,19 @@ def test_get_status_is_dict(tmp_loop: ImprovementLoop):
     assert isinstance(status, dict)
     for key in ("active_issues", "resolved_issues", "scan_count", "issues_detected"):
         assert key in status
+
+
+def test_scan_todo_fixme_ignores_the_word_outside_a_comment_marker(tmp_path: Path):
+    """2026-10-15: all 9 markers filed were the enum, docstrings or the scanner's own regex."""
+    (tmp_path / "noise.py").write_text(
+        '"""Detects FIXME markers and TODO items."""\n'
+        'TODO_FIXME = "todo_fixme"\n'
+        'PATTERN = r"FIXME|TODO.?FIX|HACK.?URGENT"\n'
+        '# TODO was not handled here, so the status stayed\n'
+    )
+    (tmp_path / "real.py").write_text("x = 1  # TODO(sam): handle retries\n# HACK: temporary\n")
+    loop = ImprovementLoop(repo_root=tmp_path)
+
+    found = {(i.file_path, i.line_number) for i in loop._scan_todo_fixme()}
+
+    assert found == {("./real.py", 1), ("./real.py", 2)}

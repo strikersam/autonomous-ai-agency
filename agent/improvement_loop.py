@@ -30,6 +30,7 @@ _REPO_ROOT = Path(__file__).parent.parent
 _STATE_FILE = _REPO_ROOT / ".claude" / "state" / "improvement-state.json"
 
 SCAN_INTERVAL_HOURS = int(os.environ.get("IMPROVEMENT_SCAN_INTERVAL_HOURS", "6"))
+_MARKER_PATTERN = r"#[[:space:]]*(FIXME|TODO|HACK|XXX)[[:space:]]*[:(]"
 _CRITICAL_CRON = "* * * * *"    # fires within 60 s — for test failures
 _LOW_CRON = "0 9 * * *"         # daily at 9 am — for low-priority issues
 
@@ -370,7 +371,12 @@ class ImprovementLoop:
     def _scan_todo_fixme(self) -> list[DetectedIssue]:
         try:
             result = subprocess.run(  # nosec
-                ["grep", "-rn", "--include=*.py", "-E", r"FIXME|TODO.?FIX|HACK.?URGENT", "."],
+                # Comment markers only: a hash, the marker word, then a colon or
+                # an opening parenthesis. Matching the bare word flagged the
+                # TODO_FIXME enum, docstrings and this regex itself: on 2026-10-15
+                # every one of the 9 markers filed was one of those, and their
+                # fix tasks could only fail. tests/ holds markers as fixtures.
+                ["grep", "-rn", "--include=*.py", "--exclude-dir=tests", "-E", _MARKER_PATTERN, "."],
                 capture_output=True,
                 text=True,
                 cwd=str(self._repo_root),
