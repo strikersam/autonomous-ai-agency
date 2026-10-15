@@ -302,7 +302,10 @@ def _automatic_failures(task: Any) -> int:
 def rework_or_park(task: Any, actor: str) -> tuple[Any, str | None, str]:
     """A FAIL verdict sends the work back to the agents, with the defects as a
     comment the next run reads, up to MAX_AUTO_REWORK times in a row; after
-    that it parks in review for a person instead of looping forever.
+    that it is FAILED, with the defects as its error, instead of looping
+    forever. Work a verifier failed never parks in review: the review lane is
+    for decisions only a person can make (operator, 2026-10-15). FAILED tasks
+    are retried by the dispatcher's capped, cooled-down reconciler.
 
     Returns (status, review_reason, log message).
     """
@@ -326,5 +329,6 @@ def rework_or_park(task: Any, actor: str) -> tuple[Any, str | None, str]:
     )
     if prior + 1 <= MAX_AUTO_REWORK:
         return TaskStatus.IN_PROGRESS, None, f"Verification failed; sent back for rework (attempt {prior + 1} of {MAX_AUTO_REWORK})"
-    reason = f"Failed independent verification {prior + 1} times in a row; needs a person"
-    return TaskStatus.IN_REVIEW, reason, reason
+    reason = f"Failed independent verification {prior + 1} times in a row"
+    task.error_message = f"{reason}:\n{problems}"[:4000]
+    return TaskStatus.FAILED, None, reason

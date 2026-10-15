@@ -59,7 +59,7 @@ def _get_workflow_engine() -> WorkflowEngine:
 ALLOWED_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
     TaskStatus.TODO: {TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED, TaskStatus.FAILED, TaskStatus.WONT_DO},
     TaskStatus.IN_PROGRESS: {TaskStatus.IN_REVIEW, TaskStatus.BLOCKED, TaskStatus.DONE, TaskStatus.FAILED, TaskStatus.WONT_DO},
-    TaskStatus.IN_REVIEW: {TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED, TaskStatus.DONE, TaskStatus.WONT_DO},
+    TaskStatus.IN_REVIEW: {TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED, TaskStatus.DONE, TaskStatus.FAILED, TaskStatus.WONT_DO},
     TaskStatus.BLOCKED: {TaskStatus.IN_PROGRESS, TaskStatus.FAILED, TaskStatus.WONT_DO},
     TaskStatus.FAILED: {TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED, TaskStatus.WONT_DO},
     TaskStatus.DONE: {TaskStatus.IN_PROGRESS},
@@ -1601,7 +1601,8 @@ class TaskExecutionCoordinator:
             task.add_log(note, event_type="verification_unbacked", actor=actor, task_status=task.status)
 
         next_status = metadata.get("task_status")
-        if task.requires_approval and next_status in (None, TaskStatus.DONE.value):
+        failed_verdict = task.verification is not None and not task.verification.passed
+        if task.requires_approval and next_status in (None, TaskStatus.DONE.value) and not failed_verdict:
             next_status = TaskStatus.IN_REVIEW.value
             metadata.setdefault("review_reason", "Awaiting approval before completion")
 

@@ -147,3 +147,30 @@ async def test_success_result_posts_agent_comment(coordinator, sample_task, mock
     mock_workflow.transition.assert_called()
     transition_args = mock_workflow.transition.call_args
     assert transition_args.args[1] == TaskStatus.DONE
+
+
+@pytest.mark.asyncio
+async def test_a_rejected_requires_approval_task_is_not_parked_in_review(coordinator, mock_workflow):
+    """Operator 2026-10-15: work the verifier failed must not sit in review.
+    A requires_approval task whose judge rejected it goes the DONE route, where
+    the rule-49 gate sends it to rework or FAILED, never to IN_REVIEW."""
+    task = Task(owner_id="user1", title="t", source="test", status=TaskStatus.IN_PROGRESS,
+                requires_approval=True, execution_approved=True)
+    result = _make_result(success=True, output="done")
+    result.metadata = {"raw_result": {"steps": [], "judge": {"verdict": "REJECTED", "notes": "wrong file"}}}
+
+    async def passthrough(t, r, raw):
+        return raw
+
+    coordinator._independent_check = passthrough
+    await coordinator._apply_result(task, None, result)
+    assert mock_workflow.transition.call_args.args[1] == TaskStatus.DONE
+
+    approved = Task(owner_id="user1", title="t", source="test", status=TaskStatus.IN_PROGRESS,
+                    requires_approval=True, execution_approved=True)
+    ok = _make_result(success=True, output="done")
+    ok.metadata = {"raw_result": {"steps": [{"status": "applied", "changed_files": ["a.py"],
+                                             "executed_checks": ["pytest: passed"]}],
+                                  "judge": {"verdict": "APPROVED"}}}
+    await coordinator._apply_result(approved, None, ok)
+    assert mock_workflow.transition.call_args.args[1] == TaskStatus.IN_REVIEW  # passing work still awaits sign-off
