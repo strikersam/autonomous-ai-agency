@@ -959,7 +959,7 @@ class AgentRunner:
                 from agent.judge_brief import judge_system
                 judge_messages = [
                     # A run that changed no files is judged on its findings (agent/judge_brief.py).
-                    {"role": "system", "content": judge_system(step_results)},
+                    {"role": "system", "content": judge_system(step_results, plan)},
                     {
                         "role": "user",
                         "content": await self._judge_brief(plan, step_results, commits),
@@ -3036,7 +3036,7 @@ class AgentRunner:
             f"Risky review required: {plan.requires_risky_review}",
         ]
         from agent.judge_brief import changed_nothing, findings
-        if changed_nothing(step_results):
+        if changed_nothing(step_results, plan):
             lines.append(f"Findings (no files were changed):\n{findings(step_results)}")
         else:
             diff = await self._judge_diff(step_results, commits)

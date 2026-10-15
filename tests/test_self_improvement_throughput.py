@@ -170,3 +170,39 @@ def test_an_agency_task_failure_files_no_incident_and_no_fix_task(monkeypatch):
     monitor._on_log_error("hermes-server", "ERROR", "request to provider timed out")  # still counted
     monitor._on_log_error("services.foo", "ERROR", "KeyError: 'name' in services/foo.py")  # still a fix task
     assert recorded == ["request to provider timed out"] and len(dispatched) == 1
+
+
+async def test_a_recent_failure_is_found_behind_many_newer_unrelated_failures(store):
+    """Verifier finding: only the 200 newest failures were read, of every kind."""
+    await _add(store, "fix: TODO in a.py [todo_fixme]", TaskStatus.FAILED)
+    for i in range(250):
+        await store.create(Task(owner_id="u", title=f"other {i}", status=TaskStatus.FAILED))
+
+    assert await improvement_throttle.skip_reason(
+        store, "fix: TODO in a.py [todo_fixme]", ["auto-improvement"]) is not None
+
+
+def test_a_code_plan_whose_edits_changed_nothing_stays_with_the_code_judge():
+    """Verifier note: a code goal must not be judged as research because its edits did nothing."""
+    plan = AgentPlan(goal="Fix the TODO in foo.py", steps=[
+        AgentStep(id=1, description="Edit foo.py", files=["foo.py"], type="edit")])
+    skipped = [{"step_id": 1, "status": "skipped", "changed_files": []}]
+    assert judge_brief.judge_system(skipped, plan) == judge_brief.CODE_JUDGE_SYSTEM
+    research = AgentPlan(goal="Research X", steps=[
+        AgentStep(id=1, description="Look into X", files=["README.md"], type="analyze")])
+    assert judge_brief.judge_system(_RESEARCH, research) == judge_brief.NO_CHANGE_JUDGE_SYSTEM
+
+
+def test_a_real_bug_wrapped_by_the_runtime_still_files_a_fix_task(monkeypatch):
+    """Verifier finding: only the first line marks a task outcome; a traceback is not filtered."""
+    dispatched: list[str] = []
+    monkeypatch.setattr(log_monitor_module, "_record_operational", lambda n, m: None)
+    monkeypatch.setattr(log_monitor_module, "_dispatch_async", lambda t, d, s=None: dispatched.append(t))
+    monkeypatch.setattr(log_monitor_module, "_note_recurrence", lambda sig: None)
+
+    log_monitor_module.LogMonitor()._on_log_error(
+        "agent.job_manager", "ERROR",
+        "Agent job j1 failed\nTraceback ...\nTypeError: bad\n"
+        "runtimes.base.RuntimeExecutionError: Runtime 'internal_agent' execution error")
+
+    assert len(dispatched) == 1

@@ -41,14 +41,25 @@ _PER_RESULT_CHARS = 800
 _FINDINGS_CHARS = 9000
 
 
-def changed_nothing(step_results: list[dict[str, Any]]) -> bool:
-    """True when at least one step ran and none changed a file."""
+def planned_a_change(plan: Any) -> bool:
+    """True when the plan has an edit or create step: the goal needs files changed."""
+    return any(getattr(s, "type", "") in ("edit", "create") for s in getattr(plan, "steps", None) or [])
+
+
+def changed_nothing(step_results: list[dict[str, Any]], plan: Any = None) -> bool:
+    """True for a research run: steps ran, none changed a file, and none was meant to.
+
+    A plan with an edit or create step stays with the code judge, so a code
+    goal whose edits were skipped or failed is never judged as research.
+    """
+    if plan is not None and planned_a_change(plan):
+        return False
     return bool(step_results) and not any(s.get("changed_files") for s in step_results)
 
 
-def judge_system(step_results: list[dict[str, Any]]) -> str:
+def judge_system(step_results: list[dict[str, Any]], plan: Any = None) -> str:
     """The judge's system prompt for this run."""
-    return NO_CHANGE_JUDGE_SYSTEM if changed_nothing(step_results) else CODE_JUDGE_SYSTEM
+    return NO_CHANGE_JUDGE_SYSTEM if changed_nothing(step_results, plan) else CODE_JUDGE_SYSTEM
 
 
 def _text(value: Any) -> str:
