@@ -120,6 +120,7 @@ class E2BSandboxSession:
         # Track whether the working dir has been seeded (clone or seed_from_worktree).
         # Used by extract_changes_to_worktree to decide whether extraction is safe.
         self._seeded = False
+        self._base_sha: str | None = None  # commit the agent's work starts from (judge diff base)
 
     @property
     def is_open(self) -> bool:
@@ -460,7 +461,17 @@ class E2BSandboxSession:
             except Exception:  # pragma: no cover - best-effort
                 log.debug("git remote set-url in E2B failed (best-effort)")
         self._seeded = True
+        await self._remember_base(sb)
         return _json.dumps({"cloned": True, "branch": branch})
+
+    async def _remember_base(self, sb: Any) -> None:
+        """Record HEAD right after seeding: the judge diffs the agent's work against it."""
+        try:
+            r = await sb.commands.run(f"git -C {SANDBOX_WORKDIR} rev-parse HEAD", timeout=10)
+            sha = (getattr(r, "stdout", "") or "").strip()
+            self._base_sha = sha if len(sha) == 40 and all(c in "0123456789abcdef" for c in sha) else None
+        except Exception:  # pragma: no cover - best-effort; the diff falls back to HEAD
+            self._base_sha = None
 
     async def checkout_pull_request(self, repo_url: str, number: int, token: str | None = None) -> dict[str, Any]:
         """Clone *repo_url* and check out pull request *number* for verification.
@@ -678,6 +689,7 @@ class E2BSandboxSession:
                 pass
 
             self._seeded = True
+            await self._remember_base(self._sandbox)
             log.info("E2B sandbox seeded from %s (%d files)", worktree_path, len(files))
             return True
         except Exception as exc:

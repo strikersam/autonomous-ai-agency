@@ -143,7 +143,9 @@ def test_a_fail_logs_its_defects(caplog):
     assert "Verification FAIL for" in caplog.text and "breaks login" in caplog.text
 
 
-def test_repeated_fails_park_for_a_person_instead_of_looping():
+def test_repeated_fails_end_failed_not_in_review():
+    # Operator 2026-10-15: work the verifier failed must never sit in the
+    # review lane; after the rework budget it is FAILED, with the defects.
     wf = TaskWorkflowService(store=TaskStore())
     task = _task()
     for _ in range(2):
@@ -152,8 +154,17 @@ def test_repeated_fails_park_for_a_person_instead_of_looping():
         assert task.status is TaskStatus.IN_PROGRESS
     task.verification = _reject()
     wf.transition(task, TaskStatus.DONE, actor="agent:dev")
-    assert task.status is TaskStatus.IN_REVIEW
-    assert "needs a person" in task.review_reason
+    assert task.status is TaskStatus.FAILED
+    assert task.review_reason is None
+    assert "breaks login" in task.error_message
+
+
+def test_settle_success_never_parks_a_failed_run_in_review():
+    task = _task()
+    rejected = {"steps": [], "judge": {"verdict": "REJECTED", "notes": "wrong file"}}
+    for _ in range(3):
+        settle_success(task, rejected, actor="runtime:internal_agent")
+    assert task.status is TaskStatus.FAILED and "wrong file" in task.error_message
 
 
 def test_a_person_acting_resets_the_rework_budget():
