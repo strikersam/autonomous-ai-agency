@@ -63,6 +63,7 @@ graphify-out/.graphify_root
 graphify-out/manifest.json
 graphify-out/.rebuild.lock
 graphify-out/.graphify_labels.pending.json
+graphify-out/.graph.tmp.json
 # NOTE: graphify-out/GRAPH_REPORT.md is deliberately COMMITTED and must stay so.
 # It was listed here, which does nothing (gitignore cannot untrack a tracked
 # file) but reads as an instruction to untrack it — and untracking it breaks

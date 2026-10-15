@@ -290,6 +290,75 @@ def test_a_dead_sandbox_gives_no_diff_instead_of_raising():
     assert asyncio.run(ev.sandbox_diff(Dead([]))) == ""
 
 
+# ── Structured check results: not-run and could-not-run are never a pass ─────
+
+
+def test_disabled_verification_records_not_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "agent_empirical_verify_raw", "false")
+    runner = _make_runner(tmp_path)
+    assert asyncio.run(runner._empirical_verify_async(["mymod.py"])) == []
+    statuses = {r["strategy"]: r["status"] for r in runner._last_check_results}
+    assert statuses == {"static": "not_run", "unit": "not_run"}
+
+
+def test_dead_sandbox_records_unavailable_not_pass(tmp_path, monkeypatch):
+    runner = _sandbox_runner(tmp_path, monkeypatch, [])
+
+    async def boom(name, args):
+        raise ConnectionError("sandbox gone")
+
+    runner._mcp.call_tool = boom
+    assert asyncio.run(runner._empirical_verify_async(["mymod.py"])) == []
+    assert [r["status"] for r in runner._last_check_results] == ["unavailable"]
+    assert runner._last_executed_checks == []
+
+
+def test_host_records_passed_and_missing_tests(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "agent_empirical_verify_raw", "true")
+    runner = _make_runner(tmp_path)
+    (Path(runner.tools.root) / "clean.py").write_text("VALUE = 1\n", encoding="utf-8")
+    assert runner._empirical_verify(["clean.py"]) == []
+    statuses = {r["check_id"]: r["status"] for r in runner._last_check_results}
+    assert statuses == {"static:py_compile": "passed", "unit:pytest": "not_run"}
+
+
+def test_sandbox_failure_confirmed_on_rerun_stays_failed(tmp_path, monkeypatch):
+    runner = _sandbox_runner(tmp_path, monkeypatch, [
+        ("ls -1", 0, "tests/test_mymod.py\n"),
+        ("pytest -x", 1, "1 failed"),
+    ])
+    asyncio.run(runner._empirical_verify_async(["mymod.py"]))
+    assert sum("pytest -x" in c for c in runner._mcp.cmds) == 2  # confirmed once, not retried until green
+    unit = [r for r in runner._last_check_results if r["strategy"] == "unit"]
+    assert unit[0]["status"] == "failed"
+
+
+def test_confirmation_rerun_timeout_keeps_the_first_failure(tmp_path, monkeypatch):
+    """A failing test whose confirmation re-run times out is still a failure, not a timeout."""
+    import subprocess as sp
+
+    from agent import empirical_verify as ev
+
+    calls = {"n": 0}
+
+    def fake_run(argv, **kw):
+        calls["n"] += 1
+        if "py_compile" in argv:
+            return sp.CompletedProcess(argv, 0, "", "")
+        if calls["n"] == 2:
+            return sp.CompletedProcess(argv, 1, "FAILED test_x - assert 1 == 2\n1 failed", "")
+        raise sp.TimeoutExpired(argv, 1)
+
+    root = tmp_path / "repo"
+    (root / "tests").mkdir(parents=True)
+    (root / "tests" / "test_mod.py").write_text("def test_x():\n    assert 1 == 2\n", encoding="utf-8")
+    monkeypatch.setattr(ev.subprocess, "run", fake_run)
+    outcome = ev.verify_on_host(root, ["mod.py"], {})
+    unit = [r for r in outcome.results if r["strategy"] == "unit"]
+    assert [r["status"] for r in unit] == ["failed"]
+    assert outcome.issues and "tests failed" in outcome.issues[0]
+
+
 def test_sandbox_diff_uses_the_commit_recorded_at_seed_time():
     # A shallow clone's "root" commit is arbitrary; the judge saw weeks of
     # unrelated history (production 2026-10-15). The seed-time HEAD is the base.

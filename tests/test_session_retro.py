@@ -93,3 +93,14 @@ def test_run_retro_cycle_routes_recurring_friction(monkeypatch, tmp_path: Path):
     assert result["clusters"] == 1
     assert result["routed"] == 1
     assert loop.get_status()["issues_detected"] == 1
+
+
+def test_verification_failures_cluster_by_verdict_and_failure_class(store: AgentSessionStore):
+    """Evidence-report failures (agent/verification_runtime.py) reach the retro,
+    grouped by verdict + failure class, not by free-text."""
+    for i, issue in enumerate(["[timeout] unit:pytest timed out", "[timeout] other text", "[timeout] third"]):
+        session = store.create(title=f"v-{i}")
+        store.append_event(session.session_id, "verification_failed",
+                           {"verdict": "BLOCKED", "failure_phase": "timeout", "issues": [issue]})
+    clusters = session_retro.cluster_friction(session_retro.collect_friction_events(store, lookback=50))
+    assert [(c.signature, c.count) for c in clusters] == [("verification_failed:BLOCKED:timeout", 3)]
