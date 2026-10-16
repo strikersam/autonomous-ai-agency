@@ -76,6 +76,10 @@ os.environ.setdefault("SELF_BOOTSTRAP_ENABLED", "false")
 # them directly (e.g. test_background_services / test_autonomy_bootstrap) or set
 # the flag explicitly, so disabling the lifespan auto-start here is safe.
 os.environ.setdefault("RUN_BACKGROUND_IN_WEB", "false")
+# Dispatcher sizing reads the process-wide brain failover registry, which
+# earlier tests leave populated (and cooling). Keep dispatcher tests hermetic;
+# tests/test_dispatcher_provider_capacity.py exercises the sizing directly.
+os.environ.setdefault("TASK_SLOTS_PER_PROVIDER", "0")
 # Durable-state mirroring is off by default so unrelated tests write no rows; the
 # persistence tests opt in explicitly (rule 32).
 os.environ.setdefault("AGENCY_STATE_PERSISTENCE_ENABLED", "false")

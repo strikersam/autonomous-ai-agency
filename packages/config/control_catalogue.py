@@ -948,6 +948,18 @@ _AGENT_LOOP: tuple[ControlSpec, ...] = (
         minimum=1,
         maximum=64,
     ),
+    _number(
+        "TASK_SLOTS_PER_PROVIDER",
+        "Tasks per usable provider",
+        "agent_loop",
+        "1",
+        "Tasks each usable brain provider (on, not cooling down) runs at once. "
+        "The dispatcher runs at most usable providers x this, and holds work "
+        "when none is usable, so tasks wait instead of failing. 0 turns it off.",
+        live=True,
+        minimum=0,
+        maximum=16,
+    ),
     _toggle(
         "TASK_QUEUE_BACKPRESSURE",
         "Queue backpressure",

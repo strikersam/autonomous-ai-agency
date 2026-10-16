@@ -32,7 +32,7 @@ import TaskBoardScreen from '../v5/screens/TaskBoardScreen';
 
 function mockBoard(tasks, gated = []) {
   api.API.get.mockImplementation((url) => {
-    if (url === '/api/tasks/') return Promise.resolve({ data: { tasks } });
+    if (url.split('?')[0] === '/api/tasks/') return Promise.resolve({ data: { tasks } });
     // awaiting-approval (pre-execution gate) list.
     return Promise.resolve({ data: { tasks: gated } });
   });
