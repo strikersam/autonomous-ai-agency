@@ -545,6 +545,41 @@ class TaskStore:
             docs = docs[:20]
         return [Task.model_validate(d) for d in docs]
 
+    async def count_awaiting_approval(self, owner_id: str | None = None) -> dict[str, int]:
+        """Counts per status of tasks at the pre-execution gate, uncapped.
+
+        Same match as :meth:`list_awaiting_approval`; *owner_id* narrows it to
+        one owner (``None`` = every owner, for admins).
+        """
+        runnable = [TaskStatus.TODO.value, TaskStatus.IN_PROGRESS.value]
+        if self._mode == "mongo":
+            match: dict[str, Any] = {
+                "requires_approval": True,
+                "execution_approved": {"$ne": True},
+                "status": {"$in": runnable},
+            }
+            if owner_id is not None:
+                match["owner_id"] = owner_id
+            cursor = self._collection.aggregate([
+                {"$match": match},
+                {"$group": {"_id": "$status", "count": {"$sum": 1}}},
+            ])
+            if inspect.isawaitable(cursor):
+                cursor = await cursor
+            result = await cursor.to_list(length=20)
+            return {r["_id"]: r["count"] for r in result}
+        counts: dict[str, int] = {}
+        for v in self._mem.values():
+            if (
+                v.get("requires_approval")
+                and not v.get("execution_approved")
+                and v.get("status", "todo") in runnable
+                and (owner_id is None or v.get("owner_id") == owner_id)
+            ):
+                st = v.get("status", "todo")
+                counts[st] = counts.get(st, 0) + 1
+        return counts
+
     async def list_awaiting_approval(self, *, limit: int = 50) -> list[Task]:
         """Return tasks parked at the pre-execution approval gate (any user).
 

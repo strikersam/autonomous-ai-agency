@@ -522,8 +522,14 @@ function DashboardScreen({ onNavigate } = {}) {
   // Task status breakdown for the distribution donut.
   const taskBreakdown = React.useMemo(() => {
     const counts = data.taskCounts?.counts;
+    // Uncapped gate counts per status; /awaiting-approval lists at most 50.
+    const gatedBy = data.taskCounts?.awaiting_approval || {};
+    if (!data.taskCounts?.awaiting_approval) {
+      gatedTasks.forEach((t) => { gatedBy[t.status] = (gatedBy[t.status] || 0) + 1; });
+    }
+    const gatedTotal = Object.values(gatedBy).reduce((n, v) => n + (Number(v) || 0), 0);
     const buckets = {
-      awaiting_approval: { label: 'Awaiting approval', value: gatedTasks.length, color: 'var(--warning)' },
+      awaiting_approval: { label: 'Awaiting approval', value: counts ? gatedTotal : gatedTasks.length, color: 'var(--warning)' },
       in_progress: { label: 'In progress', value: 0, color: 'var(--accent)' },
       todo: { label: 'To do', value: 0, color: 'var(--text-muted)' },
       in_review: { label: 'In review', value: 0, color: 'var(--warning)' },
@@ -535,8 +541,6 @@ function DashboardScreen({ onNavigate } = {}) {
     };
     if (counts) {
       // Gated tasks are todo/in_progress in the counts; move them to their slice.
-      const gatedBy = {};
-      gatedTasks.forEach((t) => { gatedBy[t.status] = (gatedBy[t.status] || 0) + 1; });
       Object.entries(counts).forEach(([status, n]) => {
         const b = buckets[status] || buckets.todo;
         b.value += Math.max(0, (Number(n) || 0) - (gatedBy[status] || 0));

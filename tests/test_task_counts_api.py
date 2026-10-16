@@ -56,3 +56,17 @@ async def test_non_admin_counts_stay_scoped_to_own_tasks(task_store):
     await _seed(task_store)
     counts = _client("user", "me@x.com").get("/api/tasks/counts").json()["counts"]
     assert counts == {"todo": 1}
+
+
+@pytest.mark.asyncio
+async def test_gate_counts_are_uncapped_and_scoped(task_store):
+    # /awaiting-approval lists at most 50; the counts must not stop there.
+    for i in range(55):
+        await task_store.create(Task(owner_id="system:trend-scoping", title=f"g{i}", requires_approval=True))
+    await task_store.create(Task(owner_id="me@x.com", title="mine gated", requires_approval=True))
+    await task_store.create(Task(owner_id="me@x.com", title="approved", requires_approval=True, execution_approved=True))
+
+    admin = _client("admin", "admin@x.com").get("/api/tasks/counts").json()
+    assert admin["awaiting_approval"] == {"todo": 56}
+    user = _client("user", "me@x.com").get("/api/tasks/counts").json()
+    assert user["awaiting_approval"] == {"todo": 1}

@@ -320,23 +320,27 @@ async def task_counts(request: Request, user: Any = Depends(_current_user)) -> d
     """Tasks per status, over the same set ``GET /`` lists (admins: every owner).
 
     The list is paginated; boards and the dashboard read their totals here so
-    they are not capped at the page size.
+    they are not capped at the page size. ``awaiting_approval`` counts, per
+    status, the tasks at the pre-execution gate (uncapped, unlike
+    ``/awaiting-approval``), so views can move them out of their status.
     """
     is_admin = _is_admin(user)
     owner_id = _user_id(user)
     cache_key = "counts:__all__" if is_admin else f"counts:{owner_id}"
     cached = _COUNTS_CACHE.get(cache_key)
     if cached and time.monotonic() - cached["ts"] < _COUNTS_CACHE_TTL:
-        return {"counts": cached["counts"]}
+        return cached["body"]
     async with _get_counts_lock():
         cached = _COUNTS_CACHE.get(cache_key)
         if cached and time.monotonic() - cached["ts"] < _COUNTS_CACHE_TTL:
-            return {"counts": cached["counts"]}
+            return cached["body"]
         store = _get_store(request)
         counts = await (store.count_all() if is_admin else store.count_for_user(owner_id))
-        _COUNTS_CACHE[cache_key] = {"counts": counts, "ts": time.monotonic()}
+        gated = await store.count_awaiting_approval(None if is_admin else owner_id)
+        body = {"counts": counts, "awaiting_approval": gated}
+        _COUNTS_CACHE[cache_key] = {"body": body, "ts": time.monotonic()}
         _evict_stale(_COUNTS_CACHE, _COUNTS_CACHE_TTL)
-        return {"counts": counts}
+        return body
 
 
 @task_router.get("/due-soon")

@@ -175,3 +175,25 @@ describe('DashboardScreen task totals are not capped at one page', () => {
     expect(screen.getByText('127')).toBeInTheDocument();
   });
 });
+
+describe('DashboardScreen gate totals beyond the 50-row gate list', () => {
+  test('moves every gated task to "Awaiting approval", using the uncapped counts', () => {
+    useSafeData.mockReturnValue([
+      {
+        tasks: { tasks: [] },
+        // 60 todo in total, 55 of them gated; /awaiting-approval returned only 1.
+        taskCounts: { counts: { todo: 60 }, awaiting_approval: { todo: 55 } },
+        gated: { tasks: [{ task_id: 'g1', title: 'One listed gate', status: 'todo' }] },
+      },
+      new Proxy({}, { get: () => idle }),
+      vi.fn(),
+    ]);
+
+    render(<DashboardScreen />);
+
+    expect(screen.getByText('60')).toBeInTheDocument();          // donut total
+    expect(screen.getByText(/Awaiting approval/)).toBeInTheDocument();
+    expect(screen.getByText('55')).toBeInTheDocument();          // gate slice
+    expect(screen.getByText('5')).toBeInTheDocument();           // remaining To do
+  });
+});

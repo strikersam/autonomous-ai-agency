@@ -685,9 +685,12 @@ function TaskBoardScreen() {
                 t => t.status === stage.id && !gatedIds.has(t.task_id),
               );
               // Counts are unfiltered, so they only apply to the "all" view.
+              // awaiting_approval is uncapped; the gated list stops at 50.
+              const gatedInStage = data.counts?.awaiting_approval
+                ? (data.counts.awaiting_approval[stage.id] || 0)
+                : gatedTasks.filter(t => t.status === stage.id).length;
               const stageTotal = filter === 'all' && data.counts?.counts
-                ? (data.counts.counts[stage.id] || 0)
-                  - gatedTasks.filter(t => t.status === stage.id).length
+                ? Math.max(0, (data.counts.counts[stage.id] || 0) - gatedInStage)
                 : undefined;
               return (
                 <StageColumn
