@@ -422,20 +422,34 @@ function DashboardScreen({ onNavigate } = {}) {
     usageTrend: '/api/observability/savings?period=week&bucket=day',
     providers: '/api/providers',
     tasks:     '/api/tasks/',
+    // Same source the Tasks board uses for its "To be approved" lane.
+    gated:     '/api/tasks/awaiting-approval',
     rateLimits: '/api/metrics/rate-limits',
     selfHeal:  '/api/metrics/self-heal',
     costByTag: '/api/metrics/cost-attribution',
   }, { refreshMs: 30000 });
 
+  // Gate membership must match the Tasks board exactly: a task is "awaiting
+  // approval" only while /awaiting-approval returns it. Keying off the bare
+  // requires_approval flag kept approved, running and even finished tasks in
+  // "Needs you" while the board showed them as Running / Done.
+  const gatedTasks = data.gated?.tasks || [];
+  const gatedIds = React.useMemo(
+    () => new Set((data.gated?.tasks || []).map(t => t.task_id || t.id)),
+    [data.gated],
+  );
+  const boardTasks = React.useMemo(
+    () => (data.tasks?.tasks || []).filter(t => !gatedIds.has(t.task_id || t.id)),
+    [data.tasks, gatedIds],
+  );
+
   // Map /api/tasks/ to the Open Tasks widget (exclude finished/failed)
-  const openTasks = React.useMemo(() => {
-    const all = data.tasks?.tasks || [];
-    return all
-      // Tasks waiting on a person are listed under "Needs you" instead.
-      .filter(t => !TERMINAL_TASK_STATUSES.has(t.status) && !NEEDS_HUMAN.has(t.status) && !t.requires_approval)
-      .slice(0, 6)
-      .map(t => ({ id: t.task_id || t.id, title: t.title, status: t.status, priority: t.priority }));
-  }, [data.tasks]);
+  const openTasks = React.useMemo(() => boardTasks
+    // Tasks waiting on a person are listed under "Needs you" instead.
+    .filter(t => !TERMINAL_TASK_STATUSES.has(t.status) && !NEEDS_HUMAN.has(t.status))
+    .slice(0, 6)
+    .map(t => ({ id: t.task_id || t.id, title: t.title, status: t.status, priority: t.priority })),
+  [boardTasks]);
 
   // Map /api/health + /api/providers into ProviderHealthWidget shape
   const providerData = React.useMemo(() => {
@@ -505,8 +519,8 @@ function DashboardScreen({ onNavigate } = {}) {
 
   // Task status breakdown for the distribution donut.
   const taskBreakdown = React.useMemo(() => {
-    const all = data.tasks?.tasks || [];
     const buckets = {
+      awaiting_approval: { label: 'Awaiting approval', value: gatedTasks.length, color: 'var(--warning)' },
       in_progress: { label: 'In progress', value: 0, color: 'var(--accent)' },
       todo: { label: 'To do', value: 0, color: 'var(--text-muted)' },
       in_review: { label: 'In review', value: 0, color: 'var(--warning)' },
@@ -516,13 +530,13 @@ function DashboardScreen({ onNavigate } = {}) {
       failed: { label: 'Failed', value: 0, color: 'var(--danger)' },
       wont_do: { label: "Won't do", value: 0, color: 'var(--text-muted)' },
     };
-    all.forEach((t) => {
+    boardTasks.forEach((t) => {
       const b = buckets[t.status] || buckets.todo;
       b.value += 1;
     });
     const rows = Object.values(buckets).filter((b) => b.value > 0);
-    return { rows, total: all.length };
-  }, [data.tasks]);
+    return { rows, total: boardTasks.length + gatedTasks.length };
+  }, [boardTasks, gatedTasks]);
 
   // Map /api/health + /api/stats to MonitoringWidget signals
   const monitoringSignals = React.useMemo(() => {
@@ -541,13 +555,12 @@ function DashboardScreen({ onNavigate } = {}) {
   const today = new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
 
   // Tasks waiting on a person come first: they are the reason to open Home.
-  const needsYou = React.useMemo(() => {
-    const all = data.tasks?.tasks || [];
-    return all
-      .filter(t => NEEDS_HUMAN.has(t.status) || t.requires_approval)
-      .slice(0, 5)
-      .map(t => ({ id: t.task_id || t.id, title: t.title, status: t.status }));
-  }, [data.tasks]);
+  const needsYou = React.useMemo(() => [
+    ...gatedTasks.map(t => ({ id: t.task_id || t.id, title: t.title, status: 'awaiting_approval' })),
+    ...boardTasks
+      .filter(t => NEEDS_HUMAN.has(t.status))
+      .map(t => ({ id: t.task_id || t.id, title: t.title, status: t.status })),
+  ].slice(0, 5), [gatedTasks, boardTasks]);
 
   const [detailsOpen, setDetailsOpen] = React.useState(() => {
     try { return localStorage.getItem('home_details_open') === '1'; } catch { return false; }
@@ -603,7 +616,7 @@ function DashboardScreen({ onNavigate } = {}) {
       <div className="dash-pair">
         <ErrorBoundary onRetry={fetchAll} resetKey={String(states.tasks?.error || '')}>
           <TasksWidget
-            title="In progress"
+            title="Open tasks"
             tasks={openTasks}
             loading={states.tasks?.loading}
             error={states.tasks?.error}

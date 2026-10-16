@@ -8,7 +8,7 @@
  *    POSTed to /api/doctor/fix-all, which does not exist, so it did nothing.
  */
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 
 vi.mock('../v5/hooks/useSafeData', () => ({
   useSafeData: vi.fn(),
@@ -119,5 +119,40 @@ describe('DashboardScreen request-volume trend', () => {
     ]);
     render(<DashboardScreen />);
     expect(screen.getByText('3 buckets')).toBeInTheDocument();
+  });
+});
+
+describe('DashboardScreen matches the Tasks board approval gate', () => {
+  // The board treats a task as "To be approved" only while
+  // /api/tasks/awaiting-approval returns it. Home keyed off the bare
+  // requires_approval flag, so approved/running/done tasks stayed in
+  // "Needs you" and gated tasks the board list missed never appeared.
+  test('uses /awaiting-approval, not requires_approval, for "Needs you"', () => {
+    const tasks = [
+      { task_id: 'a1', title: 'Approved and running', status: 'in_progress', requires_approval: true, execution_approved: true },
+      { task_id: 'a2', title: 'Approved and shipped', status: 'done', requires_approval: true, execution_approved: true },
+      { task_id: 'g1', title: 'Parked at gate', status: 'todo', requires_approval: true },
+    ];
+    const gated = [
+      { task_id: 'g1', title: 'Parked at gate', status: 'todo', requires_approval: true },
+      { task_id: 'g2', title: 'Gated, off the first page', status: 'todo', requires_approval: true },
+    ];
+    useSafeData.mockReturnValue([
+      { tasks: { tasks }, gated: { tasks: gated } },
+      new Proxy({}, { get: () => idle }),
+      vi.fn(),
+    ]);
+
+    render(<DashboardScreen />);
+
+    const needsYou = screen.getByRole('region', { name: 'Needs you' });
+    expect(within(needsYou).getByText('Parked at gate')).toBeInTheDocument();
+    expect(within(needsYou).getByText('Gated, off the first page')).toBeInTheDocument();
+    expect(within(needsYou).queryByText('Approved and running')).not.toBeInTheDocument();
+    expect(within(needsYou).queryByText('Approved and shipped')).not.toBeInTheDocument();
+    // The running task is open work, as on the board's Running column.
+    expect(screen.getByText('Approved and running')).toBeInTheDocument();
+    // A gated task is counted once, not also as To do.
+    expect(screen.getAllByText('Parked at gate')).toHaveLength(1);
   });
 });
