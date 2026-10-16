@@ -607,3 +607,14 @@ def test_verification_policy_control_is_live_and_takes_effect(clean_overrides):
 
     control_overrides.apply_overrides({})
     assert verification.evidence_policy_enforced() is True
+
+
+def test_task_slots_per_provider_is_a_live_control(clean_overrides):
+    from packages.config import settings
+
+    spec = get_control("TASK_SLOTS_PER_PROVIDER")
+    assert spec is not None and spec.live
+    control_overrides.apply_overrides({"TASK_SLOTS_PER_PROVIDER": "3"})
+    assert settings.task_slots_per_provider == 3
+    control_overrides.apply_overrides({"TASK_SLOTS_PER_PROVIDER": "0"})
+    assert settings.task_slots_per_provider == 0

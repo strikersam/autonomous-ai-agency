@@ -421,7 +421,9 @@ function DashboardScreen({ onNavigate } = {}) {
     // /metrics has no time series; the daily request buckets live on /savings.
     usageTrend: '/api/observability/savings?period=week&bucket=day',
     providers: '/api/providers',
-    tasks:     '/api/tasks/',
+    tasks:     '/api/tasks/?limit=200',
+    // Totals per status: the list above is one page, the counts are not.
+    taskCounts: '/api/tasks/counts',
     // Same source the Tasks board uses for its "To be approved" lane.
     gated:     '/api/tasks/awaiting-approval',
     rateLimits: '/api/metrics/rate-limits',
@@ -519,6 +521,7 @@ function DashboardScreen({ onNavigate } = {}) {
 
   // Task status breakdown for the distribution donut.
   const taskBreakdown = React.useMemo(() => {
+    const counts = data.taskCounts?.counts;
     const buckets = {
       awaiting_approval: { label: 'Awaiting approval', value: gatedTasks.length, color: 'var(--warning)' },
       in_progress: { label: 'In progress', value: 0, color: 'var(--accent)' },
@@ -530,13 +533,23 @@ function DashboardScreen({ onNavigate } = {}) {
       failed: { label: 'Failed', value: 0, color: 'var(--danger)' },
       wont_do: { label: "Won't do", value: 0, color: 'var(--text-muted)' },
     };
-    boardTasks.forEach((t) => {
-      const b = buckets[t.status] || buckets.todo;
-      b.value += 1;
-    });
+    if (counts) {
+      // Gated tasks are todo/in_progress in the counts; move them to their slice.
+      const gatedBy = {};
+      gatedTasks.forEach((t) => { gatedBy[t.status] = (gatedBy[t.status] || 0) + 1; });
+      Object.entries(counts).forEach(([status, n]) => {
+        const b = buckets[status] || buckets.todo;
+        b.value += Math.max(0, (Number(n) || 0) - (gatedBy[status] || 0));
+      });
+    } else {
+      boardTasks.forEach((t) => {
+        const b = buckets[t.status] || buckets.todo;
+        b.value += 1;
+      });
+    }
     const rows = Object.values(buckets).filter((b) => b.value > 0);
-    return { rows, total: boardTasks.length + gatedTasks.length };
-  }, [boardTasks, gatedTasks]);
+    return { rows, total: rows.reduce((n, b) => n + b.value, 0) };
+  }, [data.taskCounts, boardTasks, gatedTasks]);
 
   // Map /api/health + /api/stats to MonitoringWidget signals
   const monitoringSignals = React.useMemo(() => {

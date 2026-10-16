@@ -46,6 +46,30 @@ _AUTO_RETRY_MAX = int(os.environ.get("TASK_AUTO_RETRY_MAX", "5"))
 _BLOCKED_COOLDOWN_MAX_S = 4 * 3600.0
 
 
+def provider_capacity(slots_per_provider: int) -> int | None:
+    """Tasks the brain can carry right now, or ``None`` when not limiting.
+
+    Each usable provider (switched on and outside its cooldown) carries
+    *slots_per_provider* tasks. Starting more than that only sends tasks into
+    429s, failover churn and timeouts, and an empty chain fails every task as
+    "No runtime available". ``None`` (no limit) when the setting is 0, when no
+    provider is registered (nothing to size against), or when the registry
+    cannot be read: the dispatcher then behaves as before.
+    """
+    if slots_per_provider <= 0:
+        return None
+    try:
+        from services.brain_failover import brain_availability_summary
+
+        summary = brain_availability_summary()
+    except Exception as exc:  # noqa: BLE001 — sizing must never stop dispatch
+        log.debug("TaskDispatcher: provider capacity unavailable: %s", exc)
+        return None
+    if summary.get("error") or not summary.get("total"):
+        return None
+    return int(summary.get("usable") or 0) * slots_per_provider
+
+
 def blocked_cooldown_s(auto_retry_count: int) -> float:
     """Seconds a BLOCKED task waits before its next auto-retry."""
     return min(_BLOCKED_COOLDOWN_S * (2 ** max(auto_retry_count, 0)), _BLOCKED_COOLDOWN_MAX_S)
@@ -178,7 +202,7 @@ class TaskDispatcher:
         if _RETRO_EVERY > 0 and self._poll_count % _RETRO_EVERY == 0:
             await self._run_retro()
 
-        free = self.max_concurrency - len(self._running)
+        free = self._free_slots(settings.task_slots_per_provider)
         if free <= 0:
             return
         # Over-fetch so tasks this dispatcher is already running don't hide
@@ -222,6 +246,20 @@ class TaskDispatcher:
         # the next poll instead of idling until the slowest task in a batch ends.
         for task in tasks:
             self._running[task.task_id] = asyncio.create_task(self._run_slot(task))
+
+    def _free_slots(self, slots_per_provider: int) -> int:
+        """Slots open now: the configured ceiling, lowered to provider capacity."""
+        limit = self.max_concurrency
+        capacity = provider_capacity(slots_per_provider)
+        if capacity is not None and capacity < limit:
+            limit = capacity
+            if self._poll_count % _QUEUE_DEPTH_LOG_EVERY == 0:
+                log.info(
+                    "TaskDispatcher: provider capacity %d below concurrency %d — "
+                    "holding queued tasks until providers recover",
+                    capacity, self.max_concurrency,
+                )
+        return limit - len(self._running)
 
     async def _run_slot(self, task: Task) -> None:
         try:

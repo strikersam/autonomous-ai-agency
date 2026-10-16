@@ -153,6 +153,9 @@ class Settings:
             "PORTFOLIO_AUTO_MATERIALIZE_EVERY_POLLS", 60
         )
         self.portfolio_retry_max: int = _env_int("PORTFOLIO_RETRY_MAX", 2)
+        # Tasks each usable brain provider carries at once; the dispatcher
+        # never runs more than usable providers x this. 0 turns sizing off.
+        self.task_slots_per_provider: int = _env_int("TASK_SLOTS_PER_PROVIDER", 1)
 
         # Free-LLM-API model catalog sync (UNIT 8 — default ON).
         # When ON, the catalog (config/models.yaml) + active BrainConfig are

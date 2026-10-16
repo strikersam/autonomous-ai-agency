@@ -128,6 +128,7 @@ def _invalidate_task_caches(*, user_id: str | None = None) -> None:
     (_LIST_ALL_CACHE) is always cleared.
     """
     _LIST_ALL_CACHE.clear()
+    _COUNTS_CACHE.pop("counts:__all__", None)
     if user_id:
         # Only evict entries belonging to the mutating user.
         # Cache keys: list_user:{owner_id}:... or counts:{owner_id}
@@ -316,8 +317,14 @@ async def list_tasks(
 
 @task_router.get("/counts")
 async def task_counts(request: Request, user: Any = Depends(_current_user)) -> dict[str, Any]:
+    """Tasks per status, over the same set ``GET /`` lists (admins: every owner).
+
+    The list is paginated; boards and the dashboard read their totals here so
+    they are not capped at the page size.
+    """
+    is_admin = _is_admin(user)
     owner_id = _user_id(user)
-    cache_key = f"counts:{owner_id}"
+    cache_key = "counts:__all__" if is_admin else f"counts:{owner_id}"
     cached = _COUNTS_CACHE.get(cache_key)
     if cached and time.monotonic() - cached["ts"] < _COUNTS_CACHE_TTL:
         return {"counts": cached["counts"]}
@@ -325,7 +332,8 @@ async def task_counts(request: Request, user: Any = Depends(_current_user)) -> d
         cached = _COUNTS_CACHE.get(cache_key)
         if cached and time.monotonic() - cached["ts"] < _COUNTS_CACHE_TTL:
             return {"counts": cached["counts"]}
-        counts = await _get_store(request).count_for_user(owner_id)
+        store = _get_store(request)
+        counts = await (store.count_all() if is_admin else store.count_for_user(owner_id))
         _COUNTS_CACHE[cache_key] = {"counts": counts, "ts": time.monotonic()}
         _evict_stale(_COUNTS_CACHE, _COUNTS_CACHE_TTL)
         return {"counts": counts}

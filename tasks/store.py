@@ -513,6 +513,20 @@ class TaskStore:
                     counts[s] = counts.get(s, 0) + 1
             return counts
 
+    async def count_all(self) -> dict[str, int]:
+        """Admin-only: counts per status across every owner (mirrors ``list_all``)."""
+        if self._mode == "mongo":
+            cursor = self._collection.aggregate([{"$group": {"_id": "$status", "count": {"$sum": 1}}}])
+            if inspect.isawaitable(cursor):
+                cursor = await cursor
+            result = await cursor.to_list(length=20)
+            return {r["_id"]: r["count"] for r in result}
+        counts: dict[str, int] = {}
+        for v in self._mem.values():
+            s = v.get("status", "todo")
+            counts[s] = counts.get(s, 0) + 1
+        return counts
+
     async def get_due_soon(self, within_hours: int = 24) -> list[Task]:
         """Return tasks due within the next N hours (any user)."""
         deadline = time.time() + within_hours * 3600

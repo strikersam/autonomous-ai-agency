@@ -156,3 +156,22 @@ describe('DashboardScreen matches the Tasks board approval gate', () => {
     expect(screen.getAllByText('Parked at gate')).toHaveLength(1);
   });
 });
+
+describe('DashboardScreen task totals are not capped at one page', () => {
+  test('the status donut counts from /api/tasks/counts, not the 50-row list', () => {
+    useSafeData.mockReturnValue([
+      {
+        tasks: { tasks: [{ task_id: 'x', title: 'Only row on the page', status: 'done' }] },
+        taskCounts: { counts: { done: 120, todo: 7 } },
+        gated: { tasks: [] },
+      },
+      new Proxy({}, { get: () => idle }),
+      vi.fn(),
+    ]);
+
+    render(<DashboardScreen />);
+
+    // Donut center total = 127, not the single listed row.
+    expect(screen.getByText('127')).toBeInTheDocument();
+  });
+});

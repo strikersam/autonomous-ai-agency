@@ -36,7 +36,9 @@ function relTime(epoch) {
 const priorityColors = { urgent: 'var(--danger)', high: 'var(--warning)', medium: 'var(--accent)', low: 'var(--text-muted)' };
 const typeColors     = { bug: 'var(--danger)', security: 'var(--warning)', task: 'var(--accent)', general: 'var(--accent)' };
 
-function StageColumn({ stage, tasks, onApprove, onRetry, onCardClick }) {
+function StageColumn({ stage, tasks, total, onApprove, onRetry, onCardClick }) {
+  // The list is one page; the badge shows the real total from /counts.
+  const count = Math.max(total ?? 0, tasks.length);
   return (
     <div style={{
       minWidth: 'clamp(160px, 80vw, 220px)', maxWidth: 260, flexShrink: 0,
@@ -52,7 +54,7 @@ function StageColumn({ stage, tasks, onApprove, onRetry, onCardClick }) {
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: stage.color, display: 'inline-block', flexShrink: 0 }}/>
             <span style={{ fontSize:13, fontWeight: 700, color:'var(--text-primary)' }}>{stage.label}</span>
           </div>
-          <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)', background: 'color-mix(in oklab, var(--ink) 6%, transparent)', padding: '1px 6px', borderRadius: 999 }}>{tasks.length}</span>
+          <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color: 'var(--text-muted)', background: 'color-mix(in oklab, var(--ink) 6%, transparent)', padding: '1px 6px', borderRadius: 999 }}>{count}</span>
         </div>
         <div style={{ fontSize:13, color: 'var(--text-muted)', marginTop: 3, fontVariantNumeric:'tabular-nums' }}>{stage.desc}</div>
       </div>
@@ -61,7 +63,13 @@ function StageColumn({ stage, tasks, onApprove, onRetry, onCardClick }) {
         <TaskCard key={task.task_id} task={task} stageColor={stage.color} onApprove={onApprove} onRetry={onRetry} onCardClick={onCardClick}/>
       ))}
 
-      {tasks.length === 0 && (
+      {count > tasks.length && (
+        <div style={{ fontSize:13, color: 'var(--text-muted)', textAlign: 'center', fontVariantNumeric:'tabular-nums' }}>
+          Showing the newest {tasks.length} of {count}
+        </div>
+      )}
+
+      {tasks.length === 0 && count === 0 && (
         <div style={{ padding: '16px 12px', borderRadius: 10, background: 'color-mix(in oklab, var(--ink) 1.5%, transparent)', border: '1px dashed color-mix(in oklab, var(--ink) 7%, transparent)', fontSize:13, color: 'var(--text-muted)', textAlign: 'center', fontVariantNumeric:'tabular-nums' }}>
           Empty
         </div>
@@ -345,8 +353,9 @@ function TaskBoardScreen() {
   const [creatingSprint, setCreatingSprint] = React.useState(false);
 
   const [data, states, fetchAll] = useSafeData(null, {
-    tasks: '/api/tasks/',
+    tasks: '/api/tasks/?limit=200',
     gated: '/api/tasks/awaiting-approval',
+    counts: '/api/tasks/counts',
   }, { refreshMs: 15000 });
 
   const rawTasks = data.tasks?.tasks || [];
@@ -675,11 +684,17 @@ function TaskBoardScreen() {
               const stageTasks = filtered.filter(
                 t => t.status === stage.id && !gatedIds.has(t.task_id),
               );
+              // Counts are unfiltered, so they only apply to the "all" view.
+              const stageTotal = filter === 'all' && data.counts?.counts
+                ? (data.counts.counts[stage.id] || 0)
+                  - gatedTasks.filter(t => t.status === stage.id).length
+                : undefined;
               return (
                 <StageColumn
                   key={stage.id}
                   stage={stage}
                   tasks={stageTasks}
+                  total={stageTotal}
                   onApprove={handleApprove}
                   onRetry={handleRetry}
                   onCardClick={setSelectedTaskId}
