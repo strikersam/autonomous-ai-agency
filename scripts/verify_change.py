@@ -95,11 +95,20 @@ def run_plan(root: Path, files: list[str], goal: str) -> dict[str, Any]:
 
     existing = [f for f in files if (root / f).is_file()]
     missing = [f for f in files if f not in existing]
-    plan = AgentPlan(goal=goal, steps=[AgentStep(id=1, description=goal[:200], files=existing, type="edit")])
+    # Missing paths stay in scope, so a rerun from this report (--from-report)
+    # still asks for them instead of silently narrowing the request.
+    scope = existing + missing
+    plan = AgentPlan(goal=goal, steps=[AgentStep(id=1, description=goal[:200], files=scope, type="edit")])
     contract = build_contract(plan)
 
     def snapshot() -> dict[str, str]:
-        return {f: fingerprint_content((root / f).read_text(encoding="utf-8", errors="replace")) for f in existing}
+        prints: dict[str, str] = {}
+        for f in existing:
+            try:
+                prints[f] = fingerprint_content((root / f).read_text(encoding="utf-8", errors="replace"))
+            except OSError:  # removed (or unreadable) while the checks ran
+                prints[f] = "missing"
+        return prints
 
     # Bind checks to the content they ran on: hash before, compare after.
     prints = snapshot()
@@ -114,7 +123,7 @@ def run_plan(root: Path, files: list[str], goal: str) -> dict[str, Any]:
             r["status"], r["reason"] = "untrusted", f"stale: {', '.join(changed[:5])} changed while the checks ran"
     results += _missing_checks(missing)
     failed = any(r["status"] == "failed" for r in results)
-    step = {"step_id": 1, "description": goal[:200], "changed_files": existing,
+    step = {"step_id": 1, "description": goal[:200], "changed_files": scope,
             "status": "failed" if failed else "applied", "failure_phase": "empirical_verification",
             "check_results": results, "file_fingerprints": after}
     head = subprocess.run(  # nosec B603 B607 - constant git argv

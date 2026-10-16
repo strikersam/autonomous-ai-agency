@@ -38,17 +38,20 @@ def redact_connection_url(url: str) -> str:
 
 # Secret-shaped values that appear inside otherwise innocent strings — a shell
 # command, a URL, a diff. Keyed on the vendor prefixes this repo actually
-# handles plus generic bearer/assignment forms.
+# handles plus generic bearer/assignment forms. Vendor prefixes need no letter
+# or digit before them, not a word boundary: "_" is a word character, so ``\b``
+# missed a token glued on with an underscore (``f_ghp_…``, ``KEY_sk-…``), while
+# a preceding letter still blocks false hits such as ``disk-…``.
 _VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\bgh[pousr]_[A-Za-z0-9]{16,}"),            # GitHub tokens
-    re.compile(r"\bgithub_pat_[A-Za-z0-9_]{20,}"),
-    re.compile(r"\bsk-[A-Za-z0-9\-_]{16,}"),                 # OpenAI-style
-    re.compile(r"\bnvapi-[A-Za-z0-9\-_]{16,}"),              # NVIDIA NIM
-    re.compile(r"\bcsk-[A-Za-z0-9\-_]{16,}"),                # Cerebras
-    re.compile(r"\bgsk_[A-Za-z0-9]{16,}"),                   # Groq
-    re.compile(r"\be2b_[A-Za-z0-9]{16,}"),                   # E2B
-    re.compile(r"\bsk-ant-[A-Za-z0-9\-_]{16,}"),             # Anthropic
-    re.compile(r"\b(?:AKIA|ASIA)[A-Z0-9]{16}\b"),            # AWS access key id
+    re.compile(r"(?<![A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{16,}"),            # GitHub tokens
+    re.compile(r"(?<![A-Za-z0-9])github_pat_[A-Za-z0-9_]{20,}"),
+    re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9\-_]{16,}"),                 # OpenAI-style
+    re.compile(r"(?<![A-Za-z0-9])nvapi-[A-Za-z0-9\-_]{16,}"),              # NVIDIA NIM
+    re.compile(r"(?<![A-Za-z0-9])csk-[A-Za-z0-9\-_]{16,}"),                # Cerebras
+    re.compile(r"(?<![A-Za-z0-9])gsk_[A-Za-z0-9]{16,}"),                   # Groq
+    re.compile(r"(?<![A-Za-z0-9])e2b_[A-Za-z0-9]{16,}"),                   # E2B
+    re.compile(r"(?<![A-Za-z0-9])sk-ant-[A-Za-z0-9\-_]{16,}"),             # Anthropic
+    re.compile(r"(?<![A-Za-z0-9])(?:AKIA|ASIA)[A-Z0-9]{16}(?![A-Za-z0-9])"),            # AWS access key id
     # AWS secret access key in key=value, key: value and JSON forms; the 40-char
     # value is group 1 (the name stays readable).
     re.compile(
