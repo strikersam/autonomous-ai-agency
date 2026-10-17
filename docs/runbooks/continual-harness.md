@@ -30,6 +30,14 @@ has been seen `HARNESS_SPEC_MIN_HITS` times (default 2). No LLM decides what
 goes in the file, so it cannot hallucinate a rule, costs zero tokens, and is
 fully testable. A failure seen once is an incident; seen twice, it is a pattern.
 
+**Retirement and history.** Evidence works both ways. When later successes
+contradict a lesson, the next refinement removes its entry instead of leaving it
+to hold a slot; each addition or removal is appended to
+`.agency/harness-history.jsonl` (signatures only). An unreadable lesson store
+retires nothing. The idea comes from Google Research's Harness² (arXiv
+2610.14224); its propose-probe-compose step was not adopted because it needs K
+extra model runs per task.
+
 ## Where it lives
 
 `.agency/harness.md` inside the workspace — plain Markdown, so it is readable,
