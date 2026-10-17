@@ -200,6 +200,11 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # Pricing: $0.11/$0.34 per MTok. Source: pricepertoken.com/pricing-page/model/
     # meta-llama-llama-4-scout, 2026-10-04.
     "meta-llama/llama-4-scout-17b-16e-instruct": (0.11, 0.34),
+    # --- Groq: Meta Muse Spark Open (added 2026-10-17) ---
+    # 816B/42B active MoE reasoning model. Groq limited preview (contact sales).
+    # Market rate from Together AI / Fireworks AI: $1.25/$4.25 per MTok.
+    # Source: console.groq.com/docs/model/meta-models/muse-spark-open, 2026-10-17.
+    "meta-models/muse-spark-open": (1.25, 4.25),
     # --- Groq: Qwen 3.8 27B (added 2026-09-18) ---
     "qwen/qwen3.8-27b": (0.80, 4.00),
     # --- Mistral API (added 2026-09-19) ---

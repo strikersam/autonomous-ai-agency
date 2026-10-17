@@ -144,6 +144,7 @@ flowchart LR
 
 The full log is in [**docs/changelog.md**](docs/changelog.md). The highlights from the last few weeks:
 
+- 🧠 **Meta Muse Spark Open in model catalogue** (2026-10-17). Meta's 816B/42B-active MoE reasoning model (`meta-models/muse-spark-open`) is now declared on the Groq provider. 131K-token context, supports tool calling and reasoning. Groq limited preview — contact Groq sales to enable; explicit-only (priority 99) until confirmed on this account.
 - 📊 **Task board is accurate: totals uncapped, dispatcher respects provider capacity** (2026-10-16). Column badges and the dashboard donut now count every task via `/api/tasks/counts` (uncapped; was capped at the 50-row page). The dispatcher caps new work to `usable providers × TASK_SLOTS_PER_PROVIDER` (new admin control, default 1), so tasks queue gracefully instead of hammering rate-limited free tiers into 429s and BLOCKED cycles. New controls: `TASK_SLOTS_PER_PROVIDER`.
 - 🔧 **Self-improvement actually ships now** (2026-10-15). The improvement loop's research runs were graded as code reviews, the marker scan was filing false positives, and completed fixes were re-filed after every deploy. All three issues are fixed end-to-end: research runs as research, markers land correctly, and the loop drains its backlog instead of growing it.
 - 🌿 **Agent sandboxes start from real code** (2026-10-15). Task copies now receive a git baseline so the agent works against a real checkout, diffs are meaningful, and verification can tell what changed.

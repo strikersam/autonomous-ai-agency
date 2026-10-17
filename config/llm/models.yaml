@@ -231,6 +231,33 @@ models:
     priority: 99                    # high number = low priority; explicit-only
     speed_tier: fast
 
+  # ---------------------------------------------------------------------------
+  # Meta / Muse Spark Open (added 2026-10-17)
+  # Released 2026-10-15. Meta's largest MoE open-weight reasoning model.
+  # 816B total parameters, 42B active per request.
+  # Context: 131,072 tokens on Groq LPU (full context not available on LPU hardware).
+  # Max output: 131,072 tokens. Designed for coding and agentic tasks.
+  # Groq: limited preview — access requires contacting Groq sales.
+  # Market rate (Together AI / Fireworks AI): $1.25 input / $4.25 output per MTok.
+  # Groq pricing: contact sales; values below are the external market rate.
+  # priority: 99 — explicit-only until confirmed available on this account.
+  # Source: console.groq.com/docs/model/meta-models/muse-spark-open, 2026-10-17.
+  # ---------------------------------------------------------------------------
+  meta-models/muse-spark-open:
+    provider: groq
+    display_name: Muse Spark Open (Meta via Groq)
+    context_window: 131072
+    max_output_tokens: 131072
+    supports_tools: true            # documented; not yet probed on this account
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    supports_reasoning: true        # reasoning model per Meta release notes
+    input_cost_per_1m: 1.25         # market rate; Groq: contact sales
+    output_cost_per_1m: 4.25        # market rate; Groq: contact sales
+    priority: 99                    # high = explicit-only; limited preview, not yet probed
+    speed_tier: fast                # Groq LPU; actual throughput unmeasured
+
   # ── Together AI (free tier) ────────────────────────────────────────────
   #
   # Together AI hosts open-source models on a free self-serve tier. The two
