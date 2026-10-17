@@ -259,7 +259,7 @@ def refine(
 
 
 def _live_signatures() -> set[str] | None:
-    """Signatures of lessons still backed by evidence, or None if unreadable.
+    """Signatures of lessons still backed by evidence, or None if unreadable or empty.
 
     None (not an empty set) on failure: callers prune on absence, so a briefly
     unreadable store must not read as "every lesson is gone".
@@ -270,6 +270,12 @@ def _live_signatures() -> set[str] | None:
         rows = _get_store().recent(limit=1000)
     except Exception as exc:
         log.warning("harness spec: lesson store unreadable, skipping retirement: %s", exc)
+        return None
+    if not rows:
+        # An empty store is indistinguishable from a wiped or fresh one (ephemeral
+        # disk, new database); retiring everything on that signal would erase
+        # the whole spec, and the history keeps signatures only.
+        log.warning("harness spec: lesson store is empty, skipping retirement")
         return None
     return {str(r.get("signature") or "") for r in rows if isinstance(r, dict)}
 

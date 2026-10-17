@@ -361,3 +361,9 @@ class TestRetirement:
         write_entries([SpecEntry("old", 3, "stay")], tmp_path)
         refine(tmp_path, lessons=[_lesson(signature="new")], force=True)
         assert {e.signature for e in read_entries(tmp_path)} == {"old", "new"}
+
+    def test_empty_store_does_not_wipe_the_spec(self, tmp_path, monkeypatch):
+        self._store(tmp_path, monkeypatch)
+        write_entries([SpecEntry("sig1", 3, "keep me")], tmp_path)
+        refine(tmp_path, force=True)
+        assert [e.signature for e in read_entries(tmp_path)] == ["sig1"]
