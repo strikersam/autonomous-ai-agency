@@ -1,3 +1,19 @@
+# NEXT_ACTION — updated 2026-10-17 (daily automation, branch `claude/intelligent-gates-n8443c`)
+
+Meta Muse Spark Open (`meta-models/muse-spark-open`) added to model catalogue. PR [#1777](https://github.com/strikersam/autonomous-ai-agency/pull/1777) open, auto-merge armed (squash). 18 tests pass; compileall clean; changelog parity OK.
+
+## Open items for next daily run
+
+1. **Check CI on PR #1777** — if green, should have auto-merged. If red, investigate.
+
+2. **Muse Spark Open live probe** — priority 99 (explicit-only). Once the PR merges, the router's health check will test it. If a "contact sales" 403/401 comes back, add a note to the YAML and keep priority 99. Lower priority only after a live HTTP 200 completion.
+
+3. **Groq Llama 4 Scout probe** (`meta-llama/llama-4-scout-17b-16e-instruct`) — still at priority 99 from 2026-10-04. Check if the Groq account now has this model and lower priority if it answers.
+
+4. **GPT model deprecations (Oct 23, 2026)**: `gpt-3.5-turbo-0125`, `gpt-4-0613`, `gpt-4-1106-preview` retire on 2026-10-23. Confirmed not in routing candidates or cost tracker as of today — no action needed; re-verify after Oct 23.
+
+---
+
 # NEXT_ACTION — updated 2026-10-15 (review lane + judge evidence)
 
 Shipped: #1761/#1762/#1763 (failed verification goes to FAILED, never Review; review autopilot moved 136 stuck tasks out at 10:49 UTC). Branch `claude/judge-diff-and-stubs`: the judge gets a real working-tree diff on host runs, and stubs named after a task id are rejected.
