@@ -324,3 +324,40 @@ class TestCitationBinding:
         refine(tmp_path, lessons=[lesson], force=True)
         block = build_block(tmp_path)
         assert "Executor produced no file update" in block
+
+
+class TestRetirement:
+    """Harness² keeps only what current evidence supports (arXiv 2610.14224)."""
+
+    def _store(self, tmp_path, monkeypatch):
+        import agent.lessons as lessons_mod
+        from agent.lessons import LessonStore
+
+        store = LessonStore(db_path=tmp_path / "lessons.db")
+        monkeypatch.setattr(lessons_mod, "_store", store)
+        return store
+
+    def test_contradicted_lesson_is_retired_and_logged(self, tmp_path, monkeypatch):
+        store = self._store(tmp_path, monkeypatch)
+        for _ in range(2):
+            store.record(phase="execute", issue="No file update produced", goal="g")
+        refine(tmp_path, force=True)
+        assert len(read_entries(tmp_path)) == 1
+        store.resolve_goal("g")
+        store.resolve_goal("g")
+        refine(tmp_path, force=True)
+        assert read_entries(tmp_path) == []
+        history = spec_path(tmp_path).with_name("harness-history.jsonl").read_text().splitlines()
+        assert len(history) == 2 and '"retired": ["' in history[1]
+
+    def test_unreadable_store_retires_nothing(self, tmp_path, monkeypatch):
+        write_entries([SpecEntry("sig1", 3, "keep me")], tmp_path)
+        monkeypatch.setattr(spec_mod, "_live_signatures", lambda: None)
+        monkeypatch.setattr("agent.lessons._get_store", lambda: type("S", (), {"recent": lambda self, limit=5: []})())
+        refine(tmp_path, force=True)
+        assert [e.signature for e in read_entries(tmp_path)] == ["sig1"]
+
+    def test_explicit_lessons_never_retire(self, tmp_path):
+        write_entries([SpecEntry("old", 3, "stay")], tmp_path)
+        refine(tmp_path, lessons=[_lesson(signature="new")], force=True)
+        assert {e.signature for e in read_entries(tmp_path)} == {"old", "new"}

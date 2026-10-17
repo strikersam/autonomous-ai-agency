@@ -33,6 +33,7 @@ Configuration:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -45,6 +46,7 @@ from typing import Any
 log = logging.getLogger("harness.spec")
 
 _SPEC_RELPATH = Path(".agency") / "harness.md"
+_HISTORY_NAME = "harness-history.jsonl"
 _HEADER = "# Harness Spec\n\n" \
           "Standing instructions derived from repeated run failures.\n" \
           "Each entry cites the lesson that produced it. Machine-appended by\n" \
@@ -256,23 +258,75 @@ def refine(
         return []
 
 
+def _live_signatures() -> set[str] | None:
+    """Signatures of lessons still backed by evidence, or None if unreadable.
+
+    None (not an empty set) on failure: callers prune on absence, so a briefly
+    unreadable store must not read as "every lesson is gone".
+    """
+    try:
+        from agent.lessons import _get_store  # local import: avoids a cycle
+
+        rows = _get_store().recent(limit=1000)
+    except Exception as exc:
+        log.warning("harness spec: lesson store unreadable, skipping retirement: %s", exc)
+        return None
+    return {str(r.get("signature") or "") for r in rows if isinstance(r, dict)}
+
+
+def _record_history(
+    workspace_root: str | Path | None, added: list[SpecEntry], retired: list[SpecEntry]
+) -> None:
+    """Append one line per change to ``.agency/harness-history.jsonl``. Best-effort.
+
+    Harness² keeps the adopted harnesses and the reasons for each change so a
+    later reader can see what the spec used to say. The spec file only holds the
+    current state; this is the audit trail. Signatures only, never lesson text.
+    """
+    record = {
+        "ts": time.time(),
+        "added": [e.signature for e in added],
+        "retired": [e.signature for e in retired],
+    }
+    try:
+        path = spec_path(workspace_root).with_name(_HISTORY_NAME)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record) + "\n")
+    except OSError as exc:
+        log.debug("harness spec history not written: %s", exc)
+
+
 def _refine_locked(
     workspace_root: str | Path | None,
     lessons: list[dict[str, Any]] | None,
 ) -> list[SpecEntry]:
-    """Merge qualifying lessons into the spec. Caller holds _REFINE_LOCK."""
+    """Merge qualifying lessons into the spec. Caller holds _REFINE_LOCK.
+
+    On the live path (no explicit ``lessons``) entries whose lesson the store no
+    longer returns, because later successes contradicted it, are retired. Without
+    that they were invisible to prompts yet still held one of the
+    ``HARNESS_SPEC_MAX_ENTRIES`` slots until live entries pushed them out.
+    """
+    live: set[str] | None = None
     if lessons is None:
         from agent.lessons import _get_store  # local import: avoids a cycle
 
         lessons = _get_store().recent(limit=_int_env("HARNESS_SPEC_MAX_ENTRIES", 40))
+        live = _live_signatures()
     existing = read_entries(workspace_root)
-    known = {entry.signature for entry in existing}
+    retired = [e for e in existing if live is not None and e.signature not in live]
+    kept = [e for e in existing if e not in retired]
+    known = {entry.signature for entry in kept}
     added = [p for p in propose_entries(lessons) if p.signature not in known]
-    if not added:
+    if not added and not retired:
         return []
-    combined = (existing + added)[-_int_env("HARNESS_SPEC_MAX_ENTRIES", 40):]
+    combined = (kept + added)[-_int_env("HARNESS_SPEC_MAX_ENTRIES", 40):]
     write_entries(combined, workspace_root)
-    log.info("harness spec: promoted %d lesson(s) at %s", len(added), spec_path(workspace_root))
+    _record_history(workspace_root, added, retired)
+    log.info(
+        "harness spec: promoted %d, retired %d lesson(s) at %s",
+        len(added), len(retired), spec_path(workspace_root),
+    )
     return added
 
 

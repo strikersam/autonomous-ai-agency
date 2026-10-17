@@ -4,6 +4,7 @@
 
 ## [Unreleased]
 ### Added
+- **Harness spec retires entries that later successes contradicted, and logs every change** (2026-10-17). Adopted from Google Research's Harness² (arXiv 2610.14224), whose persistent improvement harness keeps only what current evidence supports. `refine()` already appended repeated lessons to `.agency/harness.md`, but an entry whose lesson was later contradicted stopped being injected (the citation no longer verified) while still holding one of the `HARNESS_SPEC_MAX_ENTRIES` slots. On the live path it is now removed, and each change is appended to `.agency/harness-history.jsonl` (timestamp and signatures only, no lesson text). An unreadable lesson store retires nothing, and calls that pass explicit `lessons` never retire. No new env var. Files: `agent/harness_spec.py`, `docs/runbooks/continual-harness.md`, `tests/test_harness_spec.py` (3 tests).
 - **Meta Muse Spark Open declared in model catalogue** (2026-10-17). `meta-models/muse-spark-open` on Groq — Meta's largest MoE open-weight reasoning model (released 2026-10-15). 816B total parameters, 42B active per request; 131,072-token context on Groq LPU; supports tool calling, streaming, and reasoning. Groq limited preview (contact sales required); cost uses the external market rate from Together AI and Fireworks AI ($1.25/$4.25 per MTok). Priority 99 (explicit-only; lower after a live probe on this account confirms it answers). Files: `config/llm/models.yaml`, `packages/ai/cost_tracker.py`, `tests/test_daily_automation_2026_10_17.py` (18 tests).
 
 ### Fixed
