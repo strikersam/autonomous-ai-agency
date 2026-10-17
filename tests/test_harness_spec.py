@@ -354,10 +354,34 @@ class TestRetirement:
 
     def test_unreadable_store_retires_nothing(self, tmp_path, monkeypatch):
         write_entries([SpecEntry("sig1", 3, "keep me")], tmp_path)
-        monkeypatch.setattr(spec_mod, "_live_signatures", lambda: None)
-        monkeypatch.setattr("agent.lessons._get_store", lambda: type("S", (), {"recent": lambda self, limit=5: []})())
+
+        class _Store:
+            calls = 0
+
+            def recent(self, limit=5):
+                _Store.calls += 1
+                if _Store.calls == 1:
+                    return [_lesson(signature="other", hits=1)]
+                raise OSError("db unreadable")
+
+        monkeypatch.setattr("agent.lessons._get_store", lambda: _Store())
+        with spec_mod._REFINE_LOCK:
+            spec_mod._refine_locked(tmp_path, None)
+        assert [e.signature for e in read_entries(tmp_path)] == ["sig1"]
+
+    def test_full_page_from_store_retires_nothing(self, tmp_path, monkeypatch):
+        write_entries([SpecEntry("sig1", 3, "keep me")], tmp_path)
+        monkeypatch.setattr(spec_mod, "_LIVE_SCAN_LIMIT", 2)
+        rows = [_lesson(signature="a", hits=1), _lesson(signature="b", hits=1)]
+        monkeypatch.setattr("agent.lessons._get_store", lambda: type("S", (), {"recent": lambda self, limit=5: rows})())
         refine(tmp_path, force=True)
         assert [e.signature for e in read_entries(tmp_path)] == ["sig1"]
+
+    def test_history_records_what_was_persisted(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HARNESS_SPEC_MAX_ENTRIES", "1")
+        refine(tmp_path, lessons=[_lesson(signature="a"), _lesson(signature="b")], force=True)
+        line = spec_path(tmp_path).with_name("harness-history.jsonl").read_text()
+        assert '"added": ["b"]' in line
 
     def test_explicit_lessons_never_retire(self, tmp_path):
         write_entries([SpecEntry("old", 3, "stay")], tmp_path)

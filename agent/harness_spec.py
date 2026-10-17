@@ -47,6 +47,7 @@ log = logging.getLogger("harness.spec")
 
 _SPEC_RELPATH = Path(".agency") / "harness.md"
 _HISTORY_NAME = "harness-history.jsonl"
+_LIVE_SCAN_LIMIT = 1000
 _HEADER = "# Harness Spec\n\n" \
           "Standing instructions derived from repeated run failures.\n" \
           "Each entry cites the lesson that produced it. Machine-appended by\n" \
@@ -267,9 +268,14 @@ def _live_signatures() -> set[str] | None:
     try:
         from agent.lessons import _get_store  # local import: avoids a cycle
 
-        rows = _get_store().recent(limit=1000)
+        rows = _get_store().recent(limit=_LIVE_SCAN_LIMIT)
     except Exception as exc:
         log.warning("harness spec: lesson store unreadable, skipping retirement: %s", exc)
+        return None
+    if len(rows) >= _LIVE_SCAN_LIMIT:
+        # The store caps what it returns, so a full page may omit live lessons;
+        # retirement is permanent, so treat it as unknowable rather than retire.
+        log.warning("harness spec: live set may be truncated, skipping retirement")
         return None
     if not rows:
         # An empty store is indistinguishable from a wiped or fresh one (ephemeral
@@ -328,7 +334,15 @@ def _refine_locked(
         return []
     combined = (kept + added)[-_int_env("HARNESS_SPEC_MAX_ENTRIES", 40):]
     write_entries(combined, workspace_root)
-    _record_history(workspace_root, added, retired)
+    # Diff the persisted sets, not the pre-truncation lists: the entry cap can
+    # evict an older entry or drop a just-added one.
+    before = {e.signature: e for e in existing}
+    after = {e.signature: e for e in combined}
+    _record_history(
+        workspace_root,
+        [after[k] for k in after if k not in before],
+        [before[k] for k in before if k not in after],
+    )
     log.info(
         "harness spec: promoted %d, retired %d lesson(s) at %s",
         len(added), len(retired), spec_path(workspace_root),
