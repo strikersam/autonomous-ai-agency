@@ -343,6 +343,8 @@ class TestRetirement:
             store.record(phase="execute", issue="No file update produced", goal="g")
         refine(tmp_path, force=True)
         assert len(read_entries(tmp_path)) == 1
+        # An unrelated live lesson keeps the store non-empty (empty = skip retirement).
+        store.record(phase="plan", issue="Unrelated live failure", goal="other")
         store.resolve_goal("g")
         store.resolve_goal("g")
         refine(tmp_path, force=True)
