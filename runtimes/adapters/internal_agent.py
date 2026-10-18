@@ -25,6 +25,7 @@ from agent.loop import AgentRunner
 from packages.ai.router import ProviderConfig, _normalize_nvidia_base_url
 from runtimes.adapters.delivery import assess_delivery, clone_repo_workspace
 from runtimes.adapters.workspace_baseline import git_baseline
+from runtimes.adapters.harness_sync import persist_spec, seed_spec
 from runtimes.base import (
     IntegrationMode,
     RuntimeAdapter,
@@ -373,6 +374,11 @@ class InternalAgentAdapter(RuntimeAdapter):
         # from clobbering each other's in-flight edits.
         base_workspace = spec.workspace_path or self._workspace_root
         worktree_path, _worktree_tmp = await self._open_workspace(spec, base_workspace)
+        # A task shipped to an external repo must not exchange harness state with
+        # the agency's own workspace.
+        _sync_harness = not spec.context.get("repo_url")
+        if _sync_harness:
+            seed_spec(base_workspace, worktree_path)
         # ------------------------------------------------------------------
 
         if not provider_headers:
@@ -530,6 +536,8 @@ class InternalAgentAdapter(RuntimeAdapter):
                 delegation_context=delegation_task_meta(spec.context),
             )
         except Exception as exc:
+            if _sync_harness:
+                persist_spec(worktree_path, base_workspace)
             self._remove_worktree(base_workspace, worktree_path, _worktree_tmp)
             # Close the E2B sandbox if it was opened (best-effort).
             if _e2b_session is not None:
@@ -608,6 +616,8 @@ class InternalAgentAdapter(RuntimeAdapter):
         )
 
         # Clean up the isolated worktree once the agent is done.
+        if _sync_harness:
+            persist_spec(worktree_path, base_workspace)
         self._remove_worktree(base_workspace, worktree_path, _worktree_tmp)
 
         delivery = assess_delivery(
