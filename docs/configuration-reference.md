@@ -654,7 +654,7 @@ exposes a model-controlled `bash` tool.
 ## Continual Harness
 
 Promotes a repeated failure lesson into a standing instruction stored in
-`.agency/harness.md`. Reading is on by default; writing is opt-in. Full runbook:
+`.agency/harness.md`. Reading and writing are on by default. Set `HARNESS_SPEC_AUTO_REFINE=false` to disable writing. Full runbook:
 [`runbooks/continual-harness.md`](runbooks/continual-harness.md).
 
 | Variable | Default | Purpose |
