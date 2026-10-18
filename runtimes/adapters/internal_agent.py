@@ -377,8 +377,9 @@ class InternalAgentAdapter(RuntimeAdapter):
         # A task shipped to an external repo must not exchange harness state with
         # the agency's own workspace.
         _sync_harness = not spec.context.get("repo_url")
+        _harness_seeded: frozenset[str] = frozenset()
         if _sync_harness:
-            seed_spec(base_workspace, worktree_path)
+            _harness_seeded = seed_spec(base_workspace, worktree_path)
         # ------------------------------------------------------------------
 
         if not provider_headers:
@@ -537,7 +538,7 @@ class InternalAgentAdapter(RuntimeAdapter):
             )
         except Exception as exc:
             if _sync_harness:
-                persist_spec(worktree_path, base_workspace)
+                persist_spec(worktree_path, base_workspace, _harness_seeded)
             self._remove_worktree(base_workspace, worktree_path, _worktree_tmp)
             # Close the E2B sandbox if it was opened (best-effort).
             if _e2b_session is not None:
@@ -617,7 +618,7 @@ class InternalAgentAdapter(RuntimeAdapter):
 
         # Clean up the isolated worktree once the agent is done.
         if _sync_harness:
-            persist_spec(worktree_path, base_workspace)
+            persist_spec(worktree_path, base_workspace, _harness_seeded)
         self._remove_worktree(base_workspace, worktree_path, _worktree_tmp)
 
         delivery = assess_delivery(

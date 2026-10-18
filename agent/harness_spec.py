@@ -349,6 +349,31 @@ def _refine_locked(
     return added
 
 
+def apply_delta(
+    workspace_root: str | Path | None,
+    added: list[SpecEntry],
+    retired_signatures: set[str],
+) -> None:
+    """Merge one run's changes into the spec on disk. Never raises.
+
+    Task worktrees are seeded from the same base spec and finish in any order, so
+    replacing the file would let the last one to finish erase another's
+    promotion. Applying only this run's additions and retirements to the current
+    file, under the refine lock, keeps both. Not gated by HARNESS_SPEC_AUTO_REFINE:
+    the run already decided to write.
+    """
+    try:
+        with _REFINE_LOCK:
+            current = [e for e in read_entries(workspace_root) if e.signature not in retired_signatures]
+            known = {e.signature for e in current}
+            merged = current + [e for e in added if e.signature not in known]
+            merged = merged[-_int_env("HARNESS_SPEC_MAX_ENTRIES", 40):]
+            if merged != read_entries(workspace_root):
+                write_entries(merged, workspace_root)
+    except Exception as exc:  # best-effort, like refine()
+        log.warning("harness spec delta not applied: %s", exc)
+
+
 def build_block(workspace_root: str | Path | None = None, *, max_chars: int | None = None) -> str:
     """Compact prompt block of standing instructions, or '' when there are none.
 
