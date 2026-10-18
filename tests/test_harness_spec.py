@@ -12,6 +12,7 @@ import pytest
 import agent.harness_spec as spec_mod
 from agent.harness_spec import (
     SpecEntry,
+    is_contained,
     build_block,
     propose_entries,
     read_entries,
@@ -108,10 +109,14 @@ class TestPersistence:
 
 
 class TestRefineGate:
-    def test_disabled_by_default(self, tmp_path, monkeypatch):
-        monkeypatch.delenv("HARNESS_SPEC_AUTO_REFINE", raising=False)
+    def test_disabled_by_env(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HARNESS_SPEC_AUTO_REFINE", "false")
         assert refine(tmp_path, lessons=[_lesson()]) == []
         assert not spec_path(tmp_path).exists()
+
+    def test_enabled_by_default(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("HARNESS_SPEC_AUTO_REFINE", raising=False)
+        assert len(refine(tmp_path, lessons=[_lesson()])) == 1
 
     def test_enabled_by_env(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HARNESS_SPEC_AUTO_REFINE", "true")
@@ -120,7 +125,7 @@ class TestRefineGate:
         assert spec_path(tmp_path).is_file()
 
     def test_force_bypasses_the_flag(self, tmp_path, monkeypatch):
-        monkeypatch.delenv("HARNESS_SPEC_AUTO_REFINE", raising=False)
+        monkeypatch.setenv("HARNESS_SPEC_AUTO_REFINE", "false")
         assert len(refine(tmp_path, lessons=[_lesson()], force=True)) == 1
 
     def test_same_lesson_is_not_written_twice(self, tmp_path, monkeypatch):
@@ -393,3 +398,38 @@ class TestRetirement:
         write_entries([SpecEntry("sig1", 3, "keep me")], tmp_path)
         refine(tmp_path, force=True)
         assert [e.signature for e in read_entries(tmp_path)] == ["sig1"]
+
+
+class TestSymlinkContainment:
+    def test_refine_never_writes_through_a_symlinked_agency_dir(self, tmp_path):
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        (ws / ".agency").symlink_to(outside, target_is_directory=True)
+        assert refine(ws, lessons=[_lesson()], force=True) == []
+        assert list(outside.iterdir()) == []
+
+    def test_history_append_never_follows_a_symlinked_sidecar(self, tmp_path):
+        from agent.harness_spec import _record_history
+
+        victim = tmp_path / "victim.txt"
+        victim.write_text("keep\n")
+        ws = tmp_path / "ws"
+        (ws / ".agency").mkdir(parents=True)
+        (ws / ".agency" / "harness-history.jsonl").symlink_to(victim)
+        assert not is_contained(ws)
+        _record_history(ws, [SpecEntry("a", 2, "x")], [])
+        assert victim.read_text() == "keep\n"
+
+    def test_sync_ignores_a_symlinked_agency_dir(self, tmp_path):
+        from runtimes.adapters.harness_sync import persist_spec
+
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        write_entries([SpecEntry("evil", 2, "x")], outside.parent / "outside_ws")
+        base, wt = tmp_path / "base", tmp_path / "wt"
+        base.mkdir(), wt.mkdir()
+        (wt / ".agency").symlink_to(outside.parent / "outside_ws" / ".agency", target_is_directory=True)
+        persist_spec(str(wt), str(base))
+        assert read_entries(base) == []

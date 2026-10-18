@@ -63,16 +63,17 @@ no second prompt-assembly route was added.
 | Variable | Default | Purpose |
 |---|---|---|
 | `HARNESS_SPEC_ENABLED` | `true` | Kill switch for reading/injecting |
-| `HARNESS_SPEC_AUTO_REFINE` | `false` | Allow runs to append entries |
+| `HARNESS_SPEC_AUTO_REFINE` | `true` | Let runs append and retire entries |
 | `HARNESS_SPEC_MIN_HITS` | `2` | Repeats before a lesson promotes |
 | `HARNESS_SPEC_MAX_ENTRIES` | `40` | Entries retained in the file |
 | `HARNESS_SPEC_MAX_CHARS` | `1200` | Cap on the injected block |
 
-**Writing is off by default.** With `HARNESS_SPEC_AUTO_REFINE` unset nothing is
-ever written. On a workspace that has no `.agency/harness.md`, `build_block()`
-returns `""` and prompts are byte-identical to before this feature landed.
-Reading stays on, so a spec that already exists — generated earlier, or committed
-by hand — is still injected; use `HARNESS_SPEC_ENABLED=false` to stop that too.
+**Writing is on by default** (since 2026-10-18). All five settings are admin-panel
+controls (Settings → Platform controls, group "Agent loop") and take effect without
+a restart. Set `HARNESS_SPEC_AUTO_REFINE=false` to stop runs writing; on a workspace
+with no `.agency/harness.md`, `build_block()` returns `""` and prompts are unchanged.
+A spec that already exists — generated earlier, or committed by hand — is injected
+while `HARNESS_SPEC_ENABLED` is true.
 
 **Only cited entries are injected.** The spec lives inside the workspace, which
 for agent work is often a third-party repository. An entry is injected only when
@@ -87,7 +88,7 @@ entries survive — if something has to go, keep the lessons that cost the most.
 ## Trying it
 
 ```bash
-export HARNESS_SPEC_AUTO_REFINE=true
+# auto-refine is already on; run the tasks below
 # ...run agent tasks that fail the same way twice...
 cat .agency/harness.md
 ```

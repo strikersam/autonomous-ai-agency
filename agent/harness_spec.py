@@ -25,7 +25,7 @@ prompt starts behaving oddly.
 
 Configuration:
   HARNESS_SPEC_ENABLED      — 'false' disables reading/injection (default: on)
-  HARNESS_SPEC_AUTO_REFINE  — 'true' lets runs append entries (default: off)
+  HARNESS_SPEC_AUTO_REFINE  — 'false' stops runs appending entries (default: on)
   HARNESS_SPEC_MIN_HITS     — repeats before a lesson promotes (default: 2)
   HARNESS_SPEC_MAX_ENTRIES  — entries kept in the file (default: 40)
   HARNESS_SPEC_MAX_CHARS    — cap on the injected block (default: 1200)
@@ -102,6 +102,27 @@ class SpecEntry:
 def spec_path(workspace_root: str | Path | None = None) -> Path:
     """Absolute path of the harness spec for a workspace."""
     return Path(workspace_root or os.getcwd()) / _SPEC_RELPATH
+
+
+_SIDECAR_NAMES = (_SPEC_RELPATH.name, "harness-history.jsonl")
+
+
+def is_contained(workspace_root: str | Path | None) -> bool:
+    """True when ``.agency`` is a real directory inside the workspace.
+
+    The workspace is frequently an untrusted checkout, and a repository can ship
+    ``.agency`` (or its spec/history files) as a symlink to anywhere writable. Writes follow that link, so
+    every write checks this first (the same boundary WorkspaceTools enforces for
+    agent file writes).
+    """
+    root = Path(workspace_root or os.getcwd())
+    agency = root / _SPEC_RELPATH.parent
+    try:
+        if agency.is_symlink() or any((agency / n).is_symlink() for n in _SIDECAR_NAMES):
+            return False
+        return agency.resolve().is_relative_to(root.resolve())
+    except (OSError, RuntimeError):
+        return False
 
 
 def _known_entry_texts() -> dict[str, set[str]]:
@@ -208,6 +229,8 @@ def propose_entries(lessons: list[dict[str, Any]], *, min_hits: int | None = Non
 def write_entries(entries: list[SpecEntry], workspace_root: str | Path | None = None) -> Path:
     """Rewrite the spec file, preserving any non-entry (hand-written) lines."""
     path = spec_path(workspace_root)
+    if not is_contained(workspace_root):
+        raise OSError(f"refusing to write the harness spec through a symlink: {path.parent}")
     path.parent.mkdir(parents=True, exist_ok=True)
     preserved: list[str] = []
     try:
@@ -242,11 +265,10 @@ def refine(
 ) -> list[SpecEntry]:
     """Promote repeated lessons into the spec. Returns the entries added.
 
-    No-op unless HARNESS_SPEC_AUTO_REFINE is set (or `force`), so a deployment
-    that has not opted in never gets a self-editing prompt. Never raises: a
+    No-op when HARNESS_SPEC_AUTO_REFINE is 'false' (unless `force`). Never raises: a
     failure to refine must not fail the run that triggered it.
     """
-    if not force and not _flag("HARNESS_SPEC_AUTO_REFINE", False):
+    if not force and not _flag("HARNESS_SPEC_AUTO_REFINE", True):
         return []
     try:
         # Read-merge-write under one lock: two runs finishing together would
@@ -301,6 +323,8 @@ def _record_history(
         "retired": [e.signature for e in retired],
     }
     try:
+        if not is_contained(workspace_root):
+            return
         path = spec_path(workspace_root).with_name(_HISTORY_NAME)
         with path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(record) + "\n")
@@ -348,6 +372,31 @@ def _refine_locked(
         len(added), len(retired), spec_path(workspace_root),
     )
     return added
+
+
+def apply_delta(
+    workspace_root: str | Path | None,
+    added: list[SpecEntry],
+    retired_signatures: set[str],
+) -> None:
+    """Merge one run's changes into the spec on disk. Never raises.
+
+    Task worktrees are seeded from the same base spec and finish in any order, so
+    replacing the file would let the last one to finish erase another's
+    promotion. Applying only this run's additions and retirements to the current
+    file, under the refine lock, keeps both. Not gated by HARNESS_SPEC_AUTO_REFINE:
+    the run already decided to write.
+    """
+    try:
+        with _REFINE_LOCK:
+            current = [e for e in read_entries(workspace_root) if e.signature not in retired_signatures]
+            known = {e.signature for e in current}
+            merged = current + [e for e in added if e.signature not in known]
+            merged = merged[-_int_env("HARNESS_SPEC_MAX_ENTRIES", 40):]
+            if merged != read_entries(workspace_root):
+                write_entries(merged, workspace_root)
+    except Exception as exc:  # best-effort, like refine()
+        log.warning("harness spec delta not applied: %s", exc)
 
 
 def build_block(workspace_root: str | Path | None = None, *, max_chars: int | None = None) -> str:

@@ -1054,6 +1054,55 @@ _AGENT_LOOP: tuple[ControlSpec, ...] = (
         "true",
         "Inject relevant stored memories at the start of a run.",
     ),
+    _toggle(
+        "HARNESS_SPEC_ENABLED",
+        "Harness spec injection",
+        "agent_loop",
+        "true",
+        "Inject the workspace's standing instructions (.agency/harness.md) into "
+        "the next planner prompt. Off stops reading the file; nothing is deleted.",
+        live=True,
+    ),
+    _toggle(
+        "HARNESS_SPEC_AUTO_REFINE",
+        "Harness spec auto-refine",
+        "agent_loop",
+        "true",
+        "After each run, promote lessons seen often enough into the harness spec "
+        "and retire entries that later successes contradicted. Every entry cites "
+        "the lesson behind it; no model decides what is written.",
+        live=True,
+    ),
+    _number(
+        "HARNESS_SPEC_MIN_HITS",
+        "Harness spec promotion threshold",
+        "agent_loop",
+        "2",
+        "How many times a failure lesson must repeat before it becomes a standing instruction.",
+        live=True,
+        minimum=1,
+        maximum=20,
+    ),
+    _number(
+        "HARNESS_SPEC_MAX_ENTRIES",
+        "Harness spec max entries",
+        "agent_loop",
+        "40",
+        "Standing instructions kept in the spec file; the oldest drop first.",
+        live=True,
+        minimum=1,
+        maximum=200,
+    ),
+    _number(
+        "HARNESS_SPEC_MAX_CHARS",
+        "Harness spec prompt budget",
+        "agent_loop",
+        "1200",
+        "Cap, in characters, on the spec block added to a prompt. Most-repeated lessons are kept first.",
+        live=True,
+        minimum=200,
+        maximum=8000,
+    ),
 )
 
 _GOVERNANCE: tuple[ControlSpec, ...] = (
