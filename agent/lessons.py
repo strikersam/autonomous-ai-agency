@@ -139,7 +139,7 @@ _VARIABLE_PARTS = (
     (re.compile(r"(?:[\w.-]*/)+[\w.-]+"), "<path>"),
     (re.compile(r"\b[0-9a-f]{7,}\b"), "<id>"),
     # Status and exit codes tell failures apart (404 vs 500); other numbers are noise.
-    (re.compile(r"(?<!http )(?<!status )(?<!code )(?<!exit )(?<!errno )(?<!error )\d+"), "<n>"),
+    (re.compile(r"(?<!http )(?<!status )(?<!code )(?<!exit )(?<!errno )(?<!error )\d+", re.IGNORECASE), "<n>"),
 )
 
 
