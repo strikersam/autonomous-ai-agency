@@ -104,18 +104,21 @@ def spec_path(workspace_root: str | Path | None = None) -> Path:
     return Path(workspace_root or os.getcwd()) / _SPEC_RELPATH
 
 
+_SIDECAR_NAMES = (_SPEC_RELPATH.name, "harness-history.jsonl")
+
+
 def is_contained(workspace_root: str | Path | None) -> bool:
     """True when ``.agency`` is a real directory inside the workspace.
 
     The workspace is frequently an untrusted checkout, and a repository can ship
-    ``.agency`` as a symlink to anywhere writable. Writes follow that link, so
+    ``.agency`` (or its spec/history files) as a symlink to anywhere writable. Writes follow that link, so
     every write checks this first (the same boundary WorkspaceTools enforces for
     agent file writes).
     """
     root = Path(workspace_root or os.getcwd())
     agency = root / _SPEC_RELPATH.parent
     try:
-        if agency.is_symlink():
+        if agency.is_symlink() or any((agency / n).is_symlink() for n in _SIDECAR_NAMES):
             return False
         return agency.resolve().is_relative_to(root.resolve())
     except (OSError, RuntimeError):

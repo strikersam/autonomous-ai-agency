@@ -12,6 +12,7 @@ import pytest
 import agent.harness_spec as spec_mod
 from agent.harness_spec import (
     SpecEntry,
+    is_contained,
     build_block,
     propose_entries,
     read_entries,
@@ -408,6 +409,18 @@ class TestSymlinkContainment:
         (ws / ".agency").symlink_to(outside, target_is_directory=True)
         assert refine(ws, lessons=[_lesson()], force=True) == []
         assert list(outside.iterdir()) == []
+
+    def test_history_append_never_follows_a_symlinked_sidecar(self, tmp_path):
+        from agent.harness_spec import _record_history
+
+        victim = tmp_path / "victim.txt"
+        victim.write_text("keep\n")
+        ws = tmp_path / "ws"
+        (ws / ".agency").mkdir(parents=True)
+        (ws / ".agency" / "harness-history.jsonl").symlink_to(victim)
+        assert not is_contained(ws)
+        _record_history(ws, [SpecEntry("a", 2, "x")], [])
+        assert victim.read_text() == "keep\n"
 
     def test_sync_ignores_a_symlinked_agency_dir(self, tmp_path):
         from runtimes.adapters.harness_sync import persist_spec
