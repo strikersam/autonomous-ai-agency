@@ -27,6 +27,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -82,6 +83,14 @@ class LessonStore:
             return
         signature = _signature(phase, issue)
         with self._lock, self._connect() as conn:
+            # Lessons stored before normalisation keep their old signature, so
+            # their accumulated hits are not orphaned.
+            legacy = conn.execute(
+                "UPDATE lessons SET hits = hits + 1, updated_at = ? WHERE signature = ?",
+                (time.time(), _legacy_signature(phase, issue)),
+            )
+            if legacy.rowcount:
+                return
             conn.execute(
                 """INSERT INTO lessons (signature, phase, lesson, goal, hits, updated_at)
                    VALUES (?, ?, ?, ?, 1, ?)
@@ -125,8 +134,34 @@ class LessonStore:
         ]
 
 
-def _signature(phase: str, issue: str) -> str:
+_VARIABLE_PARTS = (
+    (re.compile(r"""(?<!\w)(["'`]).*?\1(?!\w)"""), "<q>"),
+    (re.compile(r"(?:[\w.-]*/)+[\w.-]+"), "<path>"),
+    (re.compile(r"\b[0-9a-f]{7,}\b"), "<id>"),
+    # Status and exit codes tell failures apart (404 vs 500); other numbers are noise.
+    (re.compile(r"(?<!http )(?<!status )(?<!code )(?<!exit )(?<!errno )(?<!error )\d+", re.IGNORECASE), "<n>"),
+)
+
+
+def _normalise(issue: str) -> str:
+    """The issue with its run-specific parts (quotes, paths, ids, numbers) masked.
+
+    The signature used to hash the raw first 120 characters, so the same failure
+    on a different file or retry count became a new lesson with one hit and never
+    reached the harness spec's repeat threshold.
+    """
+    text = issue
+    for pattern, token in _VARIABLE_PARTS:
+        text = pattern.sub(token, text)
+    return " ".join(text.lower().split())
+
+
+def _legacy_signature(phase: str, issue: str) -> str:
     return hashlib.sha1(f"{phase}|{issue[:120]}".encode(), usedforsecurity=False).hexdigest()[:16]
+
+
+def _signature(phase: str, issue: str) -> str:
+    return hashlib.sha1(f"{phase}|{_normalise(issue)[:120]}".encode(), usedforsecurity=False).hexdigest()[:16]
 
 
 class MongoLessonStore:
@@ -143,6 +178,12 @@ class MongoLessonStore:
     def record(self, *, phase: str, issue: str, goal: str = "") -> None:
         issue = redact_secrets((issue or "").strip())[:_MAX_LESSON_CHARS]
         if not issue:
+            return
+        legacy = self._coll.update_one(
+            {"_id": _legacy_signature(phase, issue)},
+            {"$inc": {"hits": 1}, "$set": {"updated_at": time.time()}},
+        )
+        if legacy.matched_count:
             return
         self._coll.update_one(
             {"_id": _signature(phase, issue)},
