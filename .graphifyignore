@@ -1,0 +1,6 @@
+# Keep the agent-facing graph about product code: changelog headings (Added/Changed/Fixed)
+# and test fixtures were becoming communities and god nodes.
+CHANGELOG.md
+docs/changelog.md
+tests/
+frontend/src/__tests__/
