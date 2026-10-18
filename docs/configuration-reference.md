@@ -660,7 +660,7 @@ Promotes a repeated failure lesson into a standing instruction stored in
 | Variable | Default | Purpose |
 |---|---|---|
 | `HARNESS_SPEC_ENABLED` | `true` | Kill switch for reading and injecting the spec |
-| `HARNESS_SPEC_AUTO_REFINE` | `false` | Allow runs to append entries |
+| `HARNESS_SPEC_AUTO_REFINE` | `true` | Let runs append and retire entries (admin control) |
 | `HARNESS_SPEC_MIN_HITS` | `2` | Repeats before a lesson is promoted |
 | `HARNESS_SPEC_MAX_ENTRIES` | `40` | Entries retained in the file |
 | `HARNESS_SPEC_MAX_CHARS` | `1200` | Cap on the injected prompt block |

@@ -80,6 +80,9 @@ os.environ.setdefault("RUN_BACKGROUND_IN_WEB", "false")
 # earlier tests leave populated (and cooling). Keep dispatcher tests hermetic;
 # tests/test_dispatcher_provider_capacity.py exercises the sizing directly.
 os.environ.setdefault("TASK_SLOTS_PER_PROVIDER", "0")
+# Auto-refine is on in production; keep unrelated agent-loop tests from writing
+# .agency/harness.md into the checkout. tests/test_harness_spec.py opts in itself.
+os.environ.setdefault("HARNESS_SPEC_AUTO_REFINE", "false")
 # Durable-state mirroring is off by default so unrelated tests write no rows; the
 # persistence tests opt in explicitly (rule 32).
 os.environ.setdefault("AGENCY_STATE_PERSISTENCE_ENABLED", "false")

@@ -25,7 +25,7 @@ prompt starts behaving oddly.
 
 Configuration:
   HARNESS_SPEC_ENABLED      — 'false' disables reading/injection (default: on)
-  HARNESS_SPEC_AUTO_REFINE  — 'true' lets runs append entries (default: off)
+  HARNESS_SPEC_AUTO_REFINE  — 'false' stops runs appending entries (default: on)
   HARNESS_SPEC_MIN_HITS     — repeats before a lesson promotes (default: 2)
   HARNESS_SPEC_MAX_ENTRIES  — entries kept in the file (default: 40)
   HARNESS_SPEC_MAX_CHARS    — cap on the injected block (default: 1200)
@@ -242,11 +242,10 @@ def refine(
 ) -> list[SpecEntry]:
     """Promote repeated lessons into the spec. Returns the entries added.
 
-    No-op unless HARNESS_SPEC_AUTO_REFINE is set (or `force`), so a deployment
-    that has not opted in never gets a self-editing prompt. Never raises: a
+    No-op when HARNESS_SPEC_AUTO_REFINE is 'false' (unless `force`). Never raises: a
     failure to refine must not fail the run that triggered it.
     """
-    if not force and not _flag("HARNESS_SPEC_AUTO_REFINE", False):
+    if not force and not _flag("HARNESS_SPEC_AUTO_REFINE", True):
         return []
     try:
         # Read-merge-write under one lock: two runs finishing together would

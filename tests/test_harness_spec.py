@@ -108,10 +108,14 @@ class TestPersistence:
 
 
 class TestRefineGate:
-    def test_disabled_by_default(self, tmp_path, monkeypatch):
-        monkeypatch.delenv("HARNESS_SPEC_AUTO_REFINE", raising=False)
+    def test_disabled_by_env(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HARNESS_SPEC_AUTO_REFINE", "false")
         assert refine(tmp_path, lessons=[_lesson()]) == []
         assert not spec_path(tmp_path).exists()
+
+    def test_enabled_by_default(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("HARNESS_SPEC_AUTO_REFINE", raising=False)
+        assert len(refine(tmp_path, lessons=[_lesson()])) == 1
 
     def test_enabled_by_env(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HARNESS_SPEC_AUTO_REFINE", "true")
@@ -120,7 +124,7 @@ class TestRefineGate:
         assert spec_path(tmp_path).is_file()
 
     def test_force_bypasses_the_flag(self, tmp_path, monkeypatch):
-        monkeypatch.delenv("HARNESS_SPEC_AUTO_REFINE", raising=False)
+        monkeypatch.setenv("HARNESS_SPEC_AUTO_REFINE", "false")
         assert len(refine(tmp_path, lessons=[_lesson()], force=True)) == 1
 
     def test_same_lesson_is_not_written_twice(self, tmp_path, monkeypatch):

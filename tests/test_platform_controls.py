@@ -618,3 +618,20 @@ def test_task_slots_per_provider_is_a_live_control(clean_overrides):
     assert settings.task_slots_per_provider == 3
     control_overrides.apply_overrides({"TASK_SLOTS_PER_PROVIDER": "0"})
     assert settings.task_slots_per_provider == 0
+
+
+def test_harness_spec_controls_are_live_and_default_on(clean_overrides, tmp_path, monkeypatch):
+    import agent.harness_spec as spec_mod
+
+    for key in ("HARNESS_SPEC_ENABLED", "HARNESS_SPEC_AUTO_REFINE", "HARNESS_SPEC_MIN_HITS",
+                "HARNESS_SPEC_MAX_ENTRIES", "HARNESS_SPEC_MAX_CHARS"):
+        spec = get_control(key)
+        assert spec is not None and spec.live, key
+    assert get_control("HARNESS_SPEC_AUTO_REFINE").default == "true"
+
+    monkeypatch.delenv("HARNESS_SPEC_AUTO_REFINE", raising=False)
+    lesson = [{"signature": "s1", "hits": 3, "lesson": "x", "phase": "execute"}]
+    control_overrides.apply_overrides({"HARNESS_SPEC_AUTO_REFINE": "false"})
+    assert spec_mod.refine(tmp_path, lessons=lesson) == []
+    control_overrides.apply_overrides({"HARNESS_SPEC_AUTO_REFINE": "true"})
+    assert len(spec_mod.refine(tmp_path, lessons=lesson)) == 1
