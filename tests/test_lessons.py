@@ -122,3 +122,10 @@ def test_status_codes_keep_failures_apart(tmp_path, monkeypatch):
     store.record(phase="execute", issue="provider returned HTTP 500 after 9 attempts")
     hits = sorted(r["hits"] for r in store.recent())
     assert hits == [1, 2]
+
+
+def test_contractions_do_not_merge_different_failures(tmp_path, monkeypatch):
+    store = _fresh_store(tmp_path, monkeypatch)
+    store.record(phase="execute", issue="Tool didn't run: disk full, can't write")
+    store.record(phase="execute", issue="Tool didn't run: permission denied, can't write")
+    assert len(store.recent()) == 2

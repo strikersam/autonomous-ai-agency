@@ -338,3 +338,14 @@ def test_ceo_status_shows_what_it_learned(monkeypatch):
     playbook = agency.get_status()["playbook"]
     assert playbook["subjects"] == 1
     assert playbook["beliefs"][0].startswith('AVOID: "agency: Refactor router"')
+
+
+def test_mongo_lesson_recorded_under_the_old_signature_keeps_counting():
+    coll = _FakeLessons()
+    issue = "patch did not apply"
+    legacy = lessons._legacy_signature("execute", issue)
+    coll.docs[legacy] = {"_id": legacy, "hits": 4, "resolved": 0, "goal": "g",
+                         "phase": "execute", "lesson": issue}
+    MongoLessonStore(coll).record(phase="execute", issue=issue, goal="g")
+    assert coll.docs[legacy]["hits"] == 5
+    assert list(coll.docs) == [legacy]

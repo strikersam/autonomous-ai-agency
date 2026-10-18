@@ -135,7 +135,7 @@ class LessonStore:
 
 
 _VARIABLE_PARTS = (
-    (re.compile(r"""(["'`]).*?\1"""), "<q>"),
+    (re.compile(r"""(?<!\w)(["'`]).*?\1(?!\w)"""), "<q>"),
     (re.compile(r"(?:[\w.-]*/)+[\w.-]+"), "<path>"),
     (re.compile(r"\b[0-9a-f]{7,}\b"), "<id>"),
     # Status and exit codes tell failures apart (404 vs 500); other numbers are noise.
