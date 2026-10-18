@@ -575,6 +575,31 @@ models:
     priority: 67
     speed_tier: medium
 
+  # ---------------------------------------------------------------------------
+  # NVIDIA Nemotron 3.5 Super VL (added 2026-10-18)
+  # Released 2026-10-16. NVIDIA's multimodal 120B MoE model (~12B active params).
+  # Accepts text, images, documents, GUI screenshots, and video.
+  # Context: 1,050,000 tokens. Tool calling: not yet probed — declared false
+  # conservatively (packages/llm/registry.py filters tool-calling requests on
+  # supports_tools: false, keeping it out of agentic routing until probed).
+  # Available via OpenRouter free tier; also on Together AI, DeepInfra, Nebius.
+  # Source: openrouter.ai/nvidia/nemotron-3.5-super-vl, 2026-10-18.
+  # ---------------------------------------------------------------------------
+  nvidia/nemotron-3.5-super-vl:free:
+    provider: openrouter
+    display_name: Nemotron 3.5 Super VL (OpenRouter, free)
+    context_window: 1050000
+    max_output_tokens: 8192
+    supports_tools: false           # not yet probed
+    supports_function_calling: false
+    supports_json: true
+    supports_images: true           # multimodal: text + images + documents + video
+    supports_streaming: true
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
+    priority: 68
+    speed_tier: medium
+
   openrouter/free:
     provider: openrouter
     display_name: Any free model (OpenRouter auto)

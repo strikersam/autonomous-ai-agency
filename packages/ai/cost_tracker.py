@@ -185,6 +185,9 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # --- North Mini Code (local/OpenRouter free) ---
     "north-mini-code-1.0": (0.0, 0.0),
     "cohere/north-mini-code:free": (0.0, 0.0),
+    # --- NVIDIA Nemotron 3.5 Super VL (OpenRouter free, added 2026-10-18) ---
+    # 120B MoE multimodal model; free via OpenRouter ":free" tier.
+    "nvidia/nemotron-3.5-super-vl:free": (0.0, 0.0),
     # --- DeepSeek ---
     "deepseek-chat": (0.27, 1.10),
     "deepseek-coder": (0.27, 1.10),
