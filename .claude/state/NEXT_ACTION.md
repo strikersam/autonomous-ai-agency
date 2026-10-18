@@ -1,3 +1,21 @@
+# NEXT_ACTION — updated 2026-10-18 (daily automation, branch `claude/intelligent-gates-6bf3ev`)
+
+NVIDIA Nemotron 3.5 Super VL (`nvidia/nemotron-3.5-super-vl:free`) added to model catalogue via OpenRouter free tier. PR [#1780](https://github.com/strikersam/autonomous-ai-agency/pull/1780) open. 13 tests verified; compileall clean; changelog parity OK.
+
+## Open items for next daily run
+
+1. **Check CI on PR #1780** — if green, merge. If red, investigate.
+
+2. **Nemotron 3.5 Super VL tool-call probe** — declared `false` conservatively. Once PR merges, the router's health check cycle will test it. If it returns a valid `tool_calls` response, raise a PR to set `supports_tools: true` and `supports_function_calling: true`.
+
+3. **Muse Spark Open live probe** (`meta-models/muse-spark-open`, priority 99) — still at priority 99. Once its PR is merged and deployed, check if the Groq account now has access (otherwise keep explicit-only).
+
+4. **GPT model deprecations (Oct 23, 2026)**: `gpt-3.5-turbo-0125`, `gpt-4-0613`, `gpt-4-1106-preview` retire on 2026-10-23. Confirmed not in routing candidates as of today — re-verify after Oct 23.
+
+5. **Groq Llama 4 Scout probe** (`meta-llama/llama-4-scout-17b-16e-instruct`, priority 99) — still pending a live probe.
+
+---
+
 # NEXT_ACTION — updated 2026-10-17 (daily automation, branch `claude/intelligent-gates-n8443c`)
 
 Meta Muse Spark Open (`meta-models/muse-spark-open`) added to model catalogue. PR [#1777](https://github.com/strikersam/autonomous-ai-agency/pull/1777) open, auto-merge armed (squash). 18 tests pass; compileall clean; changelog parity OK.
