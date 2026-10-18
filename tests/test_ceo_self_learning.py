@@ -270,10 +270,13 @@ class _FakeLessons:
     def update_one(self, query, update, upsert=False):
         doc = self.docs.get(query["_id"])
         if doc is None:
+            if not upsert:
+                return SimpleNamespace(matched_count=0)
             doc = {"_id": query["_id"], "hits": 0, **update["$setOnInsert"]}
             self.docs[query["_id"]] = doc
         doc["hits"] += update["$inc"]["hits"]
         doc.update(update["$set"])
+        return SimpleNamespace(matched_count=1)
 
     def update_many(self, query, update):
         n = 0

@@ -64,9 +64,10 @@ def test_never_raises(monkeypatch):
 
 
 def _seed_loud_unrelated(store):
-    for n in range(6):
+    # Distinct failures (numbers alone no longer make one: they are masked).
+    for name in ("compile", "lint", "package", "deploy", "migrate", "seed"):
         for _ in range(3):
-            store.record(phase="execute", issue=f"Docker build step {n} ran out of disk")
+            store.record(phase="execute", issue=f"Docker {name} step ran out of disk")
     store.record(phase="verify", issue="Sitemap XML failed schema validation for canonical URLs")
 
 
@@ -84,3 +85,40 @@ def test_query_without_match_keeps_evidence_order(tmp_path, monkeypatch):
     store = _fresh_store(tmp_path, monkeypatch)
     _seed_loud_unrelated(store)
     assert recent_lessons_block(limit=5, query="zzz qqq") == recent_lessons_block(limit=5)
+
+
+def test_same_failure_on_different_files_is_one_lesson(tmp_path, monkeypatch):
+    store = _fresh_store(tmp_path, monkeypatch)
+    store.record(phase="execute", issue="could not edit 'src/a_1.py' after 3 attempts (run 8f3a9c21)")
+    store.record(phase="execute", issue="could not edit 'src/b_9.py' after 5 attempts (run 1d2e4f77)")
+    recent = store.recent()
+    assert len(recent) == 1 and recent[0]["hits"] == 2
+
+
+def test_different_failures_stay_separate(tmp_path, monkeypatch):
+    store = _fresh_store(tmp_path, monkeypatch)
+    store.record(phase="execute", issue="Missing import os")
+    store.record(phase="execute", issue="Missing import sys")
+    assert len(store.recent()) == 2
+
+
+def test_lesson_stored_under_the_old_signature_keeps_counting(tmp_path, monkeypatch):
+    store = _fresh_store(tmp_path, monkeypatch)
+    issue = "Executor did not produce an applicable file update."
+    with store._connect() as conn:
+        conn.execute(
+            "INSERT INTO lessons (signature, phase, lesson, goal, hits, updated_at) VALUES (?, ?, ?, '', 4, 1)",
+            (lessons_mod._legacy_signature("execute", issue), "execute", issue),
+        )
+    store.record(phase="execute", issue=issue)
+    recent = store.recent()
+    assert len(recent) == 1 and recent[0]["hits"] == 5
+
+
+def test_status_codes_keep_failures_apart(tmp_path, monkeypatch):
+    store = _fresh_store(tmp_path, monkeypatch)
+    store.record(phase="execute", issue="provider returned HTTP 404 after 3 attempts")
+    store.record(phase="execute", issue="provider returned HTTP 500 after 5 attempts")
+    store.record(phase="execute", issue="provider returned HTTP 500 after 9 attempts")
+    hits = sorted(r["hits"] for r in store.recent())
+    assert hits == [1, 2]
