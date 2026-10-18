@@ -22,7 +22,7 @@ import os
 import shutil
 from pathlib import Path
 
-from agent.harness_spec import SpecEntry, apply_delta, read_entries
+from agent.harness_spec import SpecEntry, apply_delta, is_contained, read_entries
 
 log = logging.getLogger("qwen-proxy")
 
@@ -44,6 +44,8 @@ def seed_spec(base_workspace: str, worktree: str) -> frozenset[str]:
     src, dst = Path(base_workspace) / _SPEC_RELPATH, Path(worktree) / _SPEC_RELPATH
     if os.path.realpath(base_workspace) == os.path.realpath(worktree) or not _regular_file(src):
         return frozenset()
+    if not (is_contained(base_workspace) and is_contained(worktree)):
+        return frozenset()
     try:
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(src, dst)
@@ -56,7 +58,7 @@ def seed_spec(base_workspace: str, worktree: str) -> frozenset[str]:
 def _append_history(worktree: str, base_workspace: str) -> None:
     """Append worktree history lines the base file does not already hold."""
     src, dst = Path(worktree) / _HISTORY_RELPATH, Path(base_workspace) / _HISTORY_RELPATH
-    if not _regular_file(src):
+    if not _regular_file(src) or not (is_contained(worktree) and is_contained(base_workspace)):
         return
     try:
         have = set(dst.read_text(encoding="utf-8").splitlines()) if dst.is_file() else set()
@@ -74,7 +76,7 @@ def persist_spec(worktree: str, base_workspace: str, seeded: frozenset[str] = fr
     if os.path.realpath(base_workspace) == os.path.realpath(worktree):
         return
     spec = Path(worktree) / _SPEC_RELPATH
-    if _regular_file(spec):
+    if _regular_file(spec) and is_contained(worktree):
         after: list[SpecEntry] = read_entries(worktree)
         now = {e.signature for e in after}
         added = [e for e in after if e.signature not in seeded]

@@ -397,3 +397,26 @@ class TestRetirement:
         write_entries([SpecEntry("sig1", 3, "keep me")], tmp_path)
         refine(tmp_path, force=True)
         assert [e.signature for e in read_entries(tmp_path)] == ["sig1"]
+
+
+class TestSymlinkContainment:
+    def test_refine_never_writes_through_a_symlinked_agency_dir(self, tmp_path):
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        ws = tmp_path / "ws"
+        ws.mkdir()
+        (ws / ".agency").symlink_to(outside, target_is_directory=True)
+        assert refine(ws, lessons=[_lesson()], force=True) == []
+        assert list(outside.iterdir()) == []
+
+    def test_sync_ignores_a_symlinked_agency_dir(self, tmp_path):
+        from runtimes.adapters.harness_sync import persist_spec
+
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        write_entries([SpecEntry("evil", 2, "x")], outside.parent / "outside_ws")
+        base, wt = tmp_path / "base", tmp_path / "wt"
+        base.mkdir(), wt.mkdir()
+        (wt / ".agency").symlink_to(outside.parent / "outside_ws" / ".agency", target_is_directory=True)
+        persist_spec(str(wt), str(base))
+        assert read_entries(base) == []

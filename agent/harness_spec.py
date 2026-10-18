@@ -104,6 +104,24 @@ def spec_path(workspace_root: str | Path | None = None) -> Path:
     return Path(workspace_root or os.getcwd()) / _SPEC_RELPATH
 
 
+def is_contained(workspace_root: str | Path | None) -> bool:
+    """True when ``.agency`` is a real directory inside the workspace.
+
+    The workspace is frequently an untrusted checkout, and a repository can ship
+    ``.agency`` as a symlink to anywhere writable. Writes follow that link, so
+    every write checks this first (the same boundary WorkspaceTools enforces for
+    agent file writes).
+    """
+    root = Path(workspace_root or os.getcwd())
+    agency = root / _SPEC_RELPATH.parent
+    try:
+        if agency.is_symlink():
+            return False
+        return agency.resolve().is_relative_to(root.resolve())
+    except (OSError, RuntimeError):
+        return False
+
+
 def _known_entry_texts() -> dict[str, set[str]]:
     """Recorded lessons as ``{signature: {acceptable text, ...}}``.
 
@@ -208,6 +226,8 @@ def propose_entries(lessons: list[dict[str, Any]], *, min_hits: int | None = Non
 def write_entries(entries: list[SpecEntry], workspace_root: str | Path | None = None) -> Path:
     """Rewrite the spec file, preserving any non-entry (hand-written) lines."""
     path = spec_path(workspace_root)
+    if not is_contained(workspace_root):
+        raise OSError(f"refusing to write the harness spec through a symlink: {path.parent}")
     path.parent.mkdir(parents=True, exist_ok=True)
     preserved: list[str] = []
     try:
@@ -300,6 +320,8 @@ def _record_history(
         "retired": [e.signature for e in retired],
     }
     try:
+        if not is_contained(workspace_root):
+            return
         path = spec_path(workspace_root).with_name(_HISTORY_NAME)
         with path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(record) + "\n")
