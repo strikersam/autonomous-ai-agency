@@ -292,6 +292,7 @@ only verifies the commit goes live (and deploys on manual dispatch).
 | Naming, log levels, fixtures, performance targets | `ENGINEERING_STANDARDS.md` |
 | Target architecture and migration plan | `ARCHITECTURE.md`, `REWRITE_PLAN.md` |
 | Agent and router internals | `agent/CLAUDE.md`, `router/CLAUDE.md` |
+| Reusable skills, subagents, commands, connectors (open-source-ready; `.claude/` symlinks into it) | `harness/README.md` |
 | Intent and plan artifacts for each change | `docs/intent/`, `docs/plans/` |
 | The rules audit — what was cut and why | `.claude/rules-archive/` |
 | Configuration, runbooks, ADRs | `docs/` |

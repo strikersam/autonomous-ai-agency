@@ -6,7 +6,7 @@
 #
 # Thin wrapper around `python scripts/monitor_colibri.py wait`. Use this from
 # any PowerShell launcher that needs a synchronous readiness signal before
-# proceeding (e.g. start_server.ps1 cold-start path).
+# proceeding (e.g. scripts/local/start_server.ps1 cold-start path).
 #
 # Usage:
 #   pwsh scripts/wait_for_colibri_ready.ps1                          # default 12 h timeout, poll 10 s

@@ -1,3 +1,23 @@
+# NEXT_ACTION — updated 2026-10-19 (branch `claude/amazing-sagan-3qwd7b`)
+
+Repo restructure: `harness/` now holds the reusable, open-source-ready agent harness (86 generic
+skills merged from `.claude/skills` + `.agents/skills`, subagents, commands, rules template,
+connectors, loop guide, `sol-advisor` plugin). `.claude/agents`, `.claude/commands`,
+`.claude/skills/<generic>` and `.agents/skills` are symlinks into it. README rewritten shorter.
+
+## Status
+
+PR https://github.com/strikersam/autonomous-ai-agency/pull/1808 — merge when CI is green.
+Done in the same PR: root launchers moved to `scripts/local/` (root resolution rewritten and
+smoke-tested from a foreign cwd with bash + pwsh 7.4), `docs/adrs/` merged into `docs/adr/`,
+harness files scrubbed of this repo's paths/URLs (repo-bound skills/agents/commands moved back
+to real files in `.claude/`).
+
+## Open items
+
+1. `.bat` launchers could not be executed here (no Windows); they were reviewed by hand. Smoke-test
+   `scripts\local\run.bat` and `Start-Local-Agency.cmd` on Windows after merge.
+2. `docs/` still has many one-off audit/report files at its top level; a further pass could archive them.
 # NEXT_ACTION — updated 2026-10-19 (daily automation, branch `claude/daily-automation-2026-10-19`)
 
 GLM-5.3, GLM-5.3-Flash, and Kimi K3 added to model catalogue. PR [#1797](https://github.com/strikersam/autonomous-ai-agency/pull/1797) open. 22 tests verified; compileall clean; changelog parity OK.

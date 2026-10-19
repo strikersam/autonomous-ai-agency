@@ -105,4 +105,4 @@ Track which harnesses are active and their performance:
 - **ECC GitHub:** https://github.com/affaan-m/ECC
 - **ECC Cross-Harness Docs:** https://github.com/affaan-m/ECC/blob/main/docs/architecture/cross-harness.md
 - **Local-llm-server Agent Orchestration:** `docs/architecture/agent-orchestration.md`
-- **Local-llm-server Router:** `docs/adrs/002-model-routing.md`
+- **Local-llm-server Router:** `docs/adr/010-model-routing.md`

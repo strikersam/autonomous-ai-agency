@@ -371,3 +371,17 @@ def test_local_skills_dir_defaults_to_repo_root_not_cwd(tmp_path, monkeypatch) -
     assert len(sr.list(source="local")) > 0, (
         "expected repo .claude/skills to be indexed regardless of CWD"
     )
+
+
+def test_registry_indexes_symlinked_skill_dirs(tmp_path):
+    """Regression: harness/skills/ entries are symlinked into .claude/skills/."""
+    from agent.skill_registry import SkillRegistry
+
+    real = tmp_path / "harness" / "linked-skill"
+    real.mkdir(parents=True)
+    (real / "SKILL.md").write_text("# Linked skill\n\nA linked skill.\n")
+    local = tmp_path / "skills"
+    local.mkdir()
+    (local / "linked-skill").symlink_to(real, target_is_directory=True)
+    sr = SkillRegistry(local_skills_dir=local)
+    assert sr.get("local:linked-skill") is not None

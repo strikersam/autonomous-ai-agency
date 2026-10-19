@@ -5,6 +5,7 @@ Canonical project docs now live under `docs/`.
 ## Start here
 
 - [README.md](../README.md) — product overview, quick start, UI tour.
+- [harness/](../harness/README.md) — the reusable agent harness: skills, subagents, commands, rules, connectors.
 - [features.md](features.md) — end-to-end feature inventory.
 - [configuration-reference.md](configuration-reference.md) — environment variables and config knobs.
 - [troubleshooting.md](troubleshooting.md) — operational fixes and common failure modes.

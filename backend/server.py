@@ -3340,7 +3340,7 @@ def _builtin_provider_records() -> list[dict]:
 
 # ─── Multi-Agent Orchestration ────────────────────────────────────────────────
 # Implements the Planner → Executor → Verifier three-role loop described in the
-# project README and ADR-003. Applies Anthropic's context efficiency principles:
+# project README and ADR-011 (docs/adr/011-multi-agent-orchestration.md). Applies Anthropic's context efficiency principles:
 #   • Observation masking: truncate old tool outputs to ≤300 chars
 #   • Context compaction: LLM-summarize history when > COMPACT_THRESHOLD messages
 #   • Condensed sub-agent summaries: each role returns a ≤500-char synthesis

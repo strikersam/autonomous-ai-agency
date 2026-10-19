@@ -9,6 +9,7 @@ MCP-hosted skills can be registered via :meth:`register_mcp`.
 """
 from __future__ import annotations
 
+import glob
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -115,7 +116,10 @@ class SkillLibrary:
 
     def _index_local(self, directory: Path) -> None:
         indexed = 0
-        for skill_md in directory.rglob("SKILL.md"):
+        # glob.glob follows symlinked dirs; Path.rglob does not, and the generic
+        # skills in .claude/skills/ are symlinks into harness/skills/.
+        pattern = str(directory / "**" / "SKILL.md")
+        for skill_md in sorted(Path(p) for p in glob.glob(pattern, recursive=True)):
             try:
                 content = skill_md.read_text(encoding="utf-8")
                 name = skill_md.parent.name

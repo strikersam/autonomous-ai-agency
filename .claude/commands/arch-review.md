@@ -55,7 +55,7 @@ Review architectural decisions, identify technical debt, and propose improvement
 
 6. **ADR requirement check**
    - Does this change a fundamental architectural decision?
-   - If yes, draft an ADR in `docs/adrs/`
+   - If yes, draft an ADR in `docs/adr/`
 
 7. **Report**
    Format: "Architecture review for [scope]: [PASS|CONCERN|BLOCK]"

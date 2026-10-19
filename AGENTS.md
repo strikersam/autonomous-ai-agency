@@ -268,7 +268,7 @@ Rules 43 and 44 govern what may be written where. The files:
 The parent directory is tracked in git and team-shared. `.claude/state/sessions/<id>/` is
 gitignored and is the only place session-private material — anything that may contain the
 operator's literal credentials — may go. The convention is documented in
-`.agents/SKILLS-CATALOG.md`, and the redaction discipline in the `replay-learnings` skill.
+`harness/skills/CATALOG.md`, and the redaction discipline in the `replay-learnings` skill.
 
 ---
 

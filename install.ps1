@@ -125,7 +125,7 @@ if ($choice -eq "2") {
         }
 
         Write-Host "[OK] Named tunnel '$tunnelName' created." -ForegroundColor Green
-        Write-Host "    start_server.ps1 will use this tunnel automatically." -ForegroundColor Gray
+        Write-Host "    scripts/local/start_server.ps1 will use this tunnel automatically." -ForegroundColor Gray
     }
 } else {
     Write-Host "[OK] Quick tunnel selected. URL will be shown when server starts." -ForegroundColor Green
@@ -137,7 +137,7 @@ Write-Host ""
 Write-Host "=======================================================" -ForegroundColor Green
 Write-Host " Setup Complete!" -ForegroundColor Green
 Write-Host "=======================================================" -ForegroundColor Green
-Write-Host " Start server:  .\start_server.ps1"
-Write-Host " Stop server:   .\stop_server.ps1"
+Write-Host " Start server:  .\scripts\local\start_server.ps1"
+Write-Host " Stop server:   .\scripts\local\stop_server.ps1"
 Write-Host " Edit API keys: .\.env  (add/remove keys in API_KEYS)"
 Write-Host "=======================================================" -ForegroundColor Green
