@@ -40,11 +40,13 @@ const QUESTION_SETS = {
     { id:'kpis',      label:'Which outcomes matter most?', type:'multi', options:['Project delivery speed','Bug rate','Client satisfaction','Code quality','Team velocity','Revenue per project'] },
     { id:'pain',      label:'What is your biggest operational pain point?', type:'freeform', placeholder:'e.g. scope creep, manual QA, context switching between clients...' },
   ],
+  // Industry-neutral: a clinic, law firm or charity lands here too, so it must
+  // not assume an engineering team. Mirrors the backend's generic fallback.
   generic: [
-    { id:'deploys',  label:'How often do you deploy or ship changes?', type:'select', options:['Multiple times a day','Daily','Weekly','Monthly or less'] },
-    { id:'team',     label:'How large is your engineering team?', type:'select', options:['Solo','2-5','6-20','20+'] },
-    { id:'kpis',     label:'Which outcomes matter most?', type:'multi', options:['Code quality','Deployment speed','Bug rate','Team velocity','Cost reduction','Security posture'] },
-    { id:'pain',     label:'What is your biggest technical pain point?', type:'freeform', placeholder:'e.g. technical debt, slow deployments, poor test coverage...' },
+    { id:'areas',     label:'Which areas should the agency take on first?', type:'multi', options:['Website & SEO','Marketing & content','Sales & lead follow-up','Customer support','Operations & reporting','Software & engineering'] },
+    { id:'customers', label:'How do most customers find and contact you today?', type:'multi', options:['Search','Social media','Referrals','Ads','Marketplaces','Direct / repeat'] },
+    { id:'team',      label:'How many people work at the company?', type:'select', options:['Just me','2-10','11-50','51-250','250+'] },
+    { id:'pain',      label:'What is the biggest thing slowing the business down right now?', type:'freeform', placeholder:'e.g. not enough leads, slow replies to customers, manual reporting...' },
   ],
 };
 
@@ -481,7 +483,7 @@ function DetailsStep({ onNext, onBack, companyId }) {
     } catch {}
 
     setSaving(false);
-    onNext();
+    onNext(cleanGoals);
   };
 
   const inputStyle = (extra={}) => ({ padding:'9px 12px', borderRadius:10, background:'color-mix(in oklab, var(--ink) 4%, transparent)', border:'1px solid color-mix(in oklab, var(--ink) 10%, transparent)', color:'var(--text-primary)', fontSize:14, fontFamily:'var(--font-main)', outline:'none', transition:'border-color 0.2s', ...extra });
@@ -524,7 +526,7 @@ function DetailsStep({ onNext, onBack, companyId }) {
       <SLabel>Goals & priorities</SLabel>
       {goals.map((g,i)=>(
         <div key={i} style={{ display:'flex', gap:7, marginBottom:7 }}>
-          <input value={g} onChange={e=>setGoals(p=>p.map((x,j)=>j===i?e.target.value:x))} placeholder={`Priority ${i+1}: e.g. Improve checkout conversion`} style={{ ...inputStyle(), flex:1 }} onFocus={onFocus} onBlur={onBlur}/>
+          <input value={g} onChange={e=>setGoals(p=>p.map((x,j)=>j===i?e.target.value:x))} placeholder={`Priority ${i+1}: e.g. ${['Get more qualified leads','Answer customers faster','Rank higher on Google'][i % 3]}`} style={{ ...inputStyle(), flex:1 }} onFocus={onFocus} onBlur={onBlur}/>
           {i>0 && <button onClick={()=>setGoals(p=>p.filter((_,j)=>j!==i))} style={{ padding:'0 10px', borderRadius:10, background:'color-mix(in oklab, var(--danger) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--danger) 18%, transparent)', color:'var(--danger)', cursor:'pointer', flexShrink:0 }}>✕</button>}
         </div>
       ))}
@@ -550,44 +552,119 @@ function DetailsStep({ onNext, onBack, companyId }) {
   );
 }
 
-// ── Step 4: Smart tailored questions based on site type ───────────────────────
-function QuestionsStep({ onNext, onBack, siteType, companyId, detectedSystems = [] }) {
+// ── Step 4: Questions tailored to the company and the user's priorities ───────
+// The backend reads the company's own website, combines it with the detected
+// stack and the ranked priorities from the Details step, and returns questions
+// that serve those priorities in order. QUESTION_SETS is only the offline
+// fallback for when that call fails outright.
+function readSavedPriorities() {
+  try {
+    const goals = JSON.parse(localStorage.getItem('v5_onboarding_details') || '{}').goals;
+    return Array.isArray(goals) ? goals.filter(g => typeof g === 'string' && g.trim()) : [];
+  } catch { return []; }
+}
+
+function useTailoredQuestions({ companyId, siteType, detectedSystems, priorities }) {
+  const [state, setState] = React.useState({ loading: Boolean(companyId), questions: null, understanding: null, profile: null, source: null });
+  React.useEffect(() => {
+    if (!companyId) return undefined;
+    let cancelled = false;
+    const domain = (() => { try { return localStorage.getItem('v5_company_domain') || ''; } catch { return ''; } })();
+    api.generateOnboardingQuestions(companyId, {
+      domain,
+      site_type: siteType,
+      business_category: detectBusinessCategory(detectedSystems),
+      detected_systems: detectedSystems,
+      priorities,
+    })
+      .then(({ data }) => {
+        if (cancelled) return;
+        const qs = Array.isArray(data?.questions) && data.questions.length ? data.questions : null;
+        setState({ loading: false, questions: qs, understanding: data?.understanding || null, profile: data?.profile || null, source: qs ? data?.source : null });
+      })
+      .catch(() => { if (!cancelled) setState(s => ({ ...s, loading: false })); });
+    return () => { cancelled = true; };
+    // detectedSystems/priorities are fixed for the life of this step.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId, siteType]);
+  return state;
+}
+
+function UnderstandingCard({ understanding, profile, priorities }) {
+  const summary = understanding?.summary || profile?.description;
+  if (!summary && !priorities.length) return null;
+  return (
+    <div data-testid="company-understanding" style={{ padding:'12px 14px', borderRadius:14, marginBottom:20, background:'color-mix(in oklab, var(--accent) 5%, transparent)', border:'1px solid color-mix(in oklab, var(--accent) 16%, transparent)' }}>
+      {summary && <>
+        <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:4 }}>What we understood{profile?.name ? ` about ${profile.name}` : ''}</div>
+        <div style={{ fontSize:14, color:'var(--text-secondary)', lineHeight:1.55, marginBottom: priorities.length ? 10 : 0 }}>{summary}</div>
+      </>}
+      {priorities.length > 0 && <>
+        <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:4 }}>Your priorities, in order</div>
+        <ol style={{ margin:0, paddingLeft:20, fontSize:14, color:'var(--text-secondary)', lineHeight:1.6 }}>
+          {priorities.map(p => <li key={p}>{p}</li>)}
+        </ol>
+      </>}
+    </div>
+  );
+}
+
+function QuestionsStep({ onNext, onBack, siteType, companyId, detectedSystems = [], priorities = [] }) {
+  const tailored = useTailoredQuestions({ companyId, siteType, detectedSystems, priorities });
+  const answersKey = companyId || siteType;
   const [answers, setAnswers] = React.useState(() => {
-    // Restore previously saved answers for this site type
+    // Restore previously saved answers for this company
     try {
       const saved = JSON.parse(localStorage.getItem(ONBOARDING_ANSWERS_KEY) || '{}');
-      return saved[siteType] || {};
+      return saved[answersKey] || saved[siteType] || {};
     } catch { return {}; }
   });
-  const questions = QUESTION_SETS[siteType] || QUESTION_SETS.generic;
+  const questions = tailored.questions || QUESTION_SETS[siteType] || QUESTION_SETS.generic;
   const typeLabel = { ecommerce:'e-commerce store', saas:'SaaS product', media:'media / content site', agency:'agency / services', generic:'web project' };
+  const detectedLabel = tailored.understanding?.industry || typeLabel[siteType] || 'web project';
   const set = (id,v) => {
     setAnswers(p => {
       const next = {...p, [id]:v};
       // Persist answers to localStorage so they survive tab switches
       try {
         const saved = JSON.parse(localStorage.getItem(ONBOARDING_ANSWERS_KEY) || '{}');
-        saved[siteType] = next;
+        saved[answersKey] = next;
         localStorage.setItem(ONBOARDING_ANSWERS_KEY, JSON.stringify(saved));
       } catch {}
       return next;
     });
   };
 
+  if (tailored.loading) return (
+    <div style={{ animation:'fadeSlideUp 0.35s ease-out' }}>
+      <h2 style={{ fontSize:22, fontWeight:700, color:'var(--text-primary)', letterSpacing:'-0.04em', marginBottom:6 }}>Tailoring your questions</h2>
+      <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.6, maxWidth:440 }}>
+        Reading your website and lining questions up with your priorities. This can take up to a minute.
+      </p>
+    </div>
+  );
+
   return (
     <div style={{ animation:'fadeSlideUp 0.35s ease-out' }}>
       <h2 style={{ fontSize:22, fontWeight:700, color:'var(--text-primary)', letterSpacing:'-0.04em', marginBottom:6 }}>A few tailored questions</h2>
       <div style={{ display:'inline-flex', alignItems:'center', gap:7, padding:'5px 12px', borderRadius:999, background:'color-mix(in oklab, var(--success) 8%, transparent)', border:'1px solid color-mix(in oklab, var(--success) 18%, transparent)', marginBottom:14 }}>
         <span style={{ width:6, height:6, borderRadius:'50%', background:'var(--success)' }}/>
-        <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--success)' }}>Detected: {typeLabel[siteType] || 'web project'}</span>
+        <span style={{ fontSize:13, fontVariantNumeric:'tabular-nums', color:'var(--success)' }}>Detected: {detectedLabel}</span>
       </div>
-      <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.6, marginBottom:22, maxWidth:440 }}>
-        These questions are specific to your stack. Your answers help provision the right specialists and suggest the most relevant skills.
+      <p style={{ fontSize:14, color:'var(--text-tertiary)', lineHeight:1.6, marginBottom:16, maxWidth:440 }}>
+        {tailored.questions
+          ? 'These questions are based on your website, your stack and the priorities you set. Your answers decide what the agency works on first.'
+          : 'We could not tailor questions right now, so these are general ones for your site type. Your answers help provision the right specialists.'}
       </p>
+      <UnderstandingCard understanding={tailored.understanding} profile={tailored.profile} priorities={priorities}/>
       <div style={{ display:'flex', flexDirection:'column', gap:18, marginBottom:26 }}>
         {questions.map(q => (
           <div key={q.id}>
-            <div style={{ fontSize:14, fontWeight:600, color:'var(--text-secondary)', marginBottom:8, lineHeight:1.5 }}>{q.label}</div>
+            <div style={{ fontSize:14, fontWeight:600, color:'var(--text-secondary)', marginBottom: q.why ? 2 : 8, lineHeight:1.5 }}>
+              {q.priority_ref ? <span style={{ fontSize:12, fontWeight:700, color:'var(--accent)', marginRight:6 }}>Priority {q.priority_ref}</span> : null}
+              {q.label}
+            </div>
+            {q.why && <div style={{ fontSize:13, color:'var(--text-muted)', marginBottom:8 }}>{q.why}</div>}
             {q.type==='yesno' && (
               <div style={{ display:'flex', gap:8 }}>
                 {['Yes','No'].map(opt=>(
@@ -624,11 +701,16 @@ function QuestionsStep({ onNext, onBack, siteType, companyId, detectedSystems = 
           // Submit the tailored Q&A so the backend can derive company
           // priorities and remediation tasks from it (fire-and-forget —
           // don't block navigation on an LLM round trip).
-          if (companyId && Object.keys(answers).length > 0) {
+          // Only answers to the questions on screen: tailored ids change between
+          // visits, so restored answers to earlier questions would be stale.
+          const shownIds = new Set(questions.map(q => q.id));
+          const current = Object.fromEntries(Object.entries(answers).filter(([id]) => shownIds.has(id)));
+          if (companyId && Object.keys(current).length > 0) {
             api.submitOnboardingAnswers(companyId, {
-              answers,
+              answers: current,
               site_type: siteType,
               detected_systems: detectedSystems,
+              priorities,
             }).catch(() => {});
           }
           onNext();
@@ -753,6 +835,9 @@ function OnboardingScreen({ onComplete, isAdmin }) {
   const [systems,  setSystems]  = React.useState([]);
   const [companyId, setCompanyId] = React.useState(null);
   const [companyName, setCompanyName] = React.useState('');
+  // Ranked goals from the Details step; seeded from storage so a resumed
+  // onboarding that jumps straight to the questions step still has them.
+  const [priorities, setPriorities] = React.useState(readSavedPriorities);
   const [checkingProgress, setCheckingProgress] = React.useState(true);
   // Non-admins may still onboard once an admin turns the global onboarding
   // gate off (or allow-lists this user specifically) — see
@@ -857,6 +942,7 @@ function OnboardingScreen({ onComplete, isAdmin }) {
     setSiteType('generic');
     setCompanyId(null);
     setCompanyName('');
+    setPriorities([]);
     try {
       localStorage.removeItem(COMPANY_ID_KEY);
       localStorage.removeItem('v5_company_domain');
@@ -894,8 +980,8 @@ function OnboardingScreen({ onComplete, isAdmin }) {
       }}/>
       {step==='url'       && <DiscoveryStep onNext={handleScanDone} onCompanyCreated={handleCompanyCreated}/>}
       {step==='systems'   && <SystemsStep onNext={handleSystemsConfirmed} onBack={()=>setStep('url')} detectedSystems={systems}/>}
-      {step==='details'   && <DetailsStep onNext={()=>setStep('questions')} onBack={()=>setStep('systems')} companyId={companyId}/>}
-      {step==='questions' && <QuestionsStep onNext={()=>setStep('done')} onBack={()=>setStep('details')} siteType={siteType} companyId={companyId} detectedSystems={systems}/>}
+      {step==='details'   && <DetailsStep onNext={(goals)=>{ setPriorities(goals || []); setStep('questions'); }} onBack={()=>setStep('systems')} companyId={companyId}/>}
+      {step==='questions' && <QuestionsStep onNext={()=>setStep('done')} onBack={()=>setStep('details')} siteType={siteType} companyId={companyId} detectedSystems={systems} priorities={priorities}/>}
       {step==='done'      && <DoneStep onFinish={onComplete} onRestart={handleRestartOnboarding} onBack={()=>setStep('questions')} companyId={companyId} companyName={companyName}/>}
     </div>
   );

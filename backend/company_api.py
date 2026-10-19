@@ -1242,11 +1242,13 @@ async def cancel_onboarding(
 # =============================================================================
 
 class OnboardingQuestionsRequest(BaseModel):
-    """Request to generate AI-tailored onboarding questions."""
+    """Request to generate onboarding questions tailored to the company and its priorities."""
     domain: str = _Field(default="", description="Company domain")
     site_type: str = _Field(default="generic", description="Detected site type (ecommerce, saas, media, generic)")
     detected_systems: list[dict] = _Field(default_factory=list, description="Detected systems with name, system_type, category")
     business_category: str = _Field(default="other", description="Business category")
+    website_url: str = _Field(default="", max_length=2048, description="Site to read for company intel; defaults to the company's primary website, then the domain")
+    priorities: list[str] = _Field(default_factory=list, description="User's priorities, most important first; defaults to the company's saved priorities")
 
 
 class OnboardingAnswersRequest(BaseModel):
@@ -1254,109 +1256,135 @@ class OnboardingAnswersRequest(BaseModel):
     answers: dict = _Field(default_factory=dict, description="Question ID → answer mapping")
     site_type: str = _Field(default="generic", description="Site type used for context")
     detected_systems: list[dict] = _Field(default_factory=list, description="Detected systems for context")
+    priorities: list[str] = _Field(default_factory=list, description="User's priorities, most important first; defaults to the company's saved priorities")
 
 
-@router.post("/{company_id}/onboarding/questions")
-async def generate_onboarding_questions(
-    company_id: str = Path(..., description="Company ID"),
-    request: OnboardingQuestionsRequest = Body(...),
-    user: dict = Depends(_get_current_user_thunk),
-):
+class CompanyProfileSummary(BaseModel):
+    """What onboarding read about the company from its own website."""
+    read: bool = False
+    name: str = ""
+    description: str = ""
+    industry_hint: str = ""
+    offerings: list[str] = _Field(default_factory=list)
+    calls_to_action: list[str] = _Field(default_factory=list)
+    page_kinds: list[str] = _Field(default_factory=list)
+    pages_read: list[str] = _Field(default_factory=list)
+
+
+class OnboardingQuestionsResponse(BaseModel):
+    """Tailored onboarding questions plus the understanding they were built from."""
+    questions: list[dict] = _Field(default_factory=list)
+    source: str = "fallback"
+    priorities: list[str] = _Field(default_factory=list)
+    understanding: dict = _Field(default_factory=dict)
+    profile: Optional[CompanyProfileSummary] = None
+
+
+async def _resolve_onboarding_context(company, website_url: str, domain: str, priorities: list[str]) -> tuple[str, list[str]]:
+    """Pick the site to read and the ranked priorities.
+
+    Explicit request values win; otherwise fall back to what the company already
+    has saved (its primary website, the priorities persisted from the Details step).
     """
-    Generate AI-tailored onboarding questions based on detected domain and technologies.
+    from services.onboarding_questions import clean_priorities
 
-    Uses the LLM to create contextual questions that help understand the user's
-    specific needs, pain points, and priorities. Falls back to sensible defaults
-    if the LLM is unavailable.
-    """
-    company = await get_company_access(company_id, user)
+    ranked = clean_priorities(priorities) or clean_priorities(list(getattr(company, "priorities", []) or []))
+    url = (website_url or "").strip()
+    if not url:
+        try:
+            websites = await get_company_graph_store().list_websites(company.id)
+            primary = next((w for w in websites if w.is_primary), websites[0] if websites else None)
+            url = primary.url if primary else ""
+        except Exception as exc:  # noqa: BLE001 - the domain is a usable fallback
+            log.warning("Could not load websites for company %s: %s", company.id, exc)
+    return url or (domain or "").strip(), ranked
 
-    # Build a rich context string from detected systems
-    system_names = []
-    for s in request.detected_systems[:15]:
-        name = s.get("name", "") or s.get("label", "")
-        cat = s.get("category", "") or s.get("system_type", "")
-        if name:
-            system_names.append(f"- {name} ({cat})" if cat else f"- {name}")
 
-    systems_text = "\n".join(system_names) if system_names else "No systems detected yet"
-
-    site_type_labels = {
-        "ecommerce": "e-commerce", "saas": "SaaS", "media": "media/content",
-        "agency": "agency/services", "generic": "general"
-    }
-    site_type_label = site_type_labels.get(request.site_type, "general")
-
-    prompt = f"""You are an onboarding specialist for an AI-powered DevOps platform.
-
-A new company is being onboarded:
-- Domain: {request.domain or 'Not provided'}
-- Business type: {site_type_label}
-- Category: {request.business_category}
-
-Detected technologies/systems:
-{systems_text}
-
-Generate exactly 4 tailored questions to understand this company's specific needs.
-Each question should be relevant to their stack and business type.
-
-Return ONLY a JSON array of question objects. No explanation, no markdown.
-
-Each question object must have these fields:
-- "id": a short slug (e.g. "pain", "kpis", "deploys")
-- "label": the full question text, phrased as a natural question
-- "type": one of "yesno", "select", "multi", or "freeform"
-- "options": array of strings (required for "select" and "multi" types)
-- "placeholder": string (only for "freeform" type)
-
-Make the questions specific to the detected stack and business context.
-For {site_type_label} businesses, ask about things like deployment cadence,
-peak traffic patterns, key metrics, pain points, and technology preferences.
-
-Example format:
-[
-  {{"id": "peak", "label": "Are there peak traffic seasons?", "type": "yesno"}},
-  {{"id": "deploys", "label": "How often do you deploy?", "type": "select", "options": ["Daily", "Weekly", "Monthly"]}},
-  {{"id": "kpis", "label": "Which metrics matter most?", "type": "multi", "options": ["Speed", "Reliability", "Cost"]}},
-  {{"id": "pain", "label": "What is your biggest pain point?", "type": "freeform", "placeholder": "Describe your challenge..."}}
-]"""
+async def _ask_llm_for_questions(company_id: str, prompt: str, priority_count: int):
+    """Ask the LLM for questions; any failure yields an empty result for the fallback."""
+    from services.onboarding_questions import CompanyUnderstanding, parse_questions_response
 
     try:
         from backend.server import call_llm
         raw = await call_llm(
             messages=[
-                {"role": "system", "content": "You return only valid JSON arrays. No explanation."},
+                {"role": "system", "content": "You return only valid JSON. No explanation."},
                 {"role": "user", "content": prompt},
             ],
             temperature=0.4,
         )
+        return parse_questions_response(raw, priority_count)
+    except Exception as exc:  # noqa: BLE001 - onboarding must never fail on the LLM
+        log.warning("AI question generation failed for %s: %s", company_id, exc)
+        return [], CompanyUnderstanding()
 
-        # Extract JSON from the response (handle markdown fences)
+
+@router.post("/{company_id}/onboarding/questions", response_model=OnboardingQuestionsResponse)
+async def generate_onboarding_questions(
+    company_id: str = Path(..., description="Company ID"),
+    request: OnboardingQuestionsRequest = Body(...),
+    user: dict = Depends(_get_current_user_thunk),
+) -> OnboardingQuestionsResponse:
+    """
+    Generate onboarding questions tailored to the company and the user's priorities.
+
+    Reads the company's public website (services/company_intel.py) to learn what
+    it does, combines that with the detected stack and the user's ranked
+    priorities, and asks the LLM for questions that serve those priorities in
+    order. Falls back to priority-first default questions if the LLM is unavailable.
+    """
+    from services import onboarding_questions as oq
+    from services.company_intel import build_company_profile
+
+    company = await get_company_access(company_id, user)
+    site_url, priorities = await _resolve_onboarding_context(
+        company, request.website_url, request.domain, request.priorities
+    )
+    profile = await build_company_profile(site_url) if site_url else None
+    prompt = oq.build_questions_prompt(
+        domain=request.domain, site_type=request.site_type,
+        business_category=request.business_category,
+        detected_systems=request.detected_systems, priorities=priorities, profile=profile,
+    )
+    questions, understanding = await _ask_llm_for_questions(company_id, prompt, len(priorities))
+    source = "ai"
+    if len(questions) < oq.MIN_AI_QUESTIONS:
+        log.warning("AI question generation returned too few valid questions for %s, falling back", company_id)
+        questions = oq.fallback_questions(request.site_type, request.detected_systems, priorities, profile)
+        source = "fallback"
+    if profile and not understanding.industry:
+        understanding.industry = profile.industry_hint
+    if profile and not understanding.summary:
+        understanding.summary = profile.description[:400]
+    summary = None
+    if profile:
+        summary = CompanyProfileSummary(read=not profile.is_thin(), **profile.model_dump(include=set(CompanyProfileSummary.model_fields) - {"read"}))
+    log.info("Generated %d %s onboarding questions for company %s", len(questions), source, company_id)
+    return OnboardingQuestionsResponse(
+        questions=[q.model_dump() for q in questions], source=source, priorities=priorities,
+        understanding=understanding.model_dump(), profile=summary,
+    )
+
+
+async def _ask_llm_for_tasks(company_id: str, prompt: str) -> list[dict]:
+    """Ask the LLM for remediation tasks; any failure yields no tasks."""
+    try:
+        from backend.server import call_llm
+        raw = await call_llm(
+            messages=[
+                {"role": "system", "content": "You return only valid JSON arrays of task objects. No explanation."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.3,
+        )
+
         import re
         json_match = re.search(r"\[.*\]", raw.strip(), re.DOTALL)
-        if json_match:
-            questions = json.loads(json_match.group())
-            # Validate each question has required fields
-            validated = []
-            for q in questions:
-                if not isinstance(q, dict) or "id" not in q or "label" not in q or "type" not in q:
-                    continue
-                if q["type"] not in ("yesno", "select", "multi", "freeform"):
-                    q["type"] = "freeform"
-                if q["type"] in ("select", "multi") and "options" not in q:
-                    q["options"] = ["Yes", "No"]
-                validated.append(q)
-            if len(validated) >= 3:
-                log.info(f"AI generated {len(validated)} tailored questions for company {company_id}")
-                return {"questions": validated, "source": "ai"}
-
-        log.warning(f"AI question generation returned insufficient valid questions for {company_id}, falling back")
+        tasks = json.loads(json_match.group()) if json_match else []
     except Exception as exc:
-        log.warning(f"AI question generation failed for {company_id}: {exc}, falling back to defaults")
-
-    # Fallback: return hardcoded questions matching the detected site type
-    fallback = _get_fallback_questions(request.site_type, request.business_category, request.detected_systems)
-    return {"questions": fallback, "source": "fallback"}
+        log.warning(f"AI remediation task generation failed for {company_id}: {exc}")
+        return []
+    return [t for t in tasks if isinstance(t, dict)] if isinstance(tasks, list) else []
 
 
 @router.post("/{company_id}/onboarding/answers")
@@ -1371,7 +1399,10 @@ async def submit_onboarding_answers(
     Analyzes user answers using AI to identify pain points, risks, and opportunities,
     then creates tracked tasks in the task board for follow-up.
     """
+    from services.onboarding_questions import apply_user_priorities, clean_priorities, priorities_prompt_block
+
     company = await get_company_access(company_id, user)
+    priorities = clean_priorities(request.priorities) or clean_priorities(list(getattr(company, "priorities", []) or []))
 
     created_tasks = []
 
@@ -1392,9 +1423,11 @@ Business type: {request.site_type}
 
 Their answers:
 {answers_text}
-
-Based on these answers, identify 1-3 concrete remediation tasks that would help them.
-Focus on actionable DevOps/SRE/engineering improvements.
+{priorities_prompt_block(priorities)}
+Based on these answers, identify 1-3 concrete tasks that would help them.
+Focus on work an AI agency's specialists can actually do for this business:
+website and SEO, marketing and content, sales follow-up, customer support,
+operations and reporting, or engineering.
 
 Return ONLY a JSON array of task objects:
 [
@@ -1402,6 +1435,7 @@ Return ONLY a JSON array of task objects:
     "title": "short task title (max 80 chars)",
     "description": "1-2 sentence description of what to do and why",
     "priority": "high" | "medium" | "low",
+    "priority_rank": 0,
     "task_type": "remediation" | "setup" | "optimization" | "security"
   }}
 ]
@@ -1409,25 +1443,7 @@ Return ONLY a JSON array of task objects:
 Only suggest tasks that are genuinely useful based on the answers.
 If no clear tasks emerge from the answers, return an empty array []"""
 
-    try:
-        from backend.server import call_llm
-        raw = await call_llm(
-            messages=[
-                {"role": "system", "content": "You return only valid JSON arrays of task objects. No explanation."},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.3,
-        )
-
-        import re
-        json_match = re.search(r"\[.*\]", raw.strip(), re.DOTALL)
-        if json_match:
-            suggested_tasks = json.loads(json_match.group())
-        else:
-            suggested_tasks = []
-    except Exception as exc:
-        log.warning(f"AI remediation task generation failed for {company_id}: {exc}")
-        suggested_tasks = []
+    suggested_tasks = await _ask_llm_for_tasks(company_id, prompt)
 
     # Also create tasks from direct answer signals (deterministic, no LLM needed)
     # Pain point → remediation task
@@ -1440,6 +1456,10 @@ If no clear tasks emerge from the answers, return an empty array []"""
                 "priority": "high",
                 "task_type": "remediation",
             })
+
+    # The user's ranking, not the model's, decides each task's priority and
+    # order — including the pain-point task, which serves no ranked priority.
+    suggested_tasks = apply_user_priorities(suggested_tasks, len(priorities))
 
     # Persist the user's stated priorities onto the company so the company page
     # surfaces them (previously onboarding answers were turned into tasks and the
@@ -1494,7 +1514,8 @@ If no clear tasks emerge from the answers, return an empty array []"""
                 description=str(st.get("description", ""))[:32000],
                 priority=priority,
                 task_type=str(st.get("task_type", "remediation"))[:64],
-                tags=["onboarding", "remediation", request.site_type or "generic"],
+                tags=["onboarding", "remediation", request.site_type or "generic"]
+                + ([f"priority-{st['priority_rank']}"] if st.get("priority_rank") else []),
                 status=TaskStatus.TODO,
             )
 
@@ -1511,56 +1532,6 @@ If no clear tasks emerge from the answers, return an empty array []"""
         "message": f"Created {len(created_tasks)} remediation task(s)",
         "source": "ai" if created_tasks else "none",
     }
-
-
-def _get_fallback_questions(site_type: str, business_category: str, detected_systems: list[dict]) -> list[dict]:
-    """Return hardcoded fallback questions when AI generation fails."""
-    # Inject detected system names into generic questions for better context
-    sys_names = []
-    for s in detected_systems[:5]:
-        name = s.get("name", "") or s.get("label", "")
-        if name:
-            sys_names.append(name)
-    stack_hint = f" ({', '.join(sys_names)})" if sys_names else ""
-
-    sets = {
-        "ecommerce": [
-            {"id": "peak", "label": f"Are there peak traffic seasons{stack_hint}?", "type": "yesno"},
-            {"id": "deploys", "label": "How often do you deploy to production?", "type": "select", "options": ["Multiple times a day", "Daily", "Weekly", "Monthly or less"]},
-            {"id": "kpis", "label": "Which metrics matter most?", "type": "multi", "options": ["Conversion rate", "Cart abandonment", "Site speed", "SEO ranking", "Support tickets", "AOV"]},
-            {"id": "pain", "label": "What is your biggest pain point right now?", "type": "freeform", "placeholder": "e.g. slow checkout, cart abandonment, stock visibility..."},
-        ],
-        "saas": [
-            {"id": "trials", "label": "Do you have a free trial or freemium tier?", "type": "yesno"},
-            {"id": "deploys", "label": "How often do you deploy?", "type": "select", "options": ["Continuous CI/CD", "Daily", "Weekly", "Quarterly"]},
-            {"id": "kpis", "label": "Which metrics matter most?", "type": "multi", "options": ["MRR growth", "Churn rate", "Activation rate", "Support tickets", "Feature adoption", "NPS"]},
-            {"id": "pain", "label": "What is your biggest technical pain point?", "type": "freeform", "placeholder": "e.g. onboarding drop-off, high churn, slow CI..."},
-        ],
-        "media": [
-            {"id": "publishing", "label": "How often do you publish content?", "type": "select", "options": ["Daily", "Weekly", "Monthly"]},
-            {"id": "deploys", "label": f"How often do you deploy{stack_hint}?", "type": "select", "options": ["Continuous", "Weekly", "Monthly", "Rarely"]},
-            {"id": "kpis", "label": "Which metrics matter most?", "type": "multi", "options": ["Page views", "Time on site", "Subscribers", "Ad revenue", "SEO ranking", "Engagement"]},
-            {"id": "pain", "label": "What is your biggest pain point?", "type": "freeform", "placeholder": "e.g. slow publishing, broken embeds, SEO gaps..."},
-        ],
-        "agency": [
-            {"id": "clients", "label": "How many active client projects?", "type": "select", "options": ["1-5", "6-15", "16-50", "50+"]},
-            {"id": "deploys", "label": "How often do you deliver?", "type": "select", "options": ["Daily", "Weekly", "Monthly", "Per project"]},
-            {"id": "kpis", "label": "Which outcomes matter most?", "type": "multi", "options": ["Delivery speed", "Bug rate", "Client satisfaction", "Code quality", "Team velocity", "Revenue"]},
-            {"id": "pain", "label": "What is your biggest operational pain point?", "type": "freeform", "placeholder": "e.g. scope creep, manual QA, context switching..."},
-        ],
-    }
-
-    # Try specific match first, then generic
-    if site_type in sets:
-        return sets[site_type]
-
-    # For "generic", inject stack names into the questions
-    return [
-        {"id": "deploys", "label": f"How often do you deploy{stack_hint}?", "type": "select", "options": ["Multiple times a day", "Daily", "Weekly", "Monthly or less"]},
-        {"id": "team", "label": "How large is your engineering team?", "type": "select", "options": ["Solo", "2-5", "6-20", "20+"]},
-        {"id": "kpis", "label": "Which outcomes matter most?", "type": "multi", "options": ["Code quality", "Deployment speed", "Bug rate", "Team velocity", "Cost reduction", "Security posture"]},
-        {"id": "pain", "label": "What is your biggest technical pain point?", "type": "freeform", "placeholder": "e.g. technical debt, slow deployments, poor test coverage..."},
-    ]
 
 
 # =============================================================================

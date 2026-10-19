@@ -421,6 +421,8 @@ export const matchSpecialists = (id, systems) => API.post(`/api/company/${id}/sp
 export const getOnboardingProgress = (id) => API.get(`/api/company/${id}/onboarding`);
 export const startOnboarding = (id, data, config) => API.post(`/api/company/${id}/onboarding/start`, data, config);
 export const submitOnboardingAnswers = (id, data) => API.post(`/api/company/${id}/onboarding/answers`, data);
+// Reads the company's site + ranked priorities server-side, so allow an LLM round trip.
+export const generateOnboardingQuestions = (id, data, config) => API.post(`/api/company/${id}/onboarding/questions`, data, { timeout: 60000, ...config });
 export const pauseOnboarding = (id) => API.post(`/api/company/${id}/onboarding/pause`);
 export const resumeOnboarding = (id) => API.post(`/api/company/${id}/onboarding/resume`);
 export const cancelOnboarding = (id) => API.post(`/api/company/${id}/onboarding/cancel`);

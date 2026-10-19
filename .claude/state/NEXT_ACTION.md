@@ -1,3 +1,10 @@
+# NEXT_ACTION — updated 2026-10-19 (branch `claude/onboarding-company-intel`)
+
+Onboarding now reads the company's own website and orders questions and tasks by the user's ranked priorities (tracker row 51). REA deferred (row 52).
+
+1. Open the PR when the user asks; then watch CI. Locally: new tests 21 + 2 pass, full frontend 230 pass, build OK, compileall clean, changelog parity OK.
+2. After deploy, onboard a non-commerce site (e.g. a clinic or law firm) and check the Tailor step shows "What we understood …" and Priority chips; Render logs should show "Generated N ai onboarding questions".
+3. `tests/test_auth_me_regression.py` needs MongoDB on localhost:27017; it errors in containers without it (pre-existing, not from this change).
 # NEXT_ACTION — updated 2026-10-19 (branch `claude/amazing-sagan-3qwd7b`)
 
 Repo restructure: `harness/` now holds the reusable, open-source-ready agent harness (86 generic

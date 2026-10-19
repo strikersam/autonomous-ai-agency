@@ -157,6 +157,28 @@ company-scoped route additionally checks access to that company via
 - `POST /api/company/{company_id}/seo/audits/{audit_id}/pipeline` — audit → portfolio → roadmap → sprint in one call
 - `POST /api/company/{company_id}/seo/fix` — repo-aware auto-fixer against the company's workspace checkout
 
+### Company onboarding (`/api/company/{company_id}/onboarding/*`, `backend/company_api.py`)
+
+Every route requires an authenticated user and access to the company
+(`get_company_access`).
+
+- `POST /api/company/{company_id}/onboarding/questions` — questions tailored to the
+  company and the user's priorities. Reads the company's public website
+  (`services/company_intel.py`: homepage plus about, services, products, pricing and
+  customers pages; every URL and redirect hop SSRF-checked, and each connection pinned to the address that was checked), adds the detected stack
+  and the ranked `priorities`, and asks the LLM for questions that serve those
+  priorities in order. Body: `domain`, `site_type`, `business_category`,
+  `detected_systems`, optional `website_url` (defaults to the company's primary
+  website) and `priorities` (defaults to the company's saved priorities). Returns
+  `questions` (each may carry `priority_ref` and `why`), `source` (`ai` or
+  `fallback`), `priorities`, `understanding` (`industry`, `summary`, `audience`) and
+  `profile` (what was read from the site). Falls back to one question per top
+  priority plus industry-neutral defaults when the LLM is unavailable.
+- `POST /api/company/{company_id}/onboarding/answers` — turn answers into up to 3
+  tasks. With `priorities` (or the company's saved ones), each task's priority comes
+  from the rank of the priority it serves (#1 high, #2–#3 medium, rest low) and the
+  task is tagged `priority-<n>`; a task serving none is capped at medium.
+
 ### Executive advisory (`/api/executives/*`, `backend/executive_advisory_api.py`)
 
 The intelligent C-suite business-advisory layer (`agent/executive_advisory.py`):
