@@ -187,3 +187,18 @@ def test_collect_and_render_without_network(monkeypatch):
     assert re.search(r"\| #7 \| PR \| dependabot \| red \| behind \|", text)
     assert "Open items: 2 (1 PRs, 1 issues)." in text
     assert "Master CI: **green**" in text
+
+
+def test_a_superseded_cancelled_run_does_not_make_master_red():
+    """Live drill 2026-10-19: CI and Codespaces runs cancelled by a newer push to
+    master were reported as red workflows. Cancelled runs are skipped; the newest
+    run that finished decides."""
+    runs = [
+        {"name": "CI", "status": "completed", "conclusion": "cancelled", "created_at": "2026-10-19T10:07:00Z"},
+        {"name": "CI", "status": "completed", "conclusion": "success", "created_at": "2026-10-19T09:50:00Z"},
+        {"name": "CI", "status": "in_progress", "conclusion": None, "created_at": "2026-10-19T10:13:00Z"},
+        {"name": "Codespaces", "status": "completed", "conclusion": "cancelled", "created_at": "2026-10-19T10:07:00Z"},
+        {"name": "Nightly", "status": "completed", "conclusion": "cancelled", "created_at": "2026-10-19T03:00:00Z"},
+        {"name": "Nightly", "status": "completed", "conclusion": "failure", "created_at": "2026-10-18T03:00:00Z"},
+    ]
+    assert inv.still_red_workflows(runs) == ["Nightly"]

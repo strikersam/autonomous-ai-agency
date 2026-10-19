@@ -1,7 +1,7 @@
 # Graph Report - autonomous-ai-agency  (2026-10-19)
 
 ## Corpus Check
-- 1121 files · ~1,828,571 words
+- 1121 files · ~1,828,614 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 56 file(s) not represented in the graph (top: (none) 18, .bat 5, .css 5)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `c5c53f1f`
+- Built from commit: `2843617d`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -4467,7 +4467,7 @@ Nodes (19): Acceptance criteria, Background, Files changed, Goal, Notes, Plan: M
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `AgentRunner` connect `AgentRunner` to `Section-by-Section Acceptance Criteria`, `web_reach.py`, `TokenBudget`, `call_llm`, `TaskSpec`, `._dispatch_tool`, `runtimes/api.py`, `ContextManager`, `Security Analysis — local-llm-server`, `policy.py`, `GitHubTools`, `proxy.py`, `backend/server.py`, `workflow_orchestrator.py`, `MCPUnavailableError`, `prompts.py`, `Agent Autonomy Roadmap`, `ceo_dispatcher.py`, `typing`, `Surface`, `judge_brief.py`, `AgentJobRequest`, `SECTION A — Agent Efficiency (Hermes / AOS / MYT)`, `AgentSessionStore`, `RepoConnection`, `.session`, `pr_gate.py`, `Agency Core — Progress & Resume Log`, `verify_change.py`, `de`, `BrainFailoverExhausted`, `LocalWorkspace`, `UserMemoryStore`, `WorkspaceTools`, `Issue #656: Bugs`, `FreeBuff — free-NVIDIA coding agent`, `Autonomous SDLC Loop (Agency Core, repo-agnostic)`, `direct_chat.py`, `coordinate.py`, `Competitor Analysis — Autonomous AI Agency`, `Agent: Reviewer (Verifier)`, `coordinator.py`, `AdaptiveHalter`, `ReactScratchpad`, `ContextPruner`, `Evidence-driven verification`?**
-  _High betweenness centrality (0.053) - this node is a cross-community bridge._
+  _High betweenness centrality (0.052) - this node is a cross-community bridge._
 - **Why does `Completed Task Archive — October 2026` connect `ai/router.py` to `get_webhook_info`, `._dispatch_tool`, `_env_int`, `Settings`, `Active Task Tracker`, `Task`, `tasks/service.py`, `telegram_bot.py`, `Feature Guide`, `prompts.py`, `_process_callback`, `portfolio_intelligence.py`, `.done`, `probe_catalogues.py`, `AgentRunner`, `get_company_access`, `NotificationDispatcher`, `LLMRequest`, `usage_metrics.py`, `KnowledgeScreen.jsx`, `MCPClient`, `get_task_store`, `PortfolioManager`, `seo_api.py`?**
   _High betweenness centrality (0.026) - this node is a cross-community bridge._
 - **Why does `Session Log` connect `de` to `DetectedIssue`, `_get_store`, `allow_paid`, `TaskSpec`, `.delegate`, `AgentRunner`, `workflow_orchestrator.py`, `HarnessEnrichment`?**
