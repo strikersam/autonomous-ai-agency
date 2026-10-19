@@ -18,6 +18,23 @@ to real files in `.claude/`).
 1. `.bat` launchers could not be executed here (no Windows); they were reviewed by hand. Smoke-test
    `scripts\local\run.bat` and `Start-Local-Agency.cmd` on Windows after merge.
 2. `docs/` still has many one-off audit/report files at its top level; a further pass could archive them.
+# NEXT_ACTION — updated 2026-10-19 (daily automation, branch `claude/daily-automation-2026-10-19`)
+
+GLM-5.3, GLM-5.3-Flash, and Kimi K3 added to model catalogue. PR [#1797](https://github.com/strikersam/autonomous-ai-agency/pull/1797) open. 22 tests verified; compileall clean; changelog parity OK.
+
+## Open items for next daily run
+
+1. **Check CI on PR #1797** — if green, merge (squash). If red, investigate.
+
+2. **GLM-5.3 tool-call probe** — declared `true` (matching GLM-5.2). Confirm once deployed.
+
+3. **Kimi K3 live probe** — declared at priority 59 (preferred over moonshot-v1-128k). Once merged, the router health check will test it.
+
+4. **GPT model deprecations (Oct 23, 2026)**: `gpt-3.5-turbo-0125`, `gpt-4-0613`, `gpt-4-1106-preview` retire on 2026-10-23. Not in routing candidates — re-verify after Oct 23.
+
+5. **Groq Llama 4 Scout probe** (`meta-llama/llama-4-scout-17b-16e-instruct`, priority 99) — still pending live probe.
+
+6. **Muse Spark Open live probe** (`meta-models/muse-spark-open`, priority 99) — contact Groq sales required; keep explicit-only until confirmed.
 
 ---
 

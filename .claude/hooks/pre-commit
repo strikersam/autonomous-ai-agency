@@ -77,7 +77,9 @@ if [ -n "$STAGED_PY" ]; then
         done
         _info "Python syntax OK (${STAGED_PY})"
     else
-        _warn "python3 not found — skipping syntax check"
+        # Fail closed: staged Python that cannot be syntax-checked is not committed.
+        _error "python3 not found — cannot syntax-check staged Python files"
+        ERRORS=$((ERRORS + 1))
     fi
 fi
 

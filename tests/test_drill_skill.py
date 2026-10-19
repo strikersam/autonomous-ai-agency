@@ -56,6 +56,7 @@ def test_every_category_the_script_emits_has_a_handling_rule():
     body = SKILL.read_text(encoding="utf-8")
     table = body[body.index("| Category |"): body.index("**Implementing a fix:**")]
     emitted = {
+        inv.classify_pr(_pr("claude/mine"), own_branch="claude/mine"),
         inv.classify_pr(_pr("dependabot/pip/x", "dependabot[bot]")),
         inv.classify_pr(_pr("agent/task-1")),
         inv.classify_pr(_pr("claude/daily-automation-2026-10-19")),
@@ -75,7 +76,7 @@ def test_every_category_the_script_emits_has_a_handling_rule():
     "force-push master", "--no-verify", "skip, disable", "IN FLIGHT",
     "regression test that fails before the fix", "both `CHANGELOG.md` and `docs/changelog.md`",
     "rule 40", "update-branch", "Re-run `python scripts/drill_inventory.py`",
-    "Render connector", "Cancel every check-in",
+    "Render connector", "Cancel every check-in", "dead branch", "--target",
 ])
 def test_skill_keeps_the_rules_learned_from_real_drills(rule):
     assert rule in SKILL.read_text(encoding="utf-8")
@@ -108,6 +109,16 @@ def test_classify_pr(ref, author, expected):
 ])
 def test_classify_issue(issue, expected):
     assert inv.classify_issue(issue) == expected
+
+
+def test_the_drills_own_pr_is_never_someone_elses_in_flight_work():
+    """Live drill 2026-10-19: the drill's own just-opened PR was flagged IN FLIGHT
+    ("don't touch") because every recent claude/* PR looked like another session's."""
+    pr = _pr("claude/cleanup-open-prs-issues-kdzv7g", updated=NOW - timedelta(minutes=5))
+    category = inv.classify_pr(pr, own_branch="claude/cleanup-open-prs-issues-kdzv7g")
+    assert category == "own"
+    assert inv.is_in_flight(pr, category, NOW) is False
+    assert inv.classify_pr(pr) == "session", "without own_branch it stays a session PR"
 
 
 def test_a_recent_session_pr_is_in_flight_and_an_old_one_is_not():
@@ -176,3 +187,18 @@ def test_collect_and_render_without_network(monkeypatch):
     assert re.search(r"\| #7 \| PR \| dependabot \| red \| behind \|", text)
     assert "Open items: 2 (1 PRs, 1 issues)." in text
     assert "Master CI: **green**" in text
+
+
+def test_a_superseded_cancelled_run_does_not_make_master_red():
+    """Live drill 2026-10-19: CI and Codespaces runs cancelled by a newer push to
+    master were reported as red workflows. Cancelled runs are skipped; the newest
+    run that finished decides."""
+    runs = [
+        {"name": "CI", "status": "completed", "conclusion": "cancelled", "created_at": "2026-10-19T10:07:00Z"},
+        {"name": "CI", "status": "completed", "conclusion": "success", "created_at": "2026-10-19T09:50:00Z"},
+        {"name": "CI", "status": "in_progress", "conclusion": None, "created_at": "2026-10-19T10:13:00Z"},
+        {"name": "Codespaces", "status": "completed", "conclusion": "cancelled", "created_at": "2026-10-19T10:07:00Z"},
+        {"name": "Nightly", "status": "completed", "conclusion": "cancelled", "created_at": "2026-10-19T03:00:00Z"},
+        {"name": "Nightly", "status": "completed", "conclusion": "failure", "created_at": "2026-10-18T03:00:00Z"},
+    ]
+    assert inv.still_red_workflows(runs) == ["Nightly"]

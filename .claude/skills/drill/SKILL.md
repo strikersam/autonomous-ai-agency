@@ -59,7 +59,8 @@ bot's own summary are claims, not evidence.
 
 | Category | What to do |
 |---|---|
-| `dependabot` | Check the new version exists on the registry and the bump is not a major one with a breaking change (rule 40, ask first if it is). If it is behind master, `PUT pulls/{n}/update-branch`. Merge green ones one at a time; each merge puts the rest behind. Close a bump whose package another PR removes, saying which PR. |
+| `own` | Your branch's PR (the script takes the checked-out branch, or `--own-branch`). Drive it through phase 3 like any fix. |
+| `dependabot` | Check the new version exists on the registry. For a **major** bump, find the API we call (`grep -rn "from <pkg>"`), install the new version into a scratch dir (`pip install --target <scratch> <pkg>==X`) and run the tests that touch it with `PYTHONPATH=<scratch>`. A breaking change that affects us needs the operator (rule 40); none means it is safe to take. Branch protection requires PRs to be up to date, so each merge puts the rest behind. With **more than three** green bumps waiting, cherry-pick their commits into one PR from your branch and close the originals pointing at it. That is one CI round instead of one per bump. With fewer, `PUT pulls/{n}/update-branch` and merge them one at a time. Close a bump whose package another PR removes, saying which PR. |
 | `agent` (`agent/*`) | Hold it to `REVIEW.md`. Close, with the reason, any PR that adds root-level report files, fabricated dates, retired model ids, removed tests or assertions, or a rewrite far larger than the plan. Otherwise fix it up on its branch and drive it like your own. |
 | `automation` (`claude/daily-automation-*`, `claude/harness-scan-*`, `claude/context-issue-*`) | Daily model PRs follow `.claude/skills/model-catalogue-update/SKILL.md`. Resolve conflicts by merging master in, never by rebasing. A draft context PR whose issue closed should be closed too. A harness-scan draft is a report: merge it if it is docs-only and green, close it if superseded. |
 | `session` (`claude/*`) | If the inventory marks it **IN FLIGHT** (pushed in the last 2 h), another session is likely still on it. Report it and leave it. Older than that, treat it as abandoned work and drive it to green. |
@@ -94,6 +95,11 @@ For every PR you opened or are driving:
 5. **Behind:** update the branch. After any merge, the other PRs go behind; update them in turn.
 6. Review bots: a finding with a real path to failure gets fixed. A
    rate-limit or usage-limit notice from CodeRabbit or Codex is not a finding.
+
+A push to a PR that has auto-merge on can race the merge: if the PR merges
+first, the pushed commit lands on a dead branch. After every push to such a PR,
+check that the merged head SHA (or the current head, if still open) includes
+your commit. If it missed, cherry-pick it onto fresh master as a new PR.
 
 After each merge, confirm it landed: the merge commit is on master, and for a
 backend change, exactly one Render deploy went live. Check that through the
