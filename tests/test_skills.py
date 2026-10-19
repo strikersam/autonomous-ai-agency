@@ -109,12 +109,13 @@ def test_repo_harness_skills_are_indexed():
 
 def test_harness_skill_index_is_current():
     """harness/skills/README.md is generated; a new or edited skill must refresh it."""
-    import subprocess
-    import sys
+    import importlib.util
 
     repo = Path(__file__).resolve().parent.parent
-    result = subprocess.run(
-        [sys.executable, str(repo / "harness" / "scripts" / "index_skills.py"), "--check"],
-        capture_output=True, text=True,
+    spec = importlib.util.spec_from_file_location(
+        "index_skills", repo / "harness" / "scripts" / "index_skills.py"
     )
-    assert result.returncode == 0, result.stderr
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    current = (repo / "harness" / "skills" / "README.md").read_text(encoding="utf-8")
+    assert current == module.render(), "run: python harness/scripts/index_skills.py"
