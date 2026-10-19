@@ -616,7 +616,7 @@ function QuestionsStep({ onNext, onBack, siteType, companyId, detectedSystems = 
     // Restore previously saved answers for this company
     try {
       const saved = JSON.parse(localStorage.getItem(ONBOARDING_ANSWERS_KEY) || '{}');
-      return saved[answersKey] || {};
+      return saved[answersKey] || saved[siteType] || {};
     } catch { return {}; }
   });
   const questions = tailored.questions || QUESTION_SETS[siteType] || QUESTION_SETS.generic;
@@ -701,9 +701,13 @@ function QuestionsStep({ onNext, onBack, siteType, companyId, detectedSystems = 
           // Submit the tailored Q&A so the backend can derive company
           // priorities and remediation tasks from it (fire-and-forget —
           // don't block navigation on an LLM round trip).
-          if (companyId && Object.keys(answers).length > 0) {
+          // Only answers to the questions on screen: tailored ids change between
+          // visits, so restored answers to earlier questions would be stale.
+          const shownIds = new Set(questions.map(q => q.id));
+          const current = Object.fromEntries(Object.entries(answers).filter(([id]) => shownIds.has(id)));
+          if (companyId && Object.keys(current).length > 0) {
             api.submitOnboardingAnswers(companyId, {
-              answers,
+              answers: current,
               site_type: siteType,
               detected_systems: detectedSystems,
               priorities,

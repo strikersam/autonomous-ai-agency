@@ -178,7 +178,7 @@ def _jsonld_objects(soup: BeautifulSoup) -> list[dict[str, Any]]:
     for script in soup.find_all("script", attrs={"type": "application/ld+json"}):
         try:
             data = json.loads(script.string or "")
-        except (json.JSONDecodeError, TypeError):
+        except (ValueError, TypeError, RecursionError):  # hostile pages can nest arbitrarily deep
             continue
         stack = data if isinstance(data, list) else [data]
         while stack and len(found) < 50:
@@ -242,8 +242,9 @@ def _offerings_from_jsonld(objects: list[dict[str, Any]]) -> list[str]:
             if name and name not in names:
                 names.append(name)
         catalog = obj.get("hasOfferCatalog")
-        if isinstance(catalog, dict):
-            for item in catalog.get("itemListElement") or []:
+        items = catalog.get("itemListElement") if isinstance(catalog, dict) else None
+        if isinstance(items, list):
+            for item in items:
                 inner = item.get("itemOffered", item) if isinstance(item, dict) else {}
                 name = _clean(str(inner.get("name") or ""), 80) if isinstance(inner, dict) else ""
                 if name and name not in names:
@@ -342,17 +343,29 @@ async def _fetch_html(client: httpx.AsyncClient, url: str) -> tuple[str, str]:
         reason = await asyncio.to_thread(_unsafe_reason, current)
         if reason:
             raise ValueError(f"blocked: {reason}")
-        resp = await client.get(current)
-        location = resp.headers.get("location")
-        if resp.status_code in _REDIRECT_CODES and location:
-            current = urljoin(current, location)
-            continue
-        if resp.status_code >= 400:
-            raise ValueError(f"HTTP {resp.status_code}")
-        if "html" not in resp.headers.get("content-type", "html").lower():
-            raise ValueError("not an HTML page")
-        return current, resp.text[:MAX_HTML_CHARS]
+        async with client.stream("GET", current) as resp:
+            location = resp.headers.get("location")
+            if resp.status_code in _REDIRECT_CODES and location:
+                current = urljoin(current, location)
+                continue
+            if resp.status_code >= 400:
+                raise ValueError(f"HTTP {resp.status_code}")
+            if "html" not in resp.headers.get("content-type", "html").lower():
+                raise ValueError("not an HTML page")
+            return current, await _read_capped(resp)
     raise ValueError("too many redirects")
+
+
+async def _read_capped(resp: httpx.Response) -> str:
+    """Read at most MAX_HTML_CHARS bytes so a huge page cannot exhaust memory."""
+    chunks: list[bytes] = []
+    size = 0
+    async for chunk in resp.aiter_bytes():
+        chunks.append(chunk)
+        size += len(chunk)
+        if size >= MAX_HTML_CHARS:
+            break
+    return b"".join(chunks)[:MAX_HTML_CHARS].decode(resp.charset_encoding or "utf-8", errors="replace")
 
 
 async def _read_page(client: httpx.AsyncClient, url: str) -> _PageFacts | None:
@@ -379,10 +392,20 @@ async def build_company_profile(
 ) -> CompanyProfile:
     """Read a company's public site and return what it says about itself.
 
-    Never raises: an unreachable or blocked site yields a profile whose
-    ``errors`` say why and whose ``is_thin()`` is true, so callers can fall back
-    to stack-only signals.
+    Never raises: an unreachable, blocked or malformed site yields a profile
+    whose ``errors`` say why and whose ``is_thin()`` is true, so callers can
+    fall back to stack-only signals.
     """
+    try:
+        return await _build_profile(url, transport=transport, use_cache=use_cache)
+    except Exception as exc:  # noqa: BLE001 - page content and URLs are attacker-influenced
+        log.warning("Company intel: could not read %r: %s", url, exc)
+        return CompanyProfile(url=str(url)[:2048], errors=[f"site unreadable: {type(exc).__name__}"])
+
+
+async def _build_profile(
+    url: str, *, transport: httpx.AsyncBaseTransport | None, use_cache: bool
+) -> CompanyProfile:
     target = _normalise(url)
     cached = _cache.get(target)
     if use_cache and cached and time.monotonic() - cached[0] < CACHE_TTL_SECONDS:

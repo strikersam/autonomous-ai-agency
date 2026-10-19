@@ -144,6 +144,11 @@ Return ONLY a JSON object, no markdown:
 "priority_ref" is the number of the priority the question serves, or null."""
 
 
+def _is_rank(value: Any, priority_count: int) -> bool:
+    """A 1-based priority number. bool is an int subclass, so exclude it explicitly."""
+    return isinstance(value, int) and not isinstance(value, bool) and 1 <= value <= priority_count
+
+
 def _json_payload(raw: str) -> Any:
     """Pull the first JSON object or array out of a model reply."""
     text = (raw or "").strip()
@@ -187,7 +192,7 @@ def parse_questions_response(
         if item["type"] in ("select", "multi") and not item.get("options"):
             item["type"] = "freeform"
         ref = item.get("priority_ref")
-        item["priority_ref"] = ref if isinstance(ref, int) and 1 <= ref <= priority_count else None
+        item["priority_ref"] = ref if _is_rank(ref, priority_count) else None
         try:
             question = OnboardingQuestion.model_validate(item)
         except ValidationError:
@@ -289,7 +294,7 @@ def apply_user_priorities(tasks: list[dict], priority_count: int) -> list[dict]:
     for task in tasks:
         task = dict(task)
         ref = task.get("priority_rank")
-        rank = ref if isinstance(ref, int) and 1 <= ref <= priority_count else 0
+        rank = ref if _is_rank(ref, priority_count) else 0
         task["priority_rank"] = rank or None
         if rank:
             task["priority"] = rank_to_level(rank)

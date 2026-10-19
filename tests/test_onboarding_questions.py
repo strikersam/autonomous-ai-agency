@@ -54,6 +54,7 @@ def test_parse_accepts_object_reply_and_validates_each_question():
             {"id": "Slots Gap", "label": "Which weekdays have the most empty chairs?", "type": "multi",
              "options": ["Mon", "Tue"], "priority_ref": 1, "why": "Priority 1 is filling slots"},
             {"id": "x", "label": "Bad ref", "type": "freeform", "priority_ref": 9},
+            {"id": "b", "label": "Bool ref", "type": "freeform", "priority_ref": True},
             {"id": "y", "label": "Select with no options", "type": "select"},
             {"id": "z", "label": "Unknown type", "type": "slider"},
             {"label": "missing id", "type": "yesno"},
@@ -63,11 +64,12 @@ def test_parse_accepts_object_reply_and_validates_each_question():
     questions, understanding = oq.parse_questions_response(raw, priority_count=3)
 
     assert understanding.industry == "Dental care"
-    assert [q.id for q in questions] == ["slots_gap", "x", "y", "z"]
+    assert [q.id for q in questions] == ["slots_gap", "x", "b", "y", "z"]
     assert questions[0].priority_ref == 1
     assert questions[1].priority_ref is None             # out-of-range ref dropped, question kept
-    assert questions[2].type == "freeform"               # select without options can't render
-    assert questions[3].type == "freeform"
+    assert questions[2].priority_ref is None             # True is an int in Python, not a rank
+    assert questions[3].type == "freeform"               # select without options can't render
+    assert questions[4].type == "freeform"
 
 
 def test_parse_accepts_a_bare_array_and_rejects_garbage():
@@ -98,13 +100,15 @@ def test_tasks_follow_the_users_ranking_not_the_models():
         {"title": "Serves priority 3", "priority": "high", "priority_rank": 3},
         {"title": "Serves priority 1", "priority": "low", "priority_rank": 1},
         {"title": "Bogus rank", "priority": "low", "priority_rank": "2"},
+        {"title": "Bool rank", "priority": "low", "priority_rank": True},
     ]
     ranked = oq.apply_user_priorities(tasks, priority_count=3)
 
     assert [t["title"] for t in ranked] == [
-        "Serves priority 1", "Serves priority 3", "Unlinked but model says high", "Bogus rank",
+        "Serves priority 1", "Serves priority 3", "Unlinked but model says high", "Bogus rank", "Bool rank",
     ]
-    assert [t["priority"] for t in ranked] == ["high", "medium", "medium", "low"]
+    assert [t["priority"] for t in ranked] == ["high", "medium", "medium", "low", "low"]
+    assert ranked[-1]["priority_rank"] is None
 
 
 # ── endpoints ────────────────────────────────────────────────────────────────

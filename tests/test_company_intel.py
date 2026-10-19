@@ -152,3 +152,33 @@ def test_prompt_block_labels_facts_and_skips_empty_ones():
     assert "- Name: Acme" in block
     assert "- Products / services named: Widgets" in block
     assert "Tagline" not in block
+
+
+@pytest.mark.parametrize("url", ["http://[::1", "http://example.com:abc", "https://\x00bad"])
+async def test_malformed_urls_yield_a_thin_profile_not_an_exception(url):
+    profile = await build_company_profile(url, transport=_site({}))
+
+    assert profile.is_thin()
+    assert profile.errors
+
+
+@pytest.mark.parametrize("jsonld", [
+    '{"@type": "Organization", "hasOfferCatalog": {"itemListElement": 5}}',
+    "[" * 100_000,
+    '{"@graph": "not a list", "@type": ["Dentist", 7], "name": {"nested": true}}',
+])
+async def test_hostile_json_ld_never_breaks_the_read(jsonld):
+    home = f'<html><head><script type="application/ld+json">{jsonld}</script></head><body><h1>Hi</h1></body></html>'
+    profile = await build_company_profile("https://hostile.example", transport=_site({"/": (200, home)}))
+
+    assert profile.tagline == "Hi"
+
+
+async def test_oversized_pages_are_cut_off_while_streaming(monkeypatch):
+    monkeypatch.setattr(company_intel, "MAX_HTML_CHARS", 1000)
+    huge = "<html><body><h1>Big</h1>" + "x" * 50_000 + "</body></html>"
+    client = httpx.AsyncClient(transport=_site({"/": (200, huge)}))
+    async with client:
+        _, html = await company_intel._fetch_html(client, "https://big.example/")
+
+    assert len(html) == 1000
