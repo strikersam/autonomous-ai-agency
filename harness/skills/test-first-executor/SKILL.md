@@ -88,7 +88,7 @@ All pre-existing tests must still pass.
 
 ### Step 6 — Check coverage of risky paths
 
-For any change to `admin_auth.py`, `key_store.py`, `agent/tools.py`:
+For any change to a security-sensitive module (auth, key storage, file-write tools):
 - Write a test that specifically exercises the security boundary.
 - Confirm the test would catch a regression if the boundary were removed.
 
@@ -105,8 +105,8 @@ For any change to `admin_auth.py`, `key_store.py`, `agent/tools.py`:
 
 | Module | Test file |
 |--------|-----------|
-| `proxy.py` | `tests/test_agent_api.py` |
-| `agent/loop.py` | `tests/test_agent_runner.py` |
+| `app.py` | `tests/test_app.py` |
+| `agent/runner.py` | `tests/test_agent_runner.py` |
 | `agent/tools.py` | `tests/test_agent_tools.py` |
 | `router/` | `tests/test_model_router.py` |
 | new modules | `tests/test_<module_name>.py` |

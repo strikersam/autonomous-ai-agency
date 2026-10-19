@@ -108,7 +108,7 @@ that incorporates Perplexity research findings.
 
 ## Applying to this Repo
 
-Useful queries for local-llm-server maintenance:
+Useful queries for maintaining an AI gateway project:
 ```python
 # Check for CVEs in dependencies
 perplexity_search("CVE vulnerabilities fastapi pydantic 2025")
@@ -120,7 +120,7 @@ perplexity_search("Ollama streaming API response format latest docs")
 perplexity_search("OpenAI-compatible proxy auth security best practices")
 
 # Competitive research
-perplexity_search("LiteLLM vs local-llm-server comparison 2025")
+perplexity_search("LiteLLM vs other self-hosted AI gateways")
 ```
 
 ## No API Key? Use WebSearch

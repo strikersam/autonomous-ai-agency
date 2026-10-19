@@ -12,9 +12,9 @@ This folder is self-contained so it can be published on its own. It is MIT-licen
 
 | Folder | What it is | Loaded by |
 |---|---|---|
-| [`skills/`](skills/README.md) | 80+ task playbooks (`SKILL.md`): planning, test-first, review councils, release gates, browser testing, research, memory, UI taste | Claude Code (`.claude/skills/`), Codex (`.agents/skills/`) |
-| [`agents/`](agents/) | Subagent definitions: planner, implementer, reviewer, judge, risk and verification reviewers | Claude Code (`.claude/agents/`) |
-| [`commands/`](commands/) | Slash commands: `/plan`, `/review`, `/fix-bug`, `/qa-check`, `/security-audit`, … | Claude Code (`.claude/commands/`) |
+| [`skills/`](skills/README.md) | 70+ task playbooks (`SKILL.md`): planning, test-first, review councils, release gates, browser testing, research, memory, UI taste | Claude Code (`.claude/skills/`), Codex (`.agents/skills/`) |
+| [`agents/`](agents/) | Subagent definitions: planner, implementer, reviewer, codebase explorer, docs auditor, risk and verification reviewers | Claude Code (`.claude/agents/`) |
+| [`commands/`](commands/) | Slash commands: `/plan`, `/review`, `/fix-bug` | Claude Code (`.claude/commands/`) |
 | [`rules/`](rules/AGENT_RULES.md) | The agent-discipline ruleset (verify before asserting, independent verifier before "done") as a drop-in `CLAUDE.md` / `AGENTS.md` section | Any agent that reads an instruction file |
 | [`connectors/`](connectors/README.md) | MCP server setup and client configs (Aider, Codex, Continue, Cursor, Zed, VS Code) | You, once per machine |
 | [`workflows/`](workflows/README.md) | How the autonomous loops are built: scheduled GitHub Actions + a loop registry with maturity levels and approval gates | GitHub Actions |
@@ -39,10 +39,11 @@ skill stands alone.
 ## How this repo uses it
 
 This folder is the single source. The agency repo points at it with symlinks:
-`.claude/agents` → `harness/agents`, `.claude/commands` → `harness/commands`,
-`.claude/skills/<name>` → `harness/skills/<name>`, and `.agents/skills` → `.claude/skills`.
-Skills that only make sense for this codebase (deploy drills, model-catalogue edits, risky
-module review) stay as real folders in `.claude/skills/`.
+`.claude/skills/<name>` → `harness/skills/<name>` (and the same for each file in
+`.claude/agents/` and `.claude/commands/`), and `.agents/skills` → `.claude/skills`.
+Skills, subagents and commands wired to the agency's own code (deploy drills,
+model-catalogue edits, risky-module review, its scripts and services) stay as real files in
+`.claude/`.
 
 **Windows:** symlinks need `git config core.symlinks true` and Developer Mode (or an admin
 shell) before cloning. Without them the links check out as small text files and the

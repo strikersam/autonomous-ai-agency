@@ -5,16 +5,19 @@ skills merged from `.claude/skills` + `.agents/skills`, subagents, commands, rul
 connectors, loop guide, `sol-advisor` plugin). `.claude/agents`, `.claude/commands`,
 `.claude/skills/<generic>` and `.agents/skills` are symlinks into it. README rewritten shorter.
 
+## Status
+
+PR https://github.com/strikersam/autonomous-ai-agency/pull/1808 — merge when CI is green.
+Done in the same PR: root launchers moved to `scripts/local/` (root resolution rewritten and
+smoke-tested from a foreign cwd with bash + pwsh 7.4), `docs/adrs/` merged into `docs/adr/`,
+harness files scrubbed of this repo's paths/URLs (repo-bound skills/agents/commands moved back
+to real files in `.claude/`).
+
 ## Open items
 
-1. **Root launchers** (`*.sh`, `*.ps1`, `*.bat`, tunnel `.py` scripts) still sit at the repo root.
-   Moving them to `scripts/local/` needs each one's root-path resolution rewritten and a test on
-   Windows; not done because it could not be tested here.
-2. **docs/** has overlapping folders (`adr/` vs `adrs/`, many one-off audit files). Consolidate.
-3. **Open-sourcing the harness**: `harness/` is self-contained (own README, LICENSE, installer).
-   Publishing = copy the folder to a new repo (dereference symlinks: none exist inside it).
-4. Some harness skills still reference this repo's paths (e.g. `graphify`, `modularity-review`);
-   generalise their wording before publishing.
+1. `.bat` launchers could not be executed here (no Windows); they were reviewed by hand. Smoke-test
+   `scripts\local\run.bat` and `Start-Local-Agency.cmd` on Windows after merge.
+2. `docs/` still has many one-off audit/report files at its top level; a further pass could archive them.
 
 ---
 

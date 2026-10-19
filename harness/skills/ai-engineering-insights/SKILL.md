@@ -12,7 +12,7 @@ description: >
 
 ## What's Unique About the DX Report
 
-The DX report defines three metric pillars that local-llm-server now mirrors:
+The DX report defines three metric pillars worth mirroring:
 
 1. **Engagement** — DAU/WAU, sessions per user, tool diversity. Adoption is a leading indicator of value.
 2. **Performance** — cycle-time delta (AI vs control), defect rate, throughput. Outcome metrics that show whether AI is actually moving the needle.

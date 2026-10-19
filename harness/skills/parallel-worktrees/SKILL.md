@@ -33,9 +33,9 @@ directories simultaneously. Each worktree shares the `.git` database but has its
 own working tree and index.
 
 ```
-/home/user/local-llm-server/          ← main worktree (your current branch)
-/home/user/local-llm-server-main/     ← linked worktree (main branch, read reference)
-/home/user/local-llm-server-hotfix/   ← linked worktree (hotfix branch)
+~/code/my-repo/          ← main worktree (your current branch)
+~/code/my-repo-main/     ← linked worktree (main branch, read reference)
+~/code/my-repo-hotfix/   ← linked worktree (hotfix branch)
 ```
 
 ---
@@ -46,13 +46,13 @@ own working tree and index.
 
 ```bash
 # Create a linked worktree for the main branch (read reference)
-git worktree add ../local-llm-server-main main
+git worktree add ../my-repo-main main
 
 # Create a linked worktree for a new feature branch
-git worktree add ../local-llm-server-feature -b feature/my-feature
+git worktree add ../my-repo-feature -b feature/my-feature
 
 # Create a linked worktree for an existing remote branch
-git worktree add ../local-llm-server-hotfix origin/hotfix/issue-42
+git worktree add ../my-repo-hotfix origin/hotfix/issue-42
 ```
 
 ### Step 2 — List active worktrees
@@ -69,23 +69,23 @@ Each worktree is an independent directory. You can:
 
 ```bash
 # Run tests on main without switching branches
-cd ../local-llm-server-main && pytest -x
+cd ../my-repo-main && pytest -x
 
 # Edit files in the feature worktree
-cd ../local-llm-server-feature && $EDITOR proxy.py
+cd ../my-repo-feature && $EDITOR app.py
 
 # Compare files across worktrees
-diff ../local-llm-server-main/proxy.py ./proxy.py
+diff ../my-repo-main/app.py ./app.py
 ```
 
 ### Step 4 — Remove a worktree when done
 
 ```bash
 # Remove the linked worktree (does not delete the branch)
-git worktree remove ../local-llm-server-main
+git worktree remove ../my-repo-main
 
 # Force remove if worktree has uncommitted changes
-git worktree remove --force ../local-llm-server-main
+git worktree remove --force ../my-repo-main
 
 # Prune stale worktree references
 git worktree prune
@@ -99,12 +99,12 @@ git worktree prune
 
 ```bash
 # Terminal 1: implement on feature branch
-cd /home/user/local-llm-server
+cd ~/code/my-repo
 git checkout -b feature/scout-agent
 
 # Terminal 2: run tests continuously on main
-git worktree add ../llm-server-main main
-cd ../llm-server-main
+git worktree add ../my-repo-main main
+cd ../my-repo-main
 pytest --watch   # or: watch -n 5 pytest -x
 ```
 
@@ -138,7 +138,7 @@ git worktree remove ../llm-server-hotfix
 - You cannot check out the same branch in two worktrees simultaneously.
 - Worktrees share the `.git` database — commits in one are visible in all.
 - The `.venv` virtual environment is not shared automatically. Each worktree
-  needs its own activated environment or you can symlink: `ln -s /home/user/local-llm-server/.venv ../llm-server-main/.venv`
+  needs its own activated environment or you can symlink: `ln -s ~/code/my-repo/.venv ../my-repo-main/.venv`
 
 ---
 

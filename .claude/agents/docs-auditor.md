@@ -1,0 +1,1 @@
+../../harness/agents/docs-auditor.md

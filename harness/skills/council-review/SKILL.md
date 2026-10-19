@@ -14,7 +14,7 @@ references:
   - CLAUDE.md
   - agent/CLAUDE.md
   - router/CLAUDE.md
-  - docs/adrs/
+  - docs/adr/
 ---
 
 # Skill: council-review
@@ -49,7 +49,7 @@ Questions to answer:
 - Does this change introduce or weaken an auth check?
 - Are any secrets, tokens, or API keys potentially exposed?
 - Does any new code accept untrusted input without validation?
-- Are file paths sanitized? (especially in `agent/tools.py`)
+- Are file paths sanitized? (especially in file-write tools)
 - Does any new dependency introduce a known CVE?
 
 ---
@@ -82,7 +82,7 @@ Questions to answer:
 - Are variable names clear?
 - Are new abstractions justified or is this over-engineering?
 - Does this add duplication that should be shared?
-- Is the module boundary respected? (don't let routing logic leak into proxy.py)
+- Is the module boundary respected? (don't let routing logic leak into the HTTP entry point)
 
 ---
 

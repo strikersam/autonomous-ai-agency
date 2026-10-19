@@ -42,7 +42,7 @@ Can keyboard-only users complete every flow? Any console errors?
 
 ```bash
 export BROWSERBASE_API_KEY="bb_live_..."
-export PLATFORM_URL="https://local-llm-server.strikersam.workers.dev"
+export PLATFORM_URL="https://your-app.example.com"
 
 # --- Flow 1: Unauthenticated access ---
 browse open "$PLATFORM_URL" --remote
@@ -85,7 +85,7 @@ For each test step, mark:
 Final report format:
 ```
 ## UI Test Report — YYYY-MM-DD
-Platform: https://local-llm-server.strikersam.workers.dev
+Platform: https://your-app.example.com
 Pass rate: N/M flows passing
 
 ### Failures
@@ -98,7 +98,7 @@ Pass rate: N/M flows passing
 2. [PASS] Invalid credentials show error message (no 500)
 ```
 
-## Applying to local-llm-server platform
+## Applying to your platform
 
 Key flows to test:
 1. Unauthenticated → redirects to login

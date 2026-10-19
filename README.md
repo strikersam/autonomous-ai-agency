@@ -109,7 +109,7 @@ The full change history is in [docs/changelog.md](docs/changelog.md).
 ## 🧰 The Agency Harness
 
 Everything that makes the agents behave, packaged so you can use it **without** running the
-agency: 80+ skills, subagents, slash commands, the agent-discipline rules, MCP connector setup
+agency: 70+ skills, subagents, slash commands, the agent-discipline rules, MCP connector setup
 and the autonomous-loop pattern. It lives in [**`harness/`**](harness/README.md) and installs
 into any repo:
 
@@ -134,7 +134,7 @@ Works with Claude Code, Codex, Cursor and Gemini CLI.
 | `docs/` | Guides, runbooks, ADRs ([index](docs/README.md)) |
 | `scripts/`, `tests/`, `evals/` | Tooling, the pytest suite, agent evals |
 | `deploy/`, `docker/`, `Dockerfile*`, `render.yaml` | Deployment (Helm, Docker, Render, Cloudflare) |
-| `*.sh`, `*.ps1`, `*.bat` at the root | Local launchers for running the proxy, Ollama and tunnels |
+| [`scripts/local/`](scripts/local/) | Local launchers (`start_server.sh` / `.ps1`, proxy, Ollama, tunnels, Claude Code setup); `install.sh` / `install.ps1` stay at the root |
 
 ---
 

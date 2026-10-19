@@ -102,13 +102,13 @@ agent-browser screenshot  # Screenshot saved to /tmp/screenshot.png
 agent-browser errors      # Check for JS errors
 ```
 
-## Applying to the local-llm-server Platform
+## Applying to your platform
 
-When testing `https://local-llm-server.strikersam.workers.dev`:
+When testing `https://your-app.example.com`:
 
 ```bash
 # 1. Open the platform
-agent-browser open "https://local-llm-server.strikersam.workers.dev"
+agent-browser open "https://your-app.example.com"
 agent-browser snapshot
 
 # 2. Login with admin credentials (from memory/test_credentials.md)

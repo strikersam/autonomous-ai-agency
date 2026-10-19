@@ -9,11 +9,11 @@ triggers:
   - "add feature"
   - "refactor Y"
   - "design the approach for"
-  - any change to proxy.py, agent/loop.py, router/model_router.py, or chat_handlers.py
+  - any change to the app entry point, the agent loop, or the model router
 references:
   - CLAUDE.md
   - docs/architecture/overview.md
-  - docs/adrs/
+  - docs/adr/
 ---
 
 # Skill: implementation-planner

@@ -6,7 +6,7 @@ Install: pip install openai
 from openai import OpenAI
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-# Get tunnel URL by running: get_tunnel_url.ps1 on your home PC
+# Get tunnel URL by running: scripts/local/get_tunnel_url.ps1 on your home PC
 BASE_URL = "https://YOUR_TUNNEL_URL/v1"
 API_KEY  = "YOUR_API_KEY"
 

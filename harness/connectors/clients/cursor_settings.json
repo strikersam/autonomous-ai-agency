@@ -32,5 +32,5 @@
     "deepseek-r1:32b": "Best for deep reasoning, analysis, planning",
     "gemma4:27b": "Google multimodal — code + vision + 128k context"
   },
-  "_note": "Tunnel URL changes on server restart. Run get_tunnel_url.ps1 to get the current one."
+  "_note": "Tunnel URL changes on server restart. Run scripts/local/get_tunnel_url.ps1 to get the current one."
 }

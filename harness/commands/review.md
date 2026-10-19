@@ -15,7 +15,7 @@ Invoke the council-review skill against the current staged changes or a specifie
 
 ```
 /review                          # Review all staged changes
-/review agent/tools.py           # Review a specific file
+/review src/tools.py             # Review a specific file
 /review HEAD~3                   # Review last 3 commits
 ```
 

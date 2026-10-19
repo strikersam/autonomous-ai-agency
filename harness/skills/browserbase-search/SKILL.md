@@ -37,7 +37,7 @@ def bb_search(query: str, num_results: int = 10) -> list[dict]:
     with urllib.request.urlopen(req, timeout=30) as resp:
         return json.loads(resp.read()).get("results", [])
 
-results = bb_search("local-llm-server autonomous AI agency platform")
+results = bb_search("self-hosted AI agent platforms")
 for r in results[:5]:
     print(r["title"])
     print(r["url"])

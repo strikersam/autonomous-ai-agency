@@ -41,7 +41,7 @@ before `apply_diff()` is called.
 - Hardcoded secret (SECRET_KEY literal assignment)
 - Broken import or missing dependency
 - Step goal clearly not met by the change
-- Unsafe file path construction (in agent/tools.py changes)
+- Unsafe file path construction (in file-write tool changes)
 
 ## Non-Blocking (may return `pass` with suggestions)
 

@@ -72,18 +72,18 @@ browse screenshot
 browse stop
 ```
 
-## Applying to local-llm-server platform
+## Applying to your platform
 
 ```bash
 # Set env vars first
 export BROWSERBASE_API_KEY="your-key"
-export PLATFORM_URL="https://local-llm-server.strikersam.workers.dev"
+export PLATFORM_URL="https://your-app.example.com"
 
 # Login as admin
 browse open "$PLATFORM_URL/login" --remote
 browse snapshot
 # Find email/password fields in snapshot, then:
-browse fill "@eN" "strikersam@gmail.com"
+browse fill "@eN" "admin@example.com"
 browse fill "@eN" "YOUR_PASSWORD"
 browse click "@eN"     # Login button
 browse snapshot        # Confirm: dashboard visible

@@ -14,7 +14,6 @@ triggers:
 references:
   - CLAUDE.md
   - docs/architecture/overview.md
-  - .claude/skills/repowise-intelligence/SKILL.md
 upstream: https://github.com/safishamsi/graphify
 ---
 
@@ -40,7 +39,7 @@ pip install graphifyy        # PyPI name uses double-y; CLI stays `graphify`
 graphify install
 
 # Build the initial graph for this repo
-cd /path/to/local-llm-server
+cd /path/to/your-repo
 graphify .
 ```
 
@@ -96,10 +95,10 @@ The hook prints a one-line status so Claude knows the graph state:
 
 | Task (naive) | Tokens (raw read) | Tokens (graph query) | Saving |
 |---|---|---|---|
-| "How does auth work?" | ~6,000 (proxy.py + admin_auth.py + key_store.py) | ~200 | 30x |
+| "How does auth work?" | ~6,000 (gateway + auth + key store modules) | ~200 | 30x |
 | "What calls ModelRouter?" | ~4,000 (grep + read 3 files) | ~150 | 27x |
 | "Agent loop dependencies" | ~8,000 (loop.py + tools.py + state.py) | ~300 | 27x |
-| "All endpoints in proxy.py" | ~5,000 | ~180 | 28x |
+| "All endpoints in the main app file" | ~5,000 | ~180 | 28x |
 
 ## Graph Artifacts — What to Commit
 

@@ -71,7 +71,7 @@ Only include subsections that are relevant to the commit.
 - `router/registry.py` — `fast_response` category routes short streaming requests to `qwen3-coder:7b` (lightest model) to reduce latency.
 
 ### Fixed
-- `agent/loop.py` — `_parse_execution_response` now handles Windows-style CRLF line endings without corrupting file content.
+- `agent/runner.py` — `_parse_execution_response` now handles Windows-style CRLF line endings without corrupting file content.
 
 ### Security
 - `key_store.py` — API keys are now hashed with SHA-256 before storage; plain-text keys are no longer written to `keys.json`.

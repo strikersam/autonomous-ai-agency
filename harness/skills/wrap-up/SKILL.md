@@ -51,7 +51,7 @@ git log --oneline -10           # commits made this session
 
 ```bash
 pytest -x                       # tests must pass
-python -m py_compile proxy.py   # syntax check main file
+python -m compileall -q .   # syntax check
 ```
 
 If tests fail: either fix now or document the failure in NEXT_ACTION.md as a blocker.

@@ -19,7 +19,7 @@ triggers:
   - any module with >3 direct imports from unrelated parts of the system
 references:
   - docs/architecture/overview.md
-  - docs/adrs/
+  - docs/adr/
   - CLAUDE.md
 ---
 
@@ -65,12 +65,12 @@ Look for these patterns:
 
 | Smell | Description | Example in this repo |
 |-------|-------------|----------------------|
-| **Feature envy** | Module A uses many internals of module B | `proxy.py` reaching into `agent/loop.py` internals |
+| **Feature envy** | Module A uses many internals of module B | `app.py` reaching into `agent/runner.py` internals |
 | **Shotgun surgery** | One change requires edits in 5+ files | Adding a new model type requires editing registry, classifier, router, and tests |
-| **Divergent change** | One module changes for many unrelated reasons | `proxy.py` handles auth, routing, streaming, rate limiting all at once |
+| **Divergent change** | One module changes for many unrelated reasons | `app.py` handles auth, routing, streaming, rate limiting all at once |
 | **Improper abstraction** | Implementation detail leaks through module boundary | Caller knows which HTTP client the callee uses |
 | **Circular dependency** | A imports B, B imports A | Usually causes import errors in Python |
-| **God module** | One file does everything | `proxy.py` risks becoming this |
+| **God module** | One file does everything | `app.py` risks becoming this |
 
 ### Step 3 — Apply the balanced-coupling test
 
@@ -180,12 +180,12 @@ If yes: the module is well-bounded. If no: add a module `CLAUDE.md` or simplify.
 - `agent/` is reasonably bounded with clear plan→execute→verify flow
 
 **Known coupling risks:**
-- `proxy.py` is large (~27k bytes) and handles auth, routing, rate limiting, streaming, and agent requests — candidate for incremental decomposition
+- `app.py` is large and handles auth, routing, rate limiting, streaming, and agent requests — candidate for incremental decomposition
 - `chat_handlers.py` knows about Langfuse, routing, and streaming — mixed concerns
 
 **Recommended first steps:**
-1. Extract rate limiting from `proxy.py` into `rate_limiter.py`
-2. Extract auth middleware from `proxy.py` into `auth_middleware.py`
+1. Extract rate limiting from `app.py` into `rate_limiter.py`
+2. Extract auth middleware from `app.py` into `auth_middleware.py`
 3. Add module docstrings to each package `__init__.py` stating the bounded context
 
 ---
@@ -199,7 +199,7 @@ If yes: the module is well-bounded. If no: add a module `CLAUDE.md` or simplify.
 - [ ] Module boundary stated in one sentence
 - [ ] Interface defined before implementation (for new modules)
 - [ ] AI-accessibility check passed (readable in ~2000 tokens)
-- [ ] Findings documented in `docs/adrs/` if architectural decision made
+- [ ] Findings documented in `docs/adr/` if architectural decision made
 
 ---
 
@@ -207,4 +207,3 @@ If yes: the module is well-bounded. If no: add a module `CLAUDE.md` or simplify.
 
 - Vlad Khononov's blog: https://vladikk.com (see "The Golden Age of Modularity")
 - Full upstream modularity plugin: https://github.com/vladikk/modularity
-- ADR 003 in this repo: `docs/adrs/003-multi-agent-orchestration.md`

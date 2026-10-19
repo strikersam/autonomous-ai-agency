@@ -37,7 +37,7 @@ Run this skill after any change that:
 | Admin dashboard change | `docs/admin-dashboard.md` |
 | Telegram bot change | `docs/telegram-bot.md` |
 | Architecture change | `docs/architecture/overview.md`, relevant ADR |
-| New ADR decision | `docs/adrs/` — write a new ADR |
+| New ADR decision | `docs/adr/` — write a new ADR |
 | New dependency | `docs/configuration-reference.md` if setup-relevant |
 | Breaking change | `docs/changelog.md` `### Changed` or `### Removed` |
 
@@ -65,7 +65,7 @@ Module `CLAUDE.md` changes when:
 
 ## ADR Guidelines
 
-Write a new ADR in `docs/adrs/` when:
+Write a new ADR in `docs/adr/` when:
 - A significant architecture decision is made
 - A new technology or pattern is adopted
 - An existing approach is replaced with something different

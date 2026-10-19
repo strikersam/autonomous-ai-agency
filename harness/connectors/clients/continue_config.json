@@ -11,7 +11,7 @@
     "  - Claude Code CLI — works with this proxy via Anthropic compat layer",
     "",
     "This config still works for existing installs but receives no updates.",
-    "Replace YOUR_TUNNEL_URL with the output of get_tunnel_url.ps1 on your home PC",
+    "Replace YOUR_TUNNEL_URL with the output of scripts/local/get_tunnel_url.ps1 on your home PC",
     "Replace YOUR_API_KEY with one of the keys from your .env file"
   ],
   "models": [

@@ -65,7 +65,7 @@ cd frontend && npx react-scripts build
 
 ### Proxy fails to start
 
-**Symptom:** `.\start_server.ps1` completes but `curl http://localhost:8000/health` returns "connection refused"
+**Symptom:** `.\scripts\local\start_server.ps1` completes but `curl http://localhost:8000/health` returns "connection refused"
 
 **Check proxy log:**
 ```bash
@@ -375,8 +375,8 @@ Normal behavior for quick-tunnel (no Cloudflare account). Set up a named tunnel 
 ### Can't find current tunnel URL
 
 ```bash
-./get_tunnel_url.sh        # Linux/macOS
-.\get_tunnel_url.ps1       # Windows
+./scripts/local/get_tunnel_url.sh        # Linux/macOS
+.\scripts\local\get_tunnel_url.ps1       # Windows
 ```
 
 Or check the admin dashboard — the URL appears in the Service Controls section when the tunnel is running.

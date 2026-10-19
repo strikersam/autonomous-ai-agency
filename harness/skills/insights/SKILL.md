@@ -100,9 +100,9 @@ Output a structured summary:
 ## Insights Report — YYYY-MM-DD
 
 ### File Heatmap (top 5 most-changed)
-1. proxy.py            — 47 changes  [CORE — expected]
+1. app.py              — 47 changes  [CORE — expected]
 2. router/model_router.py — 31 changes  [HIGH CHURN — add tests]
-3. agent/tools.py      — 28 changes  [RISKY — review coverage]
+3. src/tools.py      — 28 changes  [RISKY — review coverage]
 4. tests/test_router.py — 22 changes  [HEALTHY — test evolution]
 5. admin_auth.py       — 19 changes  [RISKY — security surface]
 
@@ -122,7 +122,7 @@ Output a structured summary:
 | Priority | Action | Rationale |
 |----------|--------|-----------|
 | HIGH | Add tests for model_router.py | 31 changes, 3 test failures |
-| HIGH | Review agent/tools.py coverage | 28 changes, risky module |
+| HIGH | Review src/tools.py coverage | 28 changes, risky module |
 | MED | Update router/CLAUDE.md | 3 learnings cluster there |
 | LOW | Pre-commit hook for commit style | 5 learnings, repetitive pattern |
 ```

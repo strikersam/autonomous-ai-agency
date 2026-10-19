@@ -14,6 +14,11 @@ new session opens, scan the **Quick Reference** table first.
 > Local and runtime layers are first-party. External complements are *patterns of
 > thought* — reasoning, prompts, checklists — never unauthenticated downloads.
 
+
+> **Harness note:** a few entries (`cooldown-resume`, `repowise-intelligence`, `fabric-patterns`,
+> `agentic-agile`, `agentic-portfolio`, `ecc-harness-patterns`) are wired to the Autonomous AI Agency's
+> own code and live in that repo's `.claude/skills/`, not in this folder.
+
 ---
 
 ## Quick Reference: Use Case → Skills
@@ -202,5 +207,5 @@ For ML/data/science stack.
   `checkpoint.jsonl` — decision per case whether to commit (see top-level ignore
   for session-private subtree; this section is intentionally tracked).
 - Codebase contract (autonomy charter): `AGENTS.md`
-- Architecture decisions: `docs/adrs/`
+- Architecture decisions: `docs/adr/`
 - Changelog: `docs/changelog.md`

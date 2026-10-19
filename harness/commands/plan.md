@@ -21,8 +21,8 @@ Invoke the Planner agent to produce a structured implementation plan before any 
 ## Usage
 
 ```
-/plan Add a new /v1/embed endpoint to proxy.py that routes to an embedding model
-/plan Refactor the rate limiter out of proxy.py into its own module
+/plan Add a new /v1/embed endpoint to the API that routes to an embedding model
+/plan Refactor the rate limiter out of the app entry point into its own module
 /plan Add test coverage for the health check fallback path in router/health.py
 ```
 

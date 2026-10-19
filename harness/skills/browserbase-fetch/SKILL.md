@@ -52,7 +52,7 @@ def bb_fetch(url: str, allow_redirects: bool = True) -> dict:
     with urllib.request.urlopen(req, timeout=30) as resp:
         return json.loads(resp.read())
 
-result = bb_fetch("https://local-llm-server.strikersam.workers.dev/api/health")
+result = bb_fetch("https://your-app.example.com/api/health")
 print(result["status"], result["content"][:500])
 ```
 
@@ -66,7 +66,7 @@ endpoints = [
     "/api/version",
 ]
 for path in endpoints:
-    r = bb_fetch(f"https://local-llm-server.strikersam.workers.dev{path}")
+    r = bb_fetch(f"https://your-app.example.com{path}")
     print(f"{path}: HTTP {r['status']}")
     print(r['content'][:200])
     print()

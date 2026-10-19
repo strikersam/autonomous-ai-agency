@@ -10,8 +10,6 @@ This index is generated: `python harness/scripts/index_skills.py`.
 |---|---|
 | [`agent-browser`](agent-browser/SKILL.md) | Browser automation via Chrome DevTools Protocol — use real Chrome to navigate, interact with, and test web UIs. 93% fewer tokens than Playwright MCP. Use when a… |
 | [`agent-harness`](agent-harness/SKILL.md) | Build and run a structured agent harness — an outer loop that gives an LLM a defined set of tools (capabilities) and drives it to task completion. Use when: you… |
-| [`agentic-agile`](agentic-agile/SKILL.md) | Agile sprint planning, velocity tracking, and burndown metrics for agent-managed projects |
-| [`agentic-portfolio`](agentic-portfolio/SKILL.md) | Initiative-level portfolio management with dependency tracking and milestone coordination |
 | [`ai-engineering-insights`](ai-engineering-insights/SKILL.md) | AI-assisted engineering impact analysis — productivity metrics and code quality insights |
 | [`auto-fix`](auto-fix/SKILL.md) | Automatically detect and fix linting, formatting, and type errors across the codebase. Use when: pre-commit cleanup is needed. |
 | [`brain-dump`](brain-dump/SKILL.md) | Convert a chaotic list of scattered ideas, notes, or thoughts into a structured, prioritized action plan. Use when: you have a messy list of ideas and need stru… |
@@ -24,7 +22,6 @@ This index is generated: `python harness/scripts/index_skills.py`.
 | [`changelog-enforcer`](changelog-enforcer/SKILL.md) | Ensure every meaningful change has a proper docs/changelog.md entry. Use before every commit that changes behaviour, adds features, or fixes bugs. |
 | [`checkpoint-strategy`](checkpoint-strategy/SKILL.md) | Design and validate checkpointing strategies for LLM training runs. Use when: starting a new training run (set checkpointing policy upfront). |
 | [`context-prime`](context-prime/SKILL.md) | Prime Claude with deep repository context before starting any significant task. Use at the start of a session in an unfamiliar area. |
-| [`cooldown-resume`](cooldown-resume/SKILL.md) | Resume an interrupted AI coding session after token exhaustion, rate limiting, or process restart. Use when a session was interrupted mid-task. |
 | [`council-review`](council-review/SKILL.md) | Multi-perspective code review before merging. Simulates a council of reviewers (security, correctness, performance, maintainability) independently evaluating a … |
 | [`cowork-session`](cowork-session/SKILL.md) | Claude Cowork shared AI pairing sessions with real-time sync, turn-taking, and collaboration context propagation. |
 | [`data-quality-audit`](data-quality-audit/SKILL.md) | Audit training data and tokenizer pipelines for quality issues that silently degrade LLM training. Use when: preparing a dataset for LLM pretraining or fine-tun… |
@@ -34,14 +31,11 @@ This index is generated: `python harness/scripts/index_skills.py`.
 | [`dev-browser`](dev-browser/SKILL.md) | Control a local or remote browser with sandboxed JavaScript scripts. Uses a QuickJS WASM sandbox (not Node.js) with a pre-connected `browser` global and full Pl… |
 | [`docs-sync`](docs-sync/SKILL.md) | Keep documentation in sync after code changes. Run after any change that alters module behaviour, APIs, env vars, or architecture. |
 | [`duplicate-thread`](duplicate-thread/SKILL.md) | Clone an existing plan, task thread, or agent session so you can explore an alternative approach without losing the original. Use when: you want to try a risky … |
-| [`ecc-harness-patterns`](ecc-harness-patterns/SKILL.md) | Cross-harness agent patterns — standardize agent execution across different coding assistants |
 | [`email-triage`](email-triage/SKILL.md) | Rapidly process a backlog of emails by categorizing, prioritizing, and drafting responses or actions. Use when: inbox has grown unmanageable. |
-| [`fabric-patterns`](fabric-patterns/SKILL.md) | Implements a Fabric-like reusable prompt pattern system. Allows storing, retrieving, and composing prompt patterns for consistent AI interactions. |
 | [`feature-flag`](feature-flag/SKILL.md) | Implement new features behind feature flags to enable safe, gradual rollouts and easy rollbacks without code deployments. Use when: implementing a risky or larg… |
 | [`financial-analyst`](financial-analyst/SKILL.md) | Agentic CFO for autonomous financial analysis of AI infrastructure spend. Computes burn rate, runway, gross margin, and ROI-based budget reallocation. |
 | [`git-hygiene`](git-hygiene/SKILL.md) | Ensures the repository's git history, branch state, and commit messages are clean, meaningful, and follow project conventions before pushing or merging. Use bef… |
 | [`graphify`](graphify/SKILL.md) | Converts this codebase into a queryable knowledge graph so AI sessions query graph.json (71.5x fewer tokens) instead of reading raw source files. Integrates wit… |
-| [`graphiti-temporal`](graphiti-temporal/SKILL.md) | Temporal context graph for agent memory — track entity relationships and state changes over time |
 | [`hybrid-reasoning`](hybrid-reasoning/SKILL.md) | Hybrid AI combining deterministic rule engines with LLM reasoning for efficient, auditable, and reliable decision-making. |
 | [`implementation-planner`](implementation-planner/SKILL.md) | Plan a multi-file or multi-step implementation before writing any code. Use before any change touching more than two files, adding a new feature, or changing a … |
 | [`insights`](insights/SKILL.md) | Analytics, heatmaps, and trends from session history. Analyze checkpoint logs, learnings, and git history to surface patterns: which files change most, which st… |
@@ -50,7 +44,6 @@ This index is generated: `python harness/scripts/index_skills.py`.
 | [`learn-rule`](learn-rule/SKILL.md) | Persist corrections and patterns to long-term memory. When a mistake is made or a rule is learned, write it to .claude/state/learnings.md so it's never repeated… |
 | [`local-ai-query`](local-ai-query/SKILL.md) | Route prompts to a locally running Ollama instance instead of cloud AI APIs. Use when: processing sensitive/proprietary code or data that shouldn't leave the ma… |
 | [`lr-schedule-advisor`](lr-schedule-advisor/SKILL.md) | Advise on learning rate schedules for transformer/LLM training. Use when: starting a new training run and unsure about LR settings. |
-| [`managed-agents-dreams`](managed-agents-dreams/SKILL.md) | Session memory recording and dream consolidation for managed agents — offline experience replay |
 | [`memory-consolidation`](memory-consolidation/SKILL.md) | Dream Memory Consolidation for clustering session artifacts into structured, queryable memories with tag-based similarity. |
 | [`minimalist-skill`](minimalist-skill/SKILL.md) | Clean editorial-style interfaces. Warm monochrome palette, typographic contrast, flat bento grids, muted pastels. No gradients, no heavy shadows. |
 | [`modularity-review`](modularity-review/SKILL.md) | Review codebase or design for modularity problems and produce actionable improvement recommendations. Also guides design of new modular boundaries from function… |
@@ -67,7 +60,6 @@ This index is generated: `python harness/scripts/index_skills.py`.
 | [`release-readiness`](release-readiness/SKILL.md) | Gate check before tagging and releasing a new version. Run this skill before any `git tag vX.Y.Z` operation. |
 | [`replay-learnings`](replay-learnings/SKILL.md) | Surface relevant past patterns before starting work. Read the learnings file and extract rules that apply to the current task. Prevents repeating past mistakes. |
 | [`repo-memory-updater`](repo-memory-updater/SKILL.md) | Keep CLAUDE.md files and .claude/state/ in sync with the current repo reality. Use after significant structural changes, after adding risky modules, or when CLA… |
-| [`repowise-intelligence`](repowise-intelligence/SKILL.md) | Implements codebase intelligence layers similar to repowise-dev/repowise. Provides dependency graph, git history, auto-generated documentation, and architectura… |
 | [`research`](research/SKILL.md) | Conduct structured, systematic research on any topic — synthesizing sources, extracting key findings, identifying gaps, and producing a clear research brief. Us… |
 | [`research-coordinator`](research-coordinator/SKILL.md) | Multi-agent research coordination — deduplicate findings, assign work, and synthesize results |
 | [`resource-panel`](resource-panel/SKILL.md) | Track, display, and summarise all resources consumed or produced during an agent session: files read/written, URLs fetched, tools called, tokens used, and exter… |
@@ -90,7 +82,5 @@ This index is generated: `python harness/scripts/index_skills.py`.
 | [`ticket-to-pr`](ticket-to-pr/SKILL.md) | Transform a GitHub issue (ticket) into a complete, merged pull request. Use when: given an issue number or URL to implement. |
 | [`tokenizer-diagnostics`](tokenizer-diagnostics/SKILL.md) | Deep-dive diagnostics for tokenizer behavior in LLM training and inference. Use when: switching tokenizers between training phases. |
 | [`training-stability-monitor`](training-stability-monitor/SKILL.md) | Monitor and diagnose LLM/ML training instability — loss spikes, exploding gradients, dead neurons, and learning rate mismatches. Use when: a training loss curve… |
-| [`user-research`](user-research/SKILL.md) | User research skill — plan interviews, synthesize findings, and generate personas |
-| [`video-context`](video-context/SKILL.md) | Extract what was actually said in a video — transcript, structure, and key moments — from a YouTube URL, without an API key or account. Use whenever a task hand… |
 | [`workflow-engine`](workflow-engine/SKILL.md) | DAG-based workflow execution engine with parallel steps, retries, and conditional branching |
 | [`wrap-up`](wrap-up/SKILL.md) | Session closing ritual with learning capture. Run at the end of every coding session. 5 steps: changes audit, quality check, learning capture, next session plan… |
