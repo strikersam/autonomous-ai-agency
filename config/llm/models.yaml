@@ -1331,7 +1331,7 @@ models:
     supports_streaming: true
     input_cost_per_1m: 0.0
     output_cost_per_1m: 0.0
-    priority: 36
+    priority: 99                    # unprobed: explicit-only until catalogue-probe sees a 200
     speed_tier: medium
 
   # GLM-5.3-Flash: faster/cheaper variant of GLM-5.3 (added 2026-10-19).
@@ -1350,7 +1350,7 @@ models:
     supports_streaming: true
     input_cost_per_1m: 0.0
     output_cost_per_1m: 0.0
-    priority: 37
+    priority: 99                    # unprobed: explicit-only until catalogue-probe sees a 200
     speed_tier: fast
 
   # GLM-4: stable GLM-4 generation (128K context, function calling confirmed).
@@ -1560,7 +1560,7 @@ models:
     supports_streaming: true
     input_cost_per_1m: 3.0
     output_cost_per_1m: 15.0
-    priority: 59
+    priority: 99                    # unprobed: explicit-only until catalogue-probe sees a 200
     speed_tier: slow
 
   # ---------------------------------------------------------------------------

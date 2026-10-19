@@ -256,7 +256,7 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # --- Moonshot / Kimi (added 2026-09-20; Kimi K3 added 2026-10-19) ---
     # Approximate pricing from platform.moonshot.cn/pricing, 2026-09-20.
     # Kimi K3 pricing: $3.00/$15.00 per MTok (Moonshot official, 2026-10-19).
-    "kimi-k3": (3.0, 15.0),               # Kimi K3 — $3/$15 per MTok (1M context)
+    "kimi-k3": (3.0, 15.0),               # Kimi K3 list price; estimate until a probe confirms the id answers
     "moonshot-v1-8k": (1.40, 1.40),       # 8K context — cheapest/fastest
     "moonshot-v1-32k": (1.40, 1.40),      # 32K context — balanced
     "moonshot-v1-128k": (1.68, 1.68),     # 128K context — planner/judge preset

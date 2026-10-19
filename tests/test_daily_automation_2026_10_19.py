@@ -165,16 +165,11 @@ class TestGlm53Yaml:
         entry = llm_models["models"]["glm-5.3"]
         assert entry.get("supports_streaming") is True
 
-    def test_priority_above_glm52(self, llm_models):
-        """GLM-5.3 must have lower priority number than GLM-5.2 (i.e. preferred first)."""
-        models = llm_models.get("models", {})
-        if "glm-5.2" in models:
-            glm52_pri = models["glm-5.2"].get("priority", 999)
-            glm53_pri = models["glm-5.3"].get("priority", 999)
-            assert glm53_pri < glm52_pri, (
-                f"glm-5.3 priority {glm53_pri} must be lower than "
-                f"glm-5.2 priority {glm52_pri} (lower = more preferred)"
-            )
+    def test_unprobed_so_explicit_only(self, llm_models):
+        """Catalogue rule 3: no probe has seen this id answer on this account yet,
+        so it stays out of automatic routing (priority 99) until one does."""
+        for model_id in ("glm-5.3", "glm-5.3-flash"):
+            assert llm_models["models"][model_id].get("priority") == 99, model_id
 
     def test_display_name_present(self, llm_models):
         entry = llm_models["models"]["glm-5.3"]
@@ -263,16 +258,9 @@ class TestKimiK3Yaml:
             "output_cost_per_1m must be 15.0 ($15/MTok Moonshot official)"
         )
 
-    def test_priority_below_moonshot_flagship(self, llm_models):
-        """Kimi K3 must have lower number than moonshot-v1-128k (preferred first)."""
-        models = llm_models.get("models", {})
-        if "moonshot-v1-128k" in models:
-            k3_pri = models["kimi-k3"].get("priority", 999)
-            msv1_pri = models["moonshot-v1-128k"].get("priority", 999)
-            assert k3_pri < msv1_pri, (
-                f"kimi-k3 priority {k3_pri} must be lower than "
-                f"moonshot-v1-128k priority {msv1_pri}"
-            )
+    def test_unprobed_so_explicit_only(self, llm_models):
+        """Catalogue rule 3: explicit-only (priority 99) until a probe sees it answer."""
+        assert llm_models["models"]["kimi-k3"].get("priority") == 99
 
     def test_speed_tier_slow(self, llm_models):
         """Large MoE model; declared slow for routing classification."""
