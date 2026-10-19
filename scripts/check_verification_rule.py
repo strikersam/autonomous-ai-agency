@@ -19,6 +19,7 @@ MIRRORS = (
     "GEMINI.md",
     ".github/copilot-instructions.md",
     ".cursor/rules/verification.mdc",
+    "harness/rules/AGENT_RULES.md",
 )
 
 

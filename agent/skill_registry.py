@@ -14,6 +14,7 @@ Skill sources:
 from __future__ import annotations
 
 import asyncio
+import glob
 import logging
 import re
 import time
@@ -451,7 +452,9 @@ class SkillRegistry:
         if not self._local_dir.exists():
             return
         indexed = 0
-        for skill_md in self._local_dir.rglob("SKILL.md"):
+        # Follow symlinks: generic skills are symlinked in from harness/skills/.
+        pattern = str(self._local_dir / "**" / "SKILL.md")
+        for skill_md in sorted(Path(p) for p in glob.glob(pattern, recursive=True)):
             try:
                 content = skill_md.read_text(encoding="utf-8", errors="replace")
                 name = skill_md.parent.name

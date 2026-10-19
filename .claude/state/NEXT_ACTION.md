@@ -1,3 +1,23 @@
+# NEXT_ACTION — updated 2026-10-19 (branch `claude/amazing-sagan-3qwd7b`)
+
+Repo restructure: `harness/` now holds the reusable, open-source-ready agent harness (86 generic
+skills merged from `.claude/skills` + `.agents/skills`, subagents, commands, rules template,
+connectors, loop guide, `sol-advisor` plugin). `.claude/agents`, `.claude/commands`,
+`.claude/skills/<generic>` and `.agents/skills` are symlinks into it. README rewritten shorter.
+
+## Open items
+
+1. **Root launchers** (`*.sh`, `*.ps1`, `*.bat`, tunnel `.py` scripts) still sit at the repo root.
+   Moving them to `scripts/local/` needs each one's root-path resolution rewritten and a test on
+   Windows; not done because it could not be tested here.
+2. **docs/** has overlapping folders (`adr/` vs `adrs/`, many one-off audit files). Consolidate.
+3. **Open-sourcing the harness**: `harness/` is self-contained (own README, LICENSE, installer).
+   Publishing = copy the folder to a new repo (dereference symlinks: none exist inside it).
+4. Some harness skills still reference this repo's paths (e.g. `graphify`, `modularity-review`);
+   generalise their wording before publishing.
+
+---
+
 # NEXT_ACTION — updated 2026-10-18 (daily automation, branch `claude/intelligent-gates-6bf3ev`)
 
 NVIDIA Nemotron 3.5 Super VL (`nvidia/nemotron-3.5-super-vl:free`) added to model catalogue via OpenRouter free tier. PR [#1780](https://github.com/strikersam/autonomous-ai-agency/pull/1780) open. 13 tests verified; compileall clean; changelog parity OK.

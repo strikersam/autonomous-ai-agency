@@ -80,7 +80,7 @@ def get_pr_files(pr_num: str) -> str:
 
 
 def load_council_skill() -> str:
-    p = Path(".agents/skills/council-review/SKILL.md")
+    p = Path("harness/skills/council-review/SKILL.md")
     if p.exists():
         return p.read_text()[:2000]
     return ""
