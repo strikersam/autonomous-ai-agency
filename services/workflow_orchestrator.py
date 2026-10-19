@@ -1681,6 +1681,7 @@ class WorkflowOrchestrator:
                 # Record provider provenance for failover tracking.
                 run.llm_provenance["execute"] = (brain_model or brain_base.split("/")[-1] or "unknown")
                 runner = AgentRunner(
+                    display_name="Workflow agent",
                     ollama_base=brain_base,
                     provider_headers=brain_headers,
                     workspace_root=_os.getcwd(),

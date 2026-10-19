@@ -837,6 +837,8 @@ _GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_PAT") or No
 
 AGENT_RUNNER = AgentRunner(
 
+    display_name="Main agent",
+
     ollama_base=OLLAMA_BASE,
 
     workspace_root=Path(__file__).resolve().parent,
@@ -1458,6 +1460,8 @@ async def run_agent_task(
 
             runner = AgentRunner(
 
+                display_name="Task agent",
+
                 ollama_base=secret.base_url,
 
                 workspace_root=ws.path,
@@ -1597,6 +1601,8 @@ async def run_agent_once(body: AgentRunRequest, auth: AuthContext = Depends(veri
             headers = {"Authorization": f"Bearer {_api_key}"} if _api_key else None
 
             runner = AgentRunner(
+
+                display_name="One-shot agent",
 
                 ollama_base=secret.base_url,
 
@@ -4037,6 +4043,8 @@ async def agent_chat(body: AgentChatRequest, auth: AuthContext = Depends(verify_
     try:
 
         runner = AgentRunner(
+
+            display_name="Chat agent",
 
             ollama_base=OLLAMA_BASE,
 

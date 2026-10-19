@@ -516,6 +516,7 @@ class CEODispatcher:
 
         def _runner_factory() -> AgentRunner:
             return AgentRunner(
+                display_name="CEO agent",
                 ollama_base=ollama_base or "http://localhost:11434",
                 workspace_root=workspace_root,
                 github_token=github_token,
