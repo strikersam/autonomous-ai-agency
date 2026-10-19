@@ -1308,6 +1308,51 @@ models:
     priority: 48
     speed_tier: medium
 
+  # ---------------------------------------------------------------------------
+  # Z.ai / ZhipuAI / GLM-5.3 (added 2026-10-19)
+  # Released 2026-08-14; API published 2026-08-18.
+  # 1,000,000-token context (up from 131K in GLM-5.2); 128K max output.
+  # Same protocol capabilities as GLM-5.2: tools, JSON mode, streaming.
+  # List price: $1.40/$4.40 per MTok (zhipu.ai, 2026-10-19 — third-party
+  # sources consistent).  Free-credits trial plan active for this deployment —
+  # billed at $0.00 until a paid billing relationship is confirmed (same
+  # approach as glm-5.1/glm-5.2).
+  # Sources: requesty.ai/models/zai/glm-5.3,
+  #          cloudprice.net/models/zhipu-glm-5-3, 2026-10-19.
+  # ---------------------------------------------------------------------------
+  glm-5.3:
+    provider: zhipu
+    display_name: GLM-5.3 (ZhipuAI)
+    context_window: 1000000
+    max_output_tokens: 128000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
+    priority: 36
+    speed_tier: medium
+
+  # GLM-5.3-Flash: faster/cheaper variant of GLM-5.3 (added 2026-10-19).
+  # Same 1M-token context; $0.15/$0.50 per MTok list (post-Sept promo).
+  # Free-credits trial plan — billed at $0.00 until a paid billing
+  # relationship is confirmed.
+  # Source: felloai.com/glm-pricing/, 2026-10-19.
+  glm-5.3-flash:
+    provider: zhipu
+    display_name: GLM-5.3 Flash (ZhipuAI)
+    context_window: 1000000
+    max_output_tokens: 128000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
+    priority: 37
+    speed_tier: fast
+
   # GLM-4: stable GLM-4 generation (128K context, function calling confirmed).
   glm-4:
     provider: zhipu
@@ -1489,6 +1534,33 @@ models:
     input_cost_per_1m: 1.68
     output_cost_per_1m: 1.68
     priority: 60
+    speed_tier: slow
+
+  # ---------------------------------------------------------------------------
+  # Moonshot AI / Kimi K3 (added 2026-10-19)
+  # API released 2026-07-16; open weights 2026-07-27 (modified MIT licence).
+  # 2.8T total parameters / 104B active MoE. Context: 1,048,576 tokens.
+  # Max output: 131,072 tokens (default; 1M maximum per Morph guide).
+  # Supports function calling, JSON mode, streaming.
+  # Pricing: $3.00/$15.00 per MTok (Moonshot official list,
+  # api.moonshot.ai/v1, 2026-10-19). No long-context surcharge.
+  # Also reachable via OpenRouter (moonshotai/kimi-k3) at $0.27/$14/MTok
+  # (reseller rate; not wired here — moonshot provider is the direct path).
+  # Sources: benchlm.ai/moonshot/api-pricing,
+  #          openrouter.ai/moonshotai/kimi-k3, 2026-10-19.
+  # ---------------------------------------------------------------------------
+  kimi-k3:
+    provider: moonshot
+    display_name: Kimi K3 (Moonshot AI)
+    context_window: 1048576
+    max_output_tokens: 131072
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 3.0
+    output_cost_per_1m: 15.0
+    priority: 59
     speed_tier: slow
 
   # ---------------------------------------------------------------------------

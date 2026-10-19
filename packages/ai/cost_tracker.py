@@ -235,9 +235,12 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # Pricing from ai.google.dev/pricing, 2026-09-19 (≤128K-token tier).
     "gemini-1.5-flash": (0.075, 0.30),     # Gemini 1.5 Flash
     "gemini-1.5-pro": (1.25, 5.00),        # Gemini 1.5 Pro
-    # --- ZhipuAI / GLM (added 2026-09-20) ---
+    # --- ZhipuAI / GLM (added 2026-09-20; GLM-5.3 family added 2026-10-19) ---
     # Free-credits trial plan; $0 until a billing relationship is confirmed.
     # Covers zhipu and zai providers (same model ids, different endpoints).
+    # GLM-5.3 list price: $1.40/$4.40 per MTok; Flash: $0.15/$0.50 per MTok.
+    "glm-5.3": (0.0, 0.0),         # free-credits trial (list $1.40/$4.40)
+    "glm-5.3-flash": (0.0, 0.0),   # free-credits trial (list $0.15/$0.50)
     "glm-5.2": (0.0, 0.0),
     "glm-5.1": (0.0, 0.0),
     "glm-4": (0.0, 0.0),
@@ -250,8 +253,10 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "qwen-max": (2.40, 9.60),             # Qwen2.5-Max — highest capability
     "qwen-turbo": (0.05, 0.10),            # Qwen2.5-Turbo — fast / 1M context
     "qwen-coder-plus": (0.40, 1.20),       # Qwen2.5-Coder-Plus — code executor preset
-    # --- Moonshot / Kimi (added 2026-09-20) ---
+    # --- Moonshot / Kimi (added 2026-09-20; Kimi K3 added 2026-10-19) ---
     # Approximate pricing from platform.moonshot.cn/pricing, 2026-09-20.
+    # Kimi K3 pricing: $3.00/$15.00 per MTok (Moonshot official, 2026-10-19).
+    "kimi-k3": (3.0, 15.0),               # Kimi K3 — $3/$15 per MTok (1M context)
     "moonshot-v1-8k": (1.40, 1.40),       # 8K context — cheapest/fastest
     "moonshot-v1-32k": (1.40, 1.40),      # 32K context — balanced
     "moonshot-v1-128k": (1.68, 1.68),     # 128K context — planner/judge preset
