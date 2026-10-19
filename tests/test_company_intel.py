@@ -182,3 +182,12 @@ async def test_oversized_pages_are_cut_off_while_streaming(monkeypatch):
         _, html = await company_intel._fetch_html(client, "https://big.example/")
 
     assert len(html) == 1000
+
+
+async def test_a_bogus_charset_falls_back_to_utf8():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=b"<h1>Caf\xc3\xa9</h1>", headers={"content-type": "text/html; charset=no-such-codec"})
+
+    profile = await build_company_profile("https://charset.example", transport=httpx.MockTransport(handler))
+
+    assert profile.tagline == "Caf\u00e9"

@@ -365,7 +365,11 @@ async def _read_capped(resp: httpx.Response) -> str:
         size += len(chunk)
         if size >= MAX_HTML_CHARS:
             break
-    return b"".join(chunks)[:MAX_HTML_CHARS].decode(resp.charset_encoding or "utf-8", errors="replace")
+    raw = b"".join(chunks)[:MAX_HTML_CHARS]
+    try:
+        return raw.decode(resp.charset_encoding or "utf-8", errors="replace")
+    except LookupError:  # a bogus charset= must not cost the whole profile
+        return raw.decode("utf-8", errors="replace")
 
 
 async def _read_page(client: httpx.AsyncClient, url: str) -> _PageFacts | None:
