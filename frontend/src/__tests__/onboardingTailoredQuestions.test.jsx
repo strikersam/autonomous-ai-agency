@@ -8,7 +8,7 @@
  * ranked priorities, and only falls back to the hardcoded set when that fails.
  */
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 
 vi.mock('../api', () => ({
   getSetupState: vi.fn(),
@@ -71,5 +71,23 @@ describe('OnboardingScreen tailored questions', () => {
     expect(screen.getByText('How many people work at the company?')).toBeInTheDocument();
     expect(screen.queryByText(/engineering team/i)).not.toBeInTheDocument();
     await waitFor(() => expect(api.generateOnboardingQuestions).toHaveBeenCalledTimes(1));
+  });
+
+  test('the Details step sends the goals it saves as the ranked priorities', async () => {
+    localStorage.setItem(COMPANY_ID_KEY, 'co_1');
+    api.getOnboardingProgress.mockResolvedValue({ data: { status: 'in_progress', completed_steps: 3 } });
+    api.submitOnboardingAnswers.mockResolvedValue({ data: {} });
+    api.generateOnboardingQuestions.mockReturnValue(new Promise(() => {}));
+
+    render(<OnboardingScreen onComplete={() => {}} isAdmin={true} />);
+
+    const goal = await screen.findByPlaceholderText(/Priority 1:/);
+    fireEvent.change(goal, { target: { value: 'Fill more appointment slots' } });
+    fireEvent.click(screen.getByText('Continue →'));
+
+    await waitFor(() => expect(api.submitOnboardingAnswers).toHaveBeenCalledWith('co_1', {
+      answers: { goals: ['Fill more appointment slots'] },
+      priorities: ['Fill more appointment slots'],
+    }));
   });
 });

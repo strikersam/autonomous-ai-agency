@@ -1,47 +1,9 @@
-# NEXT_ACTION — updated 2026-10-19 (branch `claude/onboarding-company-intel`)
+# NEXT_ACTION — updated 2026-10-19 (branch `claude/onboarding-details-priorities`)
 
-Onboarding now reads the company's own website and orders questions and tasks by the user's ranked priorities (tracker row 51). REA deferred (row 52).
+Onboarding company intel shipped in #1809 (tracker row 51 archived). Follow-up PR sends the Details-step goals as `priorities`. REA still deferred (row 52).
 
-1. Open the PR when the user asks; then watch CI. Locally: new tests 21 + 2 pass, full frontend 230 pass, build OK, compileall clean, changelog parity OK.
-2. After deploy, onboard a non-commerce site (e.g. a clinic or law firm) and check the Tailor step shows "What we understood …" and Priority chips; Render logs should show "Generated N ai onboarding questions".
-3. `tests/test_auth_me_regression.py` needs MongoDB on localhost:27017; it errors in containers without it (pre-existing, not from this change).
-# NEXT_ACTION — updated 2026-10-19 (branch `claude/amazing-sagan-3qwd7b`)
-
-Repo restructure: `harness/` now holds the reusable, open-source-ready agent harness (86 generic
-skills merged from `.claude/skills` + `.agents/skills`, subagents, commands, rules template,
-connectors, loop guide, `sol-advisor` plugin). `.claude/agents`, `.claude/commands`,
-`.claude/skills/<generic>` and `.agents/skills` are symlinks into it. README rewritten shorter.
-
-## Status
-
-PR https://github.com/strikersam/autonomous-ai-agency/pull/1808 — merge when CI is green.
-Done in the same PR: root launchers moved to `scripts/local/` (root resolution rewritten and
-smoke-tested from a foreign cwd with bash + pwsh 7.4), `docs/adrs/` merged into `docs/adr/`,
-harness files scrubbed of this repo's paths/URLs (repo-bound skills/agents/commands moved back
-to real files in `.claude/`).
-
-## Open items
-
-1. `.bat` launchers could not be executed here (no Windows); they were reviewed by hand. Smoke-test
-   `scripts\local\run.bat` and `Start-Local-Agency.cmd` on Windows after merge.
-2. `docs/` still has many one-off audit/report files at its top level; a further pass could archive them.
-# NEXT_ACTION — updated 2026-10-19 (daily automation, branch `claude/daily-automation-2026-10-19`)
-
-GLM-5.3, GLM-5.3-Flash, and Kimi K3 added to model catalogue. PR [#1797](https://github.com/strikersam/autonomous-ai-agency/pull/1797) open. 22 tests verified; compileall clean; changelog parity OK.
-
-## Open items for next daily run
-
-1. **Check CI on PR #1797** — if green, merge (squash). If red, investigate.
-
-2. **GLM-5.3 tool-call probe** — declared `true` (matching GLM-5.2). Confirm once deployed.
-
-3. **Kimi K3 live probe** — declared at priority 59 (preferred over moonshot-v1-128k). Once merged, the router health check will test it.
-
-4. **GPT model deprecations (Oct 23, 2026)**: `gpt-3.5-turbo-0125`, `gpt-4-0613`, `gpt-4-1106-preview` retire on 2026-10-23. Not in routing candidates — re-verify after Oct 23.
-
-5. **Groq Llama 4 Scout probe** (`meta-llama/llama-4-scout-17b-16e-instruct`, priority 99) — still pending live probe.
-
-6. **Muse Spark Open live probe** (`meta-models/muse-spark-open`, priority 99) — contact Groq sales required; keep explicit-only until confirmed.
+1. After deploy, onboard a non-commerce site (e.g. a clinic or law firm): the Tailor step should show "What we understood …" and Priority chips; Render logs should show "Generated N ai onboarding questions".
+2. Row 52 (REA): revisit only when a worker with Node + headless Chrome exists.
 
 ---
 
