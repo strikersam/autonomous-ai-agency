@@ -477,6 +477,9 @@ function DetailsStep({ onNext, onBack, companyId }) {
         if (companyId) {
           api.submitOnboardingAnswers(companyId, {
             answers: { goals: cleanGoals },
+            // Rank this request's tasks by the goals just entered, not the
+            // company's previously saved priorities.
+            priorities: cleanGoals,
           }).catch(() => {});
         }
       }
