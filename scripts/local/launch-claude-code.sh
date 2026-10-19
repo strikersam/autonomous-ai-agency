@@ -166,7 +166,8 @@ else
     set +a
     
     # Start proxy in background
-    nohup python3 -m uvicorn proxy:app --port 8000 > "$LOG_DIR/proxy.log" 2>&1 &
+    # Subshell keeps the caller's cwd (Claude Code starts there); exec keeps $! = the proxy PID.
+    ( cd "$ROOT" && exec nohup python3 -m uvicorn proxy:app --port 8000 ) > "$LOG_DIR/proxy.log" 2>&1 &
     PROXY_PID=$!
     echo $PROXY_PID > "$LOG_DIR/proxy.pid"
     
