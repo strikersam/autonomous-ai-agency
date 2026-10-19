@@ -323,8 +323,7 @@ def emit_chat_observation(
         except Exception as e:
             log.debug("Local metrics persistence failed: %s", e)
 
-    use_http = _env_val("LANGFUSE_USE_HTTP_ONLY").lower() in ("1", "true", "yes")
-    if use_http:
+    def _emit_http_only() -> None:
         try:
             _emit_langfuse_http(
                 email=email,
@@ -342,10 +341,20 @@ def emit_chat_observation(
             )
         except Exception as e:
             log.warning("Langfuse HTTP-only emit failed: %s", e)
+
+    use_http = _env_val("LANGFUSE_USE_HTTP_ONLY").lower() in ("1", "true", "yes")
+    if use_http:
+        _emit_http_only()
         return
 
     lf = get_langfuse_client()
     if lf is None:
+        return
+    # _emit_sdk uses the v2 client API (lf.trace). The v3+ SDK (the 4.x and 5.x
+    # this repo installs) has no trace(), so every call raised, logged "SDK emit
+    # failed" and fell back to HTTP anyway. Go straight to the working path.
+    if not hasattr(lf, "trace"):
+        _emit_http_only()
         return
     try:
         _emit_sdk(
