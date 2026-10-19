@@ -1443,8 +1443,7 @@ Return ONLY a JSON array of task objects:
 Only suggest tasks that are genuinely useful based on the answers.
 If no clear tasks emerge from the answers, return an empty array []"""
 
-    # The user's ranking, not the model's, decides each task's priority and order.
-    suggested_tasks = apply_user_priorities(await _ask_llm_for_tasks(company_id, prompt), len(priorities))
+    suggested_tasks = await _ask_llm_for_tasks(company_id, prompt)
 
     # Also create tasks from direct answer signals (deterministic, no LLM needed)
     # Pain point → remediation task
@@ -1457,6 +1456,10 @@ If no clear tasks emerge from the answers, return an empty array []"""
                 "priority": "high",
                 "task_type": "remediation",
             })
+
+    # The user's ranking, not the model's, decides each task's priority and
+    # order — including the pain-point task, which serves no ranked priority.
+    suggested_tasks = apply_user_priorities(suggested_tasks, len(priorities))
 
     # Persist the user's stated priorities onto the company so the company page
     # surfaces them (previously onboarding answers were turned into tasks and the

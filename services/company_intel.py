@@ -39,6 +39,7 @@ FETCH_TIMEOUT_SECONDS = 8.0
 MAX_REDIRECTS = 5
 MAX_HTML_CHARS = 2_000_000         # a page bigger than this is not a marketing page
 EXCERPT_CHARS = 1200
+PROFILE_DEADLINE_SECONDS = 20.0   # whole read; per-request timeouts don't stop a trickling site
 CACHE_TTL_SECONDS = 900.0          # the wizard re-mounts steps; don't refetch each time
 _CACHE_MAX_ENTRIES = 64
 _USER_AGENT = (
@@ -401,7 +402,10 @@ async def build_company_profile(
     fall back to stack-only signals.
     """
     try:
-        return await _build_profile(url, transport=transport, use_cache=use_cache)
+        return await asyncio.wait_for(
+            _build_profile(url, transport=transport, use_cache=use_cache),
+            timeout=PROFILE_DEADLINE_SECONDS,
+        )
     except Exception as exc:  # noqa: BLE001 - page content and URLs are attacker-influenced
         log.warning("Company intel: could not read %r: %s", url, exc)
         return CompanyProfile(url=str(url)[:2048], errors=[f"site unreadable: {type(exc).__name__}"])

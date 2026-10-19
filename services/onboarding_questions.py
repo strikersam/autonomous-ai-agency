@@ -100,6 +100,8 @@ def build_questions_prompt(
     """The prompt that asks for an understanding of the company plus its questions."""
     ranked = "\n".join(f"{i}. {p}" for i, p in enumerate(priorities, 1)) or "None given"
     website = profile.as_prompt_block() if profile else "Website content: not read."
+    # Page text must not be able to close the untrusted block early.
+    website = website.replace("WEBSITE>>>", "").replace("<<<WEBSITE", "")
     return f"""You are the onboarding lead for an autonomous AI agency. Its specialist
 agents can take on work across a business: website and SEO, marketing and content,
 sales and lead follow-up, customer support, operations and reporting, and software

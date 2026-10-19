@@ -5,6 +5,7 @@ DNS-resolving SSRF check is stubbed, so no test touches the network.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 
 import httpx
@@ -191,3 +192,20 @@ async def test_a_bogus_charset_falls_back_to_utf8():
     profile = await build_company_profile("https://charset.example", transport=httpx.MockTransport(handler))
 
     assert profile.tagline == "Caf\u00e9"
+
+
+async def test_a_trickling_site_hits_the_overall_deadline(monkeypatch):
+    monkeypatch.setattr(company_intel, "PROFILE_DEADLINE_SECONDS", 0.2)
+
+    async def slow_body():
+        yield b"<html><body><h1>Slow"
+        await asyncio.sleep(5)
+        yield b"</h1></body></html>"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=slow_body(), headers={"content-type": "text/html"})
+
+    profile = await build_company_profile("https://slow.example", transport=httpx.MockTransport(handler))
+
+    assert profile.is_thin()
+    assert profile.errors == ["site unreadable: TimeoutError"]
