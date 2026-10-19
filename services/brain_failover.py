@@ -301,12 +301,16 @@ def _write_disabled_mongo(provider_id: str, enabled: bool, reason: str) -> bool 
         return False
 
 
-def set_provider_enabled(provider_id: str, enabled: bool, reason: str = "") -> None:
+def set_provider_enabled(provider_id: str, enabled: bool, reason: str = "") -> str:
     """Enable or disable *provider_id*, persisted across restarts and deploys.
 
     Written to both stores: Mongo so the setting survives a redeploy, SQLite so
     a Mongo outage still leaves this process with the operator's intent. A
     failure of either store is logged, never raised.
+
+    Returns where the switch landed: ``"durable"`` (Mongo, survives a deploy),
+    ``"local"`` (SQLite only, reverts on the next deploy) or ``"none"`` (not
+    saved anywhere, so the switch did not take effect).
     """
     global _DISABLED_CACHE
     reason = reason or "disabled by operator"
@@ -325,14 +329,16 @@ def set_provider_enabled(provider_id: str, enabled: bool, reason: str = "") -> N
     if not local_ok and durable is not True:
         log.error("brain_failover: %s enabled=%s was not persisted anywhere",
                   provider_id, enabled)
-        return
-    if durable is False:
-        log.warning("brain_failover: %s enabled=%s saved locally only — it will "
-                    "revert on the next deploy", provider_id, enabled)
+        return "none"
     _DISABLED_CACHE = ({}, 0.0)  # force re-read
     log.info("brain_failover: provider %s %s%s", provider_id,
              "ENABLED" if enabled else "DISABLED",
              "" if enabled else f" ({reason})")
+    if durable is True:
+        return "durable"
+    log.warning("brain_failover: %s enabled=%s saved locally only — it will "
+                "revert on the next deploy", provider_id, enabled)
+    return "local"
 
 
 def auto_disable_provider(provider_id: str, reason: str) -> None:
