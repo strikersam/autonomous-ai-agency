@@ -132,6 +132,7 @@ def test_agent_session_run_reuses_bearer_key_for_same_origin_provider(monkeypatc
             session_store=None,
             num_ctx=None,
             keep_alive=None,
+            display_name=None,
             owner=None,
         ) -> None:
             captured["owner"] = owner

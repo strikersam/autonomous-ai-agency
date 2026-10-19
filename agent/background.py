@@ -70,7 +70,7 @@ class BackgroundAgent:
     Usage::
 
         from agent.loop import AgentRunner
-        runner = AgentRunner(ollama_base="http://localhost:11434")
+        runner = AgentRunner(ollama_base="http://localhost:11434", display_name="Background agent")
         agent = BackgroundAgent(
             on_task_complete=notify_telegram,
             agent_runner=runner,

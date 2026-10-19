@@ -773,6 +773,7 @@ def resolve_identity_for_runner(runner: Any, **context: Any) -> Any:
 
     identity = resolve_identity(
         agent_name=getattr(runner, "agent_name", None) or getattr(runner, "name", None),
+        display_name=getattr(runner, "display_name", None) or "Agent runner",
         owner=getattr(runner, "user_email", None) or getattr(runner, "owner", None),
         runtime=getattr(runner, "runtime_id", None),
         task_id=getattr(runner, "task_id", None),

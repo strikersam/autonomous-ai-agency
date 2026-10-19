@@ -123,3 +123,14 @@ async def test_swarm_runners_carry_the_requesting_owner(monkeypatch, tmp_path):
     )
     assert built and built[0]["owner"] == "sam@example.com"
     assert built[0]["agent_name"] == "default-worker"
+
+
+def test_unnamed_runner_shows_a_real_label_not_unknown():
+    identity = resolve_identity_for_runner(_runner())
+    assert identity.display_name == "Agent runner"
+
+
+def test_runner_display_name_labels_identity_without_changing_grants():
+    identity = resolve_identity_for_runner(_runner(display_name="Chat agent"))
+    assert identity.display_name == "Chat agent"
+    assert identity.agent_id == "agent:unknown"

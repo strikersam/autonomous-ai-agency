@@ -171,6 +171,7 @@ def resolve_identity(
     roles: list[str] | tuple[str, ...] | None = None,
     policy_group: str | None = None,
     session_id: str | None = None,
+    display_name: str | None = None,
     **context: Any,
 ) -> AgentIdentity:
     """Build an :class:`AgentIdentity` from whatever the caller knows.
@@ -183,9 +184,14 @@ def resolve_identity(
     ``policy_group`` defaults to the agent's own id when unset, so a group can
     be written for one specific agent without any assignment rule; the policy
     engine falls back to ``default`` when no such group exists.
+
+    ``display_name`` is only a label for the audit trail. It never changes
+    ``agent_id``, so an unnamed caller still resolves to the generic id and
+    stays ungrantable. ``agent_name`` takes precedence when both are given.
     """
     agent_id = slugify_agent(agent_name)
     resolved_owner = _coerce_text(owner).strip() or SYSTEM_OWNER
+    label = _coerce_text(agent_name).strip() or _coerce_text(display_name).strip() or "unknown"
     # Pass through only the *extra* context fields (task_id, repo, runtime, …).
     # The six fields this function sets explicitly below must be excluded, or a
     # caller whose context happens to carry one of those keys (``owner``,
@@ -199,7 +205,7 @@ def resolve_identity(
     }
     return AgentIdentity(
         agent_id=agent_id,
-        display_name=_coerce_text(agent_name).strip() or "unknown",
+        display_name=label,
         owner=resolved_owner,
         roles=tuple(roles or ()),
         policy_group=_coerce_text(policy_group).strip() or agent_id,
