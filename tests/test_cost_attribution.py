@@ -326,6 +326,8 @@ class TestNoFuzzyCollisionWithPaidModels:
         ("myt/claude-opus-4-8-free", "claude-opus-4-8"),
         # Groq (free tier) vs Cerebras (paid) — same open-weight GPT-OSS 120B.
         ("openai/gpt-oss-120b", "gpt-oss-120b"),
+        # TokenIn (free re-serve) vs Moonshot's own API (paid) — same Kimi K3.
+        ("myt/kimi-k3-free", "kimi-k3"),
     }
 
     def test_no_undocumented_fuzzy_collision(self):

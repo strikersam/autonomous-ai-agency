@@ -86,6 +86,7 @@ For wrangling version control and session state.
 - `release-readiness` **[L][R]** — pre-tag gate
 - `parallel-worktrees` **[L][R]** — concurrent isolated branches
 - `branch-cleanup` **[R]** — delete merged branches
+- `drill` **[R]** — `/drill`: clear every open PR and issue, merge only with CI green, prove nothing is left
 - `git-hygiene` **[L]** — keep the tree clean
 - `checkpoint-strategy` **[L]** — runtime save-points
 - `task-alive-updates` **[L]** — long-running task liveness
