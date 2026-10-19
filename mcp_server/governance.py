@@ -123,6 +123,7 @@ def identity_from_headers(headers: Any) -> Any:
 
     return _GOVERNANCE["resolve_identity"](
         agent_name=h("X-Agent-Name"),
+        display_name="MCP client",
         owner=h("X-Agent-Owner"),
         session_id=h("X-Agent-Session"),
         task_id=h("X-Agent-Task"),

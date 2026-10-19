@@ -70,3 +70,14 @@ def test_resolve_identity_string_path_unchanged():
     assert identity.display_name == "Finance Agent"
     assert identity.owner == "user@example.com"
     assert identity.policy_group == "agent:finance-agent"
+
+
+def test_display_name_falls_back_when_no_agent_name():
+    identity = resolve_identity(display_name="MCP client")
+    assert identity.display_name == "MCP client"
+    assert identity.agent_id == UNKNOWN_AGENT_ID
+
+
+def test_agent_name_wins_over_display_name():
+    identity = resolve_identity(agent_name="Quality Agent", display_name="MCP client")
+    assert identity.display_name == "Quality Agent"

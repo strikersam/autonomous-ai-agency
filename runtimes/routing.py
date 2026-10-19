@@ -66,6 +66,7 @@ def _governance_identity(spec: "TaskSpec", runtime: "RuntimeAdapter") -> Any:
         ).hexdigest()[:16]
     return resolve_identity(
         agent_name=context.get("agent_name") or context.get("agent"),
+        display_name="Runtime dispatch",
         owner=context.get("agent_owner") or context.get("user_email"),
         session_id=session_id or None,
         task_id=spec.task_id,

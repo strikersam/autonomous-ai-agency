@@ -3826,6 +3826,7 @@ async def _run_agent_loop(
         else None
     )
     runner = AgentRunner(
+        display_name="Agent loop",
         ollama_base=_resolve_ollama_url(provider.get("base_url") or OLLAMA_BASE),
         workspace_root=workspace_root,
         provider_headers=headers,
