@@ -96,6 +96,11 @@ For every PR you opened or are driving:
 6. Review bots: a finding with a real path to failure gets fixed. A
    rate-limit or usage-limit notice from CodeRabbit or Codex is not a finding.
 
+A push to a PR that has auto-merge on can race the merge: if the PR merges
+first, the pushed commit lands on a dead branch. After every push to such a PR,
+check that the merged head SHA (or the current head, if still open) includes
+your commit. If it missed, cherry-pick it onto fresh master as a new PR.
+
 After each merge, confirm it landed: the merge commit is on master, and for a
 backend change, exactly one Render deploy went live. Check that through the
 Render connector (`mcp__Render__*`, workspace `tea-d7car44p3tds739qdrs0`,

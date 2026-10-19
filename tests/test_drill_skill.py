@@ -76,7 +76,7 @@ def test_every_category_the_script_emits_has_a_handling_rule():
     "force-push master", "--no-verify", "skip, disable", "IN FLIGHT",
     "regression test that fails before the fix", "both `CHANGELOG.md` and `docs/changelog.md`",
     "rule 40", "update-branch", "Re-run `python scripts/drill_inventory.py`",
-    "Render connector", "Cancel every check-in",
+    "Render connector", "Cancel every check-in", "dead branch", "--target",
 ])
 def test_skill_keeps_the_rules_learned_from_real_drills(rule):
     assert rule in SKILL.read_text(encoding="utf-8")
