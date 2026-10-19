@@ -20,9 +20,11 @@ followed by hand so each hop is re-checked (CLAUDE.md rule 14).
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 import re
+import socket
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -337,6 +339,40 @@ def _unsafe_reason(url: str) -> str | None:
     return unsafe_target_reason(url)
 
 
+def _pinned_address(url: str) -> str:
+    """Resolve *url*'s host once and return the address to connect to.
+
+    The connection goes to this exact address rather than the hostname, so a
+    domain that answers the check with a public IP and the connection with a
+    private one (DNS rebinding) cannot reach an internal service. Every address
+    the name resolves to must be public, not just the one used.
+    """
+    host = urlparse(url).hostname or ""
+    try:
+        addresses = [info[4][0] for info in socket.getaddrinfo(host, None, type=socket.SOCK_STREAM)]
+    except socket.gaierror as exc:
+        raise ValueError(f"could not resolve host: {exc}") from exc
+    for address in addresses:
+        ip = ipaddress.ip_address(address.split("%")[0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast or ip.is_reserved or ip.is_unspecified:
+            raise ValueError(f"blocked: host resolves to a non-public address ({address})")
+    if not addresses:
+        raise ValueError("host has no address")
+    return addresses[0]
+
+
+def _pinned_request(url: str, address: str) -> tuple[str, dict[str, str], dict[str, str]]:
+    """The URL to dial (host swapped for *address*), plus the Host header and TLS SNI to keep."""
+    parsed = urlparse(url)
+    host = parsed.hostname or ""
+    if address == host:
+        return url, {}, {}
+    netloc = f"[{address}]" if ":" in address else address
+    if parsed.port:
+        netloc = f"{netloc}:{parsed.port}"
+    return parsed._replace(netloc=netloc).geturl(), {"Host": parsed.netloc.rsplit("@", 1)[-1]}, {"sni_hostname": host}
+
+
 async def _fetch_html(client: httpx.AsyncClient, url: str) -> tuple[str, str]:
     """GET *url*, following redirects by hand; return (final_url, html)."""
     current = url
@@ -344,7 +380,9 @@ async def _fetch_html(client: httpx.AsyncClient, url: str) -> tuple[str, str]:
         reason = await asyncio.to_thread(_unsafe_reason, current)
         if reason:
             raise ValueError(f"blocked: {reason}")
-        async with client.stream("GET", current) as resp:
+        address = await asyncio.to_thread(_pinned_address, current)
+        dial, headers, extensions = _pinned_request(current, address)
+        async with client.stream("GET", dial, headers=headers, extensions=extensions) as resp:
             location = resp.headers.get("location")
             if resp.status_code in _REDIRECT_CODES and location:
                 current = urljoin(current, location)

@@ -14,6 +14,8 @@ import pytest
 from services import company_intel
 from services.company_intel import CompanyProfile, build_company_profile, classify_links, parse_page
 
+_REAL_PINNED = company_intel._pinned_address  # captured before the autouse fixture stubs it
+
 _CLINIC_HOME = """
 <html><head>
   <title>Bright Smile Dental | Family dentist in Leeds</title>
@@ -50,6 +52,7 @@ _TREATMENTS = "<html><head><title>Treatments</title></head><body><h1>Our treatme
 def _no_dns(monkeypatch):
     """Every test host is public; the SSRF check itself is covered separately."""
     monkeypatch.setattr(company_intel, "_unsafe_reason", lambda url: None)
+    monkeypatch.setattr(company_intel, "_pinned_address", lambda url: httpx.URL(url).host)
     company_intel._cache.clear()
 
 
@@ -209,3 +212,30 @@ async def test_a_trickling_site_hits_the_overall_deadline(monkeypatch):
 
     assert profile.is_thin()
     assert profile.errors == ["site unreadable: TimeoutError"]
+
+
+def test_pinning_refuses_a_name_with_any_private_address(monkeypatch):
+    def fake_getaddrinfo(host, *_args, **_kwargs):
+        return [(None, None, None, "", ("93.184.216.34", 0)), (None, None, None, "", ("10.0.0.5", 0))]
+
+    monkeypatch.setattr(company_intel.socket, "getaddrinfo", fake_getaddrinfo)
+    with pytest.raises(ValueError, match="non-public"):
+        _REAL_PINNED("https://rebind.example/")
+
+
+async def test_the_connection_goes_to_the_checked_address_with_the_original_host(monkeypatch):
+    monkeypatch.setattr(company_intel, "_pinned_address", lambda url: "93.184.216.34")
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, text="<h1>Pinned</h1>", headers={"content-type": "text/html"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        final_url, html = await company_intel._fetch_html(client, "https://shop.example:8443/about")
+
+    assert final_url == "https://shop.example:8443/about"       # callers still see the real URL
+    assert str(seen[0].url) == "https://93.184.216.34:8443/about"
+    assert seen[0].headers["host"] == "shop.example:8443"
+    assert seen[0].extensions["sni_hostname"] == "shop.example"
+    assert "Pinned" in html

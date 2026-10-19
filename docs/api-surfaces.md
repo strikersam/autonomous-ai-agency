@@ -165,7 +165,7 @@ Every route requires an authenticated user and access to the company
 - `POST /api/company/{company_id}/onboarding/questions` — questions tailored to the
   company and the user's priorities. Reads the company's public website
   (`services/company_intel.py`: homepage plus about, services, products, pricing and
-  customers pages; every URL and redirect hop SSRF-checked), adds the detected stack
+  customers pages; every URL and redirect hop SSRF-checked, and each connection pinned to the address that was checked), adds the detected stack
   and the ranked `priorities`, and asks the LLM for questions that serve those
   priorities in order. Body: `domain`, `site_type`, `business_category`,
   `detected_systems`, optional `website_url` (defaults to the company's primary
