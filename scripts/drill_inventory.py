@@ -96,10 +96,16 @@ def summarize_checks(check_runs: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def still_red_workflows(runs: list[dict[str, Any]]) -> list[str]:
-    """Workflows whose most recent completed run on the branch failed."""
+    """Workflows whose most recent finished run on the branch failed.
+
+    A cancelled run is skipped, not counted: on master it is almost always a
+    run superseded by a newer push (concurrency cancel), which says nothing
+    about whether the workflow is broken. The newest run that actually
+    finished decides.
+    """
     newest: dict[str, dict[str, Any]] = {}
     for run in runs:
-        if run.get("status") != "completed":
+        if run.get("status") != "completed" or run.get("conclusion") == "cancelled":
             continue
         name = run.get("name", "")
         if name not in newest or run.get("created_at", "") > newest[name].get("created_at", ""):
