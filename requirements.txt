@@ -38,7 +38,7 @@ boto3>=1.43.111
 anthropic>=1.15.0
 aiosqlite>=0.19.0  # SQLite async adapter for STORAGE_BACKEND=sqlite
 redis>=8.1.0  # Redis client for shared-state backend (optional; in-memory default)
-fakeredis[lua]>=2.39.0  # Fake Redis for tests
+fakeredis[lua]>=2.40.0  # Fake Redis for tests
 curl_cffi>=0.16.3
 dnspython>=2.9.0
 graphifyy>=0.9.84  # AI knowledge-graph CLI used by .claude/hooks/graphify-refresh
