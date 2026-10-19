@@ -533,12 +533,12 @@ limit key means unlimited, never zero.
 
 ## Tunnel — Permanent Static URL (ngrok)
 
-Run `setup_ngrok.py` once to populate these automatically. Get your token free at [dashboard.ngrok.com](https://dashboard.ngrok.com).
+Run `scripts/local/setup_ngrok.py` once to populate these automatically. Get your token free at [dashboard.ngrok.com](https://dashboard.ngrok.com).
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PUBLIC_URL` | (empty) | Pinned public URL shown in the Admin UI and returned by `get_tunnel_url()`. Overrides the auto-detected quick-tunnel URL. Set by `setup_ngrok.py` or paste manually in the Admin UI. |
-| `NGROK_AUTH_TOKEN` | (empty) | Your ngrok account token. Used by `run_tunnel.sh` / `run_tunnel.bat` after running `setup_ngrok.py`. |
+| `PUBLIC_URL` | (empty) | Pinned public URL shown in the Admin UI and returned by `get_tunnel_url()`. Overrides the auto-detected quick-tunnel URL. Set by `scripts/local/setup_ngrok.py` or paste manually in the Admin UI. |
+| `NGROK_AUTH_TOKEN` | (empty) | Your ngrok account token. Used by `scripts/local/run_tunnel.sh` / `scripts/local/run_tunnel.bat` after running `scripts/local/setup_ngrok.py`. |
 | `NGROK_DOMAIN` | (empty) | Your free static ngrok domain (e.g. `yourword-yourword-1234.ngrok-free.app`). Used by the tunnel scripts. |
 
 ---

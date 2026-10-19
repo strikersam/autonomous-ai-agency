@@ -84,3 +84,38 @@ def test_as_dict():
     assert "skill_id" in d
     assert "source" in d
     assert d["tags"] == ["t1"]
+
+
+def test_index_follows_symlinked_skill_dirs(tmp_path):
+    """Regression: generic skills live in harness/skills/ and are symlinked into
+    .claude/skills/. Path.rglob skips symlinked dirs, which hid them all."""
+    real = tmp_path / "harness" / "skills" / "linked-skill"
+    real.mkdir(parents=True)
+    (real / "SKILL.md").write_text("---\nname: linked-skill\ndescription: Linked.\n---\nBody\n")
+    skills_dir = tmp_path / ".claude" / "skills"
+    skills_dir.mkdir(parents=True)
+    (skills_dir / "linked-skill").symlink_to(real, target_is_directory=True)
+    lib = SkillLibrary(skills_dir=skills_dir)
+    assert lib.get("local:linked-skill") is not None
+
+
+def test_repo_harness_skills_are_indexed():
+    """Every harness skill is reachable through the default .claude/skills dir."""
+    repo = Path(__file__).resolve().parent.parent
+    lib = SkillLibrary(skills_dir=repo / ".claude" / "skills")
+    for skill_md in (repo / "harness" / "skills").glob("*/SKILL.md"):
+        assert lib.get(f"local:{skill_md.parent.name}") is not None, skill_md.parent.name
+
+
+def test_harness_skill_index_is_current():
+    """harness/skills/README.md is generated; a new or edited skill must refresh it."""
+    import importlib.util
+
+    repo = Path(__file__).resolve().parent.parent
+    spec = importlib.util.spec_from_file_location(
+        "index_skills", repo / "harness" / "scripts" / "index_skills.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)  # type: ignore[union-attr]
+    current = (repo / "harness" / "skills" / "README.md").read_text(encoding="utf-8")
+    assert current == module.render(), "run: python harness/scripts/index_skills.py"

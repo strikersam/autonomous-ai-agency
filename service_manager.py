@@ -47,7 +47,7 @@ class WindowsServiceManager:
                 "Restart the proxy manually: uvicorn proxy:app --reload --port 8000"
             )
         subprocess.Popen(
-            ["cmd.exe", "/c", str(self.root / filename)],
+            ["cmd.exe", "/c", str(self.root / "scripts" / "local" / filename)],
             cwd=self.root,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -221,7 +221,7 @@ class WindowsServiceManager:
 
     def stop(self, target: str, current_proxy_pid: int | None = None) -> dict[str, object]:
         if target == "stack":
-            self._spawn_cmd(f"Start-Sleep -Seconds 1; & '{self.root / 'stop_server.ps1'}'")
+            self._spawn_cmd(f"Start-Sleep -Seconds 1; & '{self.root / 'scripts' / 'local' / 'stop_server.ps1'}'")
             return {
                 "ok": True,
                 "message": "Stop requested for stack. The admin connection will drop once the proxy stops.",
@@ -244,8 +244,8 @@ class WindowsServiceManager:
     def control(self, action: str, target: str, current_proxy_pid: int | None = None) -> dict[str, object]:
         if action == "restart" and target == "stack":
             self._spawn_cmd(
-                f"Start-Sleep -Seconds 1; & '{self.root / 'stop_server.ps1'}'; "
-                f"Start-Sleep -Seconds 2; & '{self.root / 'start_server.ps1'}'"
+                f"Start-Sleep -Seconds 1; & '{self.root / 'scripts' / 'local' / 'stop_server.ps1'}'; "
+                f"Start-Sleep -Seconds 2; & '{self.root / 'scripts' / 'local' / 'start_server.ps1'}'"
             )
             return {
                 "ok": True,
@@ -255,7 +255,7 @@ class WindowsServiceManager:
             if sys.platform == "win32":
                 self._spawn_cmd(
                     f"Start-Sleep -Seconds 1; Stop-Process -Id {current_proxy_pid} -Force; "
-                    f"Start-Sleep -Seconds 2; cmd.exe /c '{self.root / 'run_proxy.bat'}'"
+                    f"Start-Sleep -Seconds 2; cmd.exe /c '{self.root / 'scripts' / 'local' / 'run_proxy.bat'}'"
                 )
             else:
                 self._spawn_unix()

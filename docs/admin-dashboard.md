@@ -108,7 +108,7 @@ Use this URL for:
 - The built-in Web UI (App at `/`, Admin at `/admin/app`)
 - Claude Code `ANTHROPIC_BASE_URL`
 
-**Recommended:** Run `setup_ngrok.py --token <token>` once on the server to claim a free permanent ngrok domain — it pre-fills this field and never changes. See the [Permanent URL section in README](../README.md#permanent-url).
+**Recommended:** Run `scripts/local/setup_ngrok.py --token <token>` once on the server to claim a free permanent ngrok domain — it pre-fills this field and never changes. See the [Permanent URL section in README](../README.md#permanent-url).
 
 ---
 

@@ -576,7 +576,7 @@ curl -X POST http://localhost:8001/api/company/{id}/onboarding/start \
 }
 ```
 
-See [`client-configs/`](../client-configs/) for Aider, Codex CLI, Continue (EOL), Cursor, Zed, VSCode, and Claude Code.
+See [`harness/connectors/clients/`](../harness/connectors/clients/) for Aider, Codex CLI, Continue (EOL), Cursor, Zed, VSCode, and Claude Code.
 
 ---
 
@@ -740,7 +740,7 @@ See [`CLAUDE.md`](../CLAUDE.md) for the contributor guide, skill map, risky-modu
 
 - **Continue.dev shutdown deadline** — Continue was acquired by Cursor. **Export your data by July 15, 2026** or it will be deleted. Client configs updated with migration guidance to Cursor, Aider, or Claude Code CLI.
 
-- **Codex CLI support** — New `client-configs/codex_config.md` with setup instructions for OpenAI Codex CLI (v0.142+). Point `OPENAI_BASE_URL` at your proxy and use any local model.
+- **Codex CLI support** — New `harness/connectors/clients/codex_config.md` with setup instructions for OpenAI Codex CLI (v0.142+). Point `OPENAI_BASE_URL` at your proxy and use any local model.
 
 - **Cursor config refresh** — Recommended models updated: Qwen 3.6 27B (best local coder), DeepSeek V4, Gemma4 27B. Added Continue-to-Cursor migration note.
 

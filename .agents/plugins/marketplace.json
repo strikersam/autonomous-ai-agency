@@ -8,7 +8,7 @@
       "name": "sol-advisor",
       "source": {
         "source": "local",
-        "path": "./plugins/sol-advisor"
+        "path": "./harness/plugins/sol-advisor"
       },
       "policy": {
         "installation": "AVAILABLE",

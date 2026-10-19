@@ -362,8 +362,8 @@ See [docs/telegram-bot.md](telegram-bot.md) for full documentation.
 **Quick tunnel (default — URL changes on restart):**
 
 ```bash
-./run_tunnel.sh      # Linux/macOS
-.\run_tunnel.bat     # Windows
+./scripts/local/run_tunnel.sh      # Linux/macOS
+.\scripts\local\run_tunnel.bat     # Windows
 ```
 
 **Permanent static URL via ngrok (recommended):**
@@ -371,21 +371,21 @@ See [docs/telegram-bot.md](telegram-bot.md) for full documentation.
 Run once on your personal laptop — no domain purchase needed:
 
 ```bash
-python setup_ngrok.py --token <YOUR_NGROK_AUTH_TOKEN>
+python scripts/local/setup_ngrok.py --token <YOUR_NGROK_AUTH_TOKEN>
 ```
 
 Get your token free at [dashboard.ngrok.com](https://dashboard.ngrok.com). The script:
 - Claims your free static domain (e.g. `yourword-yourword-1234.ngrok-free.app`)
 - Saves `PUBLIC_URL`, `NGROK_AUTH_TOKEN`, `NGROK_DOMAIN` to `.env`
-- Rewrites `run_tunnel.sh` / `run_tunnel.bat` to use ngrok automatically
+- Rewrites `scripts/local/run_tunnel.sh` / `scripts/local/run_tunnel.bat` to use ngrok automatically
 
-After that, `./start_server.sh` starts the tunnel with the same URL every time. The URL is shown in the Admin UI **Public URL** field (which is now editable — paste any URL there to pin it permanently).
+After that, `./scripts/local/start_server.sh` starts the tunnel with the same URL every time. The URL is shown in the Admin UI **Public URL** field (which is now editable — paste any URL there to pin it permanently).
 
 The tunnel URL can also be fetched programmatically:
 
 ```bash
-./get_tunnel_url.sh     # Linux/macOS
-.\get_tunnel_url.ps1    # Windows
+./scripts/local/get_tunnel_url.sh     # Linux/macOS
+.\scripts\local\get_tunnel_url.ps1    # Windows
 ```
 
 ---
