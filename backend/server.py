@@ -7841,10 +7841,16 @@ async def set_brain_provider_enabled(
             status_code=404,
             detail=f"Unknown provider {provider_id!r}. Configured: {sorted(known)}",
         )
-    set_provider_enabled(
+    stored = set_provider_enabled(
         provider_id, body.enabled,
         reason="" if body.enabled else "disabled by operator",
     )
+    if stored == "none":
+        # Nothing was saved, so the switch must not look applied.
+        raise HTTPException(
+            status_code=503,
+            detail="Could not save the provider switch. Try again.",
+        )
     if body.enabled:
         # Clear the breaker too, so a manual re-enable takes effect immediately
         # instead of waiting out a cooldown left over from the failures that
@@ -7862,6 +7868,8 @@ async def set_brain_provider_enabled(
         "provider_id": provider_id,
         "enabled": body.enabled,
         "disabled_reason": disabled_providers(force=True).get(provider_id, ""),
+        # False means the switch lives only in the local file and reverts once Mongo is readable again.
+        "persisted": stored == "durable",
     }
 
 

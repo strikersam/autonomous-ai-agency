@@ -167,3 +167,43 @@ class TestDisabledReasonIsReadableNextToTheSwitch:
         assert row["disabled_code"] == ""
         assert row["disabled_summary"] == ""
         assert row["disabled_action"] == ""
+
+
+class TestDurability:
+    """A switch the operator flips must say whether it survives a redeploy.
+
+    Regression: the endpoint returned success even when the only copy was the
+    local SQLite file, which an ephemeral disk wipes on every deploy. The
+    operator saw "disabled" and the provider came back after the next deploy.
+    """
+
+    def test_a_switch_held_only_locally_reports_not_persisted(
+        self, app_client
+    ) -> None:
+        # TESTING disables the Mongo path, so this switch is local-only.
+        r = app_client.put("/api/brain/providers/groq/enabled",
+                           json={"enabled": False})
+        assert r.status_code == 200, r.text
+        assert r.json()["persisted"] is False
+
+    def test_a_switch_written_to_mongo_reports_persisted(
+        self, app_client, monkeypatch
+    ) -> None:
+        monkeypatch.setattr(bf, "_write_disabled_mongo", lambda *a, **k: True)
+        r = app_client.put("/api/brain/providers/groq/enabled",
+                           json={"enabled": False})
+        assert r.status_code == 200, r.text
+        assert r.json()["persisted"] is True
+
+    def test_a_switch_that_cannot_be_saved_anywhere_is_refused(
+        self, app_client, monkeypatch
+    ) -> None:
+        def _disk_gone(*a, **k):
+            raise OSError("disk gone")
+
+        monkeypatch.setattr(bf, "_write_disabled_sqlite", _disk_gone)
+        r = app_client.put("/api/brain/providers/groq/enabled",
+                           json={"enabled": False})
+        assert r.status_code == 503, r.text
+        row = next(p for p in _get(app_client)["providers"] if p["id"] == "groq")
+        assert row["enabled"] is True, "a switch that was not saved must not show as off"
