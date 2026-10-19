@@ -34,9 +34,10 @@ elif python3 -m pytest --version >/dev/null 2>&1; then
 elif command -v pytest >/dev/null 2>&1; then
     PYTEST="pytest"
 else
-    printf "  ${YLW}⚠${RST} pytest not found — skipping test run\n"
-    printf "  ${YLW}⚠${RST} Install with: pip install pytest --break-system-packages\n"
-    exit 0
+    # Fail closed: a push that could not be tested is an untested push.
+    _error "pytest not found — push blocked (rule 30: tests run before every push)."
+    _error "Install it: pip install pytest"
+    exit 1
 fi
 
 # Git exports GIT_DIR / GIT_INDEX_FILE / GIT_WORK_TREE to hooks (always in a

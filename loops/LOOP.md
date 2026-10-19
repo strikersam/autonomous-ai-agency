@@ -36,7 +36,7 @@ adds — without inventing new automations the repo doesn't need.
 |----------------------------|--------------|
 | **Automations / scheduling** | 19 cron workflows + event triggers (see registry) |
 | **Worktrees** (isolated parallel work) | per-branch GitHub Actions runners; `claude/*` branches |
-| **Skills** (persistent knowledge) | `.claude/skills/`, `CLAUDE.md`, module `CLAUDE.md` files |
+| **Skills** (persistent knowledge) | `harness/skills/` (symlinked into `.claude/skills/`), `CLAUDE.md`, module `CLAUDE.md` files |
 | **Plugins / connectors (MCP)** | `agent/mcp_client.py`, GitHub MCP, Telegram bot |
 | **Sub-agents** (maker/checker) | planner → executor → verifier → JUDGE in `agent/loop.py` |
 | **Memory / state** | `.claude/state/`, `agent/persistent_memory.py`, KPIs |

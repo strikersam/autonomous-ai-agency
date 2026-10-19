@@ -325,7 +325,7 @@ This is a soft protection against accidental rapid-fire commands. It is not a se
 
 ## Testing the Bot Locally
 
-1. Start the proxy: `.\start_server.ps1`
+1. Start the proxy: `.\scripts\local\start_server.ps1`
 2. Start the bot: `python telegram_bot.py`
 3. Open Telegram and message your bot
 4. Send `/status`

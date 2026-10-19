@@ -109,8 +109,8 @@ bandit -r .                                         # Security scan
 3. Implement: New phases must be registered in `workflow/phases.py`
 4. Validate: `pytest -x tests/test_workflow_engine.py`
 
-### Skill Code (.agents/skills/)
-1. Scout: Read `.agents/skills/skill-composer/SKILL.md` for authoring conventions
+### Skill Code (harness/skills/)
+1. Scout: Read `harness/skills/skill-composer/SKILL.md` for authoring conventions
 2. Plan: Skills must have `SKILL.md` with name, description, tools, parameters
 3. Implement: Follow skill manifest schema
 4. Validate: `pytest -x tests/test_skill_registry.py`

@@ -97,7 +97,7 @@ class ServiceManager:
 
         try:
             # Start ngrok tunnel via pyngrok
-            tunnel_script = self.repo_path / "start_tunnel_simple.py"
+            tunnel_script = self.repo_path / "scripts" / "local" / "start_tunnel_simple.py"
 
             self.tunnel_process = subprocess.Popen(
                 [str(self.venv_python), str(tunnel_script)],

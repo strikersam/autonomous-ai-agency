@@ -633,10 +633,10 @@ so AI coding tools can orchestrate the proxy as a tool.
 - `mcp_server.py` — FastMCP server exposing: `run_task`, `chat`, `list_models`, `get_health`, `get_logs`
 - Run alongside `proxy.py` on a different port (`MCP_PORT` env, default 8001)
 - Auth: same Bearer token as proxy API
-- Claude Code integration: document in `client-configs/` how to add as MCP server
+- Claude Code integration: document in `harness/connectors/clients/` how to add as MCP server
 - Tool schema follows the MCP JSON Schema spec
 
-**Files:** new `mcp_server.py`, `client-configs/mcp-server.json`
+**Files:** new `mcp_server.py`, `harness/connectors/clients/mcp-server.json`
 
 ---
 
@@ -657,7 +657,7 @@ and agent session progress.
 ---
 
 ### F4 — SDK / Client Library Generation [P2] [CBF]
-There are example configs in `client-configs/` but no typed SDK. Codebuff ships
+There are example configs in `harness/connectors/clients/` but no typed SDK. Codebuff ships
 a minimal Python client. A generated OpenAPI-based SDK would make the proxy
 much easier to use programmatically.
 

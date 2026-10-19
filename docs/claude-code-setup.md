@@ -43,7 +43,7 @@ Responses are translated back from the OpenAI format to the Anthropic SSE format
 
 Before starting:
 
-- The proxy is running: `.\start_server.ps1` (Windows) or `./start_server.sh` (Linux/macOS)
+- The proxy is running: `.\scripts\local\start_server.ps1` (Windows) or `./scripts/local/start_server.sh` (Linux/macOS)
 - At least one local model is pulled (`qwen3-coder:30b` recommended for Claude Code)
 - You have a proxy API key from your `.env` `API_KEYS` or `KEYS_FILE`
 - Claude Code CLI is installed: `npm install -g @anthropic-ai/claude-code`
@@ -322,15 +322,15 @@ This returns the local Ollama models plus their Claude alias names.
 For a clean session from scratch:
 
 ```
-1. Start Ollama            → .\run_ollama.bat  (or .\start_server.ps1 for everything)
+1. Start Ollama            → .\scripts\local\run_ollama.bat  (or .\scripts\local\start_server.ps1 for everything)
 2. Wait for model to load  → ollama ps
-3. Start proxy             → .\run_proxy.bat   (or included in start_server.ps1)
-4. Start tunnel (optional) → .\run_tunnel.bat
+3. Start proxy             → .\scripts\local\run_proxy.bat   (or included in scripts/local/start_server.ps1)
+4. Start tunnel (optional) → .\scripts\local\run_tunnel.bat
 5. Set env vars            → $env:ANTHROPIC_BASE_URL = "http://localhost:8000"
 6. Launch Claude Code      → claude
 ```
 
-When using the tunnel for remote access, replace `http://localhost:8000` with the tunnel URL from `.\get_tunnel_url.ps1`.
+When using the tunnel for remote access, replace `http://localhost:8000` with the tunnel URL from `.\scripts\local\get_tunnel_url.ps1`.
 
 ---
 
