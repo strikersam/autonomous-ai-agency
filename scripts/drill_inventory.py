@@ -39,10 +39,16 @@ def gh_json(path: str) -> Any:
     return json.loads(out or "null")
 
 
-def classify_pr(pr: dict[str, Any]) -> str:
-    """Return the drill category for an open pull request."""
+def classify_pr(pr: dict[str, Any], own_branch: str = "") -> str:
+    """Return the drill category for an open pull request.
+
+    ``own_branch`` is the branch the drill itself works on: its PR is ``own``,
+    never mistaken for another session's in-flight work.
+    """
     ref = pr.get("head", {}).get("ref", "")
     author = pr.get("user", {}).get("login", "")
+    if own_branch and ref == own_branch:
+        return "own"
     if author == "dependabot[bot]" or ref.startswith("dependabot/"):
         return "dependabot"
     if ref.startswith("agent/"):
@@ -109,13 +115,21 @@ def is_in_flight(pr: dict[str, Any], category: str, now: datetime) -> bool:
     return now - updated < timedelta(hours=IN_FLIGHT_HOURS)
 
 
-def collect(repo: str, now: datetime) -> dict[str, Any]:
+def current_branch() -> str:
+    """The checked-out git branch, or "" outside a work tree."""
+    proc = subprocess.run(  # nosec B603 B607 - fixed argv, no shell
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True,
+    )
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
+def collect(repo: str, now: datetime, own_branch: str = "") -> dict[str, Any]:
     """Gather the inventory from GitHub (read-only)."""
     prs = []
     for pr in gh_json(f"repos/{repo}/pulls?state=open&per_page=100") or []:
         full = gh_json(f"repos/{repo}/pulls/{pr['number']}")
         runs = gh_json(f"repos/{repo}/commits/{pr['head']['sha']}/check-runs?per_page=100")
-        category = classify_pr(pr)
+        category = classify_pr(pr, own_branch)
         prs.append({
             "number": pr["number"], "title": pr["title"], "branch": pr["head"]["ref"],
             "draft": pr.get("draft", False), "category": category,
@@ -166,8 +180,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", default=DEFAULT_REPO)
     parser.add_argument("--json", action="store_true", help="print JSON instead of markdown")
+    parser.add_argument("--own-branch", default=None,
+                        help="the drill's own branch (default: the checked-out branch)")
     args = parser.parse_args(argv)
-    inv = collect(args.repo, datetime.now(timezone.utc))
+    own = current_branch() if args.own_branch is None else args.own_branch
+    inv = collect(args.repo, datetime.now(timezone.utc), own)
     print(json.dumps(inv, indent=2) if args.json else render(inv))
     return 0
 
