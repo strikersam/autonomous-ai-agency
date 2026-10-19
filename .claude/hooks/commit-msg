@@ -26,7 +26,15 @@ esac
 
 # ── Check if any meaningful code was staged ───────────────────────────────────
 
-CODE_STAGED=$(git diff --cached --name-only | grep -cE '\.(py|sh|ps1|bat|yaml|yml|json|toml)$' 2>/dev/null || echo "0")
+# Fail closed: a hook that cannot read the index must not wave the commit through.
+if ! STAGED=$(git diff --cached --name-only); then
+    printf "\n${RED}[commit-msg] BLOCKED: could not list staged files.${RST}\n"
+    exit 1
+fi
+# `grep -c` prints 0 AND exits 1 on no match, so a `$(... || echo 0)` fallback
+# produced "0\n0" and broke every -eq test below, which let code commits with
+# no changelog through (#1796). Fall back on the assignment instead.
+CODE_STAGED=$(printf '%s\n' "$STAGED" | grep -cE '\.(py|sh|ps1|bat|yaml|yml|json|toml)$') || CODE_STAGED=0
 
 if [ "$CODE_STAGED" -eq 0 ]; then
     exit 0
@@ -34,7 +42,7 @@ fi
 
 # ── Check if changelog was staged ─────────────────────────────────────────────
 
-CHANGELOG_STAGED=$(git diff --cached --name-only | grep -c 'docs/changelog\.md' 2>/dev/null || echo "0")
+CHANGELOG_STAGED=$(printf '%s\n' "$STAGED" | grep -c 'docs/changelog\.md') || CHANGELOG_STAGED=0
 
 if [ "$CHANGELOG_STAGED" -eq 0 ]; then
     printf "\n${RED}[commit-msg] BLOCKED: No docs/changelog.md update staged.${RST}\n"
