@@ -1,7 +1,7 @@
 # Graph Report - autonomous-ai-agency  (2026-10-19)
 
 ## Corpus Check
-- 1119 files · ~1,826,942 words
+- 1119 files · ~1,826,955 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 56 file(s) not represented in the graph (top: (none) 18, .bat 5, .css 5)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `14ee22ce`
+- Built from commit: `6f9205c1`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -3930,7 +3930,7 @@ _Questions this graph is uniquely positioned to answer:_
 - **Should `typing` be split into smaller, more focused modules?**
   _Cohesion score 0.012036624597871814 - nodes in this community are weakly interconnected._
 - **Why does `Completed Task Archive — October 2026` connect `get_webhook_info` to `KnowledgeScreen.jsx`, `usage_metrics.py`, `company_api.py`, `MCPClient`, `ApprovalGate`, `ai/router.py`, `services/self_heal.py`, `AgentRunner`, `SyncService`, `Glyph`, `tasks/service.py`, `portfolio_api.py`, `WorkspaceTools`, `tasks/service.py`, `Settings`, `probe_catalogues.py`, `Task`, `seo_api.py`, `ProviderRouter`, `telegram_bot.py`, `prompts.py`, `AnthropicProvider`, `settings.py`, `Active Task Tracker`, `_process_callback`?**
-  _High betweenness centrality (0.025) - this node is a cross-community bridge._
+  _High betweenness centrality (0.027) - this node is a cross-community bridge._
 - **Should `TaskSpec` be split into smaller, more focused modules?**
   _Cohesion score 0.057309307681885926 - nodes in this community are weakly interconnected._
 - **Why does `ChatHistoryStore` connect `ChatHistoryStore` to `typing`?**

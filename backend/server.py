@@ -7868,7 +7868,7 @@ async def set_brain_provider_enabled(
         "provider_id": provider_id,
         "enabled": body.enabled,
         "disabled_reason": disabled_providers(force=True).get(provider_id, ""),
-        # False means the switch lives only in the local file and reverts on deploy.
+        # False means the switch lives only in the local file and reverts once Mongo is readable again.
         "persisted": stored == "durable",
     }
 

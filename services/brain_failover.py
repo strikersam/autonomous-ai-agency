@@ -309,8 +309,9 @@ def set_provider_enabled(provider_id: str, enabled: bool, reason: str = "") -> s
     failure of either store is logged, never raised.
 
     Returns where the switch landed: ``"durable"`` (Mongo, survives a deploy),
-    ``"local"`` (SQLite only, reverts on the next deploy) or ``"none"`` (not
-    saved anywhere, so the switch did not take effect).
+    ``"local"`` (SQLite only, so it reverts once Mongo is readable again and
+    its older state is read) or ``"none"`` (not saved anywhere, so the switch
+    did not take effect).
     """
     global _DISABLED_CACHE
     reason = reason or "disabled by operator"
@@ -337,7 +338,7 @@ def set_provider_enabled(provider_id: str, enabled: bool, reason: str = "") -> s
     if durable is True:
         return "durable"
     log.warning("brain_failover: %s enabled=%s saved locally only — it will "
-                "revert on the next deploy", provider_id, enabled)
+                "revert once Mongo is readable again", provider_id, enabled)
     return "local"
 
 
