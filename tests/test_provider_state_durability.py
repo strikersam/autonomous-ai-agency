@@ -218,9 +218,9 @@ class TestKillSwitchDurability:
             bf.set_provider_enabled("groq", False, "manual test")
 
         assert bf._disabled_from_sqlite() == {"groq": "manual test"}
-        assert any("revert on the next deploy" in r.getMessage()
+        assert any("revert once Mongo is readable again" in r.getMessage()
                    for r in caplog.records), (
-            "an operator whose switch will not survive the next deploy must be told"
+            "an operator whose switch will not survive a Mongo recovery must be told"
         )
 
 
