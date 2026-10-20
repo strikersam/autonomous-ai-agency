@@ -112,6 +112,24 @@ models:
   # planner requests, so each agent call lost 60s before reaching a model that
   # answers. Re-add only after a live completion probe.
 
+  # ---------------------------------------------------------------------------
+  # DeepSeek V4 Pro (added 2026-10-20)
+  # Available on NVIDIA NIM since Aug 2026 (free tier); also reachable via
+  # TokenIn as myt/deepseek-v4-pro-free. Heavy/Pro variant of the V4 generation.
+  # Priority 99 (explicit-only) until a live completion probe confirms the id
+  # answers on this NIM account — the V4.1-Flash lesson taught us that an NIM
+  # id can be listed in the catalog without answering completions.
+  # Source: packages/ai/cost_tracker.py comment + NVIDIA NIM catalog, 2026-10-20.
+  # ---------------------------------------------------------------------------
+  deepseek-ai/deepseek-v4-pro:
+    provider: nvidia
+    display_name: DeepSeek V4 Pro (NVIDIA NIM, free)
+    supports_tools: false           # not yet probed — declare true after a tool_call probe
+    supports_function_calling: false
+    supports_streaming: true
+    priority: 99                    # unprobed: explicit-only until a live probe
+    speed_tier: slow
+
   # moonshotai/kimi-k2-instruct and qwen-qwq-32b were removed on 2026-10-01: Groq
   # answers HTTP 404 and 400 "model unavailable" for them on every attempt. The other
   # catalogue (brain_config.PROVIDER_CANDIDATES['groq']) already dropped both.
