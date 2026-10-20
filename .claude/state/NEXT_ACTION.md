@@ -1,3 +1,23 @@
+# NEXT_ACTION — updated 2026-10-20 (daily automation, branch `claude/intelligent-gates-x2astt`)
+
+DeepSeek V4 Pro (`deepseek-ai/deepseek-v4-pro`, NVIDIA NIM, free tier) formally declared in `config/llm/models.yaml`. PR [#1812](https://github.com/strikersam/autonomous-ai-agency/pull/1812) open. 14 tests verified; compileall clean; changelog parity OK; catalog consistency: 97 ids, no drift.
+
+Note: The Claude GitHub App is not installed on this repo, so PR events will not automatically wake this session — check CI status manually.
+
+## Open items for next daily run
+
+1. **Check CI on PR #1812** — if green, merge (squash). If red, investigate.
+
+2. **DeepSeek V4 Pro tool-call probe** — declared `supports_tools: false` conservatively. Once the PR merges and the NIM account proves the model answers completions, raise a follow-up to set `supports_tools: true`, `supports_function_calling: true`, and lower `priority` from 99.
+
+3. **GPT model deprecations (Oct 23, 2026)**: `gpt-3.5-turbo-0125`, `gpt-4-0613`, `gpt-4-1106-preview` retire on 2026-10-23 — three days away. Confirm these IDs are NOT in routing candidates (they are not as of today). Re-verify on Oct 23.
+
+4. **MiniMax M3 and Mimo v2.5 formal declarations** — `myt/MiniMax-M3-free` and `myt/mimo-v2.5-free` are in TokenIn's candidate list and cost_tracker but have no `config/llm/models.yaml` entries. Declare them when canonical IDs (not `myt/` prefixes) can be confirmed from a provider API response.
+
+5. **Groq Llama 4 Scout probe** (`meta-llama/llama-4-scout-17b-16e-instruct`, priority 99) — still pending.
+
+---
+
 # NEXT_ACTION — updated 2026-10-19 (branch `claude/onboarding-details-priorities`)
 
 Onboarding company intel shipped in #1809 (tracker row 51 archived). Follow-up PR sends the Details-step goals as `priorities`. REA still deferred (row 52).
