@@ -244,6 +244,46 @@ class TestAccounting:
         monkeypatch.setenv("LLM_ROUTING_STRATEGY", "usage-based")
         assert get_director().snapshot()["strategy"] == "usage-based"
 
+    def test_percentile_latency_none_before_any_samples(self) -> None:
+        d = TrafficDirector()
+        d.record_start("p")
+        # record_end without latency_ms — no samples
+        d.record_end("p")
+        snap = d.snapshot()["providers"]["p"]
+        assert snap["p50_latency_ms"] is None
+        assert snap["p95_latency_ms"] is None
+        assert snap["latency_sample_count"] == 0
+
+    def test_percentile_latency_single_sample(self) -> None:
+        d = TrafficDirector()
+        d.record_start("p")
+        d.record_end("p", latency_ms=200)
+        snap = d.snapshot()["providers"]["p"]
+        assert snap["p50_latency_ms"] == 200.0
+        assert snap["p95_latency_ms"] == 200.0
+        assert snap["latency_sample_count"] == 1
+
+    def test_percentile_latency_multiple_samples(self) -> None:
+        d = TrafficDirector()
+        # Feed 10 latency values: 10, 20, … 100 ms
+        for ms in range(10, 110, 10):
+            d.record_start("p")
+            d.record_end("p", latency_ms=ms)
+        snap = d.snapshot()["providers"]["p"]
+        # p50 of [10,20,30,40,50,60,70,80,90,100] is 55.0
+        assert snap["p50_latency_ms"] == 55.0
+        # p95 of 10 values: index = 9*0.95 = 8.55 → 90 + 0.55*(100-90) = 95.5
+        assert snap["p95_latency_ms"] == 95.5
+        assert snap["latency_sample_count"] == 10
+
+    def test_latency_samples_capped_at_window_size(self) -> None:
+        d = TrafficDirector()
+        limit = td._LATENCY_SAMPLE_WINDOW
+        for i in range(limit + 20):
+            d.record_start("p")
+            d.record_end("p", latency_ms=i)
+        assert d.snapshot()["providers"]["p"]["latency_sample_count"] == limit
+
 
 # ---------------------------------------------------------------------------
 # pre-call budget checks

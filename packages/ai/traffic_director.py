@@ -139,6 +139,9 @@ def provider_id_of(provider: Any) -> str:
     return str(getattr(provider, "provider_id", "") or "")
 
 
+_LATENCY_SAMPLE_WINDOW: int = 100  # keep last N samples for percentile math
+
+
 @dataclass
 class _ProviderUsage:
     """Sliding-window usage counters for one provider."""
@@ -149,6 +152,10 @@ class _ProviderUsage:
     token_events: deque[tuple[float, int]] = field(default_factory=deque)
     in_flight: int = 0
     ewma_latency_ms: float | None = None
+    # Fixed-size ring of the last N latency samples (ms) for percentile stats.
+    latency_samples: deque[float] = field(
+        default_factory=lambda: deque(maxlen=_LATENCY_SAMPLE_WINDOW)
+    )
     # Monotonic time of the most recent 429 from this provider (0.0 = never).
     rate_limited_at: float = 0.0
     # Lifetime counters — diagnostics only, never used for routing.
@@ -224,6 +231,7 @@ class TrafficDirector:
                     _EWMA_ALPHA * latency_ms
                     + (1.0 - _EWMA_ALPHA) * usage.ewma_latency_ms
                 )
+            usage.latency_samples.append(float(latency_ms))
         if status_code == 429:
             usage.rate_limited_at = now
             usage.total_rate_limited += 1
@@ -435,6 +443,16 @@ class TrafficDirector:
 
     # ── diagnostics ────────────────────────────────────────────────────────
 
+    @staticmethod
+    def _percentile(samples: deque[float], pct: float) -> float | None:
+        """Return the *pct*-th percentile (0–100) of *samples*, or None when empty."""
+        if not samples:
+            return None
+        sorted_s = sorted(samples)
+        k = (len(sorted_s) - 1) * pct / 100.0
+        lo, hi = int(k), min(int(k) + 1, len(sorted_s) - 1)
+        return round(sorted_s[lo] + (sorted_s[hi] - sorted_s[lo]) * (k - lo), 1)
+
     def snapshot(self) -> dict[str, Any]:
         """Serializable view of current distribution state (for /api/metrics)."""
         from packages.ai.brain_config import (
@@ -460,6 +478,9 @@ class TrafficDirector:
                     if usage.ewma_latency_ms is not None
                     else None
                 ),
+                "p50_latency_ms": self._percentile(usage.latency_samples, 50),
+                "p95_latency_ms": self._percentile(usage.latency_samples, 95),
+                "latency_sample_count": len(usage.latency_samples),
                 "seconds_since_429": (
                     round(now - usage.rate_limited_at, 1)
                     if usage.rate_limited_at

@@ -111,3 +111,23 @@ def test_toggle_can_be_flipped_live(gateway_env):
     assert _post(client).headers["X-Cache"] == "HIT"
     gateway_env.setenv("GATEWAY_PROXY_CACHE_ENABLED", "false")
     assert "X-Cache" not in _post(client).headers
+
+
+def test_x_llm_headers_present_on_non_streaming_response(gateway_env):
+    """X-LLM-Model and X-LLM-Provider must be set on every non-streaming response."""
+    client, _upstream, _obs = make_client(gateway_env)
+    resp = _post(client)
+    assert resp.status_code == 200
+    assert resp.headers["X-LLM-Model"] == "test-model"
+    assert resp.headers.get("X-LLM-Provider") is not None
+
+
+def test_x_llm_headers_present_on_cache_hit(gateway_env):
+    """Cache-hit responses also carry the X-LLM-* headers."""
+    gateway_env.setenv("GATEWAY_PROXY_CACHE_ENABLED", "true")
+    client, _upstream, _obs = make_client(gateway_env)
+    _post(client)  # MISS
+    hit = _post(client)  # HIT
+    assert hit.headers["X-Cache"] == "HIT"
+    assert hit.headers["X-LLM-Model"] == "test-model"
+    assert hit.headers.get("X-LLM-Provider") is not None
