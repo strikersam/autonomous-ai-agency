@@ -281,11 +281,15 @@ def _openai_chat_stream_bytes(content: str, model: str) -> bytes:
     return b"".join(payload)
 
 
-def _gateway_headers(mode: str, model: str, consumer: str, cache_state: str | None) -> dict[str, str]:
+def _gateway_headers(mode: str, model: str, consumer: str, cache_state: str | None, provider: str | None = None) -> dict[str, str]:
     """Response headers for a non-streaming completion: routing, token quota, X-Cache."""
     headers = {"X-Routing-Mode": mode, "X-Routing-Model": model, **_gw_quota.rate_limit_headers(consumer)}
     if cache_state:
         headers["X-Cache"] = cache_state
+    if model:
+        headers["X-LLM-Model"] = model
+    if provider:
+        headers["X-LLM-Provider"] = provider
     return headers
 
 
@@ -403,13 +407,15 @@ async def handle_openai_chat_completions(
                 "Cache-Control": "no-cache",
                 "X-Routing-Mode": routing.mode,
                 "X-Routing-Model": model,
+                "X-LLM-Model": model,
+                "X-LLM-Provider": routing.provider,
             },
         )
 
     cache_state, cached = await _gw_cache.lookup(gw.consumer, payload)
     if cached is not None:
         gw.finish(model, 0, 0, outcome="cache_hit")
-        return JSONResponse(content=cached, headers=_gateway_headers(routing.mode, model, gw.consumer, cache_state))
+        return JSONResponse(content=cached, headers=_gateway_headers(routing.mode, model, gw.consumer, cache_state, provider=routing.provider))
 
     try:
         resp = await _post_with_fallback(target_url, forward, headers, routing.fallback_chain)
@@ -430,7 +436,7 @@ async def handle_openai_chat_completions(
     return JSONResponse(
         content=data,
         status_code=resp.status_code,
-        headers=_gateway_headers(routing.mode, model, gw.consumer, cache_state),
+        headers=_gateway_headers(routing.mode, model, gw.consumer, cache_state, provider=routing.provider),
     )
 
 
