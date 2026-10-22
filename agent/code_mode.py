@@ -505,7 +505,18 @@ class _Interpreter:
             estimate = len(text) + text.count(args[0]) * len(args[1])
         elif name == "join" and args:
             items = list(args[0])
-            estimate = sum(_deep_size(i, self._limits.max_len + 1) for i in items) + len(text) * len(items)
+            self._ops += len(items) // 100
+            # join only accepts strings, whose len() is O(1): one pass, stopped
+            # early, is exact and bounded. Deep-sizing each item rescanned an
+            # aliased element per reference (Codex on #1816); deep-sizing the
+            # list overcounted short strings ~3x (Codex on #1817).
+            estimate = len(text) * max(len(items) - 1, 0)
+            for item in items:
+                if not isinstance(item, str):
+                    break  # str.join raises TypeError; the caller reports it
+                estimate += len(item)
+                if estimate > self._limits.max_len:
+                    break
         if estimate > self._limits.max_len:
             raise CodeModeError(f"line {node.lineno}: {name}() result would exceed {self._limits.max_len} characters")
 
@@ -597,7 +608,9 @@ class _Interpreter:
 
     def _guard_serialise(self, value: Any, node: ast.AST) -> None:
         """Refuse str()/f-string/print of a structure whose text would be huge (aliasing)."""
-        if _deep_size(value, self._limits.max_len) > self._limits.max_len:
+        size = _deep_size(value, self._limits.max_len + 1)
+        self._ops += size // 100
+        if size > self._limits.max_len:
             raise CodeModeError(f"line {getattr(node, 'lineno', '?')}: value too large to turn into text")
 
 
