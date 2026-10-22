@@ -618,6 +618,28 @@ models:
     priority: 68
     speed_tier: medium
 
+  # ---------------------------------------------------------------------------
+  # MiniMax M3.1 Flash (added 2026-10-22)
+  # Released 2026-10-19. MiniMax's fast frontier model; 1,000,000-token context.
+  # Free via OpenRouter ":free" tier. Paid rate (MiniMax direct): $0.15/$0.60
+  # per MTok input/output. Tool calling: not yet probed — declared false
+  # conservatively. Priority 69 in the OpenRouter free tier.
+  # Source: openrouter.ai/minimax/minimax-m3.1-flash:free, 2026-10-22.
+  # ---------------------------------------------------------------------------
+  minimax/minimax-m3.1-flash:free:
+    provider: openrouter
+    display_name: MiniMax M3.1 Flash (OpenRouter, free)
+    context_window: 1000000
+    max_output_tokens: 8192
+    supports_tools: false           # not yet probed
+    supports_function_calling: false
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
+    priority: 69
+    speed_tier: fast
+
   openrouter/free:
     provider: openrouter
     display_name: Any free model (OpenRouter auto)
