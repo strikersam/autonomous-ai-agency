@@ -149,7 +149,37 @@ def _delegation_tool_lines() -> str:
     )
 
 
+def _code_mode_tool_lines() -> str:
+    """Advertise run_code only while an operator has Code Mode on (rule 19)."""
+    from agent.code_mode import tool_prompt_lines
+
+    return tool_prompt_lines()
+
+
+def _code_mode_example() -> str:
+    from agent.code_mode import run_code_example
+
+    return run_code_example()
+
+
 def build_tool_prompt(
+    *,
+    goal: str,
+    step: dict[str, Any],
+    observations: list[dict[str, Any]],
+    remaining_calls: int,
+) -> list[dict[str, str]]:
+    """Messages for one tool-selection call."""
+    from agent.code_mode import fill_tool_list
+
+    messages = _tool_prompt_messages(
+        goal=goal, step=step, observations=observations, remaining_calls=remaining_calls,
+    )
+    messages[0]["content"] = fill_tool_list(messages[0]["content"])
+    return messages
+
+
+def _tool_prompt_messages(
     *,
     goal: str,
     step: dict[str, Any],
@@ -186,6 +216,7 @@ def build_tool_prompt(
                 "  for the current date.\n"
                 f"{_code_graph_tool_lines()}"
                 f"{_delegation_tool_lines()}"
+                f"{_code_mode_tool_lines()}"
                 "GITHUB API:\n"
                 "- github_get_issue(repo_name, issue_number)\n"
                 "- github_comment_on_issue(repo_name, issue_number, body)\n"
@@ -218,6 +249,7 @@ def build_tool_prompt(
                 "Example: {\"tool\": \"list_files\", \"args\": {\"path\": \".\"}}\n"
                 "Example: {\"tool\": \"search_code\", \"args\": {\"query\": \"TODO\"}}\n"
                 f"{_web_search_example()}"
+                f"{_code_mode_example()}"
                 "Example: {\"tool\": \"finish\", \"args\": {\"reason\": \"done inspecting\"}}\n\n"
                 "CRITICAL: The JSON MUST have a \"tool\" key. Do NOT return results, status, or\n"
                 "observations — return ONLY the next tool call to make.\n"

@@ -19,6 +19,7 @@ import time
 import asyncio
 import httpx
 
+from agent import code_mode_metrics as _cm_metrics
 from agent.context_manager import ContextManager
 from agent.context_pruner import ContextPruner
 from agent.models import AgentPlan, ToolCall, VerificationResult
@@ -828,6 +829,9 @@ class AgentRunner:
             _run_start_time = self._run_started
             _time_budget_s = self._run_budget_s
             time_budget_exceeded = False
+            # Code Mode A/B seed: a run with no session id still needs its own
+            # seed, or step N of every such run would land in the same arm.
+            cm_seed = session_id or f"run-{uuid.uuid4().hex}"
 
             for step in plan.steps[:max_steps]:
                 # Time-budget check: stop early to avoid the hard task-execution
@@ -856,8 +860,13 @@ class AgentRunner:
 
                 step_data = step.model_dump()
                 self._log_event(session_id, "step_start", {"step_id": step_data["id"], "description": step_data["description"]})
-                async with _timed_phase("execute_step", step_id=step_data["id"]):
-                    result = await self._execute_step(plan.goal, step_data, requested_model, user_id, memory_store)
+                cm_token = _cm_metrics.begin_step(_cm_metrics.assign_arm(cm_seed, step_data["id"]))
+                result = {}
+                try:
+                    async with _timed_phase("execute_step", step_id=step_data["id"]):
+                        result = await self._execute_step(plan.goal, step_data, requested_model, user_id, memory_store)
+                finally:
+                    _cm_metrics.end_step(cm_token, result.get("status", "error") if isinstance(result, dict) else "error")
                 # Sub-agent condensed summary: trim step results before storing so
                 # the orchestrator's context stays lean.  (1-2k token budget.)
                 condensed = ContextManager.condense_step_result(result)
@@ -1373,6 +1382,11 @@ class AgentRunner:
                 # passed verbatim; older ones are summarised.
                 masked_obs = self.ctx.mask_observations(observations)
                 tool_messages = build_tool_prompt(goal=goal, step=step, observations=masked_obs, remaining_calls=remaining)
+                # run_code's allow-list comes from this base prompt only: the
+                # enrichment and scratchpad added below carry observation text,
+                # and a "- fetch_url(" line in a read file must not re-enable a
+                # tool an operator switched off.
+                base_tool_prompt = str(tool_messages[0].get("content", ""))
                 # ── Harness enrichment: inject tool + skill catalog into tool prompt ───
                 self._inject_enrichment(tool_messages, str(self.tools.root))
                 # Inject ReAct scratchpad trace into the system message so the
@@ -1381,11 +1395,16 @@ class AgentRunner:
                 if scratchpad_ctx and tool_messages:
                     sys_content = str(tool_messages[0].get("content", ""))
                     tool_messages[0]["content"] = f"{sys_content}\n\n{scratchpad_ctx}"
+                cm_stats = _cm_metrics.current()
+                if cm_stats is not None:
+                    cm_stats.record_selection(tool_messages)
                 async with _timed_phase("tool_selection", step_id=step.get("id"), remaining=remaining):
                     tool_call = await self._chat_json(executor_model, tool_messages)
                 call = self._coerce_tool_call(tool_call)
             except Exception as exc:
                 tool_retry_count += 1
+                if _cm_metrics.current() is not None:
+                    _cm_metrics.current().selection_errors += 1
                 error_msg = f"tool selection failed: {exc}"
                 observations.append({"tool": "error", "result": error_msg})
                 log.warning(
@@ -1425,6 +1444,16 @@ class AgentRunner:
                 context_items.append({"tool": call.tool, "result": tool_result})
                 scratchpad.record_action(call.tool, call.args)
                 scratchpad.record_observation(tool_result)
+                continue
+            if call.tool == "run_code":
+                code_obs = await self._run_code_mode(
+                    call.args, base_tool_prompt,
+                    user_id=user_id, memory_store=memory_store,
+                )
+                observations.append({"tool": "run_code", "result": code_obs})
+                context_items.append({"tool": "run_code", "result": code_obs})
+                scratchpad.record_action("run_code", {"code": str(call.args.get("code", ""))[:200]})
+                scratchpad.record_observation(code_obs)
                 continue
             if call.tool == "spawn_subagent":
                 sub_result = await self._run_tool(
@@ -1772,6 +1801,39 @@ class AgentRunner:
             except Exception:  # nosec B110 -- KPI tracking is best-effort
                 pass
             return err
+
+    async def _run_code_mode(
+        self,
+        args: dict[str, Any],
+        tool_prompt: str,
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
+    ) -> str:
+        """Run one Code Mode program; each inner tool call goes through _run_tool."""
+        from agent.code_mode import CodeModeLimits, callable_tools, code_mode_active, run_code
+        from agent.tool_output_store import offload_hint
+
+        stats = _cm_metrics.current()
+        if not code_mode_active():
+            if stats is not None:
+                stats.record_program(False, 0, "switched off")
+            return "[run_code is not available for this step — call one tool per response]"
+
+        async def _call(name: str, call_args: dict[str, Any]) -> Any:
+            return await self._run_tool(name, call_args, user_id=user_id, memory_store=memory_store)
+
+        limits = CodeModeLimits()
+        outcome = await run_code(str(args.get("code", "")), _call, callable_tools(tool_prompt), limits)
+        self._log_event(
+            getattr(self, "_current_session_id", None), "code_mode",
+            {"ok": outcome.ok, "tool_calls": outcome.calls, "error": outcome.error},
+        )
+        if stats is not None:
+            stats.record_program(outcome.ok, len(outcome.calls), outcome.error)
+        text, truncated = outcome.render(limits.max_result_chars)
+        if truncated:
+            text += offload_hint(outcome.result, limits.max_result_chars, getattr(self.ctx, "owner", None))
+        return text
 
     async def _dispatch_tool(
         self,

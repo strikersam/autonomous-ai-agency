@@ -469,6 +469,9 @@ def test_flag_off_prompt_differs_from_flag_on_only_by_tool_line(monkeypatch):
         )
         return "\n".join(m["content"] for m in msgs)
 
+    # Code Mode's run_code line also names read_tool_output when it is callable
+    # (tests/test_code_mode.py covers that); keep this a one-line-diff check.
+    monkeypatch.setattr(settings, "agent_code_mode_enabled_raw", "false")
     monkeypatch.setattr(settings, "agent_tool_output_offload_raw", "true")
     on = prompt()
     monkeypatch.setattr(settings, "agent_tool_output_offload_raw", "false")

@@ -342,6 +342,14 @@ class Settings:
         self.agent_delegation_enabled_raw: str = os.environ.get("AGENT_DELEGATION_ENABLED", "false")
         self.agent_delegation_max_per_session: int = _env_int("AGENT_DELEGATION_MAX_PER_SESSION", 5)
 
+        # AGENT_CODE_MODE_ENABLED — lets the executor batch several read-only
+        # tool calls into one run_code program (agent/code_mode.py) instead of
+        # one LLM round trip per call. Default on.
+        self.agent_code_mode_enabled_raw: str = os.environ.get("AGENT_CODE_MODE_ENABLED", "true")
+        # AGENT_CODE_MODE_HOLDOUT_PERCENT — share of steps run WITHOUT run_code
+        # so agent/code_mode_metrics.py can compare the two arms (phase 2).
+        self.agent_code_mode_holdout_percent: int = _env_int("AGENT_CODE_MODE_HOLDOUT_PERCENT", 10)
+
         # ── Code graph (agent/code_graph.py) ────────────────────────────────
         # Structural code queries — who calls a function, what a diff touches —
         # for any of 162 languages, via the codebase-memory-mcp CLI. Opt-in:
@@ -597,6 +605,11 @@ class Settings:
     def agent_delegation_enabled(self) -> bool:
         """True only when an operator switched agent-to-agent delegation on."""
         return self.agent_delegation_enabled_raw.strip().lower() in {"1", "true", "yes", "on"}
+
+    @property
+    def agent_code_mode_enabled(self) -> bool:
+        """True only when an operator switched Code Mode (run_code) on."""
+        return self.agent_code_mode_enabled_raw.strip().lower() in {"1", "true", "yes", "on"}
 
     @property
     def code_graph_enabled(self) -> bool:
