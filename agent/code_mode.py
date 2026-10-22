@@ -505,7 +505,11 @@ class _Interpreter:
             estimate = len(text) + text.count(args[0]) * len(args[1])
         elif name == "join" and args:
             items = list(args[0])
-            estimate = sum(_deep_size(i, self._limits.max_len + 1) for i in items) + len(text) * len(items)
+            # One walk with one budget: sizing each item separately rescans an
+            # aliased element once per reference (Codex review on #1816).
+            size = _deep_size(items, self._limits.max_len + 1)
+            self._ops += size // 100
+            estimate = size + len(text) * len(items)
         if estimate > self._limits.max_len:
             raise CodeModeError(f"line {node.lineno}: {name}() result would exceed {self._limits.max_len} characters")
 
@@ -597,7 +601,9 @@ class _Interpreter:
 
     def _guard_serialise(self, value: Any, node: ast.AST) -> None:
         """Refuse str()/f-string/print of a structure whose text would be huge (aliasing)."""
-        if _deep_size(value, self._limits.max_len) > self._limits.max_len:
+        size = _deep_size(value, self._limits.max_len + 1)
+        self._ops += size // 100
+        if size > self._limits.max_len:
             raise CodeModeError(f"line {getattr(node, 'lineno', '?')}: value too large to turn into text")
 
 

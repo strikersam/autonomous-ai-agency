@@ -368,3 +368,13 @@ def test_run_code_line_names_only_tools_the_prompt_offers(monkeypatch):
     assert "read_file" in line and "head_file" in line
     assert "read_tool_output" not in line and "fetch_url" not in line
     assert code_mode.TOOLS_PLACEHOLDER not in text
+
+
+def test_join_over_aliased_nested_lists_is_bounded():
+    """Codex review on #1816: join used to re-size every aliased element separately."""
+    import time
+
+    started = time.monotonic()
+    out, _ = _run("row = [0] * 100000\nvalues = [row] * 200000\nx = ''.join(values)")
+    assert not out.ok
+    assert time.monotonic() - started < 1.0
