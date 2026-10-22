@@ -829,6 +829,9 @@ class AgentRunner:
             _run_start_time = self._run_started
             _time_budget_s = self._run_budget_s
             time_budget_exceeded = False
+            # Code Mode A/B seed: a run with no session id still needs its own
+            # seed, or step N of every such run would land in the same arm.
+            cm_seed = session_id or f"run-{uuid.uuid4().hex}"
 
             for step in plan.steps[:max_steps]:
                 # Time-budget check: stop early to avoid the hard task-execution
@@ -857,7 +860,7 @@ class AgentRunner:
 
                 step_data = step.model_dump()
                 self._log_event(session_id, "step_start", {"step_id": step_data["id"], "description": step_data["description"]})
-                cm_token = _cm_metrics.begin_step(_cm_metrics.assign_arm(session_id, step_data["id"]))
+                cm_token = _cm_metrics.begin_step(_cm_metrics.assign_arm(cm_seed, step_data["id"]))
                 result = {}
                 try:
                     async with _timed_phase("execute_step", step_id=step_data["id"]):
@@ -1379,6 +1382,11 @@ class AgentRunner:
                 # passed verbatim; older ones are summarised.
                 masked_obs = self.ctx.mask_observations(observations)
                 tool_messages = build_tool_prompt(goal=goal, step=step, observations=masked_obs, remaining_calls=remaining)
+                # run_code's allow-list comes from this base prompt only: the
+                # enrichment and scratchpad added below carry observation text,
+                # and a "- fetch_url(" line in a read file must not re-enable a
+                # tool an operator switched off.
+                base_tool_prompt = str(tool_messages[0].get("content", ""))
                 # ── Harness enrichment: inject tool + skill catalog into tool prompt ───
                 self._inject_enrichment(tool_messages, str(self.tools.root))
                 # Inject ReAct scratchpad trace into the system message so the
@@ -1439,7 +1447,7 @@ class AgentRunner:
                 continue
             if call.tool == "run_code":
                 code_obs = await self._run_code_mode(
-                    call.args, str(tool_messages[0].get("content", "")),
+                    call.args, base_tool_prompt,
                     user_id=user_id, memory_store=memory_store,
                 )
                 observations.append({"tool": "run_code", "result": code_obs})

@@ -29,7 +29,7 @@ import time
 from collections import deque
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
-from statistics import mean, median
+from statistics import mean, median, pstdev
 from typing import Any
 
 from packages.storage import state_persistence as _persist
@@ -242,6 +242,7 @@ def _arm_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "steps": len(rows),
         "llm_calls_mean": round(mean(calls), 2),
         "llm_calls_median": median(calls),
+        "llm_calls_stdev": round(pstdev(calls), 3),
         "prompt_tokens_est_mean": round(mean(chars) / 4),
         "wall_s_mean": round(mean(float(r.get("wall_s", 0)) for r in rows), 2),
         "success_rate": round(sum(1 for r in rows if r.get("status") == "applied") / len(rows), 3),
@@ -287,16 +288,25 @@ def summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
             "success_rate": round(on["success_rate"] - hold["success_rate"], 3),
         }
         if enough:
-            out["verdict"] = _verdict(out["delta_on_vs_holdout"])
+            out["verdict"] = _verdict(out["delta_on_vs_holdout"], on, hold)
     return out
 
 
-def _verdict(delta: dict[str, Any]) -> str:
-    """Plan rule: Code Mode earns its place only if it cuts calls without losing success."""
-    if delta["success_rate"] < -0.02:
+def _verdict(delta: dict[str, Any], on: dict[str, Any], hold: dict[str, Any]) -> str:
+    """Plan rule: Code Mode earns its place only if it cuts calls without losing success.
+
+    A difference counts only when it beats ~95% sampling error (1.96 standard
+    errors), so at 30 steps per arm one unlucky step cannot flip the verdict an
+    operator acts on.
+    """
+    n_on, n_hold = on["steps"], hold["steps"]
+    p_on, p_hold = on["success_rate"], hold["success_rate"]
+    se_success = (p_on * (1 - p_on) / n_on + p_hold * (1 - p_hold) / n_hold) ** 0.5
+    se_calls = (on["llm_calls_stdev"] ** 2 / n_on + hold["llm_calls_stdev"] ** 2 / n_hold) ** 0.5
+    if delta["success_rate"] < -max(0.02, 1.96 * se_success):
         return "worse: fewer steps succeed with run_code"
-    if delta["llm_calls_mean"] < 0 and delta["prompt_tokens_est_mean"] <= 0:
+    if delta["llm_calls_mean"] >= -max(0.1, 1.96 * se_calls):
+        return "no gain: run_code is not cutting calls (beyond noise)"
+    if delta["prompt_tokens_est_mean"] <= 0:
         return "better: fewer calls and tokens, success held"
-    if delta["llm_calls_mean"] < 0:
-        return "mixed: fewer calls but more prompt tokens"
-    return "no gain: run_code is not cutting calls"
+    return "mixed: fewer calls but more prompt tokens"
