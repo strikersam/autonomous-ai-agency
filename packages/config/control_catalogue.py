@@ -236,7 +236,7 @@ _AGENT_RUNTIME: tuple[ControlSpec, ...] = (
         "AGENT_CODE_MODE_ENABLED",
         "Agent Code Mode (run_code)",
         "governance",
-        "false",
+        "true",
         "Lets the executing agent batch several read-only lookups into one small "
         "program (run_code) instead of one model call per tool, so intermediate "
         "results stay out of the prompt. Programs are interpreted, never executed; "
@@ -244,6 +244,18 @@ _AGENT_RUNTIME: tuple[ControlSpec, ...] = (
         "left out of the agent's tool prompt and refused.",
         live=True,
         risk=RISK_MEDIUM,
+    ),
+    _number(
+        "AGENT_CODE_MODE_HOLDOUT_PERCENT",
+        "Code Mode measurement holdout (%)",
+        "governance",
+        "10",
+        "Share of agent steps run without run_code, chosen by a stable hash of "
+        "session and step, as the comparison group for GET "
+        "/api/admin/agent/code-mode/metrics. 0 gives every step run_code and "
+        "stops the comparison.",
+        live=True,
+        maximum=100,
     ),
     _toggle(
         "RUNTIME_EXTERNAL_DISABLED",

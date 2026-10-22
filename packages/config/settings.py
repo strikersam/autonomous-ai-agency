@@ -344,8 +344,11 @@ class Settings:
 
         # AGENT_CODE_MODE_ENABLED — lets the executor batch several read-only
         # tool calls into one run_code program (agent/code_mode.py) instead of
-        # one LLM round trip per call. Default off.
-        self.agent_code_mode_enabled_raw: str = os.environ.get("AGENT_CODE_MODE_ENABLED", "false")
+        # one LLM round trip per call. Default on.
+        self.agent_code_mode_enabled_raw: str = os.environ.get("AGENT_CODE_MODE_ENABLED", "true")
+        # AGENT_CODE_MODE_HOLDOUT_PERCENT — share of steps run WITHOUT run_code
+        # so agent/code_mode_metrics.py can compare the two arms (phase 2).
+        self.agent_code_mode_holdout_percent: int = _env_int("AGENT_CODE_MODE_HOLDOUT_PERCENT", 10)
 
         # ── Code graph (agent/code_graph.py) ────────────────────────────────
         # Structural code queries — who calls a function, what a diff touches —

@@ -71,6 +71,7 @@ The `backend/` app powers the separate React control plane and includes routes f
 - schedules and legacy scheduler compatibility routes
 - governance: posture, policy, approvals, audit, sandboxes, and session budgets (`/api/governance/*`, admin-only)
 - agent token usage per user for the current UTC day: `GET /api/usage/agent-tokens` (the caller's own usage; `401` unauthenticated) and `GET /api/admin/usage/agent-tokens` (every user, highest first; admin only, `403` otherwise). Both return `daily_cap` (`AGENT_USER_TOKENS_PER_DAY`, `0` = off), `tokens_used`, `remaining` (`null` when off) and `exceeded`. Counts are in-memory per process. Implemented in `backend/usage_router.py`
+- Code Mode measurement (phase 2): `GET /api/admin/agent/code-mode/metrics` (admin only, `403` otherwise). Compares agent steps that had `run_code` (arm `on`) with the `AGENT_CODE_MODE_HOLDOUT_PERCENT` holdout: per arm `steps`, `llm_calls_mean`/`median` (tool-selection calls), `prompt_tokens_est_mean` (chars/4), `wall_s_mean`, `success_rate`, `selection_error_rate`; plus `run_code` program `ok_rate`, `inner_calls_per_program` and `errors_by_kind`, `delta_on_vs_holdout`, `enough_data` (≥30 steps per arm) and a `verdict` once there is enough data. Samples are numbers only, kept in memory and in `code_mode_samples` (30-day TTL). Implemented in `backend/code_mode_router.py` and `agent/code_mode_metrics.py`.
 - Telegram bot control-plane (`/api/telegram/*`)
 
 ### SAM (`/agent/sam/*`, authenticated)

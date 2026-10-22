@@ -130,8 +130,26 @@ def code_mode_enabled() -> bool:
 
         return settings.agent_code_mode_enabled
     except Exception as exc:  # noqa: BLE001 - an unreadable setting keeps the safe default (off)
-        log.debug("AGENT_CODE_MODE_ENABLED unreadable, keeping code mode off: %s", exc)
+        log.debug("AGENT_CODE_MODE_ENABLED unreadable, code mode off: %s", exc)
         return False
+
+
+def holdout_percent() -> int:
+    """Share of steps (0-100) kept without run_code as the phase-2 comparison group."""
+    try:
+        from packages.config import settings
+
+        return max(0, min(100, int(settings.agent_code_mode_holdout_percent)))
+    except Exception as exc:  # noqa: BLE001 - an unreadable setting means no holdout
+        log.debug("AGENT_CODE_MODE_HOLDOUT_PERCENT unreadable, no holdout: %s", exc)
+        return 0
+
+
+def code_mode_active() -> bool:
+    """On for this step: switched on, and the step is not in the measurement holdout."""
+    from agent.code_mode_metrics import ARM_HOLDOUT, current_arm
+
+    return code_mode_enabled() and current_arm() != ARM_HOLDOUT
 
 
 _STMT_NODES = (
@@ -628,7 +646,7 @@ async def run_code(
 
 def tool_prompt_lines() -> str:
     """Advertise run_code only while an operator has Code Mode on (rule 19)."""
-    if not code_mode_enabled():
+    if not code_mode_active():
         return ""
     names = ", ".join(sorted(READ_ONLY_TOOLS))
     return (
@@ -646,7 +664,7 @@ def tool_prompt_lines() -> str:
 
 def run_code_example() -> str:
     """One worked example for the tool prompt, or '' while Code Mode is off."""
-    if not code_mode_enabled():
+    if not code_mode_active():
         return ""
     code = (
         "hits = tools.search_code(query='def route', limit=5)\\n"

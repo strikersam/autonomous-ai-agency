@@ -38,6 +38,11 @@ def on(monkeypatch):
     monkeypatch.setattr(settings, "agent_code_mode_enabled_raw", "true")
 
 
+@pytest.fixture()
+def off(monkeypatch):
+    monkeypatch.setattr(settings, "agent_code_mode_enabled_raw", "false")
+
+
 def _prompt_text() -> str:
     msgs = prompts.build_tool_prompt(goal="g", step={"description": "s"}, observations=[], remaining_calls=3)
     return msgs[0]["content"]
@@ -174,8 +179,13 @@ def test_disabled_web_reach_stays_uncallable_from_run_code(monkeypatch):
     assert "fetch_url" not in callable_tools(_prompt_text())
 
 
-def test_off_by_default_and_hidden_from_prompt():
-    assert get_control("AGENT_CODE_MODE_ENABLED").default == "false"
+def test_on_by_default():
+    assert get_control("AGENT_CODE_MODE_ENABLED").default == "true"
+    assert code_mode.code_mode_enabled() is True
+    assert "- run_code(code)" in _prompt_text()
+
+
+def test_switched_off_hides_run_code_from_prompt(off):
     assert code_mode.code_mode_enabled() is False
     assert "run_code(" not in _prompt_text()
 
@@ -194,11 +204,11 @@ def test_platform_control_override_takes_effect():
     control = get_control("AGENT_CODE_MODE_ENABLED")
     assert control is not None and control.live is True
     try:
-        control_overrides.apply_overrides({"AGENT_CODE_MODE_ENABLED": "true"})
-        assert code_mode.code_mode_enabled() is True
+        control_overrides.apply_overrides({"AGENT_CODE_MODE_ENABLED": "false"})
+        assert code_mode.code_mode_enabled() is False
     finally:
         control_overrides.apply_overrides({})
-    assert code_mode.code_mode_enabled() is False
+    assert code_mode.code_mode_enabled() is True
 
 
 # ── AgentRunner seam ───────────────────────────────────────────────────────
@@ -229,10 +239,10 @@ def test_runner_routes_every_inner_call_through_run_tool(on):
     assert json.loads(text)["result"] == ["read_file:a", "read_file:b"]
 
 
-def test_runner_refuses_when_switched_off():
+def test_runner_refuses_when_switched_off(off):
     runner, seen = _runner()
     text = asyncio.run(runner._run_code_mode({"code": "tools.read_file(path='a')"}, "- read_file(path)\n"))
-    assert "switched off" in text and seen == []
+    assert "not available" in text and seen == []
 
 
 # ── regressions from the independent verifier (rule 49) ────────────────────

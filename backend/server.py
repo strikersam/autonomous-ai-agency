@@ -11147,6 +11147,10 @@ app.include_router(
 import backend.usage_router as usage_router_module  # noqa: E402
 app.include_router(usage_router_module.build_usage_router(get_current_user))
 
+# Code Mode phase-2 measurement: run_code arm vs holdout (admin only).
+import backend.code_mode_router as code_mode_router_module  # noqa: E402
+app.include_router(code_mode_router_module.build_code_mode_router(get_current_user))
+
 # Agent governance: identity, policy, approvals, audit trail, sandbox posture.
 # Admin-only and read-mostly (policy is a git-reviewed file, not an editable
 # resource). Mounted defensively — a governance layer that can block startup
