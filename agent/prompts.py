@@ -169,6 +169,23 @@ def build_tool_prompt(
     observations: list[dict[str, Any]],
     remaining_calls: int,
 ) -> list[dict[str, str]]:
+    """Messages for one tool-selection call."""
+    from agent.code_mode import fill_tool_list
+
+    messages = _tool_prompt_messages(
+        goal=goal, step=step, observations=observations, remaining_calls=remaining_calls,
+    )
+    messages[0]["content"] = fill_tool_list(messages[0]["content"])
+    return messages
+
+
+def _tool_prompt_messages(
+    *,
+    goal: str,
+    step: dict[str, Any],
+    observations: list[dict[str, Any]],
+    remaining_calls: int,
+) -> list[dict[str, str]]:
     observed = json.dumps(observations, indent=2)
     return [
         {

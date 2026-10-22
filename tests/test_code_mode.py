@@ -300,8 +300,71 @@ def test_aliased_huge_result_is_not_serialised():
 def test_timeout_interrupts_synchronous_work():
     import time
 
-    src = "l = list(range(10000)) * 19\nfor i in range(10000):\n    l.sort()\n    l.reverse()"
+    src = "l = list(range(10000)) * 2\nfor i in range(10000):\n    l.sort()\n    l.reverse()"
     started = time.monotonic()
     out, _ = _run(src, timeout_s=0.5, max_ops=10 ** 9)
     assert not out.ok and "timed out" in out.error
     assert time.monotonic() - started < 2.0
+
+
+# ── Codex review on #1816: compare-heavy work on aliased lists ─────────────
+
+
+@pytest.mark.parametrize(
+    "src",
+    [
+        "s = 'a' * 199000\nt = 'a' * 198999 + 'b'\nl = [s, t] * 99000\nl.sort()",
+        "s = 'a' * 199000\nl = [s] * 1000\nx = sorted(l)",
+        "s = 'a' * 199000\nl = [s] * 1000\nx = max(l)",
+        "s = 'a' * 199000\nl = [s] * 1000\nx = 'b' in l",
+        "s = 'a' * 199000\nl = [s] * 1000\nx = l == list(l)",
+        "s = 'a' * 199000\nl = [s] * 1000\nx = l.count(s)",
+    ],
+)
+def test_compare_heavy_work_on_aliased_text_is_refused_fast(src):
+    import time
+
+    started = time.monotonic()
+    out, _ = _run(src)
+    assert not out.ok and "too much text" in out.error
+    assert time.monotonic() - started < 0.5
+
+
+def test_ordinary_sort_still_works():
+    out, _ = _run("l = [('a' * 190) + str(i) for i in range(1000)]\nl.sort()\nresult = l[0][-3:]")
+    assert out.ok and out.result == "aa0"
+
+
+def test_event_loop_stays_responsive_during_a_cpu_heavy_program():
+    import time
+
+    async def main() -> float:
+        gaps: list[float] = []
+        done = False
+
+        async def ticker() -> None:
+            last = time.monotonic()
+            while not done:
+                await asyncio.sleep(0.005)
+                now = time.monotonic()
+                gaps.append(now - last)
+                last = now
+
+        task = asyncio.create_task(ticker())
+        src = "l = [str(i % 10) for i in range(10000)] * 6\nfor i in range(1000):\n    l.sort()\n    l.reverse()"
+        await run_code(src, _Recorder(), TOOLS, CodeModeLimits(max_ops=10 ** 9, timeout_s=1.0))
+        done = True
+        await task
+        return max(gaps)
+
+    assert asyncio.run(main()) < 0.25
+
+
+def test_run_code_line_names_only_tools_the_prompt_offers(monkeypatch):
+    monkeypatch.setattr(settings, "agent_tool_output_offload_raw", "false")
+    monkeypatch.setattr("agent.web_reach.web_access_enabled", lambda: False)
+    text = _prompt_text()
+    line = next(ln for ln in text.splitlines() if "Callable from run_code:" in ln)
+    assert "read_file" in line and "head_file" in line
+    assert "read_tool_output" not in line and "fetch_url" not in line
+    assert code_mode.TOOLS_PLACEHOLDER not in text

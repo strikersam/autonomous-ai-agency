@@ -49,6 +49,7 @@ READ_ONLY_TOOLS: frozenset[str] = frozenset({
     "github_read_repo_file", "git_status", "git_diff",
 })
 
+TOOLS_PLACEHOLDER = "<<run_code_tools>>"
 _SIGNATURE_RE = re.compile(r"^- ([a-z][a-z0-9_]*)\(([^)]*)\)", re.MULTILINE)
 _SPEC_WIDTH_RE = re.compile(r"\d+")
 # json.dumps of a result is built in full before truncation; aliasing can make it huge.
@@ -248,6 +249,7 @@ class _Interpreter:
         self._tools = tools
         self._limits = limits
         self._ops = 0
+        self._yielded_at = 0
         self._alloc = 0
         self._deadline = time.monotonic() + limits.timeout_s
         self.env: dict[str, Any] = {}
@@ -266,6 +268,7 @@ class _Interpreter:
 
     async def _stmt(self, node: ast.stmt) -> None:
         self._tick(node)
+        await self._maybe_yield()
         if isinstance(node, ast.Expr):
             self.last_value = await self._eval(node.value)
         elif isinstance(node, ast.Assign):
@@ -289,6 +292,7 @@ class _Interpreter:
         broke = False
         for item in list(await self._eval(node.iter)):
             self._tick(node)
+            await self._maybe_yield()
             await self._assign(node.target, item)
             try:
                 await self._block(node.body)
@@ -379,6 +383,12 @@ class _Interpreter:
         left = await self._eval(node.left)
         for op, comparator in zip(node.ops, node.comparators):
             right = await self._eval(comparator)
+            if isinstance(op, (ast.In, ast.NotIn)):
+                if isinstance(right, (list, tuple)):
+                    self._charge_work(right, node)
+            elif isinstance(left, _CONTAINER_TYPES) or isinstance(right, _CONTAINER_TYPES):
+                self._charge_work(left, node)
+                self._charge_work(right, node)
             if not _CMP_OPS[type(op)](left, right):
                 return False
             left = right
@@ -433,6 +443,7 @@ class _Interpreter:
         first, rest = generators[0], generators[1:]
         for item in list(await self._eval(first.iter)):
             self._tick(first.iter)
+            await self._maybe_yield()
             await self._assign(first.target, item)
             if not all([await self._eval(cond) for cond in first.ifs]):
                 continue
@@ -472,7 +483,10 @@ class _Interpreter:
 
     def _method_call(self, receiver: Any, name: str, args: list[Any], kwargs: dict[str, Any], node: ast.Call) -> Any:
         allowed = _SAFE_METHODS.get(type(receiver), frozenset())
-        self._charge(receiver)
+        if isinstance(receiver, str):
+            self._ops += len(receiver) // 1000
+        elif name in _COMPARE_METHODS:
+            self._charge_work(receiver, node)
         if name not in allowed:
             raise CodeModeError(f"line {node.lineno}: {type(receiver).__name__}.{name}() is not supported")
         if type(receiver) is list and name == "sort" and "key" in kwargs:
@@ -496,8 +510,9 @@ class _Interpreter:
             raise CodeModeError(f"line {node.lineno}: {name}() result would exceed {self._limits.max_len} characters")
 
     def _builtin_call(self, name: str, args: list[Any], kwargs: dict[str, Any], node: ast.Call) -> Any:
-        for arg in args:
-            self._charge(arg)
+        if name in _COMPARE_BUILTINS:
+            for arg in args:
+                self._charge_work(arg, node)
         if name in ("print", "str"):
             for arg in args:
                 self._guard_serialise(arg, node)
@@ -547,10 +562,28 @@ class _Interpreter:
         if self._ops % 64 == 0 and time.monotonic() > self._deadline:
             raise asyncio.TimeoutError()
 
-    def _charge(self, value: Any) -> None:
-        """Bill work proportional to input size, so 50k big sorts cannot stall the loop."""
-        if isinstance(value, _SIZED_TYPES):
-            self._ops += len(value) // 100
+    def _charge_work(self, value: Any, node: ast.AST) -> None:
+        """Bound and bill compare-heavy work by the *text* it touches, not the element count.
+
+        Aliasing (``[long_string] * 100000``) builds a list whose sort or ``in``
+        compares megabytes of text without allocating any, so both the refusal and
+        the step charge use the deep size that the comparisons will actually read.
+        """
+        if not isinstance(value, _CONTAINER_TYPES):
+            return
+        size = _deep_size(value, self._limits.max_len + 1)
+        if size > self._limits.max_len:
+            raise CodeModeError(
+                f"line {getattr(node, 'lineno', '?')}: too much text to sort or compare "
+                f"(over {self._limits.max_len} characters) — filter or slice it first"
+            )
+        self._ops += size // 100
+
+    async def _maybe_yield(self) -> None:
+        """Give the event loop a turn: the walk is synchronous between tool calls."""
+        if self._ops - self._yielded_at >= _YIELD_EVERY:
+            self._yielded_at = self._ops
+            await asyncio.sleep(0)
 
     def _account(self, value: Any, node: ast.AST) -> None:
         """Cap the total size of every value the program builds, not just each one."""
@@ -569,6 +602,10 @@ class _Interpreter:
 
 
 _SEQ_TYPES = (str, bytes, list, tuple)
+_CONTAINER_TYPES = (list, tuple, dict, set)
+_COMPARE_METHODS = frozenset({"sort", "index", "count"})
+_COMPARE_BUILTINS = frozenset({"sorted", "min", "max", "set", "sum"})
+_YIELD_EVERY = 200
 _SIZED_TYPES = (str, bytes, list, tuple, dict, set)
 
 
@@ -648,7 +685,6 @@ def tool_prompt_lines() -> str:
     """Advertise run_code only while an operator has Code Mode on (rule 19)."""
     if not code_mode_active():
         return ""
-    names = ", ".join(sorted(READ_ONLY_TOOLS))
     return (
         "CODE MODE (several read-only tool calls in ONE response — use it when a step needs\n"
         "  more than one lookup; only the value you return comes back to you):\n"
@@ -657,9 +693,16 @@ def tool_prompt_lines() -> str:
         "  `result`, keep it short (slice, filter, count). Supported: assignment, if/for,\n"
         "  comprehensions, f-strings, str/list/dict methods, len/sorted/min/max/sum/\n"
         "  range/enumerate/zip/parse_json/print. Not supported: import, def, lambda,\n"
-        "  while, names starting with '_'. Callable tools (if listed above): "
-        f"{names}.\n"
+        f"  while, names starting with '_'. Callable from run_code: {TOOLS_PLACEHOLDER}.\n"
     )
+
+
+def fill_tool_list(prompt_text: str) -> str:
+    """Name only the read-only tools this prompt really offers (a disabled tool stays hidden)."""
+    if TOOLS_PLACEHOLDER not in prompt_text:
+        return prompt_text
+    names = ", ".join(sorted(callable_tools(prompt_text))) or "(none this step)"
+    return prompt_text.replace(TOOLS_PLACEHOLDER, names)
 
 
 def run_code_example() -> str:
