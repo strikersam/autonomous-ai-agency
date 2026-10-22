@@ -91,6 +91,7 @@ CORE_TOOL_NAMES: frozenset[str] = frozenset({
     "recall_memory",
     "save_memory",
     "spawn_subagent",
+    "run_code",       # Code Mode: batched read-only calls (agent/code_mode.py)
     "github_read_repo_file",
     "github_list_repos",
     "github_list_branches",

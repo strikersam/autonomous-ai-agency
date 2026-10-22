@@ -1426,6 +1426,16 @@ class AgentRunner:
                 scratchpad.record_action(call.tool, call.args)
                 scratchpad.record_observation(tool_result)
                 continue
+            if call.tool == "run_code":
+                code_obs = await self._run_code_mode(
+                    call.args, str(tool_messages[0].get("content", "")),
+                    user_id=user_id, memory_store=memory_store,
+                )
+                observations.append({"tool": "run_code", "result": code_obs})
+                context_items.append({"tool": "run_code", "result": code_obs})
+                scratchpad.record_action("run_code", {"code": str(call.args.get("code", ""))[:200]})
+                scratchpad.record_observation(code_obs)
+                continue
             if call.tool == "spawn_subagent":
                 sub_result = await self._run_tool(
                     "spawn_subagent", call.args, user_id=user_id, memory_store=memory_store,
@@ -1772,6 +1782,34 @@ class AgentRunner:
             except Exception:  # nosec B110 -- KPI tracking is best-effort
                 pass
             return err
+
+    async def _run_code_mode(
+        self,
+        args: dict[str, Any],
+        tool_prompt: str,
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
+    ) -> str:
+        """Run one Code Mode program; each inner tool call goes through _run_tool."""
+        from agent.code_mode import CodeModeLimits, callable_tools, code_mode_enabled, run_code
+        from agent.tool_output_store import offload_hint
+
+        if not code_mode_enabled():
+            return "[run_code is switched off by the operator — call one tool per response]"
+
+        async def _call(name: str, call_args: dict[str, Any]) -> Any:
+            return await self._run_tool(name, call_args, user_id=user_id, memory_store=memory_store)
+
+        limits = CodeModeLimits()
+        outcome = await run_code(str(args.get("code", "")), _call, callable_tools(tool_prompt), limits)
+        self._log_event(
+            getattr(self, "_current_session_id", None), "code_mode",
+            {"ok": outcome.ok, "tool_calls": outcome.calls, "error": outcome.error},
+        )
+        text, truncated = outcome.render(limits.max_result_chars)
+        if truncated:
+            text += offload_hint(outcome.result, limits.max_result_chars, getattr(self.ctx, "owner", None))
+        return text
 
     async def _dispatch_tool(
         self,
