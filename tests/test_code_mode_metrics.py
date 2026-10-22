@@ -215,3 +215,27 @@ def test_metrics_endpoint_is_mounted_and_authenticated_in_the_backend_app():
     from backend.server import app
 
     assert TestClient(app).get("/api/admin/agent/code-mode/metrics").status_code == 401
+
+
+def test_summary_skips_malformed_stored_samples():
+    bad = [
+        {"arm": "on", "llm_calls": "x"},
+        {"arm": "on", "prompt_chars": None, "llm_calls": [1]},
+        {"arm": "on", "run_code_errors": {"a": "z"}},
+        "not a dict",
+        None,
+    ]
+    good = _rows(m.ARM_ON, 2, 3, 800, 2)
+    out = m.summary(bad + good + [{"arm": "holdout", "prompt_chars": None, "run_code_errors": None}])
+    assert out["skipped_samples"] == 5
+    assert out["arms"]["on"]["steps"] == 2 and out["arms"]["holdout"]["steps"] == 1
+
+
+def test_end_step_never_raises_when_recording_fails(monkeypatch):
+    def boom(self, sample):
+        raise RuntimeError("store down")
+
+    monkeypatch.setattr(m.SampleStore, "add", boom)
+    token = m.begin_step(m.ARM_ON)
+    assert m.end_step(token, "applied")["arm"] == "on"
+    assert m.current() is None

@@ -137,7 +137,10 @@ def end_step(token: contextvars.Token, status: str) -> dict[str, Any] | None:
         "wall_s": round(time.monotonic() - stats.started, 3),
         **{k: v for k, v in asdict(stats).items() if k not in ("arm", "started")},
     }
-    get_store().add(sample)
+    try:
+        get_store().add(sample)
+    except Exception as exc:  # noqa: BLE001 - measurement must never mask the step's own outcome
+        log.debug("code mode sample not recorded: %s", exc)
     return sample
 
 
@@ -207,6 +210,29 @@ def reset_store() -> None:
         _store = None
 
 
+_INT_FIELDS = ("llm_calls", "prompt_chars", "selection_errors", "run_code_programs", "run_code_ok", "run_code_inner_calls")
+
+
+def _clean(row: Any) -> dict[str, Any] | None:
+    """Coerce one stored sample to the expected types; ``None`` when it cannot be read.
+
+    Samples come back from a 30-day DB mirror, so one malformed document must not
+    take the whole comparison down.
+    """
+    if not isinstance(row, dict):
+        return None
+    try:
+        clean: dict[str, Any] = {k: int(row.get(k) or 0) for k in _INT_FIELDS}
+        clean["wall_s"] = float(row.get("wall_s") or 0)
+        errors = row.get("run_code_errors") or {}
+        clean["run_code_errors"] = {str(k): int(v) for k, v in errors.items()} if isinstance(errors, dict) else {}
+    except (TypeError, ValueError):
+        return None
+    clean["arm"] = row.get("arm")
+    clean["status"] = row.get("status")
+    return clean
+
+
 def _arm_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
     if not rows:
         return {"steps": 0}
@@ -242,7 +268,8 @@ def _program_stats(rows: list[dict[str, Any]]) -> dict[str, Any]:
 
 def summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
     """Compare the ``on`` and ``holdout`` arms; ``off`` is reported separately."""
-    by_arm = {arm: [s for s in samples if s.get("arm") == arm] for arm in (ARM_ON, ARM_HOLDOUT, ARM_OFF)}
+    rows = [c for c in (_clean(s) for s in samples) if c is not None]
+    by_arm = {arm: [r for r in rows if r["arm"] == arm] for arm in (ARM_ON, ARM_HOLDOUT, ARM_OFF)}
     on, hold = _arm_stats(by_arm[ARM_ON]), _arm_stats(by_arm[ARM_HOLDOUT])
     enough = on["steps"] >= MIN_SAMPLES_PER_ARM and hold["steps"] >= MIN_SAMPLES_PER_ARM
     out: dict[str, Any] = {
@@ -250,6 +277,7 @@ def summary(samples: list[dict[str, Any]]) -> dict[str, Any]:
         "run_code": _program_stats(by_arm[ARM_ON]),
         "min_samples_per_arm": MIN_SAMPLES_PER_ARM,
         "enough_data": enough,
+        "skipped_samples": len(samples) - len(rows),
     }
     if on["steps"] and hold["steps"]:
         out["delta_on_vs_holdout"] = {

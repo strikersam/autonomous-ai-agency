@@ -30,6 +30,7 @@ class CodeModeMetrics(BaseModel):
     run_code: dict[str, Any]
     min_samples_per_arm: int
     enough_data: bool
+    skipped_samples: int = 0
     delta_on_vs_holdout: dict[str, Any] | None = None
     verdict: str | None = None
 
