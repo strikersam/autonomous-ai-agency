@@ -24,6 +24,7 @@ import asyncio
 import contextvars
 import hashlib
 import logging
+import math
 import threading
 import time
 from collections import deque
@@ -224,9 +225,11 @@ def _clean(row: Any) -> dict[str, Any] | None:
     try:
         clean: dict[str, Any] = {k: int(row.get(k) or 0) for k in _INT_FIELDS}
         clean["wall_s"] = float(row.get("wall_s") or 0)
+        if not math.isfinite(clean["wall_s"]):
+            return None
         errors = row.get("run_code_errors") or {}
         clean["run_code_errors"] = {str(k): int(v) for k, v in errors.items()} if isinstance(errors, dict) else {}
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return None
     clean["arm"] = row.get("arm")
     clean["status"] = row.get("status")

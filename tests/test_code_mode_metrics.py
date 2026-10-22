@@ -225,12 +225,15 @@ def test_summary_skips_malformed_stored_samples():
         {"arm": "on", "llm_calls": "x"},
         {"arm": "on", "prompt_chars": None, "llm_calls": [1]},
         {"arm": "on", "run_code_errors": {"a": "z"}},
+        {"arm": "on", "llm_calls": float("inf")},
+        {"arm": "on", "wall_s": float("nan")},
+        {"arm": "on", "run_code_errors": {"a": float("-inf")}},
         "not a dict",
         None,
     ]
     good = _rows(m.ARM_ON, 2, 3, 800, 2)
     out = m.summary(bad + good + [{"arm": "holdout", "prompt_chars": None, "run_code_errors": None}])
-    assert out["skipped_samples"] == 5
+    assert out["skipped_samples"] == 8
     assert out["arms"]["on"]["steps"] == 2 and out["arms"]["holdout"]["steps"] == 1
 
 
