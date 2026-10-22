@@ -378,3 +378,11 @@ def test_join_over_aliased_nested_lists_is_bounded():
     out, _ = _run("row = [0] * 100000\nvalues = [row] * 200000\nx = ''.join(values)")
     assert not out.ok
     assert time.monotonic() - started < 1.0
+
+
+def test_join_of_many_short_strings_under_the_limit_is_allowed():
+    """Codex review on #1817: the size estimate must match join's real output."""
+    out, _ = _run("result = len(','.join(['a'] * 45000))")
+    assert out.ok and out.result == 89999
+    out, _ = _run("x = ','.join(['a'] * 100001)")
+    assert not out.ok and "would exceed" in out.error
