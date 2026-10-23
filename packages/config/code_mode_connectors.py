@@ -16,7 +16,11 @@ reachable without hand-written YAML, and any other API can be added by config:
   An entry with a built-in's name overrides it; ``enabled: false`` turns one off.
 
 Tokens are read here, at call time, from settings or from the environment
-variable an entry names (rule 5); they never reach model-written code.
+variable an entry names (rule 5); they never reach model-written code. A
+built-in's server credential follows the same multi-tenant guard as
+``services/workflow_orchestrator.py:_resolve_push_token``: a user's own token
+wins (GitHub), and the server token serves a user-initiated run only when
+``ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS`` is on.
 """
 from __future__ import annotations
 
@@ -53,6 +57,8 @@ class OpenApiConnectorSpec:
     operations: dict[str, Any] = field(default_factory=dict)
     headers: tuple[tuple[str, str], ...] = ()
     builtin: bool = False
+    # The per-user token this API accepts in place of the server's (only "github").
+    user_token_kind: str = ""
 
 
 def _q(*names: str) -> list[dict[str, Any]]:
@@ -102,6 +108,7 @@ BUILTIN_CONNECTORS: tuple[OpenApiConnectorSpec, ...] = (
         name="github", description="GitHub REST API (repos, issues, pull requests, Actions runs, commits, search)",
         spec_url="", base_url="https://api.github.com", token_setting="gh_pat",
         operations=_GITHUB_PATHS, headers=(("Accept", "application/vnd.github+json"),), builtin=True,
+        user_token_kind="github",
     ),
     OpenApiConnectorSpec(
         name="render", description="Render API (services, deploys, service events)",
@@ -170,17 +177,28 @@ def _load_yaml(path: Path) -> list[Any]:
     except Exception as exc:  # noqa: BLE001 - a broken file must not break the agent
         log.warning("code mode: could not read %s: %s", path, exc)
         return []
-    return list(data.get("connectors") or [])
+    entries = data.get("connectors") if isinstance(data, dict) else None
+    if not isinstance(entries, list):
+        if entries is not None or not isinstance(data, dict):
+            log.warning("code mode: %s must be a mapping with a `connectors` list; ignored", path)
+        return []
+    return entries
 
 
-def openapi_connectors(path: Path | None = None, *, include_builtins: bool = True) -> list[OpenApiConnectorSpec]:
-    """Built-ins whose credential is configured, then config entries (which override by name)."""
+def openapi_connectors(
+    path: Path | None = None, *, include_builtins: bool = True,
+    user_id: str | None = None, user_token: str | None = None,
+) -> list[OpenApiConnectorSpec]:
+    """Built-ins with a token usable by this run, then config entries (which override by name).
+
+    ``user_id`` None is an internal system run; pass the run's user and token otherwise.
+    """
     entries = _load_yaml(path or CONFIG_PATH)
     disabled = {str(e.get("name")) for e in entries if isinstance(e, dict) and e.get("enabled") is False}
     by_name: dict[str, OpenApiConnectorSpec] = {}
     if include_builtins:
         for spec in BUILTIN_CONNECTORS:
-            if spec.name not in disabled and connector_token(spec):
+            if spec.name not in disabled and connector_token(spec, user_id=user_id, user_token=user_token):
                 by_name[spec.name] = spec
     for raw in entries:
         if isinstance(raw, dict) and raw.get("enabled") is False:
@@ -191,8 +209,22 @@ def openapi_connectors(path: Path | None = None, *, include_builtins: bool = Tru
     return list(by_name.values())
 
 
-def connector_token(spec: OpenApiConnectorSpec) -> str | None:
-    """The bearer token for *spec*, read at call time so a rotated secret applies at once."""
+def server_token_allowed(user_id: str | None) -> bool:
+    """Whether a server-held credential may serve this run (mirrors ``_resolve_push_token``)."""
+    if user_id is None:
+        return True
+    flag = os.environ.get("ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS", "")
+    return flag.strip().lower() in ("1", "true", "yes", "on")
+
+
+def connector_token(
+    spec: OpenApiConnectorSpec, *, user_id: str | None = None, user_token: str | None = None,
+) -> str | None:
+    """The bearer token for *spec* on this run, read at call time so a rotated secret applies at once."""
+    if spec.user_token_kind and user_token:
+        return user_token
+    if spec.builtin and not server_token_allowed(user_id):
+        return None
     if spec.token_setting:
         try:
             from packages.config import settings

@@ -437,12 +437,14 @@ async def _read_capped(resp: Any, max_chars: int) -> tuple[str, bool]:
     return "".join(chunks), False
 
 
-def openapi_connectors_from_config() -> dict[str, OpenApiConnector]:
-    """Connectors declared in config/code_mode_openapi.yaml."""
+def openapi_connectors_from_config(
+    *, user_id: str | None = None, user_token: str | None = None,
+) -> dict[str, OpenApiConnector]:
+    """Built-in and config connectors usable by this run (``user_id`` None: a system run)."""
     from packages.config.code_mode_connectors import connector_token, openapi_connectors
 
     out: dict[str, OpenApiConnector] = {}
-    for spec in openapi_connectors():
+    for spec in openapi_connectors(user_id=user_id, user_token=user_token):
         host = urlsplit(spec.base_url).hostname
 
         async def fetch(url: str) -> dict[str, Any]:
@@ -452,7 +454,7 @@ def openapi_connectors_from_config() -> dict[str, OpenApiConnector]:
             return doc
 
         async def send(url: str, query: dict[str, str], _h: dict[str, str], _spec=spec, _host=host) -> Any:
-            token = connector_token(_spec)
+            token = connector_token(_spec, user_id=user_id, user_token=user_token)
             headers = dict(getattr(_spec, "headers", ()) or ())
             if token:
                 headers["Authorization"] = f"Bearer {token}"
@@ -507,6 +509,9 @@ class ConnectorContext:
     mcp_servers: dict[str, McpServer] | None = None
     api_connectors: dict[str, OpenApiConnector] | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+    # Whose run this is; decides whether server-held API tokens may serve it.
+    user_id: str | None = None
+    user_token: str | None = None
 
 
 def build_namespaces(ctx: ConnectorContext, depth: int = 0) -> dict[str, Any]:
@@ -520,7 +525,9 @@ def build_namespaces(ctx: ConnectorContext, depth: int = 0) -> dict[str, Any]:
             namespaces["mcp"] = McpNamespace(servers, ctx.governed)
             discovery.sources.append(_mcp_entries(servers, ctx.governed))
     if _setting("agent_code_mode_openapi"):
-        apis = ctx.api_connectors if ctx.api_connectors is not None else openapi_connectors_from_config()
+        apis = ctx.api_connectors
+        if apis is None:
+            apis = openapi_connectors_from_config(user_id=ctx.user_id, user_token=ctx.user_token)
         if apis:
             namespaces["api"] = ApiNamespace(apis, ctx.governed)
             discovery.sources.append(_api_entries(apis, ctx.governed))

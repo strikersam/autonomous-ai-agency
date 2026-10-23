@@ -1852,6 +1852,7 @@ class AgentRunner:
         namespaces = build_namespaces(ConnectorContext(
             prompt_text=tool_prompt, callable_tools=tools, call_tool=_call,
             governed=self._governed_external, scope=scope_for(user_id),
+            user_id=user_id, user_token=getattr(getattr(self, "github", None), "token", None),
         ))
         outcome = await run_code(str(args.get("code", "")), _call, tools, limits, namespaces=namespaces)
         self._log_event(

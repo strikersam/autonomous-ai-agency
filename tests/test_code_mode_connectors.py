@@ -308,6 +308,54 @@ def test_builtins_switch_on_with_their_credential(monkeypatch, tmp_path):
     assert connector_token(specs["render"]) == "rnd-test"
 
 
+def test_user_runs_never_borrow_the_server_tokens(monkeypatch, tmp_path):
+    """Same guard as workflow_orchestrator._resolve_push_token (Codex P1 on #1821)."""
+    empty = tmp_path / "e.yaml"
+    empty.write_text("connectors: []\n")
+    monkeypatch.setattr(settings, "gh_pat", "gh-server")
+    monkeypatch.setattr(settings, "render_api_key", "rnd-server")
+    monkeypatch.delenv("ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS", raising=False)
+    assert openapi_connectors(empty, user_id="alice") == []
+    specs = {s.name: s for s in openapi_connectors(empty, user_id="alice", user_token="gh-alice")}
+    assert set(specs) == {"github"}
+    assert connector_token(specs["github"], user_id="alice", user_token="gh-alice") == "gh-alice"
+    assert connector_token(specs["github"], user_id="alice") is None
+    monkeypatch.setenv("ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS", "true")
+    specs = {s.name: s for s in openapi_connectors(empty, user_id="alice")}
+    assert connector_token(specs["github"], user_id="alice") == "gh-server" and "render" in specs
+
+
+def test_user_run_namespace_sends_the_users_token(monkeypatch, tmp_path):
+    from packages.config import code_mode_connectors as cfg_mod
+
+    empty = tmp_path / "e.yaml"
+    empty.write_text("connectors: []\n")
+    monkeypatch.setattr(cfg_mod, "CONFIG_PATH", empty)
+    monkeypatch.setattr(settings, "gh_pat", "gh-server")
+    monkeypatch.setattr(settings, "render_api_key", "rnd-server")
+    monkeypatch.delenv("ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS", raising=False)
+    sent: list[dict[str, str]] = []
+
+    async def fake_get(url, query, headers, host, **_kw):
+        sent.append(headers)
+        return {"full_name": "o/r"}
+
+    monkeypatch.setattr(cc, "_guarded_get", fake_get)
+    apis = cc.openapi_connectors_from_config(user_id="alice", user_token="gh-alice")
+    assert set(apis) == {"github"}
+    asyncio.run(apis["github"].send("https://api.github.com/repos/o/r", {}, {}))
+    assert sent[-1]["Authorization"] == "Bearer gh-alice"
+    assert cc.openapi_connectors_from_config(user_id="bob") == {}
+
+
+@pytest.mark.parametrize("body", ["- name: github\n", "connectors: 5\n", "connectors: {a: 1}\n", "just text\n"])
+def test_malformed_connector_yaml_is_ignored_not_raised(monkeypatch, tmp_path, body):
+    _no_tokens(monkeypatch)
+    bad = tmp_path / "bad.yaml"
+    bad.write_text(body)
+    assert openapi_connectors(bad) == []
+
+
 def test_config_can_disable_or_override_a_builtin(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "gh_pat", "gh-test")
     monkeypatch.setattr(settings, "render_api_key", "rnd-test")
