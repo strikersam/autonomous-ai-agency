@@ -5,7 +5,7 @@
   "dependencies": {
     "@tootallnate/once": "^3.0.1",
     "axios": "^1.20.0",
-    "fast-uri": "^4.2.2",
+    "fast-uri": "^4.2.3",
     "livekit-client": "^2.23.0",
     "lucide-react": "^1.58.0",
     "react": "^19.3.1",
