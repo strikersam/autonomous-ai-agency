@@ -490,7 +490,7 @@ loops:
     source: .github/workflows/auto-merge.yml
     self_heal: true
     gate: none
-    purpose: Merge PRs once CI passes (skips drafts, planning, agent/ and dependabot/ branches).
+    purpose: Merge PRs once CI passes on the current head (--match-head-commit; skips drafts, planning, agent/ and dependabot/ branches).
 
   # ── Quality / safety gate loops ─────────────────────────────────────────
   - id: nightly-regression
