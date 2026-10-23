@@ -188,3 +188,32 @@ def test_edit_file_registered_in_capability_registry(tmp_path: Path):
 
     tool_names = {t.name for t in registry._tools.values()}
     assert "edit_file" in tool_names
+
+
+def test_search_and_index_do_not_follow_symlinks_out_of_the_workspace(tmp_path: Path):
+    """A symlink inside the workspace must not leak a file outside it (read_file already refuses)."""
+    root = tmp_path / "repo"
+    root.mkdir()
+    outside = tmp_path / "outside.txt"
+    outside.write_text("TOPSECRET outside the workspace\n", encoding="utf-8")
+    (root / "link.txt").symlink_to(outside)
+    (root / "inside.txt").write_text("TOPSECRET is fine here\n", encoding="utf-8")
+    tools = WorkspaceTools(root)
+
+    hits = tools.search_code("TOPSECRET")
+    assert [h["path"] for h in hits] == ["inside.txt"]
+    assert [e["path"] for e in tools.file_index()] == ["inside.txt"]
+
+
+def test_search_and_index_never_read_secret_files(tmp_path: Path):
+    """risky-module-review checklist: search_code must not expose .env or keys.json content."""
+    root = tmp_path / "repo"
+    root.mkdir()
+    marker = "SECRET_MARKER_VALUE"
+    for name in (".env", ".env.production", "keys.json"):
+        (root / name).write_text(f"X={marker}\n", encoding="utf-8")
+    (root / "app.py").write_text(f"# mentions {marker}\n", encoding="utf-8")
+    tools = WorkspaceTools(root)
+
+    assert [h["path"] for h in tools.search_code(marker)] == ["app.py"]
+    assert [e["path"] for e in tools.file_index()] == ["app.py"]

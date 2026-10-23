@@ -23,6 +23,13 @@ from agent import code_mode_metrics as _cm_metrics
 from agent.context_manager import ContextManager
 from agent.context_pruner import ContextPruner
 from agent.models import AgentPlan, ToolCall, VerificationResult
+from agent.write_gate import (
+    PROPOSAL_TOOLS,
+    WRITE_TOOLS,
+    code_mode_writes_enabled,
+    gated_write,
+    queue_proposal,
+)
 from agent.token_budget import BudgetExceededError, TokenBudget
 from packages.ai.user_token_quota import (
     anthropic_usage_total,
@@ -1465,14 +1472,25 @@ class AgentRunner:
                 scratchpad.record_observation(tool_result)
                 continue
             if call.tool == "run_code":
+                proposals: list[dict[str, Any]] = []
                 code_obs = await self._run_code_mode(
                     call.args, base_tool_prompt,
-                    user_id=user_id, memory_store=memory_store,
+                    user_id=user_id, memory_store=memory_store, proposals=proposals,
                 )
                 observations.append({"tool": "run_code", "result": code_obs})
                 context_items.append({"tool": "run_code", "result": code_obs})
                 scratchpad.record_action("run_code", {"code": str(call.args.get("code", ""))[:200]})
                 scratchpad.record_observation(code_obs)
+                for proposal in proposals:  # phase 6: Verifier, then a human, then the write
+                    gate = await gated_write(
+                        self, proposal["tool"], proposal["args"], goal=goal, step=step,
+                        verifier_model=verifier_model, user_id=user_id, memory_store=memory_store,
+                        require_approval=True,
+                    )
+                    if gate.applied_path and gate.applied_path not in changed_files:
+                        changed_files.append(gate.applied_path)
+                    observations.append({"tool": proposal["tool"], "args": proposal["args"], "result": gate.result})
+                    scratchpad.record_observation(gate.result)
                 continue
             if call.tool == "save_snippet":
                 saved = await self._save_snippet(call.args, user_id)
@@ -1499,6 +1517,19 @@ class AgentRunner:
                 context_items.append({"tool": "spawn_subagent", "result": sub_result})
                 scratchpad.record_action("spawn_subagent", call.args)
                 scratchpad.record_observation(noted)
+                continue
+            if call.tool in WRITE_TOOLS:
+                # Rule 16: a tool-loop write passes syntax, safety and the Verifier first.
+                gate = await gated_write(
+                    self, call.tool, call.args, goal=goal, step=step, verifier_model=verifier_model,
+                    user_id=user_id, memory_store=memory_store,
+                )
+                if gate.applied_path and gate.applied_path not in changed_files:
+                    changed_files.append(gate.applied_path)
+                observations.append({"tool": call.tool, "args": call.args, "result": gate.result})
+                context_items.append({"tool": call.tool, "result": gate.result})
+                scratchpad.record_action(call.tool, call.args)
+                scratchpad.record_observation(gate.result)
                 continue
             scratchpad.record_action(call.tool, call.args)
             self._log_event(session_id, "tool_call", {"tool": call.tool, "args": call.args})
@@ -1538,7 +1569,7 @@ class AgentRunner:
                 "description": step["description"],
                 "status": "skipped",
                 "reason": "No target files identified",
-                "changed_files": [],
+                "changed_files": changed_files,
                 "observations": observations,
                 "models": {"executor": executor_model, "verifier": verifier_model},
             }
@@ -1548,7 +1579,8 @@ class AgentRunner:
                 "step_id": step["id"],
                 "description": step["description"],
                 "status": "applied",
-                "changed_files": [],
+                # Tool-loop writes that passed the write gate (agent/write_gate.py).
+                "changed_files": changed_files,
                 "observations": observations,
                 "models": {"executor": executor_model, "verifier": verifier_model},
             }
@@ -1833,8 +1865,13 @@ class AgentRunner:
         tool_prompt: str,
         user_id: str | None = None,
         memory_store: UserMemoryStore | None = None,
+        proposals: list[dict[str, Any]] | None = None,
     ) -> str:
-        """Run one Code Mode program; each inner tool call goes through _run_tool."""
+        """Run one Code Mode program; each inner tool call goes through _run_tool.
+
+        With ``proposals`` given and AGENT_CODE_MODE_WRITES_ENABLED on, the program's
+        edit_file/write_file calls are queued there instead of run (phase 6).
+        """
         from agent.code_mode import CodeModeLimits, callable_tools, code_mode_active, run_code
         from agent.tool_output_store import offload_hint
 
@@ -1847,11 +1884,15 @@ class AgentRunner:
         from agent.code_mode_connectors import ConnectorContext, build_namespaces
         from agent.code_mode_snippets import scope_for
 
+        writes = proposals is not None and code_mode_writes_enabled()
+
         async def _call(name: str, call_args: dict[str, Any]) -> Any:
+            if writes and name in PROPOSAL_TOOLS:
+                return queue_proposal(proposals, name, call_args)
             return await self._run_tool(name, call_args, user_id=user_id, memory_store=memory_store)
 
         limits = CodeModeLimits()
-        tools = callable_tools(tool_prompt)
+        tools = callable_tools(tool_prompt, writes=writes)
         namespaces = build_namespaces(ConnectorContext(
             prompt_text=tool_prompt, callable_tools=tools, call_tool=_call,
             governed=self._governed_external, scope=scope_for(user_id),

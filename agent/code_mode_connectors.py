@@ -341,7 +341,10 @@ def index_operations(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 def build_url(base_url: str, path: str, params: dict[str, Any], op: dict[str, Any]) -> tuple[str, dict[str, str]]:
     """Fill path parameters, keep declared query parameters, refuse anything else."""
-    declared = {p["name"]: p["in"] for p in op["parameters"]}
+    # A name can be declared in both the path and the query; one value then fills both.
+    declared: dict[str, set[str]] = {}
+    for p in op["parameters"]:
+        declared.setdefault(p["name"], set()).add(p["in"])
     unknown = set(params) - set(declared)
     if unknown:
         raise CodeModeError(f"unknown parameter(s): {', '.join(sorted(unknown))}")
@@ -350,7 +353,7 @@ def build_url(base_url: str, path: str, params: dict[str, Any], op: dict[str, An
         raise CodeModeError(f"missing required parameter(s): {', '.join(missing)}")
     filled = path
     for name, where in declared.items():
-        if where == "path" and name in params:
+        if "path" in where and name in params:
             value = str(params[name])
             # A dot segment would be collapsed by the client and reach an undeclared endpoint.
             if value in ("", ".", "..") or "%" in value:
@@ -358,7 +361,7 @@ def build_url(base_url: str, path: str, params: dict[str, Any], op: dict[str, An
             filled = filled.replace("{" + name + "}", quote(value, safe=""))
     if "{" in filled:
         raise CodeModeError("a path parameter was not supplied")
-    query = {k: str(v) for k, v in params.items() if declared.get(k) == "query"}
+    query = {k: str(v) for k, v in params.items() if "query" in declared.get(k, ())}
     return base_url + filled, query
 
 

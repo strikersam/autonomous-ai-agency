@@ -116,13 +116,16 @@ def tool_signatures(prompt_text: str) -> dict[str, list[str]]:
     return signatures
 
 
-def callable_tools(prompt_text: str) -> dict[str, list[str]]:
-    """Read-only tools the prompt advertises, with their parameter names."""
-    return {
-        name: params
-        for name, params in tool_signatures(prompt_text).items()
-        if name in READ_ONLY_TOOLS
-    }
+def callable_tools(prompt_text: str, *, writes: bool = False) -> dict[str, list[str]]:
+    """Read-only tools the prompt advertises, with their parameter names.
+
+    ``writes`` adds the phase 6 proposal tools (agent/write_gate.py); only the
+    agent loop passes it, and only while AGENT_CODE_MODE_WRITES_ENABLED is on.
+    """
+    from agent.write_gate import PROPOSAL_TOOLS
+
+    allowed = READ_ONLY_TOOLS | PROPOSAL_TOOLS if writes else READ_ONLY_TOOLS
+    return {name: params for name, params in tool_signatures(prompt_text).items() if name in allowed}
 
 
 def code_mode_enabled() -> bool:
@@ -754,6 +757,17 @@ def tool_prompt_lines() -> str:
         "  comprehensions, f-strings, str/list/dict methods, len/sorted/min/max/sum/\n"
         "  range/enumerate/zip/parse_json/print. Not supported: import, def, lambda,\n"
         f"  while, names starting with '_'. Callable from run_code: {TOOLS_PLACEHOLDER}.\n"
+    ) + _writes_line()
+
+
+def _writes_line() -> str:
+    from agent.write_gate import MAX_PROPOSALS, code_mode_writes_enabled
+
+    if not code_mode_writes_enabled():
+        return ""
+    return (
+        f"  Writes (at most {MAX_PROPOSALS}): tools.edit_file/write_file only PROPOSE; each is applied\n"
+        "  after the program if the verifier passes it and a human approves.\n"
     )
 
 
@@ -761,7 +775,9 @@ def fill_tool_list(prompt_text: str) -> str:
     """Name only the read-only tools this prompt really offers (a disabled tool stays hidden)."""
     if TOOLS_PLACEHOLDER not in prompt_text:
         return prompt_text
-    names = ", ".join(sorted(callable_tools(prompt_text))) or "(none this step)"
+    from agent.write_gate import code_mode_writes_enabled
+
+    names = ", ".join(sorted(callable_tools(prompt_text, writes=code_mode_writes_enabled()))) or "(none this step)"
     return prompt_text.replace(TOOLS_PLACEHOLDER, names)
 
 
