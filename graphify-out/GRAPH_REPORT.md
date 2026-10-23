@@ -1,17 +1,17 @@
 # Graph Report - autonomous-ai-agency  (2026-10-23)
 
 ## Corpus Check
-- 1127 files · ~1,844,438 words
+- 1127 files · ~1,844,551 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 57 file(s) not represented in the graph (top: (none) 19, .css 5, .bat 5)
 
 ## Summary
-- 21332 nodes · 42888 edges · 954 communities (755 shown, 199 thin omitted)
+- 21332 nodes · 42889 edges · 954 communities (755 shown, 199 thin omitted)
 - Extraction: 94% EXTRACTED · 6% INFERRED · 0% AMBIGUOUS · INFERRED: 2487 edges (avg confidence: 0.92)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `5bd375d7`
+- Built from commit: `027ff056`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -3952,7 +3952,7 @@ Nodes (16): discover(), _expand(), _is_bot(), _payout_seen(), _publish(), _searc
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `AgentRunner` connect `AgentRunner` to `typing`, `GitHubTools`, `proxy.py`, `.__init__`, `code_mode_mcp_router.py`, `TaskSpec`, `coordinator.py`, `UserMemoryStore`, `WorkflowOrchestrator`, `CEODispatcher`, `RepoConnection`, `ContextManager`, `MCPUnavailableError`, `TokenBudget`, `ReactScratchpad`, `de`, `ContextPruner`, `direct_chat.py`, `Issue #656: Bugs`, `AgentSessionStore`, `failover_client.py`, `build_namespaces`, `loop.py`, `._route`, `ceo_dispatcher.py`, `Agency Core — Ruthless Architecture Audit & Migration Plan`, `race`, `Autonomous SDLC Loop (Agency Core, repo-agnostic)`, `WorkspaceTools`, `Competitor Analysis — Autonomous AI Agency`, `_resolve_brain_provider`, `PolicyEngine`, `pr_gate.py`, `Agent Governance Guide`, `Evidence-driven verification`, `empirical_verify.py`, `user_token_quota.py`, `build_governance_router`, `Security Analysis — local-llm-server`, `backend/server.py`, `Agent: Implementer (Executor)`, `FreeBuffAgent`, `Agent: Implementer (Executor)`, `delegation.py`, `Agency Core — Progress & Resume Log`, `SECTION A — Agent Efficiency (Hermes / AOS / MYT)`, `LocalWorkspace`?**
-  _High betweenness centrality (0.033) - this node is a cross-community bridge._
+  _High betweenness centrality (0.034) - this node is a cross-community bridge._
 - **What connects `docker`, `RENDER_API_KEY`, `react-app` to the rest of the system?**
   _59 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `typing` be split into smaller, more focused modules?**
