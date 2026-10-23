@@ -139,3 +139,9 @@ def test_aliased_huge_result_is_refused_not_serialised(client):
 def test_non_object_arguments_are_a_params_error(client):
     c, _ = client
     assert _rpc(c, "tools/call", {"name": "search", "arguments": "code"})["error"]["code"] == -32602
+
+
+def test_huge_code_is_refused_before_parsing(client):
+    c, _ = client
+    out = _call(c, "search", "x = 1\n" * 10000)
+    assert out["isError"] and "longer than" in out["error"]

@@ -72,6 +72,7 @@ class CodeModeLimits:
     max_range: int = 10_000
     timeout_s: float = 90.0
     max_result_chars: int = 6000
+    max_source_chars: int = 20_000
 
 
 @dataclass
@@ -711,6 +712,9 @@ async def run_code(
     limits = limits or CodeModeLimits()
     if not isinstance(source, str) or not source.strip():
         return CodeModeResult(ok=False, error="run_code needs a non-empty 'code' string")
+    if len(source) > limits.max_source_chars:
+        # Parsing happens before the interpreter's clock starts (Codex on #1818).
+        return CodeModeResult(ok=False, error=f"program longer than {limits.max_source_chars} characters")
     interp = _Interpreter(call_tool, tools, limits, namespaces)
     interp.env.update(initial_env or {})
     try:
