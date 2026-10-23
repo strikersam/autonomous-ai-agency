@@ -120,6 +120,16 @@ BUILTIN_CONNECTORS: tuple[OpenApiConnectorSpec, ...] = (
 )
 
 
+def merge_parameters(shared: list[Any], own: list[Any]) -> list[Any]:
+    """Path-level then operation-level parameters; the operation's wins on the same (name, in)."""
+    merged: dict[Any, Any] = {}
+    for p in [*shared, *own]:
+        key = (str(p.get("name")), str(p.get("in"))) if isinstance(p, dict) else id(p)
+        merged.pop(key, None)
+        merged[key] = p
+    return list(merged.values())
+
+
 def _valid_operations(raw: Any, name: str) -> dict[str, Any] | None:
     """Inline operations: GET only, sane ids and parameter names; None when invalid."""
     if not isinstance(raw, dict):
@@ -131,8 +141,10 @@ def _valid_operations(raw: Any, name: str) -> dict[str, Any] | None:
             log.warning("code mode: connector %s: skipping operation %r (GET with a /path only)", name, path)
             continue
         op_id = str(get.get("operationId") or "")
-        params = get.get("parameters") or []
-        if not _OP_ID_RE.match(op_id) or not all(
+        # Path-level parameters apply to the operation too (OpenAPI path item).
+        shared, own = item.get("parameters") or [], get.get("parameters") or []
+        params = merge_parameters(shared, own) if isinstance(shared, list) and isinstance(own, list) else None
+        if params is None or not _OP_ID_RE.match(op_id) or not all(
             isinstance(p, dict) and _PARAM_RE.match(str(p.get("name", ""))) and p.get("in") in ("path", "query")
             for p in params
         ):
@@ -207,7 +219,11 @@ def openapi_connectors(
     for raw in entries:
         if isinstance(raw, dict) and raw.get("enabled") is False:
             continue
-        spec = _parse(raw)
+        try:
+            spec = _parse(raw)
+        except Exception as exc:  # noqa: BLE001 - one malformed entry must not break the tool prompt
+            log.warning("code mode: skipping malformed connector entry: %s", exc)
+            continue
         if spec is None:
             continue
         # A user run without the opt-in gets an authenticated connector only with its own token.

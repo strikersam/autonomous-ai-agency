@@ -403,7 +403,49 @@ def test_user_run_namespace_sends_the_users_token(monkeypatch, tmp_path):
     assert cc.openapi_connectors_from_config(user_id="bob") == {}
 
 
-@pytest.mark.parametrize("body", ["- name: github\n", "connectors: 5\n", "connectors: {a: 1}\n", "just text\n"])
+def test_inline_path_level_parameters_are_kept(monkeypatch, tmp_path):
+    """Verifier note on #1822: a path-level parameter list was dropped, leaving the op uncallable."""
+    _no_tokens(monkeypatch)
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(
+        "connectors:\n"
+        "  - name: x\n"
+        "    base_url: 'https://x.example.com'\n"
+        "    operations:\n"
+        "      /items/{item_id}:\n"
+        "        parameters: [{name: item_id, in: path, required: true}]\n"
+        "        get: {operationId: get-item, parameters: [{name: fields, in: query}]}\n"
+    )
+    (spec,) = openapi_connectors(cfg)
+    ops = cc.index_operations({"paths": spec.operations})
+    assert [p["name"] for p in ops["get-item"]["parameters"]] == ["item_id", "fields"]
+    url, query = cc.build_url(spec.base_url, "/items/{item_id}", {"item_id": "7", "fields": "a"}, ops["get-item"])
+    assert url == "https://x.example.com/items/7" and query == {"fields": "a"}
+    assert cc.index_operations({"paths": {"/a": {"parameters": 5, "get": {"parameters": {"x": 1}}}}})["get_a"]["parameters"] == []
+
+
+def test_operation_level_parameter_overrides_path_level():
+    """Codex P2 on #1822: the GET-level declaration wins on the same (name, in)."""
+    doc = {"paths": {"/s": {
+        "parameters": [{"name": "q", "in": "query", "required": True}, {"name": "q", "in": "path", "required": True}],
+        "get": {"operationId": "s", "parameters": [{"name": "q", "in": "query", "required": False}]},
+    }}}
+    params = cc.index_operations(doc)["s"]["parameters"]
+    assert sorted((p["name"], p["in"], p["required"]) for p in params) == [("q", "path", True), ("q", "query", False)]
+    from packages.config.code_mode_connectors import _valid_operations
+
+    inline = _valid_operations(doc["paths"], "t")
+    assert len(inline["/s"]["get"]["parameters"]) == 2
+
+
+@pytest.mark.parametrize("body", [
+    "- name: github\n", "connectors: 5\n", "connectors: {a: 1}\n", "just text\n",
+    # Codex P2 on 11de54e: malformed inline operations inside an otherwise valid entry.
+    "connectors:\n  - {name: x, base_url: 'https://x.example.com', operations: {/a: {get: {operationId: a, parameters: 5}}}}\n",
+    "connectors:\n  - {name: x, base_url: 'https://x.example.com', operations: {/a: 5}}\n",
+    "connectors:\n  - {name: x, base_url: 'https://x.example.com', operations: [1, 2]}\n",
+    "connectors:\n  - 5\n  - null\n",
+])
 def test_malformed_connector_yaml_is_ignored_not_raised(monkeypatch, tmp_path, body):
     _no_tokens(monkeypatch)
     bad = tmp_path / "bad.yaml"
