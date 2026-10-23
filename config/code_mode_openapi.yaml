@@ -1,0 +1,21 @@
+# OpenAPI connectors for Code Mode (agent/code_mode_connectors.py).
+#
+# Each connector becomes `api.<name>` inside a run_code program:
+#   api.<name>.search("invoices")        -> matching GET operations
+#   api.<name>.describe("listInvoices")  -> parameters of one operation
+#   api.<name>.call("listInvoices", status="open")
+#
+# Only GET operations are callable. The spec is read host-side, so it costs no
+# prompt tokens. Every request URL, and the spec URL, passes
+# agent/web_reach.unsafe_target_reason() (rule 14) and redirects are refused.
+# A token, when needed, is read from the environment variable named in
+# `auth_env` by packages/config/code_mode_connectors.py and is never shown to
+# the program. Secrets stay in the environment (rule 6); this file holds names only.
+#
+# Example (disabled):
+#   - name: petstore
+#     description: Sample pet store API
+#     spec_url: https://petstore3.swagger.io/api/v3/openapi.json
+#     base_url: https://petstore3.swagger.io/api/v3
+#     auth_env: ""
+connectors: []

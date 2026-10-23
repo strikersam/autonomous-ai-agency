@@ -258,6 +258,60 @@ _AGENT_RUNTIME: tuple[ControlSpec, ...] = (
         maximum=100,
     ),
     _toggle(
+        "AGENT_CODE_MODE_COMPACT_CATALOG",
+        "Code Mode compact tool index",
+        "governance",
+        "false",
+        "While Code Mode is on, give the executor a one-line tool index instead of "
+        "the full tool catalogue; it looks arguments up with tools.describe() inside "
+        "run_code. Cuts prompt size; compare on the Code Mode metrics before keeping it.",
+        live=True,
+        risk=RISK_LOW,
+    ),
+    _toggle(
+        "AGENT_CODE_MODE_MCP_ENABLED",
+        "Code Mode: read-only MCP servers",
+        "governance",
+        "true",
+        "Lets run_code programs call read-only tools of configured MCP servers "
+        "(mcp.render.list_services(), ...). Only tools annotated read-only, or "
+        "list_/get_ tools not marked destructive, are reachable; results are redacted.",
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    _toggle(
+        "AGENT_CODE_MODE_OPENAPI_ENABLED",
+        "Code Mode: OpenAPI connectors",
+        "governance",
+        "true",
+        "Lets run_code programs call GET operations of the APIs declared in "
+        "config/code_mode_openapi.yaml (api.<name>.call(...)). URLs are SSRF-checked, "
+        "redirects refused, tokens stay server-side.",
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    _toggle(
+        "AGENT_CODE_MODE_SNIPPETS_ENABLED",
+        "Code Mode: saved programs",
+        "governance",
+        "true",
+        "Lets agents save a run_code program (save_snippet) and re-run it by name "
+        "(snippets.run) with the same limits and read-only reach.",
+        live=True,
+        risk=RISK_LOW,
+    ),
+    _toggle(
+        "CODE_MODE_MCP_SERVER_ENABLED",
+        "Agency API as a Code Mode MCP server",
+        "governance",
+        "true",
+        "Serves POST /api/code-mode/mcp: two MCP tools (search, execute) that reach the "
+        "agency API from a program, GET only, with the caller's own permissions. "
+        "Off: the endpoint answers 404.",
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    _toggle(
         "RUNTIME_EXTERNAL_DISABLED",
         "Register no external runtimes",
         "agent_runtime",

@@ -13,7 +13,7 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import time
 import asyncio
@@ -297,6 +297,16 @@ def _summarise_tool_result(result: Any) -> str:
 
 class AgentPhaseError(Exception):
     """Raised when a named agent phase (planning, verification, etc.) fails."""
+
+def _compact_if_enabled(prompt_text: str) -> str:
+    """Code Mode phase 3: a one-line tool index instead of the full catalogue, when switched on."""
+    from agent.code_mode import callable_tools, code_mode_active
+    from agent.code_mode_connectors import compact_catalog_enabled, compact_prompt
+
+    if not (code_mode_active() and compact_catalog_enabled()):
+        return prompt_text
+    return compact_prompt(prompt_text, list(callable_tools(prompt_text)))
+
 
 def _handler_params(handler: Any) -> frozenset[str]:
     """Parameter names a registry handler accepts ('' when not introspectable)."""
@@ -1387,6 +1397,7 @@ class AgentRunner:
                 # and a "- fetch_url(" line in a read file must not re-enable a
                 # tool an operator switched off.
                 base_tool_prompt = str(tool_messages[0].get("content", ""))
+                tool_messages[0]["content"] = _compact_if_enabled(base_tool_prompt)
                 # ── Harness enrichment: inject tool + skill catalog into tool prompt ───
                 self._inject_enrichment(tool_messages, str(self.tools.root))
                 # Inject ReAct scratchpad trace into the system message so the
@@ -1454,6 +1465,12 @@ class AgentRunner:
                 context_items.append({"tool": "run_code", "result": code_obs})
                 scratchpad.record_action("run_code", {"code": str(call.args.get("code", ""))[:200]})
                 scratchpad.record_observation(code_obs)
+                continue
+            if call.tool == "save_snippet":
+                saved = await self._save_snippet(call.args, user_id)
+                observations.append({"tool": "save_snippet", "result": saved})
+                scratchpad.record_action("save_snippet", {"name": str(call.args.get("name", ""))[:60]})
+                scratchpad.record_observation(saved)
                 continue
             if call.tool == "spawn_subagent":
                 sub_result = await self._run_tool(
@@ -1819,11 +1836,19 @@ class AgentRunner:
                 stats.record_program(False, 0, "switched off")
             return "[run_code is not available for this step — call one tool per response]"
 
+        from agent.code_mode_connectors import ConnectorContext, build_namespaces
+        from agent.code_mode_snippets import scope_for
+
         async def _call(name: str, call_args: dict[str, Any]) -> Any:
             return await self._run_tool(name, call_args, user_id=user_id, memory_store=memory_store)
 
         limits = CodeModeLimits()
-        outcome = await run_code(str(args.get("code", "")), _call, callable_tools(tool_prompt), limits)
+        tools = callable_tools(tool_prompt)
+        namespaces = build_namespaces(ConnectorContext(
+            prompt_text=tool_prompt, callable_tools=tools, call_tool=_call,
+            governed=self._governed_external, scope=scope_for(user_id),
+        ))
+        outcome = await run_code(str(args.get("code", "")), _call, tools, limits, namespaces=namespaces)
         self._log_event(
             getattr(self, "_current_session_id", None), "code_mode",
             {"ok": outcome.ok, "tool_calls": outcome.calls, "error": outcome.error},
@@ -1834,6 +1859,49 @@ class AgentRunner:
         if truncated:
             text += offload_hint(outcome.result, limits.max_result_chars, getattr(self.ctx, "owner", None))
         return text
+
+    async def _governed_external(
+        self, label: str, args: dict[str, Any], thunk: Callable[[], Awaitable[Any]],
+    ) -> Any:
+        """The governance seam for calls that are not registry tools (mcp.*, api.*)."""
+        from packages.governance.enforcement import governance_enabled
+
+        if not governance_enabled():
+            return await thunk()
+        import time as _time
+
+        from packages.governance.enforcement import get_gate, resolve_identity_for_runner
+
+        gate = get_gate()
+        identity = resolve_identity_for_runner(self, source_ip=None)
+        guard = await gate.guard(identity, label, args)
+        if not guard.allowed:
+            return guard.denial_message
+        started = _time.monotonic()
+        error: str | None = None
+        result: Any = None
+        try:
+            result = await thunk()
+            return result
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            gate.record_result(
+                identity, label, args, guard.decision,
+                result=_summarise_tool_result(result), error=error,
+                duration_ms=(_time.monotonic() - started) * 1000,
+            )
+
+    async def _save_snippet(self, args: dict[str, Any], user_id: str | None) -> str:
+        """The save_snippet tool: store a run_code program for snippets.run (phase 5)."""
+        from agent.code_mode_snippets import get_snippet_store, scope_for, snippets_enabled
+
+        if not snippets_enabled():
+            return "[save_snippet is switched off by the operator]"
+        name, code = args.get("name"), args.get("code")
+        problem = get_snippet_store().save(scope_for(user_id), name, code, str(args.get("description", "")))
+        return f"[save_snippet refused: {problem}]" if problem else f"saved snippet {name!r}; run it with snippets.run({name!r})"
 
     async def _dispatch_tool(
         self,

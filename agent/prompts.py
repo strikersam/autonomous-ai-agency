@@ -152,8 +152,10 @@ def _delegation_tool_lines() -> str:
 def _code_mode_tool_lines() -> str:
     """Advertise run_code only while an operator has Code Mode on (rule 19)."""
     from agent.code_mode import tool_prompt_lines
+    from agent.code_mode_connectors import namespace_prompt_lines, snippet_prompt_lines
 
-    return tool_prompt_lines()
+    lines = tool_prompt_lines()
+    return f"{lines}{namespace_prompt_lines()}{snippet_prompt_lines()}" if lines else ""
 
 
 def _code_mode_example() -> str:
