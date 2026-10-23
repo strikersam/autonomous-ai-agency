@@ -227,6 +227,27 @@ models:
     priority: 32
     speed_tier: fast
 
+  # Qwen3.6 27B: Alibaba Qwen3.6 generation dense 27B on Groq, released 2026-10-21.
+  # Reasoning + non-reasoning mode switching. Supports vision, tool calling.
+  # Context: 131,072 tokens. Max output: 16,384 tokens.
+  # ~464 t/s on Groq LPU. Pricing: $0.60/$3.00 per MTok.
+  # Source: artificialanalysis.ai/models/qwen3-6-27b/providers, 2026-10-23.
+  qwen/qwen3.6-27b:
+    provider: groq
+    display_name: Qwen3.6 27B (Groq)
+    context_window: 131072
+    max_output_tokens: 16384
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 0.60
+    output_cost_per_1m: 3.00
+    priority: 99                    # explicit-only until probed on this account
+    speed_tier: fast
+
   # GPT-OSS-Safeguard-20B: OpenAI safety-reasoning model on GroqCloud (Oct 2025).
   # Fine-tuned from gpt-oss-20b; purpose-built for safety classification — follows
   # explicit user-provided policies and explains decisions. Runs at 1000+ t/s on

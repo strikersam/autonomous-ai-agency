@@ -210,6 +210,12 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "meta-models/muse-spark-open": (1.25, 4.25),
     # --- Groq: Qwen 3.8 27B (added 2026-09-18) ---
     "qwen/qwen3.8-27b": (0.80, 4.00),
+    # --- Groq: Qwen3.6 27B (added 2026-10-23) ---
+    # Dense 27B successor to Qwen 3.8 27B (MoE). Released 2026-10-21 on Groq.
+    # Reasoning + non-reasoning switching; supports vision, tool calling.
+    # ~464 t/s on Groq LPU hardware. Pricing: $0.60/$3.00 per MTok.
+    # Source: artificialanalysis.ai/models/qwen3-6-27b/providers, 2026-10-23.
+    "qwen/qwen3.6-27b": (0.60, 3.00),
     # --- Mistral API (added 2026-09-19) ---
     # Pricing approximate; verify at mistral.ai/pricing before billing-sensitive use.
     # Mistral Large 4 ("Le Chonk", added 2026-10-09) — 1.05T MoE, 49B active.
@@ -253,6 +259,12 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "qwen-max": (2.40, 9.60),             # Qwen2.5-Max — highest capability
     "qwen-turbo": (0.05, 0.10),            # Qwen2.5-Turbo — fast / 1M context
     "qwen-coder-plus": (0.40, 1.20),       # Qwen2.5-Coder-Plus — code executor preset
+    # --- MiniMax (added 2026-10-23) ---
+    # MiniMax M3.1 Flash: lighter/cheaper successor to MiniMax M3. 1M context.
+    # Weights open-sourced 2026-10-23. Supports tool calling.
+    # Pricing: $0.15/$0.60 per MTok (cached: $0.015/$0.015 per MTok).
+    # Source: techenclave.com/news/items/minimax-releases-m3-1-flash, 2026-10-23.
+    "MiniMax-M3.1-Flash": (0.15, 0.60),
     # --- Moonshot / Kimi (added 2026-09-20; Kimi K3 added 2026-10-19) ---
     # Approximate pricing from platform.moonshot.cn/pricing, 2026-09-20.
     # Kimi K3 pricing: $3.00/$15.00 per MTok (Moonshot official, 2026-10-19).
