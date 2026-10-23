@@ -132,7 +132,7 @@ def _valid_operations(raw: Any, name: str) -> dict[str, Any] | None:
             continue
         op_id = str(get.get("operationId") or "")
         params = get.get("parameters") or []
-        if not _OP_ID_RE.match(op_id) or not all(
+        if not isinstance(params, list) or not _OP_ID_RE.match(op_id) or not all(
             isinstance(p, dict) and _PARAM_RE.match(str(p.get("name", ""))) and p.get("in") in ("path", "query")
             for p in params
         ):
@@ -207,7 +207,11 @@ def openapi_connectors(
     for raw in entries:
         if isinstance(raw, dict) and raw.get("enabled") is False:
             continue
-        spec = _parse(raw)
+        try:
+            spec = _parse(raw)
+        except Exception as exc:  # noqa: BLE001 - one malformed entry must not break the tool prompt
+            log.warning("code mode: skipping malformed connector entry: %s", exc)
+            continue
         if spec is None:
             continue
         # A user run without the opt-in gets an authenticated connector only with its own token.
