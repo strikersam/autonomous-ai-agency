@@ -90,7 +90,10 @@ async def _current_text(runner: Any, path: str) -> str:
             text = runner.tools.read_file(path, max_chars=sys.maxsize)
     except Exception:  # noqa: BLE001 - a new file has no current text
         return ""
-    return text if isinstance(text, str) else ""
+    # A denial or tool error arrives as text; it is not the file's content.
+    if not isinstance(text, str) or text.startswith(("[governance]", "[tool error")):
+        return ""
+    return text
 
 
 async def _verifier_verdict(runner: Any, model: str, goal: str, step: dict[str, Any],

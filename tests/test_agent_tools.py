@@ -210,7 +210,7 @@ def test_search_and_index_never_read_secret_files(tmp_path: Path):
     root = tmp_path / "repo"
     root.mkdir()
     marker = "SECRET_MARKER_VALUE"
-    for name in (".env", ".env.production", "keys.json"):
+    for name in (".env", ".env.production", "keys.json", "prod.env"):
         (root / name).write_text(f"X={marker}\n", encoding="utf-8")
     (root / "app.py").write_text(f"# mentions {marker}\n", encoding="utf-8")
     tools = WorkspaceTools(root)

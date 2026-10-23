@@ -105,7 +105,7 @@ class WorkspaceTools:
         # Both names count: a link called notes.txt may point at .env. Case-folded for
         # case-insensitive filesystems.
         for name in {full.name.lower(), os.path.basename(real).lower()}:
-            if name in SECRET_FILENAMES or name.startswith(".env."):
+            if name in SECRET_FILENAMES or name.startswith(".env.") or name.endswith(".env"):
                 return False
         if full.suffix.lower() not in TEXT_EXTENSIONS and full.name != ".gitignore":
             return False

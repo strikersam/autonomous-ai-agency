@@ -95,3 +95,16 @@ def test_large_file_edit_is_previewed_against_the_whole_file(tmp_path, monkeypat
     (root / "app.py").write_text(body, encoding="utf-8")
     _drive(runner, "edit_file", {"path": "app.py", "old_string": "x = 1", "new_string": "x = 2"}, [PASS], monkeypatch)
     assert (root / "app.py").read_text().endswith("x = 2\n")
+
+
+def test_sandbox_read_error_is_not_taken_as_file_content(tmp_path):
+    """CodeRabbit on #1823: a '[tool error ...]' string must not become the preview's original text."""
+    from agent.write_gate import _current_text
+
+    class FakeRunner:
+        _mcp = object()
+
+        async def _dispatch_tool(self, tool, args):
+            return "[tool error: sandbox unreachable]"
+
+    assert asyncio.run(_current_text(FakeRunner(), "app.py")) == ""
