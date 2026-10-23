@@ -403,7 +403,14 @@ def test_user_run_namespace_sends_the_users_token(monkeypatch, tmp_path):
     assert cc.openapi_connectors_from_config(user_id="bob") == {}
 
 
-@pytest.mark.parametrize("body", ["- name: github\n", "connectors: 5\n", "connectors: {a: 1}\n", "just text\n"])
+@pytest.mark.parametrize("body", [
+    "- name: github\n", "connectors: 5\n", "connectors: {a: 1}\n", "just text\n",
+    # Codex P2 on 11de54e: malformed inline operations inside an otherwise valid entry.
+    "connectors:\n  - {name: x, base_url: 'https://x.example.com', operations: {/a: {get: {operationId: a, parameters: 5}}}}\n",
+    "connectors:\n  - {name: x, base_url: 'https://x.example.com', operations: {/a: 5}}\n",
+    "connectors:\n  - {name: x, base_url: 'https://x.example.com', operations: [1, 2]}\n",
+    "connectors:\n  - 5\n  - null\n",
+])
 def test_malformed_connector_yaml_is_ignored_not_raised(monkeypatch, tmp_path, body):
     _no_tokens(monkeypatch)
     bad = tmp_path / "bad.yaml"
