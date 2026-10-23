@@ -165,9 +165,11 @@ def _parse(raw: object) -> OpenApiConnectorSpec | None:
     if auth_env and not _ENV_RE.match(auth_env):
         log.warning("code mode: connector %s has an invalid auth_env name; skipped", name)
         return None
+    # An override of a built-in still accepts the run's own token for that API.
+    user_kind = next((b.user_token_kind for b in BUILTIN_CONNECTORS if b.name == name), "")
     return OpenApiConnectorSpec(
         name, str(raw.get("description") or "")[:200], spec_url, base_url, auth_env,
-        operations=operations or {}, headers=_headers(raw.get("headers")),
+        operations=operations or {}, headers=_headers(raw.get("headers")), user_token_kind=user_kind,
     )
 
 
@@ -206,8 +208,16 @@ def openapi_connectors(
         if isinstance(raw, dict) and raw.get("enabled") is False:
             continue
         spec = _parse(raw)
-        if spec is not None:
-            by_name[spec.name] = spec
+        if spec is None:
+            continue
+        # A user run without the opt-in gets an authenticated connector only with its own token.
+        needs_token = spec.auth_env or spec.user_token_kind
+        if needs_token and not server_token_allowed(user_id) and not connector_token(
+            spec, user_id=user_id, user_token=user_token,
+        ):
+            by_name.pop(spec.name, None)
+            continue
+        by_name[spec.name] = spec
     return list(by_name.values())
 
 
@@ -240,7 +250,8 @@ def connector_token(
         # (proxy.py, telegram_bot.py); that must not slip past the guard.
         if server_token_allowed(user_id) or user_token not in _server_tokens():
             return user_token
-    if spec.builtin and not server_token_allowed(user_id):
+    # Every token this module can read is the server's, built-in or `auth_env`.
+    if (spec.builtin or spec.auth_env) and not server_token_allowed(user_id):
         return None
     if spec.token_setting:
         try:

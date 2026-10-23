@@ -16,6 +16,9 @@
 # agent/web_reach.unsafe_target_reason() (rule 14), the host is pinned to
 # base_url, and redirects are refused. A token is read server-side from the
 # environment variable named in `auth_env` and never shown to the program.
+# Like the built-ins' tokens it is the server's: a user-initiated run gets an
+# `auth_env` connector only when ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS is on
+# (an override named `github` also accepts the run's own GitHub token).
 # Secrets stay in the environment (rule 6); this file holds names only.
 #
 # An entry can describe its API with a `spec_url` (OpenAPI JSON, read host-side,
