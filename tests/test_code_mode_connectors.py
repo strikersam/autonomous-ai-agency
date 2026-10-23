@@ -467,3 +467,26 @@ def test_save_snippet_goes_through_governance(monkeypatch):
 def test_program_source_is_bounded_before_parsing():
     out = asyncio.run(run_code("x = 1\n" * 5000, _Calls(), {}))
     assert not out.ok and "longer than" in out.error
+
+
+def test_query_param_named_url_cannot_change_the_governed_host():
+    doc = {"paths": {"/fetch": {"get": {"operationId": "fetchIt", "parameters": [{"name": "url", "in": "query"}]}}}}
+    spec = OpenApiConnectorSpec("svc", "", "https://api.example.com/o.json", "https://api.example.com")
+    seen: list[dict[str, Any]] = []
+
+    async def fetch(url: str) -> dict[str, Any]:
+        return doc
+
+    async def send(url: str, query: dict[str, str], headers: dict[str, str]) -> Any:
+        return {"ok": True}
+
+    async def gate(label: str, args: dict[str, Any], thunk):
+        seen.append(args)
+        return await thunk()
+
+    ctx = _ctx(_Calls(), api_connectors={"svc": cc.OpenApiConnector(spec, fetch, send)}, governed=gate)
+    out = _run("result = api.svc.call('fetchIt', url='https://allowed.example.org/')", ctx)
+    assert out.ok, out.error
+    call_args = seen[-1]
+    assert call_args["url"] == "https://api.example.com/fetch"
+    assert cc.governance_surface("api.svc.fetchIt", call_args)[1] == "api.example.com"

@@ -350,7 +350,11 @@ class ApiNamespace:
         if op == "describe":
             return {"operation_id": target, **ops[target]}
         url, query = build_url(connector.spec.base_url, ops[target]["path"], kwargs, ops[target])
-        result = await self.governed(f"api.{name}.{target}", {"url": url, **query}, lambda: connector.send(url, query, {}))
+        result = await self.governed(
+            # The real request URL is authoritative for the host check; a query
+            # parameter named "url" must not replace it (Codex on #1819).
+            f"api.{name}.{target}", {"url": url, "query": query}, lambda: connector.send(url, query, {}),
+        )
         return redact(result)
 
 
