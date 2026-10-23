@@ -1,3 +1,21 @@
+# NEXT_ACTION — updated 2026-10-23 (daily automation, branch `claude/intelligent-gates-pc2vqv`)
+
+Qwen3.6 27B (`qwen/qwen3.6-27b`, Groq, $0.60/$3.00/MTok) and MiniMax M3.1 Flash cost entry (`MiniMax-M3.1-Flash`, $0.15/$0.60/MTok) added. 23 tests pass; compileall clean; changelog parity OK; catalogue 98 ids no drift.
+
+## Open items for next daily run
+
+1. **Qwen3.6 27B live probe** — declared at priority 99 (explicit-only). Once the PR merges and the Groq account is probed, lower priority and add to routing candidates.
+
+2. **MiniMax M3.1 Flash TokenIn ID** — confirm `myt/MiniMax-M3.1-Flash-free` is a real TokenIn candidate ID. Add to the `myt/` free section of cost_tracker when confirmed.
+
+3. **DeepSeek V4 Pro tool-call probe** — declared `supports_tools: false` conservatively. Once the NIM account proves the model answers completions, raise a follow-up to set `supports_tools: true` and lower priority from 99.
+
+4. **Groq Llama 4 Scout probe** (`meta-llama/llama-4-scout-17b-16e-instruct`, priority 99) — still pending.
+
+5. **Qwen3.6 27B non-reasoning variant** — research suggests a `qwen/qwen3.6-27b-non-reasoning` variant; confirm model ID format from Groq console before adding.
+
+---
+
 # NEXT_ACTION — updated 2026-10-20 (daily automation, branch `claude/intelligent-gates-x2astt`)
 
 DeepSeek V4 Pro (`deepseek-ai/deepseek-v4-pro`, NVIDIA NIM, free tier) formally declared in `config/llm/models.yaml`. PR [#1812](https://github.com/strikersam/autonomous-ai-agency/pull/1812) open. 14 tests verified; compileall clean; changelog parity OK; catalog consistency: 97 ids, no drift.
