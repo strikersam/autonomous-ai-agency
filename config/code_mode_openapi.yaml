@@ -4,18 +4,36 @@
 #   api.<name>.search("invoices")        -> matching GET operations
 #   api.<name>.describe("listInvoices")  -> parameters of one operation
 #   api.<name>.call("listInvoices", status="open")
+# and tools.search("...") ranks them together with tools and MCP servers.
 #
-# Only GET operations are callable. The spec is read host-side, so it costs no
-# prompt tokens. Every request URL, and the spec URL, passes
-# agent/web_reach.unsafe_target_reason() (rule 14) and redirects are refused.
-# A token, when needed, is read from the environment variable named in
-# `auth_env` by packages/config/code_mode_connectors.py and is never shown to
-# the program. Secrets stay in the environment (rule 6); this file holds names only.
+# Built in, no entry needed (packages/config/code_mode_connectors.py):
+#   github  — GitHub REST API, on when GH_PAT is set
+#   render  — Render API,      on when RENDER_API_KEY is set
+# Their GET operations are declared inline (no spec download). Endpoints that
+# return secret values (Render env vars, secret files) are not included.
 #
-# Example (disabled):
+# Only GET operations are callable. Every request URL, and any spec URL, passes
+# agent/web_reach.unsafe_target_reason() (rule 14), the host is pinned to
+# base_url, and redirects are refused. A token is read server-side from the
+# environment variable named in `auth_env` and never shown to the program.
+# Secrets stay in the environment (rule 6); this file holds names only.
+#
+# An entry can describe its API with a `spec_url` (OpenAPI JSON, read host-side,
+# at most 5 MB) or with inline `operations` (OpenAPI `paths`, GET only). An entry
+# with a built-in's name overrides it; `enabled: false` switches one off.
+#
+# Examples (disabled):
+#   - name: render
+#     enabled: false
 #   - name: petstore
 #     description: Sample pet store API
 #     spec_url: https://petstore3.swagger.io/api/v3/openapi.json
 #     base_url: https://petstore3.swagger.io/api/v3
-#     auth_env: ""
+#   - name: billing
+#     base_url: https://billing.example.com/v2
+#     auth_env: BILLING_API_TOKEN
+#     headers: {Accept: application/json}
+#     operations:
+#       /invoices:
+#         get: {operationId: listInvoices, summary: List invoices, parameters: [{name: status, in: query}]}
 connectors: []

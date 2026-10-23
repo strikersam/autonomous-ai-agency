@@ -298,6 +298,11 @@ def _summarise_tool_result(result: Any) -> str:
 class AgentPhaseError(Exception):
     """Raised when a named agent phase (planning, verification, etc.) fails."""
 
+_RUNNER_BOUND_TOOLS = frozenset({
+    "read_file", "head_file", "list_files", "search_code", "write_file", "file_index",
+})
+
+
 def _compact_if_enabled(prompt_text: str) -> str:
     """Code Mode phase 3: a one-line tool index instead of the full catalogue, when switched on."""
     from agent.code_mode import callable_tools, code_mode_active
@@ -2003,7 +2008,10 @@ class AgentRunner:
         # Try the tool registry first for dynamically registered tools.
         # Falls back to the hardcoded if/elif chain for legacy tools.
         tr = self._get_tool_registry()
-        if tr is not None:
+        # Tools the chain below implements with this runner's workspace and its
+        # sandbox (_mcp) routing must not be shadowed by the process-wide
+        # registry copies, which were bound to the server's own root (bug #9).
+        if tr is not None and tool not in _RUNNER_BOUND_TOOLS:
             tool_def = tr.get(tool)
             if tool_def is not None:
                 # Registry handlers that declare ``workspace_root`` act on the
