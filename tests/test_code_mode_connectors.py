@@ -384,6 +384,25 @@ def test_unified_search_survives_an_unreachable_source():
     assert out.ok and out.result[0].startswith("tools.search_code")
 
 
+def test_unified_search_survives_a_source_raising_a_network_error():
+    async def network_down(label, args, thunk):
+        raise ConnectionError("unreachable")
+
+    ctx = _ctx(_Calls(), mcp_servers={"render": _server([])}, api_connectors=_api([]), governed=network_down)
+    out = _run("result = [hit['call'] for hit in tools.search('grep pattern')]", ctx)
+    assert out.ok, out.error
+    assert out.result[0].startswith("tools.search_code")
+
+
+@pytest.mark.parametrize("bad", ["..", ".", "", "%2e%2e", "a%2Fb"])
+def test_path_parameters_cannot_escape_the_declared_operation(bad):
+    op = {"parameters": [{"name": "owner", "in": "path", "required": True}, {"name": "repo", "in": "path", "required": True}]}
+    with pytest.raises(CodeModeError, match="dot segment"):
+        cc.build_url("https://api.github.com", "/repos/{owner}/{repo}", {"owner": bad, "repo": "user"}, op)
+    url, _ = cc.build_url("https://api.github.com", "/repos/{owner}/{repo}", {"owner": "a.b", "repo": "c..d"}, op)
+    assert url == "https://api.github.com/repos/a.b/c..d"
+
+
 def test_spec_fetch_refuses_oversize_instead_of_truncating(monkeypatch):
     class FakeResp:
         status_code = 200

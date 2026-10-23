@@ -165,7 +165,7 @@ class ToolsDiscovery:
             try:
                 for item in await source():
                     entries.setdefault(item["call"], item)
-            except CodeModeError as exc:  # one unreachable system must not hide the rest
+            except Exception as exc:  # noqa: BLE001 - one unreachable system must not hide the rest
                 log.debug("code mode search: a source was skipped: %s", exc)
         texts = {key: f"{e['call']} {e['description']}" for key, e in entries.items()}
         return [entries[key] for key in _rank(query, texts)]
@@ -348,7 +348,11 @@ def build_url(base_url: str, path: str, params: dict[str, Any], op: dict[str, An
     filled = path
     for name, where in declared.items():
         if where == "path" and name in params:
-            filled = filled.replace("{" + name + "}", quote(str(params[name]), safe=""))
+            value = str(params[name])
+            # A dot segment would be collapsed by the client and reach an undeclared endpoint.
+            if value in ("", ".", "..") or "%" in value:
+                raise CodeModeError(f"path parameter {name!r} must not be empty, a dot segment or percent-encoded")
+            filled = filled.replace("{" + name + "}", quote(value, safe=""))
     if "{" in filled:
         raise CodeModeError("a path parameter was not supplied")
     query = {k: str(v) for k, v in params.items() if declared.get(k) == "query"}
