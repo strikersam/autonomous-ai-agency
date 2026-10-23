@@ -106,13 +106,15 @@ _RENDER_PATHS: dict[str, Any] = {
 BUILTIN_CONNECTORS: tuple[OpenApiConnectorSpec, ...] = (
     OpenApiConnectorSpec(
         name="github", description="GitHub REST API (repos, issues, pull requests, Actions runs, commits, search)",
-        spec_url="", base_url="https://api.github.com", token_setting="gh_pat",
+        spec_url="", base_url="https://api.github.com",
+        token_setting="gh_pat",  # nosec B106 - names a settings attribute, not a secret
         operations=_GITHUB_PATHS, headers=(("Accept", "application/vnd.github+json"),), builtin=True,
         user_token_kind="github",
     ),
     OpenApiConnectorSpec(
         name="render", description="Render API (services, deploys, service events)",
-        spec_url="", base_url="https://api.render.com/v1", token_setting="render_api_key",
+        spec_url="", base_url="https://api.render.com/v1",
+        token_setting="render_api_key",  # nosec B106 - names a settings attribute, not a secret
         operations=_RENDER_PATHS, headers=(("Accept", "application/json"),), builtin=True,
     ),
 )
@@ -217,12 +219,27 @@ def server_token_allowed(user_id: str | None) -> bool:
     return flag.strip().lower() in ("1", "true", "yes", "on")
 
 
+def _server_tokens() -> set[str]:
+    """Every GitHub credential the server itself holds."""
+    try:
+        from packages.config import settings
+
+        held = {str(getattr(settings, "gh_pat", "") or "")}
+    except Exception:  # noqa: BLE001 - no settings: only the environment counts
+        held = set()
+    held |= {os.environ.get(name, "") for name in ("GH_PAT", "GH_TOKEN", "GITHUB_TOKEN")}
+    return {t for t in held if t}
+
+
 def connector_token(
     spec: OpenApiConnectorSpec, *, user_id: str | None = None, user_token: str | None = None,
 ) -> str | None:
     """The bearer token for *spec* on this run, read at call time so a rotated secret applies at once."""
     if spec.user_token_kind and user_token:
-        return user_token
+        # Some callers hand a runner the server's own token as its "user" token
+        # (proxy.py, telegram_bot.py); that must not slip past the guard.
+        if server_token_allowed(user_id) or user_token not in _server_tokens():
+            return user_token
     if spec.builtin and not server_token_allowed(user_id):
         return None
     if spec.token_setting:

@@ -16,6 +16,11 @@ from packages.config import settings
 from packages.config.code_mode_connectors import OpenApiConnectorSpec, connector_token, openapi_connectors
 from packages.config.control_registry import get_control
 
+# Fake values held in names so they read as data, not as hard-coded credentials.
+ALICE_TOKEN = "gh-alice"
+ENV_SERVER_TOKEN = "gh-env-server"
+RENDER_SETTING = "render_api_key"
+
 PROMPT = (
     "Available tools:\n"
     "- read_file(path)\n"
@@ -316,13 +321,30 @@ def test_user_runs_never_borrow_the_server_tokens(monkeypatch, tmp_path):
     monkeypatch.setattr(settings, "render_api_key", "rnd-server")
     monkeypatch.delenv("ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS", raising=False)
     assert openapi_connectors(empty, user_id="alice") == []
-    specs = {s.name: s for s in openapi_connectors(empty, user_id="alice", user_token="gh-alice")}
+    specs = {s.name: s for s in openapi_connectors(empty, user_id="alice", user_token=ALICE_TOKEN)}
     assert set(specs) == {"github"}
-    assert connector_token(specs["github"], user_id="alice", user_token="gh-alice") == "gh-alice"
+    assert connector_token(specs["github"], user_id="alice", user_token=ALICE_TOKEN) == "gh-alice"
     assert connector_token(specs["github"], user_id="alice") is None
     monkeypatch.setenv("ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS", "true")
     specs = {s.name: s for s in openapi_connectors(empty, user_id="alice")}
     assert connector_token(specs["github"], user_id="alice") == "gh-server" and "render" in specs
+
+
+def test_server_token_handed_in_as_the_user_token_is_still_guarded(monkeypatch, tmp_path):
+    """proxy.py builds user runners with github_token=GH_PAT (verifier FAIL on 8071992)."""
+    empty = tmp_path / "e.yaml"
+    empty.write_text("connectors: []\n")
+    monkeypatch.setattr(settings, "gh_pat", "gh-server")
+    monkeypatch.setattr(settings, "render_api_key", "")
+    monkeypatch.delenv("ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS", raising=False)
+    for name in ("GH_PAT", "GH_TOKEN", "GITHUB_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    assert openapi_connectors(empty, user_id="alice", user_token=settings.gh_pat) == []
+    monkeypatch.setenv("GITHUB_TOKEN", ENV_SERVER_TOKEN)
+    assert openapi_connectors(empty, user_id="alice", user_token=ENV_SERVER_TOKEN) == []
+    assert [s.name for s in openapi_connectors(empty, user_id=None, user_token=settings.gh_pat)] == ["github"]
+    monkeypatch.setenv("ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS", "1")
+    assert [s.name for s in openapi_connectors(empty, user_id="alice", user_token=ENV_SERVER_TOKEN)] == ["github"]
 
 
 def test_user_run_namespace_sends_the_users_token(monkeypatch, tmp_path):
@@ -341,7 +363,7 @@ def test_user_run_namespace_sends_the_users_token(monkeypatch, tmp_path):
         return {"full_name": "o/r"}
 
     monkeypatch.setattr(cc, "_guarded_get", fake_get)
-    apis = cc.openapi_connectors_from_config(user_id="alice", user_token="gh-alice")
+    apis = cc.openapi_connectors_from_config(user_id="alice", user_token=ALICE_TOKEN)
     assert set(apis) == {"github"}
     asyncio.run(apis["github"].send("https://api.github.com/repos/o/r", {}, {}))
     assert sent[-1]["Authorization"] == "Bearer gh-alice"
@@ -387,7 +409,7 @@ def test_builtin_catalogue_is_get_only_and_has_no_secret_endpoints():
 def test_inline_operations_need_no_spec_fetch(monkeypatch):
     sent: list[Any] = []
     spec = OpenApiConnectorSpec(
-        "render", "", "", "https://api.render.com/v1", token_setting="render_api_key",
+        "render", "", "", "https://api.render.com/v1", token_setting=RENDER_SETTING,
         operations={"/services": {"get": {"operationId": "list-services", "parameters": [{"name": "limit", "in": "query"}]}}},
         headers=(("Accept", "application/json"),),
     )
