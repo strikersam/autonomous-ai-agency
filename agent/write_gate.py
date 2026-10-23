@@ -17,6 +17,7 @@ the policy mode. An approval that nobody answers expires, and that is a denial.
 from __future__ import annotations
 
 import logging
+import sys
 from dataclasses import dataclass
 from typing import Any
 
@@ -76,9 +77,17 @@ def proposed_content(tool: str, args: dict[str, Any], original: str) -> tuple[st
 
 
 async def _current_text(runner: Any, path: str) -> str:
-    """The file's current text through the runner's own read path (sandbox-aware); '' when absent."""
+    """The file's whole current text (sandbox-aware); '' when absent.
+
+    The full file, not ``read_file``'s 12,000-character view: the preview must be
+    the content the write will really produce, or a large file's edit is checked
+    against a fragment.
+    """
     try:
-        text = await runner._dispatch_tool("read_file", {"path": path})
+        if getattr(runner, "_mcp", None) is not None:
+            text = await runner._dispatch_tool("read_file", {"path": path})
+        else:
+            text = runner.tools.read_file(path, max_chars=sys.maxsize)
     except Exception:  # noqa: BLE001 - a new file has no current text
         return ""
     return text if isinstance(text, str) else ""

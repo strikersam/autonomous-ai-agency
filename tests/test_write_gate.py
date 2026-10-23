@@ -86,3 +86,12 @@ def test_proposed_content_previews_without_writing():
     assert proposed_content("edit_file", {"old_string": "zz", "new_string": "b"}, "a")[0] is None
     assert proposed_content("write_file", {"content": "c"}, "old") == ("c", "")
     assert proposed_content("apply_diff", {}, "old")[0] is None
+
+
+def test_large_file_edit_is_previewed_against_the_whole_file(tmp_path, monkeypatch):
+    """Codex P2 on #1823: read_file caps at 12,000 chars; an edit past that was refused."""
+    runner, root = _runner(tmp_path)
+    body = "# filler\n" * 3000 + "x = 1\n"
+    (root / "app.py").write_text(body, encoding="utf-8")
+    _drive(runner, "edit_file", {"path": "app.py", "old_string": "x = 1", "new_string": "x = 2"}, [PASS], monkeypatch)
+    assert (root / "app.py").read_text().endswith("x = 2\n")
