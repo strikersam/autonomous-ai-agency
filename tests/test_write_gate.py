@@ -268,6 +268,15 @@ def test_sandbox_write_appears_in_the_session_tool_log():
     assert ("tool_call", "edit_file") in kinds and ("tool_result", "edit_file") in kinds
 
 
+def test_session_events_never_carry_file_content():
+    """Codex P1 on #1825: the session store is unscrubbed; proposed content must not reach it."""
+    secret = "AKIA" + "Z" * 16
+    box = _Sandbox({"cfg.py": "x = 1\n"})
+    runner = _SandboxRunner(box)
+    _gate(runner, "write_file", {"path": "cfg.py", "content": f"KEY = '{secret}'\n"})
+    assert runner.events and secret not in repr(runner.events) and "x = 1" not in repr(runner.events)
+
+
 def test_review_chunks_survive_the_scrubber_whole():
     """Verifier FAIL on #1824: redaction lengthened 1,800-char chunks past the 2,000 cut."""
     from agent.write_gate import review_chunks
