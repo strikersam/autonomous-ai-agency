@@ -84,6 +84,50 @@ class PreviewUnavailable(Exception):
     """The current file could not be read, so the write cannot be checked against it."""
 
 
+_NOT_FOUND_MARKERS = ("not found", "notfound", "no such file", "does not exist")
+
+
+async def _governed(runner: Any, tool: str, args: dict[str, Any], thunk: Any) -> Any:
+    """Run *thunk* behind the governance gate under *tool*/*args*, as ``_dispatch_tool`` does.
+
+    Used for sandbox I/O the gate performs directly, so policy is checked against the
+    operation the agent asked for (``edit_file``), not the transport (``write_file``).
+    """
+    import time
+
+    from packages.governance.enforcement import get_gate, governance_enabled, resolve_identity_for_runner
+
+    if not governance_enabled():
+        return await thunk()
+    gate = get_gate()
+    identity = resolve_identity_for_runner(runner, source_ip=None)
+    guard = await gate.guard(identity, tool, args)
+    if not guard.allowed:
+        return guard.denial_message
+    started, result, error = time.monotonic(), None, None
+    try:
+        result = await thunk()
+        return result
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        gate.record_result(identity, tool, args, guard.decision, result=str(result)[:200],
+                           error=error, duration_ms=(time.monotonic() - started) * 1000)
+
+
+async def _sandbox_text(runner: Any, path: str) -> str:
+    """The sandbox's own copy, never the host fallback the dispatcher would use."""
+    try:
+        text = await _governed(runner, "read_file", {"path": path},
+                               lambda: runner._mcp.call_tool("read_file", {"path": path}))
+    except Exception as exc:  # noqa: BLE001 - only a confirmed absence is an empty baseline
+        if any(m in str(exc).lower() for m in _NOT_FOUND_MARKERS):
+            return ""
+        raise PreviewUnavailable(f"the sandbox could not read it: {str(exc)[:160]}") from exc
+    return text
+
+
 async def _current_text(runner: Any, path: str) -> str:
     """The file's whole current text, read through the governed, sandbox-aware dispatch.
 
@@ -93,7 +137,12 @@ async def _current_text(runner: Any, path: str) -> str:
     baseline, and a denied read never leaks content into the Verifier prompt.
     """
     try:
-        text = await runner._dispatch_tool("read_file", {"path": path, "max_chars": PREVIEW_MAX_CHARS + 1})
+        if getattr(runner, "_mcp", None) is not None:
+            text = await _sandbox_text(runner, path)
+        else:
+            text = await runner._dispatch_tool("read_file", {"path": path, "max_chars": PREVIEW_MAX_CHARS + 1})
+    except PreviewUnavailable:
+        raise
     except FileNotFoundError:
         return ""
     except Exception as exc:  # noqa: BLE001 - any other failure is "cannot check", never "empty"
@@ -187,9 +236,14 @@ async def gated_write(runner: Any, tool: str, args: dict[str, Any], *, goal: str
         if not approved:
             return GateOutcome(f"[{tool} not applied: approval {ref}]")
     if getattr(runner, "_mcp", None) is not None:
-        # In a sandbox, write the exact verified bytes through write_file, the one write
-        # the dispatcher routes to the sandbox (edit_file/apply_diff would hit the host copy).
-        result = await runner._run_tool("write_file", {"path": path, "content": new}, user_id=user_id, memory_store=memory_store)
+        # In a sandbox, write the exact verified bytes into the sandbox itself: the registry's
+        # edit_file/apply_diff would hit the host copy, and the dispatcher would fall back to it.
+        # Policy is checked against the operation asked for, not the transport.
+        try:
+            result = await _governed(runner, tool, args, lambda: runner._mcp.call_tool(
+                "write_file", {"path": path, "content": new}))
+        except Exception as exc:  # noqa: BLE001 - a failed sandbox write is reported, never retried on the host
+            result = f"[tool error: sandbox write failed: {str(exc)[:160]}]"
     else:
         result = await runner._run_tool(tool, args, user_id=user_id, memory_store=memory_store)
     failed = isinstance(result, str) and result.startswith(("[tool error", "[governance]"))
