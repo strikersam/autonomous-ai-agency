@@ -298,6 +298,11 @@ def _summarise_tool_result(result: Any) -> str:
 class AgentPhaseError(Exception):
     """Raised when a named agent phase (planning, verification, etc.) fails."""
 
+_RUNNER_BOUND_TOOLS = frozenset({
+    "read_file", "head_file", "list_files", "search_code", "write_file", "file_index",
+})
+
+
 def _compact_if_enabled(prompt_text: str) -> str:
     """Code Mode phase 3: a one-line tool index instead of the full catalogue, when switched on."""
     from agent.code_mode import callable_tools, code_mode_active
@@ -1391,7 +1396,10 @@ class AgentRunner:
                 # keep the tool-selection prompt lean.  Recent observations are
                 # passed verbatim; older ones are summarised.
                 masked_obs = self.ctx.mask_observations(observations)
-                tool_messages = build_tool_prompt(goal=goal, step=step, observations=masked_obs, remaining_calls=remaining)
+                tool_messages = build_tool_prompt(
+                    goal=goal, step=step, observations=masked_obs, remaining_calls=remaining,
+                    api_user=(user_id, getattr(getattr(self, "github", None), "token", None)),
+                )
                 # run_code's allow-list comes from this base prompt only: the
                 # enrichment and scratchpad added below carry observation text,
                 # and a "- fetch_url(" line in a read file must not re-enable a
@@ -1847,6 +1855,7 @@ class AgentRunner:
         namespaces = build_namespaces(ConnectorContext(
             prompt_text=tool_prompt, callable_tools=tools, call_tool=_call,
             governed=self._governed_external, scope=scope_for(user_id),
+            user_id=user_id, user_token=getattr(getattr(self, "github", None), "token", None),
         ))
         outcome = await run_code(str(args.get("code", "")), _call, tools, limits, namespaces=namespaces)
         self._log_event(
@@ -2003,7 +2012,10 @@ class AgentRunner:
         # Try the tool registry first for dynamically registered tools.
         # Falls back to the hardcoded if/elif chain for legacy tools.
         tr = self._get_tool_registry()
-        if tr is not None:
+        # Tools the chain below implements with this runner's workspace and its
+        # sandbox (_mcp) routing must not be shadowed by the process-wide
+        # registry copies, which were bound to the server's own root (bug #9).
+        if tr is not None and tool not in _RUNNER_BOUND_TOOLS:
             tool_def = tr.get(tool)
             if tool_def is not None:
                 # Registry handlers that declare ``workspace_root`` act on the

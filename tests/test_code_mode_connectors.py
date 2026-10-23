@@ -16,6 +16,11 @@ from packages.config import settings
 from packages.config.code_mode_connectors import OpenApiConnectorSpec, connector_token, openapi_connectors
 from packages.config.control_registry import get_control
 
+# Fake values held in names so they read as data, not as hard-coded credentials.
+ALICE_GH = "gh-alice"
+SERVER_ENV_GH = "gh-env-server"
+RENDER_SETTING = "render_api_key"
+
 PROMPT = (
     "Available tools:\n"
     "- read_file(path)\n"
@@ -80,7 +85,7 @@ def test_tools_search_and_describe_only_cover_callable_tools():
     out = _run("result = [tools.search('grep pattern'), tools.describe('read_file')]", _ctx(calls))
     assert out.ok, out.error
     found, described = out.result
-    assert found[0]["name"] == "search_code"
+    assert found[0]["call"] == "tools.search_code(query, limit=20)"
     assert described["signature"] == "read_file(path)"
     assert calls.seen == []
     out = _run("tools.describe('edit_file')", _ctx(calls))
@@ -276,15 +281,243 @@ def test_connector_config_parsing(tmp_path: Path, monkeypatch):
         "  - {name: plain, spec_url: 'http://a.example.com/s.json', base_url: 'https://a.example.com'}\n"
         "  - {name: envbad, spec_url: 'https://a.example.com/s', base_url: 'https://a.example.com', auth_env: 'x y'}\n"
     )
-    specs = openapi_connectors(cfg)
+    specs = openapi_connectors(cfg, include_builtins=False)
     assert [s.name for s in specs] == ["good"] and specs[0].base_url == "https://a.example.com"
     monkeypatch.setenv("GOOD_TOKEN", "tok")
     assert connector_token(specs[0]) == "tok"
-    assert openapi_connectors(tmp_path / "missing.yaml") == []
+    assert openapi_connectors(tmp_path / "missing.yaml", include_builtins=False) == []
 
 
-def test_shipped_config_declares_no_connectors():
-    assert openapi_connectors() == []
+def test_shipped_config_declares_no_extra_connectors():
+    assert openapi_connectors(include_builtins=False) == []
+
+
+# ── hybrid catalogue: built-ins, inline operations, overrides ──────────────
+
+
+def _no_tokens(monkeypatch):
+    monkeypatch.setattr(settings, "gh_pat", "")
+    monkeypatch.setattr(settings, "render_api_key", "")
+
+
+def test_builtins_switch_on_with_their_credential(monkeypatch, tmp_path):
+    empty = tmp_path / "e.yaml"
+    empty.write_text("connectors: []\n")
+    _no_tokens(monkeypatch)
+    assert openapi_connectors(empty) == []
+    monkeypatch.setattr(settings, "gh_pat", "gh-test")
+    assert [s.name for s in openapi_connectors(empty)] == ["github"]
+    monkeypatch.setattr(settings, "render_api_key", "rnd-test")
+    specs = {s.name: s for s in openapi_connectors(empty)}
+    assert set(specs) == {"github", "render"}
+    assert connector_token(specs["render"]) == "rnd-test"
+
+
+def test_user_runs_never_borrow_the_server_tokens(monkeypatch, tmp_path):
+    """Same guard as workflow_orchestrator._resolve_push_token (Codex P1 on #1821)."""
+    empty = tmp_path / "e.yaml"
+    empty.write_text("connectors: []\n")
+    monkeypatch.setattr(settings, "gh_pat", "gh-server")
+    monkeypatch.setattr(settings, "render_api_key", "rnd-server")
+    monkeypatch.delenv("ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS", raising=False)
+    assert openapi_connectors(empty, user_id="alice") == []
+    specs = {s.name: s for s in openapi_connectors(empty, user_id="alice", user_token=ALICE_GH)}
+    assert set(specs) == {"github"}
+    assert connector_token(specs["github"], user_id="alice", user_token=ALICE_GH) == "gh-alice"
+    assert connector_token(specs["github"], user_id="alice") is None
+    monkeypatch.setenv("ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS", "true")
+    specs = {s.name: s for s in openapi_connectors(empty, user_id="alice")}
+    assert connector_token(specs["github"], user_id="alice") == "gh-server" and "render" in specs
+
+
+def test_server_token_handed_in_as_the_user_token_is_still_guarded(monkeypatch, tmp_path):
+    """proxy.py builds user runners with github_token=GH_PAT (verifier FAIL on 8071992)."""
+    empty = tmp_path / "e.yaml"
+    empty.write_text("connectors: []\n")
+    monkeypatch.setattr(settings, "gh_pat", "gh-server")
+    monkeypatch.setattr(settings, "render_api_key", "")
+    monkeypatch.delenv("ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS", raising=False)
+    for name in ("GH_PAT", "GH_TOKEN", "GITHUB_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    assert openapi_connectors(empty, user_id="alice", user_token=settings.gh_pat) == []
+    monkeypatch.setenv("GITHUB_TOKEN", SERVER_ENV_GH)
+    assert openapi_connectors(empty, user_id="alice", user_token=SERVER_ENV_GH) == []
+    assert [s.name for s in openapi_connectors(empty, user_id=None, user_token=settings.gh_pat)] == ["github"]
+    monkeypatch.setenv("ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS", "1")
+    assert [s.name for s in openapi_connectors(empty, user_id="alice", user_token=SERVER_ENV_GH)] == ["github"]
+
+
+def test_auth_env_and_github_override_keep_the_guard(monkeypatch, tmp_path):
+    """Codex P1 on 1f14ac0: an `auth_env: GH_PAT` override must not hand user runs the server token."""
+    _no_tokens(monkeypatch)
+    monkeypatch.setenv("GH_PAT", SERVER_ENV_GH)
+    monkeypatch.setenv("BILLING_KEY", "billing-server")
+    monkeypatch.delenv("ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS", raising=False)
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(
+        "connectors:\n"
+        "  - name: github\n"
+        "    base_url: 'https://api.github.com'\n"
+        "    auth_env: GH_PAT\n"
+        "    operations: {/meta: {get: {operationId: meta}}}\n"
+        "  - name: billing\n"
+        "    base_url: 'https://billing.example.com'\n"
+        "    auth_env: BILLING_KEY\n"
+        "    operations: {/invoices: {get: {operationId: invoices}}}\n"
+        "  - name: public\n"
+        "    base_url: 'https://public.example.com'\n"
+        "    operations: {/x: {get: {operationId: x}}}\n"
+    )
+    assert [s.name for s in openapi_connectors(cfg, user_id="alice")] == ["public"]
+    specs = {s.name: s for s in openapi_connectors(cfg, user_id="alice", user_token=ALICE_GH)}
+    assert set(specs) == {"github", "public"}
+    assert connector_token(specs["github"], user_id="alice", user_token=ALICE_GH) == ALICE_GH
+    assert openapi_connectors(cfg, user_id="alice", user_token=SERVER_ENV_GH)[0].name == "public"
+    system = {s.name: s for s in openapi_connectors(cfg)}
+    assert set(system) == {"github", "billing", "public"}
+    assert connector_token(system["billing"]) == "billing-server"
+    monkeypatch.setenv("ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS", "on")
+    assert len(openapi_connectors(cfg, user_id="alice")) == 3
+
+
+def test_user_run_namespace_sends_the_users_token(monkeypatch, tmp_path):
+    from packages.config import code_mode_connectors as cfg_mod
+
+    empty = tmp_path / "e.yaml"
+    empty.write_text("connectors: []\n")
+    monkeypatch.setattr(cfg_mod, "CONFIG_PATH", empty)
+    monkeypatch.setattr(settings, "gh_pat", "gh-server")
+    monkeypatch.setattr(settings, "render_api_key", "rnd-server")
+    monkeypatch.delenv("ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS", raising=False)
+    sent: list[dict[str, str]] = []
+
+    async def fake_get(url, query, headers, host, **_kw):
+        sent.append(headers)
+        return {"full_name": "o/r"}
+
+    monkeypatch.setattr(cc, "_guarded_get", fake_get)
+    apis = cc.openapi_connectors_from_config(user_id="alice", user_token=ALICE_GH)
+    assert set(apis) == {"github"}
+    asyncio.run(apis["github"].send("https://api.github.com/repos/o/r", {}, {}))
+    assert sent[-1]["Authorization"] == "Bearer gh-alice"
+    assert cc.openapi_connectors_from_config(user_id="bob") == {}
+
+
+@pytest.mark.parametrize("body", ["- name: github\n", "connectors: 5\n", "connectors: {a: 1}\n", "just text\n"])
+def test_malformed_connector_yaml_is_ignored_not_raised(monkeypatch, tmp_path, body):
+    _no_tokens(monkeypatch)
+    bad = tmp_path / "bad.yaml"
+    bad.write_text(body)
+    assert openapi_connectors(bad) == []
+
+
+def test_config_can_disable_or_override_a_builtin(monkeypatch, tmp_path):
+    monkeypatch.setattr(settings, "gh_pat", "gh-test")
+    monkeypatch.setattr(settings, "render_api_key", "rnd-test")
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(
+        "connectors:\n"
+        "  - {name: render, enabled: false}\n"
+        "  - name: github\n"
+        "    base_url: 'https://ghe.example.com/api/v3'\n"
+        "    auth_env: GHE_TOKEN\n"
+        "    operations:\n"
+        "      /meta: {get: {operationId: meta, summary: Meta}}\n"
+    )
+    specs = {s.name: s for s in openapi_connectors(cfg)}
+    assert set(specs) == {"github"} and specs["github"].base_url == "https://ghe.example.com/api/v3"
+    assert not specs["github"].builtin
+
+
+def test_builtin_catalogue_is_get_only_and_has_no_secret_endpoints():
+    from packages.config.code_mode_connectors import BUILTIN_CONNECTORS
+
+    for spec in BUILTIN_CONNECTORS:
+        ops = cc.index_operations({"paths": spec.operations})
+        assert ops and all(set(item) == {"get"} for item in spec.operations.values())
+        for op in ops.values():
+            assert "env-var" not in op["path"] and "secret" not in op["path"]
+
+
+def test_inline_operations_need_no_spec_fetch(monkeypatch):
+    sent: list[Any] = []
+    spec = OpenApiConnectorSpec(
+        "render", "", "", "https://api.render.com/v1", token_setting=RENDER_SETTING,
+        operations={"/services": {"get": {"operationId": "list-services", "parameters": [{"name": "limit", "in": "query"}]}}},
+        headers=(("Accept", "application/json"),),
+    )
+
+    async def fetch(url: str) -> dict[str, Any]:
+        raise AssertionError("inline operations must not fetch a spec")
+
+    async def send(url, query, headers):
+        sent.append((url, query))
+        return [{"service": {"id": "srv-1", "name": "web"}}]
+
+    gated: list[str] = []
+
+    async def gate(label, args, thunk):
+        gated.append(label)
+        return await thunk()
+
+    ctx = _ctx(_Calls(), api_connectors={"render": cc.OpenApiConnector(spec, fetch, send)}, governed=gate)
+    out = _run("result = [s['service']['name'] for s in api.render.call('list-services', limit=5)]", ctx)
+    assert out.ok, out.error
+    assert out.result == ["web"] and sent == [("https://api.render.com/v1/services", {"limit": "5"})]
+    assert gated == ["api.render.list-services"]
+
+
+def test_unified_search_spans_tools_mcp_and_apis():
+    sent: list[Any] = []
+    ctx = _ctx(_Calls(), mcp_servers={"render": _server([])}, api_connectors=_api(sent))
+    out = _run("result = [hit['call'] for hit in tools.search('list pets services logs')]", ctx)
+    assert out.ok, out.error
+    calls = out.result
+    assert any(c.startswith("api.pets.call('listPets'") for c in calls)
+    assert any(c.startswith("mcp.render.list_services") for c in calls)
+    assert all(not c.startswith("mcp.render.trigger_deploy") for c in calls)
+
+
+def test_unified_search_survives_an_unreachable_source():
+    async def deny_all(label, args, thunk):
+        return "[governance] deny: no (rule x)"
+
+    ctx = _ctx(_Calls(), mcp_servers={"render": _server([])}, api_connectors=_api([]), governed=deny_all)
+    out = _run("result = [hit['call'] for hit in tools.search('grep pattern')]", ctx)
+    assert out.ok and out.result[0].startswith("tools.search_code")
+
+
+def test_unified_search_survives_a_source_raising_a_network_error():
+    async def network_down(label, args, thunk):
+        raise ConnectionError("unreachable")
+
+    ctx = _ctx(_Calls(), mcp_servers={"render": _server([])}, api_connectors=_api([]), governed=network_down)
+    out = _run("result = [hit['call'] for hit in tools.search('grep pattern')]", ctx)
+    assert out.ok, out.error
+    assert out.result[0].startswith("tools.search_code")
+
+
+@pytest.mark.parametrize("bad", ["..", ".", "", "%2e%2e", "a%2Fb"])
+def test_path_parameters_cannot_escape_the_declared_operation(bad):
+    op = {"parameters": [{"name": "owner", "in": "path", "required": True}, {"name": "repo", "in": "path", "required": True}]}
+    with pytest.raises(CodeModeError, match="dot segment"):
+        cc.build_url("https://api.github.com", "/repos/{owner}/{repo}", {"owner": bad, "repo": "user"}, op)
+    url, _ = cc.build_url("https://api.github.com", "/repos/{owner}/{repo}", {"owner": "a.b", "repo": "c..d"}, op)
+    assert url == "https://api.github.com/repos/a.b/c..d"
+
+
+def test_spec_fetch_refuses_oversize_instead_of_truncating(monkeypatch):
+    class FakeResp:
+        status_code = 200
+        is_redirect = False
+
+        async def aiter_text(self):
+            for _ in range(10):
+                yield "x" * 1000
+
+    out = asyncio.run(cc._read_capped(FakeResp(), 2500))
+    assert out == ("x" * 2500, True)
+    assert asyncio.run(cc._read_capped(FakeResp(), 20_000)) == ("x" * 10_000, False)
 
 
 # ── phase 5: snippets ──────────────────────────────────────────────────────
@@ -353,6 +586,27 @@ def test_prompt_advertises_enabled_namespaces_only(monkeypatch):
     text = _tool_prompt()
     assert "snippets.run(" not in text and "save_snippet" not in text
     assert "save_snippet" not in callable_tools(text)
+
+
+def test_prompt_lists_only_the_apis_this_run_can_call(monkeypatch, tmp_path):
+    """Codex P2 on 06ce1f3: a user run must not be told about system-only connectors."""
+    from packages.config import code_mode_connectors as cfg_mod
+
+    empty = tmp_path / "e.yaml"
+    empty.write_text("connectors: []\n")
+    monkeypatch.setattr(cfg_mod, "CONFIG_PATH", empty)
+    monkeypatch.setattr(settings, "gh_pat", "gh-server")
+    monkeypatch.setattr(settings, "render_api_key", "rnd-server")
+    monkeypatch.delenv("ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS", raising=False)
+
+    def prompt(api_user):
+        return prompts.build_tool_prompt(
+            goal="g", step={"description": "s"}, observations=[], remaining_calls=3, api_user=api_user,
+        )[0]["content"]
+
+    assert "APIs: github, render." in prompt(None)
+    assert "APIs (GET only)" not in prompt(("alice", None))
+    assert "APIs: github." in prompt(("alice", ALICE_GH))
 
 
 @pytest.mark.parametrize(
