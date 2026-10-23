@@ -1,7 +1,7 @@
 # Graph Report - autonomous-ai-agency  (2026-10-23)
 
 ## Corpus Check
-- 1128 files · ~1,846,380 words
+- 1128 files · ~1,846,402 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 57 file(s) not represented in the graph (top: (none) 19, .css 5, .bat 5)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `66c8ef5a`
+- Built from commit: `3bc701d4`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -3696,7 +3696,7 @@ Nodes (8): agent_scope(), attempt(), pick(), _publish(), rejection_summary(), ru
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `AgentRunner` connect `AgentRunner` to `typing`, `GitHubTools`, `proxy.py`, `.__init__`, `TaskSpec`, `.delegate`, `WorkspaceTools`, `AgentJobRequest`, `CEODispatcher`, `WorkflowOrchestrator`, `RepoConnection`, `Security Analysis — local-llm-server`, `ContextManager`, `TokenBudget`, `MCPUnavailableError`, `Agent: Implementer (Executor)`, `de`, `ContextPruner`, `direct_chat.py`, `AgentSessionStore`, `failover_client.py`, `agent/code_mode_connectors.py`, `loop.py`, `skill_registry.py`, `UserMemoryStore`, `ReactScratchpad`, `race`, `Intent: adopt the rest of the AI-native SDLC playbook`, `build_tool_prompt`, `PolicyEngine`, `Autonomous SDLC Loop (Agency Core, repo-agnostic)`, `write_gate.py`, `pr_gate.py`, `._dispatch_tool`, `empirical_verify.py`, `EvidenceReport`, `Issue #656: Bugs`, `FreeBuffAgent`, `Agent: Implementer (Executor)`, `Competitor Analysis — Autonomous AI Agency`, `Agency Core — Progress & Resume Log`, `SECTION A — Agent Efficiency (Hermes / AOS / MYT)`, `backend/server.py`, `LocalWorkspace`, `judge_brief.py`?**
-  _High betweenness centrality (0.045) - this node is a cross-community bridge._
+  _High betweenness centrality (0.044) - this node is a cross-community bridge._
 - **What connects `docker`, `RENDER_API_KEY`, `react-app` to the rest of the system?**
   _59 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `typing` be split into smaller, more focused modules?**
