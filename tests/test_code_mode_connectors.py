@@ -424,6 +424,20 @@ def test_inline_path_level_parameters_are_kept(monkeypatch, tmp_path):
     assert cc.index_operations({"paths": {"/a": {"parameters": 5, "get": {"parameters": {"x": 1}}}}})["get_a"]["parameters"] == []
 
 
+def test_operation_level_parameter_overrides_path_level():
+    """Codex P2 on #1822: the GET-level declaration wins on the same (name, in)."""
+    doc = {"paths": {"/s": {
+        "parameters": [{"name": "q", "in": "query", "required": True}, {"name": "q", "in": "path", "required": True}],
+        "get": {"operationId": "s", "parameters": [{"name": "q", "in": "query", "required": False}]},
+    }}}
+    params = cc.index_operations(doc)["s"]["parameters"]
+    assert sorted((p["name"], p["in"], p["required"]) for p in params) == [("q", "path", True), ("q", "query", False)]
+    from packages.config.code_mode_connectors import _valid_operations
+
+    inline = _valid_operations(doc["paths"], "t")
+    assert len(inline["/s"]["get"]["parameters"]) == 2
+
+
 @pytest.mark.parametrize("body", [
     "- name: github\n", "connectors: 5\n", "connectors: {a: 1}\n", "just text\n",
     # Codex P2 on 11de54e: malformed inline operations inside an otherwise valid entry.

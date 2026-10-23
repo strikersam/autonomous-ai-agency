@@ -120,6 +120,16 @@ BUILTIN_CONNECTORS: tuple[OpenApiConnectorSpec, ...] = (
 )
 
 
+def merge_parameters(shared: list[Any], own: list[Any]) -> list[Any]:
+    """Path-level then operation-level parameters; the operation's wins on the same (name, in)."""
+    merged: dict[Any, Any] = {}
+    for p in [*shared, *own]:
+        key = (str(p.get("name")), str(p.get("in"))) if isinstance(p, dict) else id(p)
+        merged.pop(key, None)
+        merged[key] = p
+    return list(merged.values())
+
+
 def _valid_operations(raw: Any, name: str) -> dict[str, Any] | None:
     """Inline operations: GET only, sane ids and parameter names; None when invalid."""
     if not isinstance(raw, dict):
@@ -133,7 +143,7 @@ def _valid_operations(raw: Any, name: str) -> dict[str, Any] | None:
         op_id = str(get.get("operationId") or "")
         # Path-level parameters apply to the operation too (OpenAPI path item).
         shared, own = item.get("parameters") or [], get.get("parameters") or []
-        params = shared + own if isinstance(shared, list) and isinstance(own, list) else None
+        params = merge_parameters(shared, own) if isinstance(shared, list) and isinstance(own, list) else None
         if params is None or not _OP_ID_RE.match(op_id) or not all(
             isinstance(p, dict) and _PARAM_RE.match(str(p.get("name", ""))) and p.get("in") in ("path", "query")
             for p in params

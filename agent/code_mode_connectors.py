@@ -318,6 +318,8 @@ class OpenApiConnector:
 
 def index_operations(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """GET operations of an OpenAPI document keyed by operationId (or a derived id)."""
+    from packages.config.code_mode_connectors import merge_parameters
+
     ops: dict[str, dict[str, Any]] = {}
     for path, item in (document.get("paths") or {}).items():
         get = item.get("get") if isinstance(item, dict) else None
@@ -325,7 +327,7 @@ def index_operations(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
             continue
         op_id = str(get.get("operationId") or "get_" + re.sub(r"[^a-z0-9]+", "_", path.lower()).strip("_"))
         lists = [x if isinstance(x, list) else [] for x in (item.get("parameters"), get.get("parameters"))]
-        params = [p for p in lists[0] + lists[1] if isinstance(p, dict)]
+        params = [p for p in merge_parameters(lists[0], lists[1]) if isinstance(p, dict)]
         ops[op_id] = {
             "path": path,
             "summary": str(get.get("summary") or get.get("description") or "")[:200],
