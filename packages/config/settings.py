@@ -355,6 +355,9 @@ class Settings:
         self.agent_code_mode_mcp_raw: str = os.environ.get("AGENT_CODE_MODE_MCP_ENABLED", "true")
         self.agent_code_mode_openapi_raw: str = os.environ.get("AGENT_CODE_MODE_OPENAPI_ENABLED", "true")
         self.agent_code_mode_snippets_raw: str = os.environ.get("AGENT_CODE_MODE_SNIPPETS_ENABLED", "true")
+        # Phase 6 (agent/write_gate.py): programs may propose writes, applied only after
+        # the Verifier and a human approve. Off unless an operator turns it on.
+        self.agent_code_mode_writes_raw: str = os.environ.get("AGENT_CODE_MODE_WRITES_ENABLED", "false")
         self.code_mode_mcp_server_raw: str = os.environ.get("CODE_MODE_MCP_SERVER_ENABLED", "true")
 
         # ── Code graph (agent/code_graph.py) ────────────────────────────────
@@ -636,6 +639,11 @@ class Settings:
     def agent_code_mode_snippets(self) -> bool:
         """True when agents may save run_code programs and re-run them (snippets.run)."""
         return self._truthy(self.agent_code_mode_snippets_raw)
+
+    @property
+    def agent_code_mode_writes(self) -> bool:
+        """True when run_code programs may propose edit_file/write_file calls (approval-gated)."""
+        return self._truthy(self.agent_code_mode_writes_raw)
 
     @property
     def code_mode_mcp_server(self) -> bool:

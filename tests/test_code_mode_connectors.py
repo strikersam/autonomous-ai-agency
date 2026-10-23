@@ -786,3 +786,13 @@ def test_query_param_named_url_cannot_change_the_governed_host():
     call_args = seen[-1]
     assert call_args["url"] == "https://api.example.com/fetch"
     assert cc.governance_surface("api.svc.fetchIt", call_args)[1] == "api.example.com"
+
+
+def test_same_name_in_path_and_query_fills_both():
+    """Verifier note on #1822: a name declared in both locations lost its path slot."""
+    op = {"parameters": [
+        {"name": "q", "in": "path", "required": True}, {"name": "q", "in": "query", "required": False},
+    ]}
+    assert cc.build_url("https://x.example.com", "/s/{q}", {"q": "v"}, op) == ("https://x.example.com/s/v", {"q": "v"})
+    with pytest.raises(CodeModeError, match="missing required"):
+        cc.build_url("https://x.example.com", "/s/{q}", {}, op)

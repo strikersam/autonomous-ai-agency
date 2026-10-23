@@ -143,7 +143,27 @@ function PostureHeader({ status, metrics }) {
 // (the server enforces both; the buttons are hidden so the UI does not promise it).
 function canGrant(a) {
   const sid = String(a.session_id || '').trim();
+  // A Code Mode write is reviewed one proposal at a time; a session grant would not apply to it.
+  if (String(a.action || '').startsWith('code_mode.')) return false;
   return Boolean(sid) && sid !== 'anonymous' && a.surface !== 'credential';
+}
+
+// What is being approved: the target path and diff of a proposed write, and any other arguments.
+function ApprovalDetails({ args }) {
+  if (!args || typeof args !== 'object' || !Object.keys(args).length) return null;
+  const { path, diff, ...rest } = args;
+  const box = {
+    marginTop: 6, padding: '8px 10px', borderRadius: 8, maxHeight: 260, overflow: 'auto',
+    background: 'var(--surface-2, color-mix(in oklab, var(--text) 5%, transparent))',
+    fontFamily: 'var(--font-mono)', fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+  };
+  return (
+    <div data-testid="approval-details" style={{ marginTop: 6 }}>
+      {path && <div style={{ fontSize: 13 }}>File: <code style={{ fontFamily: 'var(--font-mono)' }}>{String(path)}</code></div>}
+      {diff && <pre aria-label="Proposed change" style={box}>{String(diff)}</pre>}
+      {Object.keys(rest).length > 0 && <pre aria-label="Arguments" style={box}>{JSON.stringify(rest, null, 2)}</pre>}
+    </div>
+  );
 }
 
 const STICKY_BTN = {
@@ -181,6 +201,7 @@ function Approvals({ approvals, onResolve, busyId, grantsEnabled }) {
               <div style={{ fontSize:13, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', marginTop: 3 }}>
                 rule {a.rule_id} · expires in {Math.round(a.seconds_remaining)}s
               </div>
+              <ApprovalDetails args={a.arguments} />
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <button

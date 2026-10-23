@@ -301,6 +301,17 @@ _AGENT_RUNTIME: tuple[ControlSpec, ...] = (
         risk=RISK_LOW,
     ),
     _toggle(
+        "AGENT_CODE_MODE_WRITES_ENABLED",
+        "Code Mode: writes behind approval",
+        "governance",
+        "false",
+        "Lets a run_code program propose edit_file/write_file calls (at most 5). Each is "
+        "applied only after the syntax and safety checks, the Verifier, and a human approval "
+        "in the Approvals queue; an unanswered approval expires and is denied.",
+        live=True,
+        risk=RISK_HIGH,
+    ),
+    _toggle(
         "CODE_MODE_MCP_SERVER_ENABLED",
         "Agency API as a Code Mode MCP server",
         "governance",
