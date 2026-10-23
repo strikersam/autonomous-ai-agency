@@ -1872,9 +1872,15 @@ class AgentRunner:
 
         from packages.governance.enforcement import get_gate, resolve_identity_for_runner
 
+        from agent.code_mode_connectors import governance_surface
+
         gate = get_gate()
         identity = resolve_identity_for_runner(self, source_ip=None)
-        guard = await gate.guard(identity, label, args)
+        surface = governance_surface(label, args)
+        guard = await (
+            gate.guard(identity, label, args, surface=surface[0], action=surface[1])
+            if surface else gate.guard(identity, label, args)
+        )
         if not guard.allowed:
             return guard.denial_message
         started = _time.monotonic()
@@ -1900,7 +1906,14 @@ class AgentRunner:
         if not snippets_enabled():
             return "[save_snippet is switched off by the operator]"
         name, code = args.get("name"), args.get("code")
-        problem = get_snippet_store().save(scope_for(user_id), name, code, str(args.get("description", "")))
+
+        async def _save() -> str | None:
+            return get_snippet_store().save(scope_for(user_id), name, code, str(args.get("description", "")))
+
+        # Through the governance seam: a policy may deny or hold save_snippet (Codex on #1818).
+        problem = await self._governed_external("save_snippet", {"name": str(name)[:60]}, _save)
+        if isinstance(problem, str) and problem.startswith("[governance]"):
+            return problem
         return f"[save_snippet refused: {problem}]" if problem else f"saved snippet {name!r}; run it with snippets.run({name!r})"
 
     async def _dispatch_tool(

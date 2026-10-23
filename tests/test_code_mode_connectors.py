@@ -89,10 +89,23 @@ def test_tools_search_and_describe_only_cover_callable_tools():
 
 def test_compact_prompt_replaces_catalogue_with_index():
     compact = cc.compact_prompt(PROMPT, list(callable_tools(PROMPT)))
-    assert "search_code(query" not in compact and "Grep the workspace" not in compact
-    assert "Read-only tools: head_file, read_file, search_code." in compact
+    assert "search_code(query" not in compact and "for a pattern" not in compact
+    assert "): head_file, read_file, search_code\n" in compact
+    # Codex on #1818: everything that is not a read-only entry stays selectable.
+    assert "- edit_file(path, old_string, new_string): Replace text" in compact
     assert compact.endswith("Return ONLY a JSON object\n")
-    assert len(compact) < len(PROMPT) + 400
+    assert callable_tools(compact) == {}
+
+
+def test_compact_real_prompt_keeps_write_github_and_code_mode_lines(monkeypatch):
+    full = _tool_prompt()
+    compact = cc.compact_prompt(full, list(callable_tools(full)))
+    for kept in ("- github_comment_on_issue(", "- write_file(", "- run_command(", "- run_code(code)",
+                 "tools.search('<need>') ranks tools", "- finish(reason)", "- save_snippet("):
+        assert kept in compact, kept
+    for dropped in ("- read_file(path)", "- search_code(query"):
+        assert dropped not in compact
+    assert len(compact) < len(full)
 
 
 def test_compact_catalog_is_off_by_default_and_live(monkeypatch):
@@ -101,7 +114,7 @@ def test_compact_catalog_is_off_by_default_and_live(monkeypatch):
     assert get_control("AGENT_CODE_MODE_COMPACT_CATALOG").default == "false"
     assert _compact_if_enabled(PROMPT) == PROMPT
     monkeypatch.setattr(settings, "agent_code_mode_compact_catalog_raw", "true")
-    assert "Read-only tools:" in _compact_if_enabled(PROMPT)
+    assert "Read-only tools (arguments" in _compact_if_enabled(PROMPT)
 
 
 # ── phase 4: MCP ───────────────────────────────────────────────────────────
@@ -138,7 +151,7 @@ def test_only_read_only_mcp_tools_are_callable_and_results_are_redacted():
     out = _run("result = [mcp.render.list_services(limit=2), mcp.render.query_db(sql='select 1')]", ctx)
     assert out.ok, out.error
     assert "ghp_" not in json.dumps(out.result)
-    assert gated == ["mcp.render.list_services", "mcp.render.query_db"]
+    assert gated == ["mcp.render.list_tools", "mcp.render.list_services", "mcp.render.query_db"]
     for blocked in ("trigger_deploy", "get_danger", "nope"):
         bad = _run(f"mcp.render.{blocked}()", ctx)
         assert not bad.ok and "not a read-only tool" in bad.error
@@ -158,7 +171,18 @@ def test_governance_denial_is_returned_not_raised():
     async def deny(label: str, args: dict[str, Any], thunk):
         return "[governance] deny: blocked (rule x)"
 
-    ctx = _ctx(_Calls(), mcp_servers={"render": _server([])}, governed=deny)
+    log: list[Any] = []
+    ctx = _ctx(_Calls(), mcp_servers={"render": _server(log)}, governed=deny)
+    out = _run("result = mcp.render.list_services()", ctx)
+    # Codex on #1818: even listing the server's tools is governed.
+    assert not out.ok and "not allowed" in out.error and log == []
+
+
+def test_governance_denial_of_a_call_is_returned_to_the_program():
+    async def deny_calls(label: str, args: dict[str, Any], thunk):
+        return await thunk() if label.endswith("list_tools") else "[governance] deny: blocked (rule x)"
+
+    ctx = _ctx(_Calls(), mcp_servers={"render": _server([])}, governed=deny_calls)
     out = _run("result = mcp.render.list_services()", ctx)
     assert out.ok and out.result.startswith("[governance] deny")
 
@@ -372,3 +396,97 @@ def test_governed_external_passes_through_when_governance_off(monkeypatch):
         return 42
 
     assert asyncio.run(runner._governed_external("mcp.render.list_services", {}, thunk)) == 42
+
+
+# ── Codex review on #1818 ──────────────────────────────────────────────────
+
+
+def test_api_spec_fetch_is_governed():
+    labels: list[tuple[str, dict[str, Any]]] = []
+
+    async def gate(label: str, args: dict[str, Any], thunk):
+        labels.append((label, args))
+        return "[governance] deny: no (rule net)" if label.endswith(".spec") else await thunk()
+
+    out = _run("api.pets.search('pets')", _ctx(_Calls(), api_connectors=_api([]), governed=gate))
+    assert not out.ok and "not allowed" in out.error
+    assert labels == [("api.pets.spec", {"url": "https://api.example.com/openapi.json"})]
+
+
+def test_connector_calls_are_classified_for_governance():
+    from packages.governance.policy import Surface
+
+    assert cc.governance_surface("api.pets.listPets", {"url": "https://API.example.com/v1/pets"}) == (Surface.NETWORK, "api.example.com")
+    assert cc.governance_surface("mcp.render.list_services", {}) == (Surface.MCP, "mcp.render.list_services")
+    assert cc.governance_surface("save_snippet", {}) is None
+
+
+def test_runner_passes_network_surface_to_the_gate(monkeypatch):
+    from agent.loop import AgentRunner
+    from packages.governance.policy import Surface
+
+    seen: dict[str, Any] = {}
+
+    class FakeGate:
+        async def guard(self, identity, tool, args, *, surface=None, action=None, **kw):
+            seen.update(tool=tool, surface=surface, action=action)
+
+            class R:
+                allowed = False
+                denial_message = "[governance] deny: host (rule net)"
+            return R()
+
+    monkeypatch.setattr("packages.governance.enforcement.governance_enabled", lambda: True)
+    monkeypatch.setattr("packages.governance.enforcement.get_gate", lambda: FakeGate())
+    monkeypatch.setattr("packages.governance.enforcement.resolve_identity_for_runner", lambda *a, **k: "id")
+    runner = AgentRunner.__new__(AgentRunner)
+
+    async def thunk():
+        raise AssertionError("must not run when denied")
+
+    out = asyncio.run(runner._governed_external("api.pets.listPets", {"url": "https://api.example.com/x"}, thunk))
+    assert out.startswith("[governance] deny")
+    assert seen == {"tool": "api.pets.listPets", "surface": Surface.NETWORK, "action": "api.example.com"}
+
+
+def test_save_snippet_goes_through_governance(monkeypatch):
+    from agent.loop import AgentRunner
+
+    runner = AgentRunner.__new__(AgentRunner)
+
+    async def deny(label, args, thunk):
+        assert label == "save_snippet"
+        return "[governance] deny: no snippets (rule s)"
+
+    runner._governed_external = deny  # type: ignore[method-assign]
+    out = asyncio.run(runner._save_snippet({"name": "x_y", "code": "result = 1"}, "u7"))
+    assert out.startswith("[governance] deny")
+    assert sn.get_snippet_store().get("u7", "x_y") is None
+
+
+def test_program_source_is_bounded_before_parsing():
+    out = asyncio.run(run_code("x = 1\n" * 5000, _Calls(), {}))
+    assert not out.ok and "longer than" in out.error
+
+
+def test_query_param_named_url_cannot_change_the_governed_host():
+    doc = {"paths": {"/fetch": {"get": {"operationId": "fetchIt", "parameters": [{"name": "url", "in": "query"}]}}}}
+    spec = OpenApiConnectorSpec("svc", "", "https://api.example.com/o.json", "https://api.example.com")
+    seen: list[dict[str, Any]] = []
+
+    async def fetch(url: str) -> dict[str, Any]:
+        return doc
+
+    async def send(url: str, query: dict[str, str], headers: dict[str, str]) -> Any:
+        return {"ok": True}
+
+    async def gate(label: str, args: dict[str, Any], thunk):
+        seen.append(args)
+        return await thunk()
+
+    ctx = _ctx(_Calls(), api_connectors={"svc": cc.OpenApiConnector(spec, fetch, send)}, governed=gate)
+    out = _run("result = api.svc.call('fetchIt', url='https://allowed.example.org/')", ctx)
+    assert out.ok, out.error
+    call_args = seen[-1]
+    assert call_args["url"] == "https://api.example.com/fetch"
+    assert cc.governance_surface("api.svc.fetchIt", call_args)[1] == "api.example.com"
