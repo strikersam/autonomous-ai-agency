@@ -1396,7 +1396,10 @@ class AgentRunner:
                 # keep the tool-selection prompt lean.  Recent observations are
                 # passed verbatim; older ones are summarised.
                 masked_obs = self.ctx.mask_observations(observations)
-                tool_messages = build_tool_prompt(goal=goal, step=step, observations=masked_obs, remaining_calls=remaining)
+                tool_messages = build_tool_prompt(
+                    goal=goal, step=step, observations=masked_obs, remaining_calls=remaining,
+                    api_user=(user_id, getattr(getattr(self, "github", None), "token", None)),
+                )
                 # run_code's allow-list comes from this base prompt only: the
                 # enrichment and scratchpad added below carry observation text,
                 # and a "- fetch_url(" line in a read file must not re-enable a

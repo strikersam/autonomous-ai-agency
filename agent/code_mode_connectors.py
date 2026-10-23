@@ -580,16 +580,18 @@ def _snippet_runner(ctx: ConnectorContext) -> Callable[[str, dict[str, Any], Any
     return run
 
 
-def namespace_prompt_lines() -> str:
-    """Tool-prompt lines for the namespaces switched on (rule 19)."""
+def namespace_prompt_lines(*, user_id: str | None = None, user_token: str | None = None) -> str:
+    """Tool-prompt lines for the namespaces switched on (rule 19), APIs as this run sees them."""
     lines = [
         "  Discover: tools.search('<need>') ranks tools; tools.describe('<name>') gives arguments.\n",
     ]
     if _setting("agent_code_mode_mcp") and default_mcp_servers():
         names = ", ".join(sorted(default_mcp_servers()))
         lines.append(f"  MCP (read-only): mcp.<server>.search('<need>'), mcp.<server>.<tool>(key=value); servers: {names}.\n")
-    if _setting("agent_code_mode_openapi") and openapi_connectors_from_config():
-        names = ", ".join(sorted(openapi_connectors_from_config()))
+    apis = openapi_connectors_from_config(user_id=user_id, user_token=user_token) if _setting(
+        "agent_code_mode_openapi") else {}
+    if apis:
+        names = ", ".join(sorted(apis))
         lines.append(f"  APIs (GET only): api.<name>.search(q), .describe(op_id), .call(op_id, key=value); APIs: {names}.\n")
     if _setting("agent_code_mode_snippets"):
         lines.append("  Saved programs: snippets.list(), snippets.run('<name>', key=value) (the saved program reads them as `args`).\n")

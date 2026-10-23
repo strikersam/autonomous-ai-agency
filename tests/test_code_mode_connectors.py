@@ -588,6 +588,27 @@ def test_prompt_advertises_enabled_namespaces_only(monkeypatch):
     assert "save_snippet" not in callable_tools(text)
 
 
+def test_prompt_lists_only_the_apis_this_run_can_call(monkeypatch, tmp_path):
+    """Codex P2 on 06ce1f3: a user run must not be told about system-only connectors."""
+    from packages.config import code_mode_connectors as cfg_mod
+
+    empty = tmp_path / "e.yaml"
+    empty.write_text("connectors: []\n")
+    monkeypatch.setattr(cfg_mod, "CONFIG_PATH", empty)
+    monkeypatch.setattr(settings, "gh_pat", "gh-server")
+    monkeypatch.setattr(settings, "render_api_key", "rnd-server")
+    monkeypatch.delenv("ORCHESTRATOR_ALLOW_SERVER_TOKEN_FOR_USER_RUNS", raising=False)
+
+    def prompt(api_user):
+        return prompts.build_tool_prompt(
+            goal="g", step={"description": "s"}, observations=[], remaining_calls=3, api_user=api_user,
+        )[0]["content"]
+
+    assert "APIs: github, render." in prompt(None)
+    assert "APIs (GET only)" not in prompt(("alice", None))
+    assert "APIs: github." in prompt(("alice", ALICE_GH))
+
+
 @pytest.mark.parametrize(
     ("key", "default"),
     [
