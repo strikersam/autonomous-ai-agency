@@ -278,6 +278,15 @@ MAX_SUBAGENT_DEPTH: int = int(os.environ.get("MAX_SUBAGENT_DEPTH", "5"))
 
 
 
+def _read_limit(value: Any) -> int:
+    """``read_file``'s ``max_chars``: the 12,000 default unless a sane positive integer is given."""
+    try:
+        limit = int(value)
+    except (TypeError, ValueError):
+        return 12000
+    return limit if limit > 0 else 12000
+
+
 def _summarise_tool_result(result: Any) -> str:
     """Condense a tool result down to what belongs in an audit row.
 
@@ -2091,7 +2100,7 @@ class AgentRunner:
                     return await self._mcp.call_tool("read_file", args)
                 except _MCPUnavail:
                     pass
-            return self.tools.read_file(str(args.get("path", "")), int(args.get("max_chars", 12000)))
+            return self.tools.read_file(str(args.get("path", "")), _read_limit(args.get("max_chars")))
         if tool == "head_file":
             # head_file is read_file + truncate; route through _mcp when attached.
             if self._mcp is not None:

@@ -29,7 +29,7 @@ MAX_PROPOSALS = 5
 PREVIEW_MAX_CHARS = 2_000_000
 # The approval store scrubs each string to 2,000 chars and each list to 50 items, so a
 # diff travels as chunks; a larger one is refused rather than shown in part.
-_DIFF_CHUNK = 1800
+_SCRUBBED_MAX = 1990
 _MAX_DIFF_CHUNKS = 50
 
 
@@ -84,9 +84,6 @@ class PreviewUnavailable(Exception):
     """The current file could not be read, so the write cannot be checked against it."""
 
 
-_NOT_FOUND_MARKERS = ("not found", "notfound", "no such file", "does not exist")
-
-
 async def _governed(runner: Any, tool: str, args: dict[str, Any], thunk: Any) -> Any:
     """Run *thunk* behind the governance gate under *tool*/*args*, as ``_dispatch_tool`` does.
 
@@ -97,10 +94,21 @@ async def _governed(runner: Any, tool: str, args: dict[str, Any], thunk: Any) ->
 
     from packages.governance.enforcement import get_gate, governance_enabled, resolve_identity_for_runner
 
+    from agent.loop import _summarise_tool_result
+
+    _session_event(runner, "tool_call", {"tool": tool, "args": args})
     if not governance_enabled():
-        return await thunk()
+        result = await thunk()
+        _session_event(runner, "tool_result", {"tool": tool, "result": _summarise_tool_result(result)})
+        return result
     gate = get_gate()
     identity = resolve_identity_for_runner(runner, source_ip=None)
+    attach = getattr(runner._mcp, "attach_identity", None)
+    if callable(attach):
+        try:
+            attach(identity)
+        except Exception as exc:  # noqa: BLE001 - attribution must not break the call
+            log.debug("Could not attach identity to the sandbox client: %s", exc)
     guard = await gate.guard(identity, tool, args)
     if not guard.allowed:
         return guard.denial_message
@@ -112,8 +120,18 @@ async def _governed(runner: Any, tool: str, args: dict[str, Any], thunk: Any) ->
         error = f"{type(exc).__name__}: {exc}"
         raise
     finally:
-        gate.record_result(identity, tool, args, guard.decision, result=str(result)[:200],
+        summary = _summarise_tool_result(result)
+        gate.record_result(identity, tool, args, guard.decision, result=summary,
                            error=error, duration_ms=(time.monotonic() - started) * 1000)
+        _session_event(runner, "tool_result", {"tool": tool, "result": error or summary})
+
+
+def _session_event(runner: Any, kind: str, payload: dict[str, Any]) -> None:
+    """The durable tool_call/tool_result events _run_tool emits, for sandbox I/O done here."""
+    try:
+        runner._log_event(getattr(runner, "_current_session_id", None), kind, payload)
+    except Exception:  # noqa: BLE001 - the activity log is best-effort, never a blocker
+        log.debug("write gate: could not log %s", kind)
 
 
 async def _sandbox_text(runner: Any, path: str) -> str:
@@ -121,9 +139,9 @@ async def _sandbox_text(runner: Any, path: str) -> str:
     try:
         text = await _governed(runner, "read_file", {"path": path},
                                lambda: runner._mcp.call_tool("read_file", {"path": path}))
-    except Exception as exc:  # noqa: BLE001 - only a confirmed absence is an empty baseline
-        if any(m in str(exc).lower() for m in _NOT_FOUND_MARKERS):
-            return ""
+    except FileNotFoundError:  # MCPFileNotFoundError: the sandbox looked and the file is absent
+        return ""
+    except Exception as exc:  # noqa: BLE001 - anything else is "could not read", never "empty"
         raise PreviewUnavailable(f"the sandbox could not read it: {str(exc)[:160]}") from exc
     return text
 
@@ -174,6 +192,35 @@ async def _verifier_verdict(runner: Any, model: str, goal: str, step: dict[str, 
     return verdict.status == "pass", list(verdict.issues)
 
 
+def review_chunks(diff: str) -> list[str] | None:
+    """Split *diff* so each piece survives the approval store's scrubber whole, or None if too big.
+
+    Pieces end on line boundaries (a secret on one line is redacted as one token), and each
+    is sized by its scrubbed length: redaction can lengthen text, and the scrubber cuts
+    anything over 2,000 characters.
+    """
+    from packages.governance.audit import scrub
+
+    def fits(text: str) -> bool:
+        return len(scrub({"v": text})["v"]) <= _SCRUBBED_MAX
+
+    pieces: list[str] = []
+    for line in diff.splitlines(keepends=True):
+        while not fits(line):  # one very long line: split it until each part fits
+            cut = len(line) // 2
+            while cut > 1 and not fits(line[:cut]):
+                cut //= 2
+            pieces.append(line[:cut])
+            line = line[cut:]
+        if pieces and fits(pieces[-1] + line):
+            pieces[-1] += line
+        else:
+            pieces.append(line)
+        if len(pieces) > _MAX_DIFF_CHUNKS:
+            return None
+    return pieces or [""]
+
+
 async def human_approval(runner: Any, tool: str, path: str, original: str, new: str) -> tuple[bool, str]:
     """Hold for a named person's decision in the governance approval store (timeout denies)."""
     import difflib
@@ -187,8 +234,8 @@ async def human_approval(runner: Any, tool: str, path: str, original: str, new: 
         return True, "auto-approve"
     identity = resolve_identity_for_runner(runner, source_ip=None)
     diff = "\n".join(difflib.unified_diff(original.splitlines(), new.splitlines(), f"a/{path}", f"b/{path}", lineterm=""))
-    chunks = [diff[i:i + _DIFF_CHUNK] for i in range(0, len(diff), _DIFF_CHUNK)] or [""]
-    if len(chunks) > _MAX_DIFF_CHUNKS:
+    chunks = review_chunks(diff)
+    if chunks is None:
         return False, f"not requested: the diff is too large to review in full ({len(diff)} chars); propose smaller edits"
     store = get_approval_store()
     request = store.create(

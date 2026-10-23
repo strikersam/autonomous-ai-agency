@@ -137,10 +137,12 @@ class _Sandbox:
     async def call_tool(self, name, args):
         self.calls.append((name, dict(args)))
         if name == "read_file":
+            from agent.mcp_client import MCPFileNotFoundError, MCPUnavailableError
+
             if self.fail_read:
-                raise RuntimeError(self.fail_read)
+                raise MCPUnavailableError(self.fail_read)
             if args["path"] not in self.files:
-                raise RuntimeError(f"read_file({args['path']}) failed: NotFoundException: file not found")
+                raise MCPFileNotFoundError(f"read_file({args['path']}): file not found")
             return self.files[args["path"]]
         if name == "write_file":
             self.files[args["path"]] = args["content"]
@@ -152,6 +154,10 @@ class _SandboxRunner:
     def __init__(self, sandbox):
         self._mcp = sandbox
         self.host_reads = 0
+        self.events: list[tuple[str, dict[str, Any]]] = []
+
+    def _log_event(self, session_id, kind, payload):
+        self.events.append((kind, payload))
 
     async def _dispatch_tool(self, tool, args):
         self.host_reads += 1
@@ -213,3 +219,67 @@ def test_sandbox_write_is_governed_as_the_requested_tool(monkeypatch):
         reset_policy_engine(None)
     assert box.files["app.py"] == "x = 1\n" and outcome.applied_path is None
     assert "deny" in str(outcome.result) and ("write_file", {"path": "app.py", "content": "x = 2\n"}) not in box.calls
+
+
+@pytest.mark.parametrize("message", [
+    "read_file(not found/a.py) failed: Permission denied",  # the path itself says "not found"
+    "read_file(a.py) failed: Sandbox abc not found",          # the sandbox is gone
+    "read_file(a.py) failed: bash: command not found",
+])
+def test_only_a_typed_not_found_counts_as_a_new_file(message):
+    """Verifier FAIL on #1824: a substring match on the message turned failures into blank baselines."""
+    box = _Sandbox({"not found/a.py": "x = 1\n", "a.py": "x = 1\n"}, fail_read=message)
+    outcome = _gate(_SandboxRunner(box), "write_file", {"path": "a.py", "content": "x = 9\n"})
+    assert outcome.applied_path is None and "could not be read" in str(outcome.result)
+
+
+def test_e2b_read_maps_only_a_missing_file_to_not_found():
+    from agent.mcp_client import MCPFileNotFoundError, MCPUnavailableError
+    from services.e2b_sandbox import E2BSandboxSession
+
+    class FileNotFoundException(Exception):  # the E2B SDK's class name
+        pass
+
+    class Files:
+        def __init__(self, exc):
+            self.exc = exc
+
+        async def read(self, path):
+            raise self.exc
+
+    class Box:
+        def __init__(self, exc):
+            self.files = Files(exc)
+
+    session = object.__new__(E2BSandboxSession)
+    with pytest.raises(MCPFileNotFoundError):
+        asyncio.run(session._read_file(Box(FileNotFoundException("missing")), {"path": "a.py"}))
+    with pytest.raises(MCPUnavailableError) as other:
+        asyncio.run(session._read_file(Box(RuntimeError("Sandbox abc not found")), {"path": "a.py"}))
+    assert not isinstance(other.value, FileNotFoundError)
+
+
+def test_sandbox_write_appears_in_the_session_tool_log():
+    """Codex P2 on #1824: the direct sandbox write must still emit tool_call/tool_result."""
+    box = _Sandbox({"app.py": "x = 1\n"})
+    runner = _SandboxRunner(box)
+    _gate(runner, "edit_file", {"path": "app.py", "old_string": "x = 1", "new_string": "x = 2"})
+    kinds = [(k, p["tool"]) for k, p in runner.events]
+    assert ("tool_call", "edit_file") in kinds and ("tool_result", "edit_file") in kinds
+
+
+def test_review_chunks_survive_the_scrubber_whole():
+    """Verifier FAIL on #1824: redaction lengthened 1,800-char chunks past the 2,000 cut."""
+    from agent.write_gate import review_chunks
+    from packages.governance.audit import scrub
+
+    diff = "".join(f"+postgres://u:p{i}@h/db\n" for i in range(300)) + "+" + "a" * 9000 + "\n"
+    chunks = review_chunks(diff)
+    scrubbed = [scrub({"v": c})["v"] for c in chunks]
+    assert "".join(chunks) == diff and all(len(c) <= 2000 and "[truncated" not in c for c in scrubbed)
+
+
+def test_read_limit_ignores_bad_max_chars():
+    from agent.loop import _read_limit
+
+    assert [_read_limit(v) for v in (None, "abc", -5, 0, "40")] == [12000, 12000, 12000, 12000, 40]
