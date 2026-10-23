@@ -61,6 +61,24 @@ def _setting(name: str) -> bool:
         return False
 
 
+def governance_surface(label: str, args: dict[str, Any]) -> tuple[Any, str] | None:
+    """(Surface, action) for a connector call, so domain and MCP rules apply (Codex on #1818)."""
+    from urllib.parse import urlsplit as _split
+
+    from packages.governance.policy import Surface
+
+    if label.startswith("api."):
+        host = (_split(str(args.get("url", ""))).hostname or "").lower()
+        return Surface.NETWORK, host or label
+    if label.startswith("mcp."):
+        return Surface.MCP, label
+    return None
+
+
+def _denied(result: Any) -> bool:
+    return isinstance(result, str) and result.startswith("[governance]")
+
+
 def redact(value: Any) -> Any:
     """Redact secret-shaped text anywhere in a JSON-like value."""
     from packages.security.redact import redact_secrets
@@ -128,20 +146,33 @@ class ToolsDiscovery:
 
 
 def compact_prompt(prompt_text: str, callable_names: list[str]) -> str:
-    """Swap the full tool catalogue for a one-line index (AGENT_CODE_MODE_COMPACT_CATALOG)."""
-    start = prompt_text.find("Available tools:\n")
-    end = prompt_text.find("Return ONLY a JSON object")
-    if start < 0 or end < 0 or end <= start:
-        return prompt_text
-    index = (
-        "Available tools:\n"
-        "Call tools directly as JSON, or batch read-only ones with run_code(code).\n"
-        f"Read-only tools: {', '.join(sorted(callable_names))}.\n"
-        "Other tools: edit_file(path, old_string, new_string), finish(reason).\n"
-        "Arguments: run_code with `result = tools.describe('<name>')`, or\n"
-        "`result = tools.search('<what you need>')` to find a tool.\n\n"
-    )
-    return prompt_text[:start] + index + prompt_text[end:]
+    """Drop only the read-only tools' catalogue entries for a one-line index (AGENT_CODE_MODE_COMPACT_CATALOG).
+
+    Every other line stays: write, GitHub and container tools, run_code and its
+    namespace instructions must remain selectable (Codex review on #1818).
+    """
+    names = set(callable_names)
+    out: list[str] = []
+    skipping = False
+    inserted = False
+    for line in prompt_text.splitlines(keepends=True):
+        match = _ENTRY_RE.match(line.rstrip("\n"))
+        if match:
+            skipping = match.group(1) in names
+            if skipping and not inserted:
+                out.append(
+                    f"- Read-only tools (arguments via run_code: tools.describe('<name>'), "
+                    f"tools.search('<need>')): {', '.join(sorted(names))}\n"
+                )
+                inserted = True
+            if skipping:
+                continue
+        elif skipping and line.startswith("  ") and not line.lstrip().startswith("- "):
+            continue
+        else:
+            skipping = False
+        out.append(line)
+    return "".join(out)
 
 
 def compact_catalog_enabled() -> bool:
@@ -160,9 +191,12 @@ class McpServer:
     call_tool: Callable[[str, dict[str, Any]], Awaitable[Any]]
     _tools: list[dict[str, Any]] | None = None
 
-    async def readable_tools(self) -> dict[str, dict[str, Any]]:
+    async def readable_tools(self, governed: Governed) -> dict[str, dict[str, Any]]:
         if self._tools is None:
-            self._tools = await self.list_tools()
+            listed = await governed(f"mcp.{self.name}.list_tools", {}, self.list_tools)
+            if _denied(listed):
+                raise CodeModeError(f"listing {self.name} tools was not allowed: {listed[:200]}")
+            self._tools = listed if isinstance(listed, list) else []
         return {t["name"]: t for t in self._tools if isinstance(t, dict) and is_read_only_tool(t)}
 
 
@@ -206,7 +240,7 @@ class McpNamespace:
         server = self.servers.get(server_name)
         if server is None:
             raise CodeModeError(f"no MCP server {server_name!r}; available: {', '.join(sorted(self.servers)) or '(none)'}")
-        tools = await server.readable_tools()
+        tools = await server.readable_tools(self.governed)
         if op in ("search", "describe") and op not in tools:
             return self._discover(server_name, tools, op, args, kwargs)
         if op not in tools:
@@ -242,9 +276,13 @@ class OpenApiConnector:
     _ops: dict[str, dict[str, Any]] | None = None
     _loaded_at: float = 0.0
 
-    async def operations(self) -> dict[str, dict[str, Any]]:
+    async def operations(self, governed: Governed) -> dict[str, dict[str, Any]]:
         if self._ops is None or time.monotonic() - self._loaded_at > _SPEC_TTL_S:
-            self._ops = index_operations(await self.fetch_spec(self.spec.spec_url))
+            url = self.spec.spec_url
+            doc = await governed(f"api.{self.spec.name}.spec", {"url": url}, lambda: self.fetch_spec(url))
+            if _denied(doc):
+                raise CodeModeError(f"reading the {self.spec.name} API description was not allowed: {doc[:200]}")
+            self._ops = index_operations(doc)
             self._loaded_at = time.monotonic()
         return self._ops
 
@@ -302,7 +340,7 @@ class ApiNamespace:
         connector = self.connectors.get(name)
         if connector is None:
             raise CodeModeError(f"no API connector {name!r}; available: {', '.join(sorted(self.connectors)) or '(none)'}")
-        ops = await connector.operations()
+        ops = await connector.operations(self.governed)
         target = str((args or [kwargs.pop("query", None) or kwargs.pop("operation_id", "")])[0])
         if op == "search":
             texts = {k: f"{v['path']} {v['summary']}" for k, v in ops.items()}
