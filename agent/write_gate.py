@@ -152,7 +152,11 @@ async def gated_write(runner: Any, tool: str, args: dict[str, Any], *, goal: str
         listed = "; ".join(str(i) for i in issues[:5]) or "no reason given"
         return GateOutcome(f"[{tool} not applied: verification did not pass — {listed}]")
     if require_approval:
-        approved, ref = await human_approval(runner, tool, path, original, new)
+        try:
+            approved, ref = await human_approval(runner, tool, path, original, new)
+        except Exception as exc:  # noqa: BLE001 - no decision is a denial, never a write
+            log.warning("write gate: approval for %s failed, denying: %s", path, exc)
+            approved, ref = False, "could not be requested"
         if not approved:
             return GateOutcome(f"[{tool} not applied: approval {ref}]")
     result = await runner._run_tool(tool, args, user_id=user_id, memory_store=memory_store)

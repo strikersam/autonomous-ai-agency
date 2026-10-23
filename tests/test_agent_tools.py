@@ -217,3 +217,17 @@ def test_search_and_index_never_read_secret_files(tmp_path: Path):
 
     assert [h["path"] for h in tools.search_code(marker)] == ["app.py"]
     assert [e["path"] for e in tools.file_index()] == ["app.py"]
+
+
+def test_secret_checks_cover_direct_index_case_and_link_targets(tmp_path: Path):
+    """Verifier notes on the search fix: the single-file branch, case, and a link named innocently."""
+    root = tmp_path / "repo"
+    root.mkdir()
+    (root / ".env").write_text("SECRET=1\n", encoding="utf-8")
+    (root / "Keys.json").write_text("SECRET=2\n", encoding="utf-8")
+    (root / "notes.txt").symlink_to(root / ".env")
+    tools = WorkspaceTools(root)
+
+    assert tools.file_index(".env") == []
+    assert tools.search_code("SECRET") == []
+    assert tools.file_index() == []

@@ -159,3 +159,15 @@ def test_proposals_are_capped_per_program():
         assert queue_proposal(queue, "write_file", {"path": f"f{i}.py", "content": ""})["status"] == "queued"
     with pytest.raises(CodeModeError, match="at most"):
         queue_proposal(queue, "write_file", {"path": "one_more.py", "content": ""})
+
+
+def test_approval_store_failure_is_a_refusal_not_a_crash(tmp_path, monkeypatch):
+    """Verifier note: a broken store must deny the write and keep the step alive."""
+    def boom(*args, **kwargs):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(ApprovalStore, "create", boom)
+    runner, root = _runner(tmp_path)
+    result, _ = _drive(runner, EDIT, [PASS], monkeypatch)
+    assert (root / "app.py").read_text() == "x = 1\n"
+    assert "could not be requested" in str(result["observations"])

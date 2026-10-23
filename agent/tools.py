@@ -101,12 +101,15 @@ class WorkspaceTools:
 
     def _searchable(self, full: Path) -> bool:
         """A text file that search/index may read: inside the root once symlinks resolve, not a secret."""
-        if full.name in SECRET_FILENAMES or full.name.startswith(".env."):
-            return False
+        real = os.path.realpath(full)
+        # Both names count: a link called notes.txt may point at .env. Case-folded for
+        # case-insensitive filesystems.
+        for name in {full.name.lower(), os.path.basename(real).lower()}:
+            if name in SECRET_FILENAMES or name.startswith(".env."):
+                return False
         if full.suffix.lower() not in TEXT_EXTENSIONS and full.name != ".gitignore":
             return False
-        root = os.path.realpath(self.workspace_root)
-        return os.path.realpath(full).startswith(root + os.sep)
+        return real.startswith(os.path.realpath(self.workspace_root) + os.sep)
 
     def _resolve_path(self, path: str) -> Path:
         cleaned = path.strip().replace("/", os.sep)
@@ -245,6 +248,8 @@ class WorkspaceTools:
         target = self._resolve_path(path)
         entries: list[dict[str, str | int]] = []
         if target.is_file():
+            if not self._searchable(target):
+                return []
             lines = len(target.read_text(encoding="utf-8", errors="ignore").splitlines())
             return [{"path": str(target.relative_to(self.root)), "lines": lines, "bytes": target.stat().st_size}]
 

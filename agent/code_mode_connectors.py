@@ -348,7 +348,7 @@ def build_url(base_url: str, path: str, params: dict[str, Any], op: dict[str, An
     unknown = set(params) - set(declared)
     if unknown:
         raise CodeModeError(f"unknown parameter(s): {', '.join(sorted(unknown))}")
-    missing = [p["name"] for p in op["parameters"] if p["required"] and p["name"] not in params]
+    missing = sorted({p["name"] for p in op["parameters"] if p["required"] and p["name"] not in params})
     if missing:
         raise CodeModeError(f"missing required parameter(s): {', '.join(missing)}")
     filled = path
