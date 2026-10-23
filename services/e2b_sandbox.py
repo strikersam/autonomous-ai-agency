@@ -49,7 +49,7 @@ import tarfile
 import time
 from typing import Any
 
-from agent.mcp_client import MCPUnavailableError
+from agent.mcp_client import MCPFileNotFoundError, MCPUnavailableError
 from services.e2b_config import E2BConfig, e2b_enabled, is_e2b_sdk_importable, resolve_e2b_config
 
 log = logging.getLogger("qwen-proxy")
@@ -283,6 +283,9 @@ class E2BSandboxSession:
         try:
             content = await sb.files.read(full_path)
         except Exception as exc:
+            # E2B's FileNotFoundException (not SandboxNotFoundException): the file is absent.
+            if isinstance(exc, FileNotFoundError) or type(exc).__name__ == "FileNotFoundException":
+                raise MCPFileNotFoundError(f"read_file({path}): file not found") from exc
             raise MCPUnavailableError(f"read_file({path}) failed: {exc}") from exc
         if isinstance(content, bytes):
             content = content.decode("utf-8", errors="replace")
