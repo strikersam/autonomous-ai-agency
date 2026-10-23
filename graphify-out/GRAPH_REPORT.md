@@ -1,7 +1,7 @@
 # Graph Report - autonomous-ai-agency  (2026-10-23)
 
 ## Corpus Check
-- 1127 files · ~1,843,627 words
+- 1127 files · ~1,843,671 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 57 file(s) not represented in the graph (top: (none) 19, .css 5, .bat 5)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `84970986`
+- Built from commit: `873c581f`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -3880,7 +3880,7 @@ Nodes (5): _engine(), _extract_slices_from_plan(), get_engine(), reset_engine(),
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `AgentRunner` connect `AgentRunner` to `typing`, `GitHubTools`, `proxy.py`, `Issue #504: EPIC: Autonomy hardening — live-verified defects 2026-06-10`, `.__init__`, `runtimes/manager.py`, `RuntimeHealth`, `coordinator.py`, `UserMemoryStore`, `AgentJobResult`, `Issue #656: Bugs`, `CEODispatcher`, `WorkflowOrchestrator`, `RepoConnection`, `Universality: case-coverage matrix`, `ContextManager`, `MCPUnavailableError`, `TokenBudget`, `ReactScratchpad`, `de`, `ContextPruner`, `direct_chat.py`, `AgentSessionStore`, `Any`, `failover_client.py`, `agent/code_mode_connectors.py`, `enforcement.py`, `skill_registry.py`, `ceo_dispatcher.py`, `RepowiseIntelligence`, `race`, `call_llm`, `WorkspaceTools`, `Competitor Analysis — Autonomous AI Agency`, `PolicyEngine`, `pr_gate.py`, `unsafe_target_reason`, `Evidence-driven verification`, `empirical_verify.py`, `Security Analysis — local-llm-server`, `backend/server.py`, `InternalAgentAdapter`, `FreeBuffAgent`, `Agent: Implementer (Executor)`, `Agency Core — Progress & Resume Log`, `SECTION A — Agent Efficiency (Hermes / AOS / MYT)`, `LocalWorkspace`, `judge_brief.py`?**
-  _High betweenness centrality (0.034) - this node is a cross-community bridge._
+  _High betweenness centrality (0.033) - this node is a cross-community bridge._
 - **What connects `docker`, `RENDER_API_KEY`, `react-app` to the rest of the system?**
   _59 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `typing` be split into smaller, more focused modules?**
