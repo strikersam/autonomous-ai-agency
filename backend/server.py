@@ -11151,6 +11151,10 @@ app.include_router(usage_router_module.build_usage_router(get_current_user))
 import backend.code_mode_router as code_mode_router_module  # noqa: E402
 app.include_router(code_mode_router_module.build_code_mode_router(get_current_user))
 
+# Code Mode phase 7: the agency API as a two-tool (search/execute) MCP server.
+import backend.code_mode_mcp_router as code_mode_mcp_router_module  # noqa: E402
+app.include_router(code_mode_mcp_router_module.build_code_mode_mcp_router(get_current_user))
+
 # Agent governance: identity, policy, approvals, audit trail, sandbox posture.
 # Admin-only and read-mostly (policy is a git-reviewed file, not an editable
 # resource). Mounted defensively — a governance layer that can block startup

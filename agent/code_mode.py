@@ -244,10 +244,14 @@ class _Interpreter:
         call_tool: ToolCaller,
         tools: dict[str, list[str]],
         limits: CodeModeLimits,
+        namespaces: dict[str, Any] | None = None,
     ) -> None:
         self._call_tool = call_tool
         self._tools = tools
         self._limits = limits
+        # Read-only extra globals (tools discovery, mcp, api, snippets). Each
+        # value has ``async call(path, args, kwargs, interp)``; see code_mode_connectors.
+        self._namespaces = dict(namespaces or {})
         self._ops = 0
         self._yielded_at = 0
         self._alloc = 0
@@ -306,8 +310,8 @@ class _Interpreter:
 
     async def _assign(self, target: ast.expr, value: Any) -> None:
         if isinstance(target, ast.Name):
-            if target.id == "tools":
-                raise CodeModeError(f"line {target.lineno}: 'tools' cannot be reassigned")
+            if target.id == "tools" or target.id in self._namespaces:
+                raise CodeModeError(f"line {target.lineno}: '{target.id}' cannot be reassigned")
             self.env[target.id] = value
         elif isinstance(target, (ast.Tuple, ast.List)):
             values = list(value)
@@ -461,6 +465,9 @@ class _Interpreter:
         func = node.func
         if isinstance(func, ast.Attribute) and isinstance(func.value, ast.Name) and func.value.id == "tools":
             return await self._tool_call(func.attr, args, kwargs, node)
+        root, path = _namespace_path(func)
+        if root is not None and root in self._namespaces:
+            return await self._namespace_call(root, path, args, kwargs, node)
         if isinstance(func, ast.Attribute):
             return self._method_call(await self._eval(func.value), func.attr, args, kwargs, node)
         if isinstance(func, ast.Name) and func.id in _BUILTINS:
@@ -469,6 +476,8 @@ class _Interpreter:
 
     # ── calls ─────────────────────────────────────────────────────────────
     async def _tool_call(self, name: str, args: list[Any], kwargs: dict[str, Any], node: ast.Call) -> Any:
+        if name not in self._tools and name in ("search", "describe") and "tools" in self._namespaces:
+            return await self._namespace_call("tools", (name,), args, kwargs, node)
         if name not in self._tools:
             allowed = ", ".join(sorted(self._tools)) or "(none)"
             raise CodeModeError(f"line {node.lineno}: tools.{name} is not callable from run_code; allowed: {allowed}")
@@ -480,6 +489,24 @@ class _Interpreter:
         call_args = {**dict(zip(params, args)), **kwargs}
         self.calls.append(name)
         return await self._call_tool(name, call_args)
+
+    async def _namespace_call(
+        self, root: str, path: tuple[str, ...], args: list[Any], kwargs: dict[str, Any], node: ast.Call,
+    ) -> Any:
+        label = ".".join((root, *path))
+        if len(self.calls) >= self._limits.max_tool_calls:
+            raise CodeModeError(f"line {node.lineno}: more than {self._limits.max_tool_calls} tool calls in one program")
+        self.calls.append(label)
+        try:
+            return await self._namespaces[root].call(path, args, kwargs, self)
+        except CodeModeError as exc:
+            raise CodeModeError(f"line {node.lineno}: {exc}") from None
+
+    def remaining_calls(self) -> int:
+        return max(self._limits.max_tool_calls - len(self.calls), 0)
+
+    def remaining_seconds(self) -> float:
+        return max(self._deadline - time.monotonic(), 0.0)
 
     def _method_call(self, receiver: Any, name: str, args: list[Any], kwargs: dict[str, Any], node: ast.Call) -> Any:
         allowed = _SAFE_METHODS.get(type(receiver), frozenset())
@@ -642,6 +669,18 @@ def _deep_size(value: Any, budget: int) -> int:
     return total
 
 
+def _namespace_path(func: ast.expr) -> tuple[str | None, tuple[str, ...]]:
+    """``mcp.render.list_services`` -> ("mcp", ("render", "list_services"))."""
+    parts: list[str] = []
+    node = func
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name) or not parts:
+        return None, ()
+    return node.id, tuple(reversed(parts))
+
+
 def _as_load(target: ast.expr) -> ast.expr:
     """Re-read an augmented-assignment target as an expression."""
     if isinstance(target, ast.Name):
@@ -664,12 +703,16 @@ async def run_code(
     call_tool: ToolCaller,
     tools: dict[str, list[str]],
     limits: CodeModeLimits | None = None,
+    *,
+    namespaces: dict[str, Any] | None = None,
+    initial_env: dict[str, Any] | None = None,
 ) -> CodeModeResult:
     """Run one Code Mode program; never raises for anything the program does."""
     limits = limits or CodeModeLimits()
     if not isinstance(source, str) or not source.strip():
         return CodeModeResult(ok=False, error="run_code needs a non-empty 'code' string")
-    interp = _Interpreter(call_tool, tools, limits)
+    interp = _Interpreter(call_tool, tools, limits, namespaces)
+    interp.env.update(initial_env or {})
     try:
         tree = validate(source)
         value = await asyncio.wait_for(interp.run(tree), timeout=limits.timeout_s)

@@ -349,6 +349,13 @@ class Settings:
         # AGENT_CODE_MODE_HOLDOUT_PERCENT — share of steps run WITHOUT run_code
         # so agent/code_mode_metrics.py can compare the two arms (phase 2).
         self.agent_code_mode_holdout_percent: int = _env_int("AGENT_CODE_MODE_HOLDOUT_PERCENT", 10)
+        # Code Mode phases 3-5 and 7 (agent/code_mode_connectors.py,
+        # backend/code_mode_mcp_router.py). All read-only.
+        self.agent_code_mode_compact_catalog_raw: str = os.environ.get("AGENT_CODE_MODE_COMPACT_CATALOG", "false")
+        self.agent_code_mode_mcp_raw: str = os.environ.get("AGENT_CODE_MODE_MCP_ENABLED", "true")
+        self.agent_code_mode_openapi_raw: str = os.environ.get("AGENT_CODE_MODE_OPENAPI_ENABLED", "true")
+        self.agent_code_mode_snippets_raw: str = os.environ.get("AGENT_CODE_MODE_SNIPPETS_ENABLED", "true")
+        self.code_mode_mcp_server_raw: str = os.environ.get("CODE_MODE_MCP_SERVER_ENABLED", "true")
 
         # ── Code graph (agent/code_graph.py) ────────────────────────────────
         # Structural code queries — who calls a function, what a diff touches —
@@ -605,6 +612,35 @@ class Settings:
     def agent_delegation_enabled(self) -> bool:
         """True only when an operator switched agent-to-agent delegation on."""
         return self.agent_delegation_enabled_raw.strip().lower() in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def _truthy(raw: str) -> bool:
+        return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+    @property
+    def agent_code_mode_compact_catalog(self) -> bool:
+        """True when run_code steps get a one-line tool index instead of the full catalogue."""
+        return self._truthy(self.agent_code_mode_compact_catalog_raw)
+
+    @property
+    def agent_code_mode_mcp(self) -> bool:
+        """True when run_code programs may call read-only MCP server tools (mcp.<server>.<tool>)."""
+        return self._truthy(self.agent_code_mode_mcp_raw)
+
+    @property
+    def agent_code_mode_openapi(self) -> bool:
+        """True when run_code programs may call configured OpenAPI connectors (api.<name>)."""
+        return self._truthy(self.agent_code_mode_openapi_raw)
+
+    @property
+    def agent_code_mode_snippets(self) -> bool:
+        """True when agents may save run_code programs and re-run them (snippets.run)."""
+        return self._truthy(self.agent_code_mode_snippets_raw)
+
+    @property
+    def code_mode_mcp_server(self) -> bool:
+        """True when /api/code-mode/mcp serves the agency API through search/execute."""
+        return self._truthy(self.code_mode_mcp_server_raw)
 
     @property
     def agent_code_mode_enabled(self) -> bool:
