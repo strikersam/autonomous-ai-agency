@@ -96,10 +96,12 @@ async def _governed(runner: Any, tool: str, args: dict[str, Any], thunk: Any) ->
 
     from agent.loop import _summarise_tool_result
 
-    _session_event(runner, "tool_call", {"tool": tool, "args": args})
+    # Metadata only: the args carry the proposed file content, and the session store keeps
+    # payloads unscrubbed, so a credential in a proposed write must not be persisted here.
+    _session_event(runner, "tool_call", {"tool": tool, "path": str(args.get("path", ""))})
     if not governance_enabled():
         result = await thunk()
-        _session_event(runner, "tool_result", {"tool": tool, "result": _summarise_tool_result(result)})
+        _session_event(runner, "tool_result", {"tool": tool, "ok": not _is_failure(result)})
         return result
     gate = get_gate()
     identity = resolve_identity_for_runner(runner, source_ip=None)
@@ -123,7 +125,11 @@ async def _governed(runner: Any, tool: str, args: dict[str, Any], thunk: Any) ->
         summary = _summarise_tool_result(result)
         gate.record_result(identity, tool, args, guard.decision, result=summary,
                            error=error, duration_ms=(time.monotonic() - started) * 1000)
-        _session_event(runner, "tool_result", {"tool": tool, "result": error or summary})
+        _session_event(runner, "tool_result", {"tool": tool, "ok": error is None and not _is_failure(result)})
+
+
+def _is_failure(result: Any) -> bool:
+    return isinstance(result, str) and result.startswith(("[governance]", "[tool error"))
 
 
 def _session_event(runner: Any, kind: str, payload: dict[str, Any]) -> None:
