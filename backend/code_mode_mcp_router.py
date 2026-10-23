@@ -135,6 +135,10 @@ class AgencyNamespace:
             raise CodeModeError("only GET requests are allowed")
         if not isinstance(query, dict):
             raise CodeModeError("query must be a dict")
+        if any(ch in target for ch in "%\\?#"):
+            # Starlette decodes %2F after routing is matched here, so an encoded
+            # slash would reach a route the spec check never saw (verifier on PR).
+            raise CodeModeError("paths may not contain '%', '\\', '?' or '#'; pass values via query={...}")
         if not target.startswith("/api/") or target.startswith(MCP_PATH) or not _matches_spec(target, self._get_paths):
             raise CodeModeError(f"{target!r} is not a GET endpoint of the agency API (see agency.spec())")
         return await self._send(target, {str(k): str(v) for k, v in query.items()})
@@ -206,9 +210,10 @@ async def _dispatch(rpc: JsonRpcRequest, request: Request) -> JsonRpcResponse:
         return JsonRpcResponse(id=rpc.id, result={"tools": TOOLS})
     if rpc.method == "tools/call":
         name = str(rpc.params.get("name", ""))
-        code = (rpc.params.get("arguments") or {}).get("code", "")
-        if name not in ("search", "execute"):
-            return JsonRpcResponse(id=rpc.id, error={"code": -32602, "message": f"unknown tool {name!r}"})
+        arguments = rpc.params.get("arguments") or {}
+        if name not in ("search", "execute") or not isinstance(arguments, dict):
+            return JsonRpcResponse(id=rpc.id, error={"code": -32602, "message": "expected name search|execute and an arguments object"})
+        code = arguments.get("code", "")
         return JsonRpcResponse(id=rpc.id, result=await _run_tool(name, str(code), request))
     return JsonRpcResponse(id=rpc.id, error={"code": -32601, "message": f"method not found: {rpc.method}"})
 

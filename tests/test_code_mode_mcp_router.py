@@ -95,6 +95,9 @@ def test_execute_gets_with_the_callers_credentials(client):
         ("agency.request('GET', '/api/tasks/../admin')", "not a GET endpoint"),
         ("agency.request('GET', '/health')", "not a GET endpoint"),
         ("agency.request('GET', '/api/code-mode/mcp')", "not a GET endpoint"),
+        ("agency.request('GET', '/api/tasks/a%2Fsub')", "may not contain"),
+        ("agency.request('GET', '/api/tasks/a?x=1')", "may not contain"),
+        ("agency.request('GET', '/api/tasks/a\\\\b')", "may not contain"),
         ("import os", "not supported"),
     ],
 )
@@ -131,3 +134,8 @@ def test_aliased_huge_result_is_refused_not_serialised(client):
     c, _ = client
     out = _call(c, "search", "row = 'x' * 100000\nresult = [row] * 100")
     assert out["isError"] and "too large" in out["error"]
+
+
+def test_non_object_arguments_are_a_params_error(client):
+    c, _ = client
+    assert _rpc(c, "tools/call", {"name": "search", "arguments": "code"})["error"]["code"] == -32602
