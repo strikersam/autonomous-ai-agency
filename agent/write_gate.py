@@ -17,7 +17,6 @@ the policy mode. An approval that nobody answers expires, and that is a denial.
 from __future__ import annotations
 
 import logging
-import sys
 from dataclasses import dataclass
 from typing import Any
 
@@ -27,6 +26,11 @@ WRITE_TOOLS = frozenset({"edit_file", "write_file", "apply_diff"})
 # The writes a run_code program may propose (phase 6); apply_diff stays a direct call.
 PROPOSAL_TOOLS = frozenset({"edit_file", "write_file"})
 MAX_PROPOSALS = 5
+PREVIEW_MAX_CHARS = 2_000_000
+# The approval store scrubs each string to 2,000 chars and each list to 50 items, so a
+# diff travels as chunks; a larger one is refused rather than shown in part.
+_DIFF_CHUNK = 1800
+_MAX_DIFF_CHUNKS = 50
 
 
 def code_mode_writes_enabled() -> bool:
@@ -76,23 +80,77 @@ def proposed_content(tool: str, args: dict[str, Any], original: str) -> tuple[st
     return str(args[key]), ""
 
 
-async def _current_text(runner: Any, path: str) -> str:
-    """The file's whole current text (sandbox-aware); '' when absent.
+class PreviewUnavailable(Exception):
+    """The current file could not be read, so the write cannot be checked against it."""
 
-    The full file, not ``read_file``'s 12,000-character view: the preview must be
-    the content the write will really produce, or a large file's edit is checked
-    against a fragment.
+
+_NOT_FOUND_MARKERS = ("not found", "notfound", "no such file", "does not exist")
+
+
+async def _governed(runner: Any, tool: str, args: dict[str, Any], thunk: Any) -> Any:
+    """Run *thunk* behind the governance gate under *tool*/*args*, as ``_dispatch_tool`` does.
+
+    Used for sandbox I/O the gate performs directly, so policy is checked against the
+    operation the agent asked for (``edit_file``), not the transport (``write_file``).
+    """
+    import time
+
+    from packages.governance.enforcement import get_gate, governance_enabled, resolve_identity_for_runner
+
+    if not governance_enabled():
+        return await thunk()
+    gate = get_gate()
+    identity = resolve_identity_for_runner(runner, source_ip=None)
+    guard = await gate.guard(identity, tool, args)
+    if not guard.allowed:
+        return guard.denial_message
+    started, result, error = time.monotonic(), None, None
+    try:
+        result = await thunk()
+        return result
+    except Exception as exc:
+        error = f"{type(exc).__name__}: {exc}"
+        raise
+    finally:
+        gate.record_result(identity, tool, args, guard.decision, result=str(result)[:200],
+                           error=error, duration_ms=(time.monotonic() - started) * 1000)
+
+
+async def _sandbox_text(runner: Any, path: str) -> str:
+    """The sandbox's own copy, never the host fallback the dispatcher would use."""
+    try:
+        text = await _governed(runner, "read_file", {"path": path},
+                               lambda: runner._mcp.call_tool("read_file", {"path": path}))
+    except Exception as exc:  # noqa: BLE001 - only a confirmed absence is an empty baseline
+        if any(m in str(exc).lower() for m in _NOT_FOUND_MARKERS):
+            return ""
+        raise PreviewUnavailable(f"the sandbox could not read it: {str(exc)[:160]}") from exc
+    return text
+
+
+async def _current_text(runner: Any, path: str) -> str:
+    """The file's whole current text, read through the governed, sandbox-aware dispatch.
+
+    Only a file that is confirmed absent reads as ''. A governance denial, a tool
+    error or a file too large to preview raises :class:`PreviewUnavailable`, so a
+    write is never verified (or shown to an approver) against a blank or partial
+    baseline, and a denied read never leaks content into the Verifier prompt.
     """
     try:
         if getattr(runner, "_mcp", None) is not None:
-            text = await runner._dispatch_tool("read_file", {"path": path})
+            text = await _sandbox_text(runner, path)
         else:
-            text = runner.tools.read_file(path, max_chars=sys.maxsize)
-    except Exception:  # noqa: BLE001 - a new file has no current text
+            text = await runner._dispatch_tool("read_file", {"path": path, "max_chars": PREVIEW_MAX_CHARS + 1})
+    except PreviewUnavailable:
+        raise
+    except FileNotFoundError:
         return ""
-    # A denial or tool error arrives as text; it is not the file's content.
+    except Exception as exc:  # noqa: BLE001 - any other failure is "cannot check", never "empty"
+        raise PreviewUnavailable(str(exc)[:200]) from exc
     if not isinstance(text, str) or text.startswith(("[governance]", "[tool error")):
-        return ""
+        raise PreviewUnavailable(str(text)[:200])
+    if len(text) > PREVIEW_MAX_CHARS:
+        raise PreviewUnavailable(f"the file is larger than {PREVIEW_MAX_CHARS} characters")
     return text
 
 
@@ -129,6 +187,9 @@ async def human_approval(runner: Any, tool: str, path: str, original: str, new: 
         return True, "auto-approve"
     identity = resolve_identity_for_runner(runner, source_ip=None)
     diff = "\n".join(difflib.unified_diff(original.splitlines(), new.splitlines(), f"a/{path}", f"b/{path}", lineterm=""))
+    chunks = [diff[i:i + _DIFF_CHUNK] for i in range(0, len(diff), _DIFF_CHUNK)] or [""]
+    if len(chunks) > _MAX_DIFF_CHUNKS:
+        return False, f"not requested: the diff is too large to review in full ({len(diff)} chars); propose smaller edits"
     store = get_approval_store()
     request = store.create(
         agent_id=str(getattr(identity, "agent_id", "agent:unknown")),
@@ -137,7 +198,7 @@ async def human_approval(runner: Any, tool: str, path: str, original: str, new: 
         surface="filesystem", action=f"code_mode.{tool}",
         reason="a run_code program proposed this write (Code Mode phase 6)",
         rule_id="code_mode.writes.require_approval",
-        arguments={"path": path, "diff": diff[:4000]},
+        arguments={"path": path, "diff_chunks": chunks},
         task_id=getattr(identity, "task_id", None), repo=getattr(identity, "repo", None),
         branch=getattr(identity, "branch", None), ttl_s=settings.governance_approval_ttl_s,
     )
@@ -155,7 +216,10 @@ async def gated_write(runner: Any, tool: str, args: dict[str, Any], *, goal: str
     path = str(args.get("path", "")).strip()
     if not path:
         return GateOutcome(f"[{tool} not applied: a path is required]")
-    original = await _current_text(runner, path)
+    try:
+        original = await _current_text(runner, path)
+    except PreviewUnavailable as exc:
+        return GateOutcome(f"[{tool} not applied: the current file could not be read to check the change — {exc}]")
     new, error = proposed_content(tool, args, original)
     if new is None:
         return GateOutcome({"path": path, "diff": "", "error": error} if tool == "edit_file" else f"[{tool} not applied: {error}]")
@@ -171,7 +235,17 @@ async def gated_write(runner: Any, tool: str, args: dict[str, Any], *, goal: str
             approved, ref = False, "could not be requested"
         if not approved:
             return GateOutcome(f"[{tool} not applied: approval {ref}]")
-    result = await runner._run_tool(tool, args, user_id=user_id, memory_store=memory_store)
+    if getattr(runner, "_mcp", None) is not None:
+        # In a sandbox, write the exact verified bytes into the sandbox itself: the registry's
+        # edit_file/apply_diff would hit the host copy, and the dispatcher would fall back to it.
+        # Policy is checked against the operation asked for, not the transport.
+        try:
+            result = await _governed(runner, tool, args, lambda: runner._mcp.call_tool(
+                "write_file", {"path": path, "content": new}))
+        except Exception as exc:  # noqa: BLE001 - a failed sandbox write is reported, never retried on the host
+            result = f"[tool error: sandbox write failed: {str(exc)[:160]}]"
+    else:
+        result = await runner._run_tool(tool, args, user_id=user_id, memory_store=memory_store)
     failed = isinstance(result, str) and result.startswith(("[tool error", "[governance]"))
     errored = isinstance(result, dict) and result.get("error")
     return GateOutcome(result, None if failed or errored else path)

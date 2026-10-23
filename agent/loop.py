@@ -2091,7 +2091,7 @@ class AgentRunner:
                     return await self._mcp.call_tool("read_file", args)
                 except _MCPUnavail:
                     pass
-            return self.tools.read_file(str(args.get("path", "")))
+            return self.tools.read_file(str(args.get("path", "")), int(args.get("max_chars", 12000)))
         if tool == "head_file":
             # head_file is read_file + truncate; route through _mcp when attached.
             if self._mcp is not None:

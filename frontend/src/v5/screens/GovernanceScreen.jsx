@@ -151,7 +151,9 @@ function canGrant(a) {
 // What is being approved: the target path and diff of a proposed write, and any other arguments.
 function ApprovalDetails({ args }) {
   if (!args || typeof args !== 'object' || !Object.keys(args).length) return null;
-  const { path, diff, ...rest } = args;
+  // A proposed write's diff arrives as chunks (the store caps each string); join them back.
+  const { path, diff_chunks: chunks, diff: plain, ...rest } = args;
+  const diff = Array.isArray(chunks) ? chunks.join('') : plain;
   const box = {
     marginTop: 6, padding: '8px 10px', borderRadius: 8, maxHeight: 260, overflow: 'auto',
     background: 'var(--surface-2, color-mix(in oklab, var(--text) 5%, transparent))',

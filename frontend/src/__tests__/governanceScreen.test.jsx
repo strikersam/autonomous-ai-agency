@@ -144,7 +144,7 @@ test('a proposed write shows its file and diff, and offers no session grant', as
       surface: 'filesystem', session_id: 'sess-1',
       reason: 'a run_code program proposed this write (Code Mode phase 6)',
       rule_id: 'code_mode.writes.require_approval', seconds_remaining: 120,
-      arguments: { path: 'app.py', diff: '--- a/app.py\n+++ b/app.py\n-x = 1\n+x = 2' },
+      arguments: { path: 'app.py', diff_chunks: ['--- a/app.py\n+++ b/app.py\n-x = 1', '\n+x = 2'] },
     }],
   });
   render(<GovernanceScreen />);

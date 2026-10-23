@@ -128,7 +128,7 @@ def test_approved_proposal_is_written_after_the_verifier_and_a_human(tmp_path, m
     assert "queued" in str(result["observations"])  # the program saw a receipt, not a write
     decided = get_approval_store().all()
     assert decided[0]["status"] == "approved" and decided[0]["action"] == "code_mode.edit_file"
-    assert "x = 2" in decided[0]["arguments"]["diff"]
+    assert "+x = 2" in "".join(decided[0]["arguments"]["diff_chunks"])
 
 
 def test_denied_proposal_is_not_written(tmp_path, monkeypatch):
@@ -171,3 +171,23 @@ def test_approval_store_failure_is_a_refusal_not_a_crash(tmp_path, monkeypatch):
     result, _ = _drive(runner, EDIT, [PASS], monkeypatch)
     assert (root / "app.py").read_text() == "x = 1\n"
     assert "could not be requested" in str(result["observations"])
+
+
+def test_a_diff_too_large_to_show_in_full_is_refused_not_truncated(tmp_path, monkeypatch):
+    """Codex P2 on #1823: the approver must see the whole change; the store caps strings at 2,000."""
+    runner, root = _runner(tmp_path)
+    code = "result = tools.write_file(workspace_id='w', path='app.py', content='y = 1\\n' * 20000)"
+    result, _ = _drive(runner, code, [PASS], monkeypatch)
+    assert (root / "app.py").read_text() == "x = 1\n"
+    assert get_approval_store().all() == []
+    assert "too large to review" in str(result["observations"])
+
+
+def test_long_diff_reaches_the_approver_whole(tmp_path, monkeypatch):
+    runner, root = _runner(tmp_path)
+    body = "".join(f"v{i} = {i}\n" for i in range(400))  # ~4,000+ chars of diff, above one scrubbed string
+    code = f"result = tools.write_file(workspace_id='w', path='app.py', content={body!r})"
+    _drive(runner, code, [PASS], monkeypatch, decide=True)
+    chunks = get_approval_store().all()[0]["arguments"]["diff_chunks"]
+    assert len(chunks) > 1 and "+v399 = 399" in "".join(chunks)
+    assert (root / "app.py").read_text() == body

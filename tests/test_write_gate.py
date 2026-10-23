@@ -97,14 +97,119 @@ def test_large_file_edit_is_previewed_against_the_whole_file(tmp_path, monkeypat
     assert (root / "app.py").read_text().endswith("x = 2\n")
 
 
-def test_sandbox_read_error_is_not_taken_as_file_content(tmp_path):
-    """CodeRabbit on #1823: a '[tool error ...]' string must not become the preview's original text."""
-    from agent.write_gate import _current_text
+def test_unreadable_file_refuses_the_write_instead_of_using_a_blank_baseline(tmp_path):
+    """Codex P1/P2 on #1823: a denied or failed read must not become ''."""
+    from agent.write_gate import PreviewUnavailable, _current_text
 
-    class FakeRunner:
-        _mcp = object()
+    class Runner:
+        def __init__(self, reply):
+            self.reply = reply
 
         async def _dispatch_tool(self, tool, args):
-            return "[tool error: sandbox unreachable]"
+            if isinstance(self.reply, Exception):
+                raise self.reply
+            return self.reply
 
-    assert asyncio.run(_current_text(FakeRunner(), "app.py")) == ""
+    for reply in ("[governance] deny: reads of secrets/ (rule r)", "[tool error: sandbox unreachable]", RuntimeError("boom")):
+        with pytest.raises(PreviewUnavailable):
+            asyncio.run(_current_text(Runner(reply), "app.py"))
+    assert asyncio.run(_current_text(Runner(FileNotFoundError("x")), "new.py")) == ""
+
+
+def test_denied_read_never_reaches_the_verifier(tmp_path, monkeypatch):
+    runner, root = _runner(tmp_path)
+
+    async def deny(self_arg, tool, args, **kwargs):
+        if tool == "read_file":
+            return "[governance] deny: read of app.py (rule r)"
+        raise AssertionError("nothing else may be dispatched")
+
+    monkeypatch.setattr(AgentRunner, "_dispatch_tool", deny)
+    result, roles = _drive(runner, "write_file", {"path": "app.py", "content": "x = 9\n"}, [], monkeypatch)
+    assert (root / "app.py").read_text() == "x = 1\n" and "verify" not in roles
+    assert "could not be read" in str(result["observations"])
+
+
+class _Sandbox:
+    def __init__(self, files: dict[str, str], fail_read: str | None = None):
+        self.files, self.fail_read, self.calls = files, fail_read, []
+
+    async def call_tool(self, name, args):
+        self.calls.append((name, dict(args)))
+        if name == "read_file":
+            if self.fail_read:
+                raise RuntimeError(self.fail_read)
+            if args["path"] not in self.files:
+                raise RuntimeError(f"read_file({args['path']}) failed: NotFoundException: file not found")
+            return self.files[args["path"]]
+        if name == "write_file":
+            self.files[args["path"]] = args["content"]
+            return "ok"
+        raise AssertionError(name)
+
+
+class _SandboxRunner:
+    def __init__(self, sandbox):
+        self._mcp = sandbox
+        self.host_reads = 0
+
+    async def _dispatch_tool(self, tool, args):
+        self.host_reads += 1
+        return "HOST COPY\n"
+
+    def _local_syntax_check(self, path, content):
+        return []
+
+    def _local_safety_check(self, path, content):
+        return []
+
+    async def _chat_json(self, model, messages):
+        return PASS
+
+    async def _run_tool(self, tool, args, **kwargs):
+        raise AssertionError("a sandbox write must not go through the host dispatch")
+
+
+def _gate(runner, tool, args):
+    from agent.write_gate import gated_write
+
+    return asyncio.run(gated_write(runner, tool, args, goal="g", step={"id": 1, "description": "d"},
+                                   verifier_model="m", user_id=None, memory_store=None))
+
+
+def test_sandbox_write_uses_the_sandbox_baseline_and_writes_the_verified_bytes():
+    """Codex P2 on #1823/#1824: baseline and write both stay in the sandbox."""
+    box = _Sandbox({"app.py": "x = 1\n"})
+    runner = _SandboxRunner(box)
+    outcome = _gate(runner, "edit_file", {"path": "app.py", "old_string": "x = 1", "new_string": "x = 2"})
+    assert box.files["app.py"] == "x = 2\n" and outcome.applied_path == "app.py"
+    assert runner.host_reads == 0  # the host copy is never consulted
+
+
+def test_sandbox_read_failure_refuses_instead_of_using_the_host_copy():
+    box = _Sandbox({"app.py": "x = 1\n"}, fail_read="read_file(app.py) failed: connection reset")
+    runner = _SandboxRunner(box)
+    outcome = _gate(runner, "write_file", {"path": "app.py", "content": "x = 9\n"})
+    assert box.files["app.py"] == "x = 1\n" and outcome.applied_path is None
+    assert "could not be read" in str(outcome.result) and runner.host_reads == 0
+
+
+def test_sandbox_new_file_counts_as_empty_and_is_created():
+    box = _Sandbox({})
+    _gate(_SandboxRunner(box), "write_file", {"path": "new.py", "content": "y = 1\n"})
+    assert box.files["new.py"] == "y = 1\n"
+
+
+def test_sandbox_write_is_governed_as_the_requested_tool(monkeypatch):
+    """Codex P1 on #1824: a policy denying edit_file must not be dodged by writing via write_file."""
+    from packages.governance.policy import PolicyEngine, reset_policy_engine
+
+    monkeypatch.setattr("packages.governance.enforcement.governance_enabled", lambda: True)
+    reset_policy_engine(PolicyEngine({"mode": "enforce", "baseline": {"tool": {"deny": ["edit_file"]}}}))
+    try:
+        box = _Sandbox({"app.py": "x = 1\n"})
+        outcome = _gate(_SandboxRunner(box), "edit_file", {"path": "app.py", "old_string": "x = 1", "new_string": "x = 2"})
+    finally:
+        reset_policy_engine(None)
+    assert box.files["app.py"] == "x = 1\n" and outcome.applied_path is None
+    assert "deny" in str(outcome.result) and ("write_file", {"path": "app.py", "content": "x = 2\n"}) not in box.calls
