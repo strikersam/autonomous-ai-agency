@@ -324,7 +324,8 @@ def index_operations(document: dict[str, Any]) -> dict[str, dict[str, Any]]:
         if not isinstance(get, dict) or not isinstance(path, str):
             continue
         op_id = str(get.get("operationId") or "get_" + re.sub(r"[^a-z0-9]+", "_", path.lower()).strip("_"))
-        params = [p for p in (item.get("parameters") or []) + (get.get("parameters") or []) if isinstance(p, dict)]
+        lists = [x if isinstance(x, list) else [] for x in (item.get("parameters"), get.get("parameters"))]
+        params = [p for p in lists[0] + lists[1] if isinstance(p, dict)]
         ops[op_id] = {
             "path": path,
             "summary": str(get.get("summary") or get.get("description") or "")[:200],

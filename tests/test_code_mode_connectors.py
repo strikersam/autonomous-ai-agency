@@ -403,6 +403,27 @@ def test_user_run_namespace_sends_the_users_token(monkeypatch, tmp_path):
     assert cc.openapi_connectors_from_config(user_id="bob") == {}
 
 
+def test_inline_path_level_parameters_are_kept(monkeypatch, tmp_path):
+    """Verifier note on #1822: a path-level parameter list was dropped, leaving the op uncallable."""
+    _no_tokens(monkeypatch)
+    cfg = tmp_path / "c.yaml"
+    cfg.write_text(
+        "connectors:\n"
+        "  - name: x\n"
+        "    base_url: 'https://x.example.com'\n"
+        "    operations:\n"
+        "      /items/{item_id}:\n"
+        "        parameters: [{name: item_id, in: path, required: true}]\n"
+        "        get: {operationId: get-item, parameters: [{name: fields, in: query}]}\n"
+    )
+    (spec,) = openapi_connectors(cfg)
+    ops = cc.index_operations({"paths": spec.operations})
+    assert [p["name"] for p in ops["get-item"]["parameters"]] == ["item_id", "fields"]
+    url, query = cc.build_url(spec.base_url, "/items/{item_id}", {"item_id": "7", "fields": "a"}, ops["get-item"])
+    assert url == "https://x.example.com/items/7" and query == {"fields": "a"}
+    assert cc.index_operations({"paths": {"/a": {"parameters": 5, "get": {"parameters": {"x": 1}}}}})["get_a"]["parameters"] == []
+
+
 @pytest.mark.parametrize("body", [
     "- name: github\n", "connectors: 5\n", "connectors: {a: 1}\n", "just text\n",
     # Codex P2 on 11de54e: malformed inline operations inside an otherwise valid entry.

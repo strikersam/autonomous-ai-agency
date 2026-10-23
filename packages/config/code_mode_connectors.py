@@ -131,8 +131,10 @@ def _valid_operations(raw: Any, name: str) -> dict[str, Any] | None:
             log.warning("code mode: connector %s: skipping operation %r (GET with a /path only)", name, path)
             continue
         op_id = str(get.get("operationId") or "")
-        params = get.get("parameters") or []
-        if not isinstance(params, list) or not _OP_ID_RE.match(op_id) or not all(
+        # Path-level parameters apply to the operation too (OpenAPI path item).
+        shared, own = item.get("parameters") or [], get.get("parameters") or []
+        params = shared + own if isinstance(shared, list) and isinstance(own, list) else None
+        if params is None or not _OP_ID_RE.match(op_id) or not all(
             isinstance(p, dict) and _PARAM_RE.match(str(p.get("name", ""))) and p.get("in") in ("path", "query")
             for p in params
         ):
