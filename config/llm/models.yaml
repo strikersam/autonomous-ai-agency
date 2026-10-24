@@ -1648,3 +1648,29 @@ models:
     priority: 99
     speed_tier: fast
 
+  # ---------------------------------------------------------------------------
+  # Meta / Muse Wonder (added 2026-10-24)
+  # Released 2026-10-12. Meta's first pay-as-you-go frontier model, built for
+  # agentic coding: long tool-use chains, multi-step debugging, large repos.
+  # Context: 1,048,576 tokens. Cached input: $0.20/MTok (5 % of input rate).
+  # Pricing: $4.00/$20.00 per MTok.
+  # priority: 99 — explicit-only; preview tier, unprobed on this account;
+  # lower once catalogue-probe confirms it answers.
+  # OpenRouter ID: meta/muse-wonder. Meta Model API ID: muse-wonder-1.0.
+  # Sources: openrouter.ai/meta/muse-wonder, computeprices.com/providers/
+  # openrouter/models/muse-wonder, eesel.ai/blog/meta-muse-wonder, 2026-10-24.
+  # ---------------------------------------------------------------------------
+  muse-wonder-1.0:
+    provider: openrouter
+    display_name: Muse Wonder 1.0 (Meta via OpenRouter)
+    context_window: 1048576
+    max_output_tokens: 65536
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 4.0
+    output_cost_per_1m: 20.0
+    priority: 99
+    speed_tier: slow
+
