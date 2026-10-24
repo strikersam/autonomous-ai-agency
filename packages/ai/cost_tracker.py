@@ -177,6 +177,16 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # openrouter.ai/x-ai/grok-4.7, 2026-10-06.
     "grok-4.7": (2.0, 6.0),
     "x-ai/grok-4.7": (2.0, 6.0),
+    # --- Meta / Muse Wonder (added 2026-10-24) ---
+    # Released 2026-10-12. Meta's first pay-as-you-go frontier model, positioned
+    # for agentic coding (long tool-use chains, multi-step debugging, large repos).
+    # 1,048,576-token context. Supports function calling, streaming, JSON mode.
+    # Pricing: $4.00/$20.00 per MTok; cached input $0.20/MTok (5 % of input rate).
+    # Preview tier — Meta is the only host on OpenRouter; no competing provider.
+    # Sources: openrouter.ai/meta/muse-wonder, computeprices.com/providers/
+    # openrouter/models/muse-wonder, eesel.ai/blog/meta-muse-wonder, 2026-10-24.
+    "muse-wonder-1.0": (4.0, 20.0),       # Meta Model API canonical ID
+    "meta/muse-wonder": (4.0, 20.0),       # OpenRouter router ID
     "gpt-4o": (2.5, 10.0),
     "gpt-4o-mini": (0.15, 0.6),
     "o1": (15.0, 60.0),
@@ -353,6 +363,10 @@ _CACHE_READ_FRACTIONS: tuple[tuple[str, float], ...] = (
     # Source: openrouter.ai/openai/gpt-6.1-sol, 2026-10-10.
     ("gpt-6.1-sol", 0.05),
     ("openai/gpt-6.1-sol", 0.05),
+    # Meta Muse Wonder: cached input $0.20/MTok = 5 % of $4.00/MTok input rate.
+    # Source: openrouter.ai/meta/muse-wonder, 2026-10-24.
+    ("muse-wonder-1.0", 0.05),
+    ("meta/muse-wonder", 0.05),
 )
 
 
