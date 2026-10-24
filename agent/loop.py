@@ -31,6 +31,7 @@ from agent.write_gate import (
     queue_proposal,
 )
 from agent.token_budget import BudgetExceededError, TokenBudget
+from packages.governance.audit import scrub
 from packages.ai.user_token_quota import (
     anthropic_usage_total,
     ensure_user_within_quota,
@@ -60,6 +61,8 @@ except ImportError:
     log.debug("agent/checkpoint.py not available — checkpointing disabled")
 
 log = logging.getLogger("qwen-agent")
+
+_TOOL_EVENTS = frozenset({"tool_call", "tool_result"})
 
 _REPOWISE_TOOLS = frozenset({"get_overview", "get_context", "get_risk", "get_why"})
 
@@ -2302,9 +2305,16 @@ class AgentRunner:
     # ------------------------------------------------------------------
 
     def _log_event(self, session_id: str | None, event_type: str, payload: dict[str, Any]) -> None:
-        """Append an event to the durable session log if a store is wired in."""
+        """Append an event to the durable session log if a store is wired in.
+
+        Tool args and results carry file bodies and fetched content; the store
+        persists payloads verbatim, so those two fields are scrubbed of secrets
+        and truncated first, the same way the governance audit trail does it.
+        """
         if session_id and self._session_store:
             try:
+                if event_type in _TOOL_EVENTS:
+                    payload = {k: scrub(v) if k in ("args", "result") else v for k, v in payload.items()}
                 self._session_store.append_event(session_id, event_type, payload)
             except Exception as exc:
                 log.debug("event log write failed (non-fatal): %s", exc)
