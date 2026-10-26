@@ -112,6 +112,20 @@ class LessonStore:
             )
             return cur.rowcount
 
+    def count(self) -> dict[str, int]:
+        """How many lessons are stored, and how many are still active.
+
+        Observability for the learn-from-failure loop: ``active`` counts
+        lessons whose evidence still stands (``resolved < hits``), the ones
+        ``recent()`` can still surface into planning.
+        """
+        with self._connect() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM lessons").fetchone()[0]
+            active = conn.execute(
+                "SELECT COUNT(*) FROM lessons WHERE resolved < hits"
+            ).fetchone()[0]
+        return {"total": int(total), "active": int(active)}
+
     def recent(self, limit: int = 5, *, now: float | None = None) -> list[dict[str, Any]]:
         """Live lessons, strongest current evidence first.
 
@@ -202,6 +216,12 @@ class MongoLessonStore:
         )
         return int(res.modified_count)
 
+    def count(self) -> dict[str, int]:
+        """Lesson totals, mirroring ``LessonStore.count`` on MongoDB."""
+        total = self._coll.count_documents({})
+        active = self._coll.count_documents({"$expr": {"$lt": ["$resolved", "$hits"]}})
+        return {"total": int(total), "active": int(active)}
+
     def recent(self, limit: int = 5, *, now: float | None = None) -> list[dict[str, Any]]:
         now = time.time() if now is None else now
         rows = list(
@@ -248,6 +268,20 @@ def _get_store() -> LessonStore | MongoLessonStore:
     if _store is None:
         _store = _open_mongo_store() or LessonStore()
     return _store
+
+
+def lessons_count() -> dict[str, int]:
+    """Lesson-store size via the shared store; ``{}`` if the store is unavailable.
+
+    A read-only probe for status surfaces (``GET /v4/status``) so the
+    learn-from-failure loop is observable without touching the store directly.
+    Never raises.
+    """
+    try:
+        return _get_store().count()
+    except Exception as exc:  # observability must never break a caller
+        log.debug("lesson count unavailable: %s", exc)
+        return {}
 
 
 def record_step_failures(goal: str, step_results: list[dict[str, Any]]) -> None:

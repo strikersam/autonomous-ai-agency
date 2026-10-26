@@ -140,6 +140,26 @@ async def v4_status(request: Request) -> dict[str, Any]:
     except Exception as exc:
         log.debug("v4/status: self-healing agent unavailable: %s", exc)
 
+    # Trend-watcher heartbeat — proof the web-learning loop is actually scanning
+    # (last_fetch, fetch_count, total_alerts). Empty under a bare TestClient, where
+    # no watcher is bootstrapped, same as the loop-liveness probe.
+    trend_watcher: dict[str, Any] = {}
+    try:
+        from agent.trend_watcher import get_trend_watcher
+        watcher = get_trend_watcher()
+        if watcher is not None:
+            trend_watcher = watcher.get_stats()
+    except Exception as exc:
+        log.debug("v4/status: trend watcher unavailable: %s", exc)
+
+    # Lessons store — proof the learn-from-failure loop is accumulating lessons.
+    lessons: dict[str, int] = {}
+    try:
+        from agent.lessons import lessons_count
+        lessons = lessons_count()
+    except Exception as exc:
+        log.debug("v4/status: lessons store unavailable: %s", exc)
+
     return {
         "improvement_loop": {
             "last_scan": state.get("last_scan"),
@@ -154,6 +174,8 @@ async def v4_status(request: Request) -> dict[str, Any]:
             "recent_events": recent_events,
             "event_count": len(recent_events),
         },
+        "trend_watcher": trend_watcher,
+        "lessons": lessons,
     }
 
 
