@@ -11,6 +11,7 @@ from agent.checkpoint import (
     cleanup_checkpoints,
     checkpoint_agent_state,
     restore_agent_state,
+    side_effecting_calls,
 )
 
 
@@ -201,3 +202,40 @@ class TestAsyncCheckpointAPI:
 
         await cleanup_checkpoints("cleanup_sess")
         assert await restore_agent_state("cleanup_sess") is None
+
+
+class TestSideEffectingCalls:
+    def test_read_only_and_error_entries_are_replayable(self) -> None:
+        history = [
+            {"tool": "read_file", "result": "x"},
+            {"tool": "error", "result": "boom"},
+            {"result": "no tool name"},
+        ]
+        assert side_effecting_calls(history) == []
+
+    def test_write_calls_are_reported(self) -> None:
+        write = {"tool": "write_file", "args": {"path": "a.py"}}
+        history = [{"tool": "read_file"}, write]
+        assert side_effecting_calls(history) == [write]
+
+    def test_custom_read_only_set(self) -> None:
+        history = [{"tool": "read_file"}]
+        assert side_effecting_calls(history, frozenset()) == history
+
+    @pytest.mark.asyncio
+    async def test_restore_exposes_executed_side_effects(self, tmp_path: Path) -> None:
+        import agent.checkpoint as ckpt
+
+        ckpt._store = CheckpointStore(base_dir=tmp_path)
+        write = {"tool": "edit_file", "args": {"path": "a.py"}}
+        checkpoint_agent_state(
+            session_id="se_sess",
+            step_index=1,
+            goal="g",
+            plan_steps=[],
+            completed_steps=[],
+            tool_call_history=[{"tool": "read_file"}, write],
+        )
+        restored = await restore_agent_state("se_sess")
+        assert restored is not None
+        assert restored["executed_side_effects"] == [write]
