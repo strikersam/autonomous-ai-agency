@@ -1638,6 +1638,33 @@ models:
     speed_tier: slow
 
   # ---------------------------------------------------------------------------
+  # Moonshot / Kimi K3.1 Pro (added 2026-10-26)
+  # Released 2026-10-23. First model in the new K3.1 series.
+  # Context: 1,048,576 tokens; max output: 131,072 tokens.
+  # Supports function calling, JSON mode, streaming, and thinking mode.
+  # Note: thinking mode is always on; requests with thinking disabled → HTTP 400.
+  # Pricing: $2.00/$10.00 per MTok (standard); cached input $0.20/MTok (10 %).
+  # Highspeed variant (kimi-k3.1-pro-highspeed): $4.00/$20.00; cached $0.20/MTok (5 %).
+  # Also available via OpenRouter (moonshotai/kimi-k3.1-pro) at the same rate.
+  # Sources: unite.ai/moonshot-ai-releases-kimi-k3-1-pro-first-model-in-new-k3-1-series/,
+  #          openrouter.ai/moonshotai/kimi-k3.1-pro, 2026-10-26.
+  # ---------------------------------------------------------------------------
+  kimi-k3.1-pro:
+    provider: moonshot
+    display_name: Kimi K3.1 Pro (Moonshot AI)
+    context_window: 1048576
+    max_output_tokens: 131072
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 2.0
+    output_cost_per_1m: 10.0
+    priority: 99                    # unprobed: explicit-only until catalogue-probe sees a 200
+    speed_tier: slow
+
+  # ---------------------------------------------------------------------------
   # OpenAI / GPT-6.1 Sol (added 2026-10-10)
   # Released 2026-09-29. Positioned between GPT-6 Sol and GPT-6 Astra.
   # 1,050,000-token context; 128K max output; accepts files, images and text.
