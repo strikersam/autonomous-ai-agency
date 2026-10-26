@@ -32,6 +32,25 @@ def test_empty_issue_ignored(tmp_path, monkeypatch):
     assert store.recent() == []
 
 
+def test_count_tracks_total_and_active(tmp_path, monkeypatch):
+    store = _fresh_store(tmp_path, monkeypatch)
+    assert store.count() == {"total": 0, "active": 0}
+
+    store.record(phase="execute", issue="could not edit 'a.py' after 3 attempts", goal="ship feature")
+    assert store.count() == {"total": 1, "active": 1}
+
+    # A later success on the same goal resolves the lesson: still stored, no
+    # longer active (resolved == hits), so recent() stops surfacing it.
+    store.resolve_goal("ship feature")
+    assert store.count() == {"total": 1, "active": 0}
+    assert store.recent() == []
+
+
+def test_lessons_count_helper_never_raises(tmp_path, monkeypatch):
+    _fresh_store(tmp_path, monkeypatch)
+    assert lessons_mod.lessons_count() == {"total": 0, "active": 0}
+
+
 def test_record_step_failures_only_failed(tmp_path, monkeypatch):
     _fresh_store(tmp_path, monkeypatch)
     record_step_failures("goal", [

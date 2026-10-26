@@ -64,6 +64,14 @@ def test_v4_status_returns_200(v4_client: TestClient):
     assert "active_issues" in loop
     assert "scan_count" in loop
     assert isinstance(loop["active_issues"], list)
+    # Learning-loop proof blocks: trend-watcher heartbeat + lessons totals.
+    # Both are dicts (empty under the bare TestClient, where no watcher is
+    # bootstrapped and the lessons store may be empty) — the keys are the
+    # contract, so the dashboard can always render them.
+    assert "trend_watcher" in data
+    assert "lessons" in data
+    assert isinstance(data["trend_watcher"], dict)
+    assert isinstance(data["lessons"], dict)
 
 
 def test_v4_improvements_returns_200(v4_client: TestClient):
