@@ -466,6 +466,41 @@ models:
     priority: 10
     speed_tier: fast
 
+  # ---------------------------------------------------------------------------
+  # Google / Gemini 4 Argon (added 2026-10-25)
+  # Generally available 2026-10-13 (research preview 2026-09-30).
+  # Google's most capable production model; designed for complex multi-step
+  # tasks and long-context work. Context: 1,048,576 tokens.
+  # Max output: 65,536 tokens (up to 1M with long-decode config).
+  # Supports tool calling, function calling, structured outputs, streaming,
+  # and thinking modes (low / medium / high).
+  # Pricing (introductory, through 2026-11-30): $2.00/$10.00 per MTok.
+  # Standard rate from 2026-12-01: $4.00/$20.00 per MTok.
+  # Cached input: $0.10/MTok (5 % of intro input rate —
+  #   see _CACHE_READ_FRACTIONS in cost_tracker.py, override before "gemini-").
+  # Available via Google Gemini API (id: gemini-4-argon) and
+  # OpenRouter (id: google/gemini-4-argon).
+  # Priority: 99 — explicit-only; unprobed on this account.
+  # Sources: computingforgeeks.com/gemini-4-argon-released-features-benchmarks/,
+  #          openrouter.ai/google/gemini-4-argon,
+  #          eesel.ai/blog/gemini-4-argon-pricing, 2026-10-25.
+  # ---------------------------------------------------------------------------
+  gemini-4-argon:
+    provider: openrouter
+    display_name: Gemini 4 Argon (Google via OpenRouter)
+    context_window: 1048576
+    max_output_tokens: 65536
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 2.0
+    output_cost_per_1m: 10.0
+    priority: 99                    # unprobed: explicit-only until catalogue-probe sees a 200
+    speed_tier: medium
+
   # Gemini 1.5 Pro: Google's 2M-context multimodal model (GA May 2024).
   # Predecessor to 2.5 Pro; listed as a Google candidate fallback.
   # Paid model. $1.25/$5.00 per MTok (≤128K-token prompts; higher above).

@@ -120,6 +120,15 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # standard $1.50/$7.50 from 2027-01-01. Intro price tracked here.
     "gemini-3.7-flash": (0.75, 3.75),
     "gemini-3.8-flash": (0.75, 3.75),
+    # Gemini 4 Argon (GA 2026-10-13): $2.00/$10.00 per MTok introductory (through
+    # 2026-11-30); standard $4.00/$20.00 from 2026-12-01. Cached input $0.10/MTok
+    # (5 % of input rate — see _CACHE_READ_FRACTIONS overrides). 1M context.
+    # Supports tool calling, streaming, JSON mode.
+    # Sources: openrouter.ai/google/gemini-4-argon, computingforgeeks.com/
+    #          gemini-4-argon-released-features-benchmarks/, eesel.ai/blog/
+    #          gemini-4-argon-pricing, 2026-10-25.
+    "gemini-4-argon": (2.0, 10.0),            # Google direct API ID; intro price
+    "google/gemini-4-argon": (2.0, 10.0),     # OpenRouter ID; same pricing
     # --- Anthropic (paid) — Claude 5 family + Sonnet 4.x / Opus 4.x ---
     # Prices verified from platform.claude.com/docs/en/about-claude/pricing 2026-09-06.
     "claude-opus-5": (5.0, 25.0),          # Opus 5 — $5/$25 per MTok
@@ -350,6 +359,11 @@ _CACHE_READ_FRACTIONS: tuple[tuple[str, float], ...] = (
     ("claude-fable-5-1", 0.025),   # Fable 5.1 — 2.5 % of input rate
     ("claude-mythos-5-1", 0.025),  # Mythos 5.1 — same gated tier as Fable 5.1
     ("claude-opus-5-5", 0.05),     # Opus 5.5  — 5 % of input rate
+    # Gemini 4 Argon: cache reads at $0.10/MTok = 5 % of $2.00/MTok input rate.
+    # Must appear before the generic "gemini-" 25 % fallback.
+    # Source: computingforgeeks.com/gemini-4-argon-released-features-benchmarks/, 2026-10-25.
+    ("gemini-4-argon", 0.05),
+    ("google/gemini-4-argon", 0.05),
     # Generic fallbacks.
     ("claude-", 0.10),
     ("gemini-", 0.25),

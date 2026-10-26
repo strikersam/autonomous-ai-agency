@@ -1,3 +1,19 @@
+# NEXT_ACTION — updated 2026-10-25 (daily automation, branch `claude/intelligent-gates-xd0rsk`)
+
+Gemini 4 Argon (`gemini-4-argon` / `google/gemini-4-argon`, GA 2026-10-13) declared at priority 99. $2/$10 intro pricing with 5% cache read override. PR #1830 open; 31 tests pass; catalogue 100 ids; PARITY OK.
+
+## Open items for next daily run
+
+1. **Gemini 4 Argon live probe** — declared priority 99 (explicit-only). Once PR merges and account is probed, lower priority and set as candidate.
+
+2. **Anthropic API version 2026-10-21** — New API version with breaking changes (document blocks in assistant messages → 400; citations on text blocks → 400). Multiple files currently hardcode `"2023-06-01"`. Needs explicit human decision (rule 40 — breaking API change) before update. Not skipped for capability reasons; needs authorization.
+
+3. **Gemini 4 Argon pricing update** — introductory $2/$10 ends 2026-11-30; standard $4/$20 from 2026-12-01. Update `_DEFAULT_COST_TABLE` entries before that date.
+
+4. **Kimi K3.1 Pro** — search found mention but no confirmed API model ID or pricing. Re-check when official Moonshot docs publish it.
+
+---
+
 # NEXT_ACTION — updated 2026-10-23 (daily automation, branch `claude/intelligent-gates-pc2vqv`)
 
 Qwen3.6 27B (`qwen/qwen3.6-27b`, Groq, $0.60/$3.00/MTok) and MiniMax M3.1 Flash cost entry (`MiniMax-M3.1-Flash`, $0.15/$0.60/MTok) added. 23 tests pass; compileall clean; changelog parity OK; catalogue 98 ids no drift.
