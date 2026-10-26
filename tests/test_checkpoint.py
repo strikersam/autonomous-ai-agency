@@ -213,6 +213,15 @@ class TestSideEffectingCalls:
         ]
         assert side_effecting_calls(history) == []
 
+    def test_loop_control_markers_are_not_side_effects(self) -> None:
+        history = [
+            {"tool": "finish", "result": "done"},
+            {"tool": "time_budget", "result": "stopped"},
+            {"tool": "stuck_detector", "result": "aborted"},
+            {"tool": "run_code", "result": "ok"},
+        ]
+        assert side_effecting_calls(history) == []
+
     def test_write_calls_are_reported(self) -> None:
         write = {"tool": "write_file", "args": {"path": "a.py"}}
         history = [{"tool": "read_file"}, write]

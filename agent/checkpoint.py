@@ -206,6 +206,12 @@ def checkpoint_agent_state(
     return cp
 
 
+# Observations the tool loop appends for its own bookkeeping, not tool executions.
+_CONTROL_OBSERVATIONS = frozenset({
+    "", "error", "finish", "time_budget", "stuck_detector", "run_code",
+})
+
+
 def side_effecting_calls(
     tool_call_history: list[dict[str, Any]],
     read_only: frozenset[str] | None = None,
@@ -214,7 +220,11 @@ def side_effecting_calls(
 
     A tool outside the read-only set that already ran (writes, pushes, comments)
     is not safe to repeat on resume, so it is reported rather than replayed.
-    Entries without a tool name and ``error`` entries never ran a tool.
+    Control markers the loop records as observations (``finish``, ``error``,
+    ``time_budget``, ``stuck_detector``, ``run_code``) and entries without a tool
+    name never ran a side-effecting tool. A gated write that the Verifier or an
+    approver rejected is still listed: the observation does not record whether it
+    was applied, so the caller must check the file itself before skipping it.
     """
     if read_only is None:
         from agent.code_mode import READ_ONLY_TOOLS
@@ -225,7 +235,7 @@ def side_effecting_calls(
         for entry in tool_call_history
         if isinstance(entry, dict)
         and isinstance(entry.get("tool"), str)
-        and entry["tool"] not in ("", "error")
+        and entry["tool"] not in _CONTROL_OBSERVATIONS
         and entry["tool"] not in read_only
     ]
 
