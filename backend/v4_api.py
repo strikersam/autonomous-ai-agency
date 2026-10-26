@@ -156,7 +156,9 @@ async def v4_status(request: Request) -> dict[str, Any]:
     lessons: dict[str, int] = {}
     try:
         from agent.lessons import lessons_count
-        lessons = lessons_count()
+        # Offloaded: the Mongo-backed count is synchronous pymongo, and this is a
+        # polled async route — a blocking count would stall the event loop (rule 25).
+        lessons = await asyncio.to_thread(lessons_count)
     except Exception as exc:
         log.debug("v4/status: lessons store unavailable: %s", exc)
 
