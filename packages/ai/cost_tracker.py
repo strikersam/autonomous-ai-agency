@@ -284,10 +284,17 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # Pricing: $0.15/$0.60 per MTok (cached: $0.015/$0.015 per MTok).
     # Source: techenclave.com/news/items/minimax-releases-m3-1-flash, 2026-10-23.
     "MiniMax-M3.1-Flash": (0.15, 0.60),
-    # --- Moonshot / Kimi (added 2026-09-20; Kimi K3 added 2026-10-19) ---
+    # --- Moonshot / Kimi (added 2026-09-20; Kimi K3 added 2026-10-19; K3.1 Pro added 2026-10-26) ---
     # Approximate pricing from platform.moonshot.cn/pricing, 2026-09-20.
     # Kimi K3 pricing: $3.00/$15.00 per MTok (Moonshot official, 2026-10-19).
     "kimi-k3": (3.0, 15.0),               # Kimi K3 list price; estimate until a probe confirms the id answers
+    # Kimi K3.1 Pro: released 2026-10-23. First model in the new K3.1 series.
+    # Context: 1,048,576 tokens. Cached input: $0.20/MTok (10 % standard, 5 % highspeed).
+    # Sources: unite.ai/moonshot-ai-releases-kimi-k3-1-pro...,
+    #          openrouter.ai/moonshotai/kimi-k3.1-pro, 2026-10-26.
+    "kimi-k3.1-pro": (2.0, 10.0),              # Moonshot direct API — standard tier
+    "kimi-k3.1-pro-highspeed": (4.0, 20.0),    # Highspeed variant (2-3× faster)
+    "moonshotai/kimi-k3.1-pro": (2.0, 10.0),   # OpenRouter router ID
     "moonshot-v1-8k": (1.40, 1.40),       # 8K context — cheapest/fastest
     "moonshot-v1-32k": (1.40, 1.40),      # 32K context — balanced
     "moonshot-v1-128k": (1.68, 1.68),     # 128K context — planner/judge preset
@@ -381,6 +388,11 @@ _CACHE_READ_FRACTIONS: tuple[tuple[str, float], ...] = (
     # Source: openrouter.ai/meta/muse-wonder, 2026-10-24.
     ("muse-wonder-1.0", 0.05),
     ("meta/muse-wonder", 0.05),
+    # Kimi K3.1 Pro: standard cached input $0.20/MTok = 10 % of $2.00/MTok input rate.
+    # Highspeed: $0.20/$4.00 = 5 %. Source: openrouter.ai/moonshotai/kimi-k3.1-pro, 2026-10-26.
+    ("kimi-k3.1-pro-highspeed", 0.05),
+    ("kimi-k3.1-pro", 0.10),
+    ("moonshotai/kimi-k3.1-pro", 0.10),
 )
 
 

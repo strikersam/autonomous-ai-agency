@@ -1,3 +1,19 @@
+# NEXT_ACTION — updated 2026-10-26 (daily automation, branch `claude/intelligent-gates-hfe09c`)
+
+Kimi K3.1 Pro (`kimi-k3.1-pro` / `moonshotai/kimi-k3.1-pro`, released 2026-10-23) declared at priority 99. $2/$10 standard pricing with 10% cache read; highspeed variant at $4/$20, 5% cache. PR open on branch `claude/intelligent-gates-hfe09c`; 38 tests pass; catalogue 86 ids; PARITY OK.
+
+## Open items for next daily run
+
+1. **Kimi K3.1 Pro live probe** — declared priority 99 (explicit-only). Once PR merges and account is probed, lower priority and set as candidate.
+
+2. **Gemini 4 Argon live probe** — declared priority 99 (explicit-only) on 2026-10-25. Once PR merges and account is probed, lower priority.
+
+3. **Anthropic API version 2026-10-21** — New API version with breaking changes (document blocks in assistant messages → 400; citations on text blocks → 400). Needs explicit human decision (rule 40 — breaking API change) before update.
+
+4. **Gemini 4 Argon pricing update** — introductory $2/$10 ends 2026-11-30; standard $4/$20 from 2026-12-01. Update `_DEFAULT_COST_TABLE` entries before that date.
+
+---
+
 # NEXT_ACTION — updated 2026-10-25 (daily automation, branch `claude/intelligent-gates-xd0rsk`)
 
 Gemini 4 Argon (`gemini-4-argon` / `google/gemini-4-argon`, GA 2026-10-13) declared at priority 99. $2/$10 intro pricing with 5% cache read override. PR #1830 open; 31 tests pass; catalogue 100 ids; PARITY OK.
