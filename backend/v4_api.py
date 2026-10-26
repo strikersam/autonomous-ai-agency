@@ -123,6 +123,37 @@ async def _save_improvement_state(data: dict) -> None:
     await asyncio.to_thread(lambda: _STATE_FILE.write_text(json.dumps(data, indent=2)))
 
 
+async def _learning_loop_proof() -> dict[str, Any]:
+    """Trend-watcher heartbeat + lessons totals for GET /v4/status.
+
+    Proof the agency's other two learning halves are live: whether the trend
+    watcher is scanning the web (`last_fetch`, `fetch_count`, `total_alerts`),
+    and whether the learn-from-failure loop is accumulating lessons. Both are
+    read-only and fail soft to `{}` (empty under a bare TestClient, where no
+    watcher is bootstrapped and the store may be empty), so the status contract
+    always carries the keys. The lessons count is offloaded off the event loop
+    because the Mongo-backed count is synchronous pymongo and this route is
+    polled (rule 25).
+    """
+    trend_watcher: dict[str, Any] = {}
+    try:
+        from agent.trend_watcher import get_trend_watcher
+        watcher = get_trend_watcher()
+        if watcher is not None:
+            trend_watcher = watcher.get_stats()
+    except Exception as exc:
+        log.debug("v4/status: trend watcher unavailable: %s", exc)
+
+    lessons: dict[str, int] = {}
+    try:
+        from agent.lessons import lessons_count
+        lessons = await asyncio.to_thread(lessons_count)
+    except Exception as exc:
+        log.debug("v4/status: lessons store unavailable: %s", exc)
+
+    return {"trend_watcher": trend_watcher, "lessons": lessons}
+
+
 # ── GET /v4/status ───────────────────────────────────────────────────────────
 
 @v4_router.get("/status")
@@ -140,6 +171,8 @@ async def v4_status(request: Request) -> dict[str, Any]:
     except Exception as exc:
         log.debug("v4/status: self-healing agent unavailable: %s", exc)
 
+    proof = await _learning_loop_proof()
+
     return {
         "improvement_loop": {
             "last_scan": state.get("last_scan"),
@@ -154,6 +187,7 @@ async def v4_status(request: Request) -> dict[str, Any]:
             "recent_events": recent_events,
             "event_count": len(recent_events),
         },
+        **proof,
     }
 
 
