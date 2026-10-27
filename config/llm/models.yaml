@@ -1638,6 +1638,31 @@ models:
     speed_tier: slow
 
   # ---------------------------------------------------------------------------
+  # Moonshot AI / Kimi K3.1 Pro (added 2026-10-27)
+  # API released ~2026-10-23. Successor to Kimi K3 with lower per-token cost.
+  # Same 2.8T/104B-active MoE architecture. Context: 1,048,576 tokens.
+  # Max output: 131,072 tokens. Supports function calling, JSON mode, streaming.
+  # Pricing: $2.00/$10.00 per MTok; cached input $0.20/MTok (10 % of input rate,
+  # see _CACHE_READ_FRACTIONS in cost_tracker.py).
+  # Also reachable via OpenRouter (moonshotai/kimi-k3.1-pro) at same rate.
+  # Sources: openrouter.ai/moonshotai/kimi-k3.1-pro,
+  #          benchlm.ai/moonshot/api-pricing, 2026-10-27.
+  # ---------------------------------------------------------------------------
+  kimi-k3.1-pro:
+    provider: moonshot
+    display_name: Kimi K3.1 Pro (Moonshot AI)
+    context_window: 1048576
+    max_output_tokens: 131072
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 2.0
+    output_cost_per_1m: 10.0
+    priority: 99                    # unprobed: explicit-only until catalogue-probe sees a 200
+    speed_tier: medium
+
+  # ---------------------------------------------------------------------------
   # OpenAI / GPT-6.1 Sol (added 2026-10-10)
   # Released 2026-09-29. Positioned between GPT-6 Sol and GPT-6 Astra.
   # 1,050,000-token context; 128K max output; accepts files, images and text.
