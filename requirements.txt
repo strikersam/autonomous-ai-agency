@@ -1,4 +1,4 @@
-fastapi>=0.143.2
+fastapi>=0.162.0
 uvicorn[standard]>=0.54.0
 httpx>=0.28.1
 beautifulsoup4>=4.14.3
@@ -25,24 +25,24 @@ PyJWT>=2.15.1
 pillow>=12.2.0
 pygments>=2.21.0
 requests>=2.34.2,<2.35
-certifi>=2026.7.22
+certifi>=2026.10.23
 idna>=3.20
 urllib3>=2.8.0
 pyasn1>=0.6.4
-setuptools>=84.0.0
+setuptools>=84.2.1
 oauthlib>=4.0.0
 PyYAML>=6.0.3  # config/models.yaml catalog loader (packages/ai/brain_config.py)
-zipp>=4.1.1
+zipp>=4.1.2
 wheel>=0.48.0
-boto3>=1.43.114
+boto3>=1.43.118
 anthropic>=1.15.0
 aiosqlite>=0.19.0  # SQLite async adapter for STORAGE_BACKEND=sqlite
 redis>=8.1.0  # Redis client for shared-state backend (optional; in-memory default)
 fakeredis[lua]>=2.40.0  # Fake Redis for tests
 curl_cffi>=0.16.3
 dnspython>=2.9.0
-graphifyy>=0.9.91  # AI knowledge-graph CLI used by .claude/hooks/graphify-refresh
-playwright>=1.64.0
+graphifyy>=0.9.95  # AI knowledge-graph CLI used by .claude/hooks/graphify-refresh
+playwright>=1.64.1
 reportlab>=5.0.1,<6  # CTO-level PDF export for SEO/GEO/AEO/AIO audit reports
 # E2B Firecracker micro-VM sandbox (roadmap ★5). Optional — imports are guarded
 # so the deploy works without it; install to enable sandboxed agent execution.
