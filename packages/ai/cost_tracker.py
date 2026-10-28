@@ -177,6 +177,14 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "gpt-6-luna": (0.1, 0.5),              # Luna: fast/high-volume, $0.1/$0.5 per MTok (released Sept 22)
     "gpt-6.1-sol": (2.0, 10.0),            # gpt-6.1-sol: $2/$10 per MTok (released Sept 29)
     "openai/gpt-6.1-sol": (2.0, 10.0),    # OpenRouter path — same pricing
+    # --- OpenAI (paid) — GPT-6.1 Terra (October 26 2026) ---
+    # Balanced mid-tier successor to GPT-5.6 Terra. 1,050,000-token context;
+    # 128K output. Cached input: $0.05/MTok (5 % of input rate).
+    # Sources: openai.com/index/introducing-gpt-6-1-terra/,
+    #          openrouter.ai/openai/gpt-6.1-terra, ghacks.net/2026/10/27/...,
+    #          2026-10-28.
+    "gpt-6.1-terra": (1.0, 5.0),          # $1/$5 per MTok (released Oct 26)
+    "openai/gpt-6.1-terra": (1.0, 5.0),  # OpenRouter path — same pricing
     # --- xAI / Grok ---
     # Grok 4.7 released 2026-09-21. $2.00/$6.00 per MTok (<200K tier);
     # 500K context window. xAI's recommended model for coding and agents.
@@ -377,6 +385,10 @@ _CACHE_READ_FRACTIONS: tuple[tuple[str, float], ...] = (
     # Source: openrouter.ai/openai/gpt-6.1-sol, 2026-10-10.
     ("gpt-6.1-sol", 0.05),
     ("openai/gpt-6.1-sol", 0.05),
+    # OpenAI GPT-6.1 Terra: cache reads at $0.05/MTok = 5 % of $1.00/MTok input rate.
+    # Source: openai.com/index/introducing-gpt-6-1-terra/, 2026-10-28.
+    ("gpt-6.1-terra", 0.05),
+    ("openai/gpt-6.1-terra", 0.05),
     # Meta Muse Wonder: cached input $0.20/MTok = 5 % of $4.00/MTok input rate.
     # Source: openrouter.ai/meta/muse-wonder, 2026-10-24.
     ("muse-wonder-1.0", 0.05),
