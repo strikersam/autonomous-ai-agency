@@ -1663,6 +1663,35 @@ models:
     speed_tier: medium
 
   # ---------------------------------------------------------------------------
+  # OpenAI / GPT-6.1 Terra (added 2026-10-28)
+  # Released 2026-10-26. Balanced mid-tier successor to GPT-5.6 Terra.
+  # 50 % cheaper than GPT-5.6 Terra ($1.50/$7.50) and GPT-6.1 Sol ($2/$10).
+  # Context: 1,050,000 tokens. Max output: 128K tokens.
+  # Supports tool calling, function calling, JSON mode, streaming.
+  # Cached input: $0.05/MTok (5 % of input rate).
+  # priority: 99 — explicit-only; unprobed on this account.
+  # OpenRouter ID: openai/gpt-6.1-terra.
+  # Sources: openai.com/index/introducing-gpt-6-1-terra/,
+  #          openrouter.ai/openai/gpt-6.1-terra,
+  #          ghacks.net/2026/10/27/openai-launches-gpt-6-1-terra-with-api-pricing-50-lower-than-gpt-5-6-terra/,
+  #          2026-10-28.
+  # ---------------------------------------------------------------------------
+  gpt-6.1-terra:
+    provider: openrouter
+    display_name: GPT-6.1 Terra (OpenAI via OpenRouter)
+    context_window: 1050000
+    max_output_tokens: 128000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    input_cost_per_1m: 1.0
+    output_cost_per_1m: 5.0
+    priority: 99
+    speed_tier: medium
+
+  # ---------------------------------------------------------------------------
   # xAI / Grok 4.7 (added 2026-10-06)
   # Released 2026-09-21. Recommended by xAI for coding and agents.
   # 500K-token context. Pricing: $2.00/$6.00 per MTok (<200K tier).
