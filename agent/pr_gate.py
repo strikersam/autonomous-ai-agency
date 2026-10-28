@@ -116,10 +116,17 @@ def _run(argv: list[str], root: Path, env: dict[str, str] | None = None) -> tupl
     return proc.returncode, (proc.stdout + proc.stderr)[-2000:]
 
 
-def _last_line(out: str) -> str:
-    lines = [ln.strip() for ln in out.strip().splitlines() if ln.strip()]
-    return lines[-1][:200] if lines else "no output"
 
+_PYTEST_SUMMARY = re.compile(r"^\d+\s+(passed|failed|error|skipped|deselected|warning)")
+
+def _last_line(out: str) -> str:
+    """Return the pytest summary line if present, otherwise the last non-empty line."""
+    lines = [ln.strip() for ln in out.strip().splitlines() if ln.strip()]
+    # Look for pytest summary line from the end (e.g., "1 passed in 0.00s")
+    for ln in reversed(lines):
+        if _PYTEST_SUMMARY.search(ln):
+            return ln[:200]
+    return lines[-1][:200] if lines else "no output"
 
 def _check_protected(ctx: _Ctx) -> None:
     hit = [f for f in ctx.changed if _matches(f, PROTECTED_PATHS)]
