@@ -27,6 +27,7 @@ Tools exposed (heavy lifting, runs in Docker container):
 """
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import os
@@ -56,12 +57,18 @@ _SECRET_TOKEN: str | None = os.environ.get("MCP_SECRET_TOKEN") or None
 
 
 def _check_auth(request: Request) -> None:
-    """Raise 401 if MCP_SECRET_TOKEN is set and the request doesn't present it."""
-    if not _SECRET_TOKEN:
-        return
+    """Raise 401 unless the request presents the configured MCP_SECRET_TOKEN.
+
+    Fails closed: with no token configured every request is refused, because
+    this app exposes shell execution and is mounted on the public backend port.
+    """
+    from fastapi import HTTPException
     auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer ") or auth[7:] != _SECRET_TOKEN:
-        from fastapi import HTTPException
+    if (
+        not _SECRET_TOKEN
+        or not auth.startswith("Bearer ")
+        or not hmac.compare_digest(auth[7:], _SECRET_TOKEN)
+    ):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 # ── Tool registry ────────────────────────────────────────────────────────────

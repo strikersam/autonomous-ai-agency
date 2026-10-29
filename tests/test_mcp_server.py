@@ -135,15 +135,34 @@ class TestWorkspace:
 # ── MCP server endpoint tests ─────────────────────────────────────────────────
 
 @pytest.fixture()
-def mcp_client(tmp_path):
+def mcp_client(tmp_path, monkeypatch):
     """TestClient for the MCP FastAPI app with workspace base patched to tmp_path."""
+    import mcp_server.server as server
     import mcp_server.workspace as ws_mod
     original = ws_mod.WORKSPACE_BASE
     ws_mod.WORKSPACE_BASE = tmp_path
-    from mcp_server.server import app
-    with TestClient(app) as client:
+    monkeypatch.setattr(server, "_SECRET_TOKEN", "test-mcp-token")
+    with TestClient(server.app, headers={"Authorization": "Bearer test-mcp-token"}) as client:
         yield client
     ws_mod.WORKSPACE_BASE = original
+
+
+def test_mcp_refuses_every_call_when_token_unset(monkeypatch):
+    """Regression: with MCP_SECRET_TOKEN unset the endpoint must fail closed, not open."""
+    import mcp_server.server as server
+    monkeypatch.setattr(server, "_SECRET_TOKEN", None)
+    client = TestClient(server.app)
+    body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+    assert client.post("/mcp", json=body).status_code == 401
+    assert client.post("/mcp", json=body, headers={"Authorization": "Bearer "}).status_code == 401
+
+
+def test_mcp_rejects_wrong_bearer(monkeypatch):
+    import mcp_server.server as server
+    monkeypatch.setattr(server, "_SECRET_TOKEN", "right-token")
+    client = TestClient(server.app)
+    body = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+    assert client.post("/mcp", json=body, headers={"Authorization": "Bearer wrong"}).status_code == 401
 
 
 class TestMCPServer:
