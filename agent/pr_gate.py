@@ -116,9 +116,21 @@ def _run(argv: list[str], root: Path, env: dict[str, str] | None = None) -> tupl
     return proc.returncode, (proc.stdout + proc.stderr)[-2000:]
 
 
+# Matches pytest summary lines like "1 passed", "2 failed", "3 error", "4 skipped", "5 warnings"
+# but not "warnings.warn(...)" or "PytestDeprecationWarning"
+_SUMMARY_PATTERN = re.compile(r"\b(\d+\s+(passed|failed|error|skipped|warnings?)\b)", re.I)
+
+
 def _last_line(out: str) -> str:
+    """Return the last meaningful line, preferring pytest summary lines over warnings."""
     lines = [ln.strip() for ln in out.strip().splitlines() if ln.strip()]
-    return lines[-1][:200] if lines else "no output"
+    if not lines:
+        return "no output"
+    # Prefer a line that looks like a test summary (e.g., "1 passed", "2 failed")
+    for ln in reversed(lines):
+        if _SUMMARY_PATTERN.search(ln):
+            return ln[:200]
+    return lines[-1][:200]
 
 
 def _check_protected(ctx: _Ctx) -> None:
@@ -292,33 +304,42 @@ def _check_frontend(ctx: _Ctx) -> None:
     rc, out = _run(["npx", "vitest", "related", "--run", "--passWithNoTests", *rel], frontend, env)
     if rc != 0:
         ctx.report.blockers.append(f"Frontend tests fail:\n{out}")
-        return
-    ctx.report.evidence.append(f"frontend tests (related to {len(src)} file(s)): passed")
-    rc, out = _run(["npm", "run", "build"], frontend, env)
+    else:
+        ctx.report.evidence.append(f"vitest {' '.join(rel)}: {_last_line(out)}")
+    rc, out = _run(["npx", "vite", "build", "--mode", "production"], frontend, env)
     if rc != 0:
         ctx.report.blockers.append(f"Frontend build fails:\n{out}")
     else:
-        ctx.report.evidence.append("frontend build: succeeded")
+        ctx.report.evidence.append(f"vite build: {_last_line(out)}")
+
+
+def _check_repo_compiles(ctx: _Ctx) -> None:
+    """Byte-compile the whole repo to catch syntax errors in any file."""
+    rc, out = _run([sys.executable, "-m", "compileall", "-q", "."], ctx.root)
+    if rc != 0:
+        ctx.report.blockers.append(f"Repository does not byte-compile:\n{out}")
+    else:
+        ctx.report.evidence.append("compileall: OK")
 
 
 def run_pr_gate(
     root: str | Path,
     changed_files: list[str],
-    *,
     goal: str = "",
     planned_files: list[str] | None = None,
     base_ref: str | None = None,
 ) -> GateReport:
-    """Run every pre-PR check over ``changed_files`` and report blockers and evidence.
-
-    ``planned_files`` enables the scope check and ``base_ref`` the size check;
-    callers that pass neither get the original file-level checks only.
-    """
-    changed = sorted({_norm(f) for f in changed_files if f.strip()})
-    planned = sorted({_norm(f) for f in planned_files if f.strip()}) if planned_files else None
-    ctx = _Ctx(Path(root), changed, goal, planned, base_ref, GateReport())
-    if not changed:
-        return ctx.report
+    """Run all pre-PR checks and return a report with blockers and evidence."""
+    root = Path(root)
+    report = GateReport()
+    ctx = _Ctx(
+        root=root,
+        changed=[_norm(f) for f in changed_files],
+        goal=goal,
+        planned=[_norm(f) for f in (planned_files or [])],
+        base_ref=base_ref,
+        report=report,
+    )
     _check_protected(ctx)
     _check_scope(ctx)
     _check_destructive(ctx)
@@ -326,14 +347,13 @@ def run_pr_gate(
     if _check_python(ctx):
         _check_frontend(ctx)
         _check_changelog(ctx)
-    if ctx.report.blockers:
-        log.info("pr_gate: %d blocker(s) for %d changed file(s)", len(ctx.report.blockers), len(changed))
-    return ctx.report
+    _check_repo_compiles(ctx)
+    return report
 
 
 def pr_blockers(root: str | Path, changed_files: list[str], **kwargs: object) -> list[str]:
     """Reasons the change is not ready for a PR; empty when it may open one."""
-    return run_pr_gate(root, changed_files, **kwargs).blockers  # type: ignore[arg-type]
+    return run_pr_gate(root, changed_files, **kwargs).blockers
 
 
 def judge_blockers(judge: dict | None) -> list[str]:
