@@ -39,6 +39,9 @@ def _reset_brain_singletons(monkeypatch, tmp_path):
     monkeypatch.setattr(_bcs, "_store", None)
     monkeypatch.setattr(_bp, "_cached_brain", None)
     monkeypatch.setenv("SQLITE_DB_PATH", str(tmp_path / "test.db"))
+    # Clean brain-related env vars that leak between tests
+    for k in ["BRAIN_PREFERENCE", "COLIBRI_URL", "COLIBRI_MODEL", "COLIBRI_ENABLED", "OLLAMA_BASE", "OLLAMA_BASE_URL", "NVIDIA_API_KEY", "ALLOW_PAID_BRAIN", "AGENT_LLM_BASE_URL", "AGENT_LLM_API_KEY", "AGENT_LLM_MODEL"]:
+        monkeypatch.delenv(k, raising=False)
     # Force _load_unlocked to skip Mongo + sqlite mirror and return the
     # recommended default (which has updated_at="" when no provider keys
     # are present). Tests that need a DB-stored config override this.

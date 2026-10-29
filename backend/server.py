@@ -8394,7 +8394,7 @@ async def autonomy_status() -> dict[str, object]:
     try:
         from packages.ai.brain_config import get_brain_config, provider_base_url
         cfg = await get_brain_config()
-        if cfg.updated_at and cfg.primary_provider:
+        if cfg.updated_at and cfg.primary_provider and cfg.updated_by != "brain_watchdog":
             db_brain_configured = True
             if cfg.primary_provider == "ollama":
                 ollama_url = (
