@@ -11,6 +11,9 @@ Routes:
   POST   /api/schedules/{id}/run    trigger immediately
   DELETE /api/schedules/{id}        delete
   GET    /api/schedules/{id}/runs   run history (run_count + last_run)
+
+Schedules are platform-wide (they carry no owner), so every mutating route
+requires the admin role; reads stay open to any authenticated user.
 """
 
 from __future__ import annotations
@@ -18,9 +21,10 @@ from __future__ import annotations
 import logging
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from packages.auth.rbac import require_admin
 from packages.scheduler.scheduler import get_scheduler
 
 log = logging.getLogger("qwen-proxy")
@@ -74,7 +78,9 @@ async def list_schedules(request: Request) -> dict:
 
 
 @schedules_router.post("/")
-async def create_schedule(body: ScheduleCreateRequest, request: Request) -> dict:
+async def create_schedule(
+    body: ScheduleCreateRequest, request: Request, _admin: dict = Depends(require_admin)
+) -> dict:
     """Create a new scheduled job."""
     sched = get_scheduler()
     job = sched.create(
@@ -103,7 +109,10 @@ async def get_schedule(schedule_id: str, request: Request) -> dict:
 
 @schedules_router.patch("/{schedule_id}")
 async def toggle_schedule(
-    schedule_id: str, body: ScheduleToggleRequest, request: Request
+    schedule_id: str,
+    body: ScheduleToggleRequest,
+    request: Request,
+    _admin: dict = Depends(require_admin),
 ) -> dict:
     """Pause or activate a schedule."""
     sched = get_scheduler()
@@ -124,7 +133,9 @@ async def toggle_schedule(
 
 
 @schedules_router.post("/{schedule_id}/run")
-async def run_schedule_now(schedule_id: str, request: Request) -> dict:
+async def run_schedule_now(
+    schedule_id: str, request: Request, _admin: dict = Depends(require_admin)
+) -> dict:
     """Trigger a schedule to run immediately."""
     sched = get_scheduler()
     try:
@@ -135,7 +146,9 @@ async def run_schedule_now(schedule_id: str, request: Request) -> dict:
 
 
 @schedules_router.delete("/{schedule_id}")
-async def delete_schedule(schedule_id: str, request: Request) -> dict:
+async def delete_schedule(
+    schedule_id: str, request: Request, _admin: dict = Depends(require_admin)
+) -> dict:
     """Delete a schedule."""
     sched = get_scheduler()
     deleted = sched.delete(schedule_id)

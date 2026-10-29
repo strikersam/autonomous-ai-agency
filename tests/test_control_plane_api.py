@@ -28,6 +28,13 @@ def scheduler():
 @pytest.fixture
 def schedules_client(scheduler):
     app = FastAPI()
+
+    @app.middleware("http")
+    async def _as_admin(request, call_next):
+        # Schedule mutations are admin-only; JWTUserStateMiddleware does this in prod.
+        request.state.user = {"_id": "admin-1", "role": "admin"}
+        return await call_next(request)
+
     app.include_router(schedules_router)
     return TestClient(app)
 

@@ -208,10 +208,10 @@ def test_playbook_run_not_found(client):
 
 # ─── Watchdog ─────────────────────────────────────────────────────────────────
 
-def test_watchdog_add_and_list(client):
+def test_watchdog_add_and_list(client, hermetic_dns):
     r = client.post(
         "/agent/watchdog/resources",
-        json={"name": "API", "kind": "url", "target": "http://localhost:9999", "action": "notify"},
+        json={"name": "API", "kind": "url", "target": "https://example.com/health", "action": "notify"},
     )
     assert r.status_code == 200
     rid = r.json()["resource_id"]
@@ -221,15 +221,33 @@ def test_watchdog_add_and_list(client):
     assert rid in ids
 
 
-def test_watchdog_remove(client):
+def test_watchdog_remove(client, hermetic_dns):
     r = client.post(
         "/agent/watchdog/resources",
-        json={"name": "del", "kind": "url", "target": "http://x"},
+        json={"name": "del", "kind": "url", "target": "https://example.com/"},
     )
     rid = r.json()["resource_id"]
     r = client.delete(f"/agent/watchdog/resources/{rid}")
     assert r.json()["removed"] is True
 
+
+
+@pytest.mark.parametrize(
+    "kind,target",
+    [
+        ("url", "http://127.0.0.1:8080/internal/admin"),
+        ("url", "file:///etc/hostname"),
+        ("url", "http://169.254.169.254/latest/meta-data/"),
+        ("file", "/etc/hostname"),
+    ],
+)
+def test_watchdog_rejects_internal_and_host_targets(client, kind, target):
+    """Regression: watch targets must pass the SSRF guard and stay in the workspace."""
+    r = client.post(
+        "/agent/watchdog/resources",
+        json={"name": "probe", "kind": kind, "target": target},
+    )
+    assert r.status_code == 400
 
 # ─── Scaffolding ──────────────────────────────────────────────────────────────
 
@@ -303,12 +321,27 @@ def test_terminal_snapshot(client):
 
 
 def test_terminal_run(client):
+    proxy.app.dependency_overrides[proxy._get_admin_identity_from_request] = (
+        lambda: proxy.AdminIdentity(username="admin", auth_source="token")
+    )
+    try:
+        r = client.post(
+            "/agent/terminal/run",
+            json={"command": ["echo", "hello"]},
+        )
+    finally:
+        proxy.app.dependency_overrides.pop(proxy._get_admin_identity_from_request, None)
+    assert r.status_code == 200
+    assert "hello" in r.json()["stdout"]
+
+
+def test_terminal_run_rejects_plain_api_key(client):
+    """Regression: a non-admin API key must not run host commands."""
     r = client.post(
         "/agent/terminal/run",
         json={"command": ["echo", "hello"]},
     )
-    assert r.status_code == 200
-    assert "hello" in r.json()["stdout"]
+    assert r.status_code in (401, 403)
 
 
 # ─── Browser ──────────────────────────────────────────────────────────────────

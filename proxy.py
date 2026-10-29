@@ -116,6 +116,7 @@ from agent.voice import VoiceCommandInterface
 from agent.sam import SamAgent, get_sam
 
 from agent.watchdog import ResourceWatchdog
+from agent.watchdog import target_block_reason as watch_target_block_reason
 
 from agent.quick_note import QuickNoteQueue, set_quick_note_queue, start_processor
 
@@ -1354,6 +1355,32 @@ async def api_tags_public():
 
 
 
+def _session_owner(auth: AuthContext) -> str:
+
+    """Owner key for proxy sessions: the issuing key id, else the key's email."""
+
+    return auth.key_id or auth.email or ""
+
+
+
+
+
+def _owned_session_or_404(session_id: str, auth: AuthContext):
+
+    """Return the session only if *auth* owns it; 404 otherwise (no existence oracle)."""
+
+    session = AGENT_SESSIONS.get(session_id)
+
+    if session is None or session.owner_id != _session_owner(auth):
+
+        raise HTTPException(status_code=404, detail="Unknown session")
+
+    return session
+
+
+
+
+
 @app.post("/agent/sessions")
 
 async def create_agent_session(
@@ -1366,7 +1393,17 @@ async def create_agent_session(
 
     title = body.title or f"Session for {auth.email}"
 
-    return AGENT_SESSIONS.create(title=title, provider_id=body.provider_id, workspace_id=body.workspace_id)
+    return AGENT_SESSIONS.create(
+
+        title=title,
+
+        provider_id=body.provider_id,
+
+        workspace_id=body.workspace_id,
+
+        owner_id=_session_owner(auth),
+
+    )
 
 
 
@@ -1376,7 +1413,9 @@ async def create_agent_session(
 
 async def list_agent_sessions(auth: AuthContext = Depends(verify_api_key)):
 
-    return {"sessions": AGENT_SESSIONS.list_all()}
+    owner = _session_owner(auth)
+
+    return {"sessions": [s for s in AGENT_SESSIONS.list_all() if s.owner_id == owner]}
 
 
 
@@ -1386,11 +1425,7 @@ async def list_agent_sessions(auth: AuthContext = Depends(verify_api_key)):
 
 async def get_agent_session(session_id: str, auth: AuthContext = Depends(verify_api_key)):
 
-    session = AGENT_SESSIONS.get(session_id)
-
-    if session is None:
-
-        raise HTTPException(status_code=404, detail="Unknown session")
+    session = _owned_session_or_404(session_id, auth)
 
     return session
 
@@ -1410,11 +1445,7 @@ async def run_agent_task(
 
 ):
 
-    session = AGENT_SESSIONS.get(session_id)
-
-    if session is None:
-
-        raise HTTPException(status_code=404, detail="Unknown session")
+    session = _owned_session_or_404(session_id, auth)
 
 
 
@@ -1553,6 +1584,8 @@ async def run_agent_once(body: AgentRunRequest, auth: AuthContext = Depends(veri
     temp = AGENT_SESSIONS.create(
 
         title=f"One-off run for {auth.email}",
+
+        owner_id=_session_owner(auth),
 
         provider_id=body.provider_id,
 
@@ -1808,7 +1841,7 @@ async def freebuff_run(body: FreeBuffRunRequest, auth: AuthContext = Depends(ver
 
     """
 
-    temp = AGENT_SESSIONS.create(title=f"FreeBuff run for {auth.email}")
+    temp = AGENT_SESSIONS.create(title=f"FreeBuff run for {auth.email}", owner_id=_session_owner(auth))
 
     AGENT_SESSIONS.append_message(temp.session_id, "user", body.instruction)
 
@@ -1902,11 +1935,7 @@ async def freebuff_run(body: FreeBuffRunRequest, auth: AuthContext = Depends(ver
 
 async def rollback_agent_commit(session_id: str, auth: AuthContext = Depends(verify_api_key)):
 
-    session = AGENT_SESSIONS.get(session_id)
-
-    if session is None:
-
-        raise HTTPException(status_code=404, detail="Unknown session")
+    session = _owned_session_or_404(session_id, auth)
 
     last_result = session.last_result or {}
 
@@ -1968,11 +1997,7 @@ async def rollback_agent_commit(session_id: str, auth: AuthContext = Depends(ver
 
 async def memory_snapshot(session_id: str, auth: AuthContext = Depends(verify_api_key)):
 
-    session = AGENT_SESSIONS.get(session_id)
-
-    if session is None:
-
-        raise HTTPException(status_code=404, detail="Unknown session")
+    session = _owned_session_or_404(session_id, auth)
 
     state = session.model_dump()
 
@@ -1990,7 +2015,7 @@ async def memory_restore(session_id: str, auth: AuthContext = Depends(verify_api
 
     state = SESSION_MEMORY.restore(session_id)
 
-    if state is None:
+    if state is None or state.get("owner_id", "") != _session_owner(auth):
 
         raise HTTPException(status_code=404, detail="No snapshot for this session")
 
@@ -2004,7 +2029,11 @@ async def memory_restore(session_id: str, auth: AuthContext = Depends(verify_api
 
 async def memory_list(auth: AuthContext = Depends(verify_api_key)):
 
-    return {"snapshots": SESSION_MEMORY.list_snapshots()}
+    owner = _session_owner(auth)
+
+    owned = {s.session_id for s in AGENT_SESSIONS.list_all() if s.owner_id == owner}
+
+    return {"snapshots": [m for m in SESSION_MEMORY.list_snapshots() if m.get("session_id") in owned]}
 
 
 
@@ -2013,6 +2042,12 @@ async def memory_list(auth: AuthContext = Depends(verify_api_key)):
 @app.delete("/agent/memory/{session_id}")
 
 async def memory_delete(session_id: str, auth: AuthContext = Depends(verify_api_key)):
+
+    state = SESSION_MEMORY.restore(session_id)
+
+    if state is None or state.get("owner_id", "") != _session_owner(auth):
+
+        return {"deleted": False}
 
     deleted = SESSION_MEMORY.delete(session_id)
 
@@ -2090,11 +2125,7 @@ async def history_snip(
 
     """Remove specific messages from session history by index."""
 
-    session = AGENT_SESSIONS.get(session_id)
-
-    if session is None:
-
-        raise HTTPException(status_code=404, detail="Unknown session")
+    session = _owned_session_or_404(session_id, auth)
 
     removed, remaining = AGENT_SESSIONS.snip_history(session_id, set(body.indices))
 
@@ -2112,11 +2143,7 @@ async def history_snip(
 
 async def session_permissions(session_id: str, auth: AuthContext = Depends(verify_api_key)):
 
-    session = AGENT_SESSIONS.get(session_id)
-
-    if session is None:
-
-        raise HTTPException(status_code=404, detail="Unknown session")
+    session = _owned_session_or_404(session_id, auth)
 
     msgs = [m.model_dump() for m in session.history]
 
@@ -2609,6 +2636,14 @@ class WatchRequest(BaseModel):
 
 async def watchdog_add(body: WatchRequest, auth: AuthContext = Depends(verify_api_key)):
 
+    reason = watch_target_block_reason(body.kind, body.target, Path(__file__).resolve().parent)
+
+    if reason:
+
+        log.warning("Refused watchdog target from key %s: %s", auth.key_id or "legacy", reason)
+
+        raise HTTPException(status_code=400, detail="Watch target is not allowed")
+
     resource = WATCHDOG.watch(name=body.name, kind=body.kind, target=body.target, action=body.action)
 
     return resource.as_dict()
@@ -2877,7 +2912,15 @@ class TerminalRunRequest(BaseModel):
 
 @app.post("/agent/terminal/run")
 
-async def terminal_run(body: TerminalRunRequest, auth: AuthContext = Depends(verify_api_key)):
+async def terminal_run(
+
+    body: TerminalRunRequest,
+
+    _admin: AdminIdentity = Depends(_get_admin_identity_from_request),
+
+):
+
+    """Run a host command. Admin-only: any plain API key would otherwise get host RCE."""
 
     return TERMINAL_PANEL.run_and_capture(body.command, timeout=body.timeout)
 
@@ -4020,11 +4063,17 @@ async def agent_chat(body: AgentChatRequest, auth: AuthContext = Depends(verify_
 
                 session_id=session_id,
 
+                owner_id=_session_owner(auth),
+
             )
+
+        elif session.owner_id != _session_owner(auth):
+
+            raise HTTPException(status_code=404, detail="Unknown session")
 
     else:
 
-        session = AGENT_SESSIONS.create(title=f"Chat: {body.instruction[:60]}")
+        session = AGENT_SESSIONS.create(title=f"Chat: {body.instruction[:60]}", owner_id=_session_owner(auth))
 
         session_id = session.session_id
 
