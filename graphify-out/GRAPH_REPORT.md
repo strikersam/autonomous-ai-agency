@@ -1,7 +1,7 @@
 # Graph Report - autonomous-ai-agency  (2026-10-29)
 
 ## Corpus Check
-- 1210 files · ~1,356,312 words
+- 1210 files · ~1,356,327 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 57 file(s) not represented in the graph (top: (none) 19, .css 5, .bat 5)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `df8499b1`
+- Built from commit: `7867b23c`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -5164,7 +5164,7 @@ Nodes (3): name, runs-on, image-scan
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `AgentRunner` connect `AgentRunner` to `typing`, `backend/server.py`, `ContextPruner`, `AgentJobRequest`, `GitHubTools`, `proxy.py`, `policy.py`, `WorkspaceTools`, `agent/code_mode_connectors.py`, `workflow_orchestrator.py`, `runtimes/manager.py`, `failover_client.py`, `loop.py`, `RepoConnection`, `record_event`, `AgentSessionStore`, `FreeBuffAgent`, `._dispatch_tool`, `Autonomous SDLC Loop (Agency Core, repo-agnostic)`, `MCPUnavailableError`, `call_llm`, `ceo_dispatcher.py`, `prompts.py`, `internal_agent.py`, `LocalWorkspace`, `Section-by-Section Acceptance Criteria`, `Killer TODO Roadmap — local-llm-server`, `verification_strategies.py`, `empirical_verify.py`, `coordinator.py`, `ContextManager`, `ReactScratchpad`, `Agency Core — Progress & Resume Log`, `de`, `Issue #504: EPIC: Autonomy hardening — live-verified defects 2026-06-10`, `Issue #656: Bugs`, `Competitor Analysis — Autonomous AI Agency`, `build_contract`, `TokenBudget`, `CEODispatcher`?**
-  _High betweenness centrality (0.037) - this node is a cross-community bridge._
+  _High betweenness centrality (0.038) - this node is a cross-community bridge._
 - **What connects `docker`, `RENDER_API_KEY`, `react-app` to the rest of the system?**
   _31 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `typing` be split into smaller, more focused modules?**
