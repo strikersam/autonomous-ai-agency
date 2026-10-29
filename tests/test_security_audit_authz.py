@@ -264,3 +264,28 @@ def test_watchdog_rechecks_url_before_every_poll(monkeypatch):
 
     assert wd._hash(resource) is None
     assert opened == []
+
+
+def test_session_owner_survives_store_reload(tmp_path):
+    """Regression: owner_id is persisted, so the owning key keeps access after a restart."""
+    from agent.state import AgentSessionStore
+
+    db = tmp_path / "agent.db"
+    created = AgentSessionStore(db_path=db).create(title="private", owner_id="kid-alice")
+
+    reloaded = AgentSessionStore(db_path=db).get(created.session_id)
+    assert reloaded is not None
+    assert reloaded.owner_id == "kid-alice"
+
+
+def test_session_store_migrates_db_without_owner_column(tmp_path):
+    import sqlite3
+
+    from agent.state import AgentSessionStore
+
+    db = tmp_path / "legacy.db"
+    AgentSessionStore(db_path=db).create(title="old")
+    with sqlite3.connect(db) as conn:
+        conn.execute("ALTER TABLE agent_sessions DROP COLUMN owner_id")
+    sessions = AgentSessionStore(db_path=db).list_all()
+    assert [s.owner_id for s in sessions] == [""]
