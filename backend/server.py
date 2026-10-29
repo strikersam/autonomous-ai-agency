@@ -170,7 +170,7 @@ async def _scheduler_on_fire(job) -> None:
             # orchestrator's ApprovalGate; only ungated jobs auto-approve.
             req = ExecutionRequest(
                 request=job.instruction,
-                auto_approve=not job.requires_approval,
+                auto_approve=not getattr(job, "requires_approval", False),
                 user_id="scheduler",
             )
             run = await orch.execute(req)
