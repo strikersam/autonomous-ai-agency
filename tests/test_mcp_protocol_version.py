@@ -67,12 +67,13 @@ def test_client_initialize_sends_the_constant():
 
 
 @pytest.fixture()
-def mcp_server_client(tmp_path):
+def mcp_server_client(tmp_path, monkeypatch):
+    import mcp_server.server as server
     import mcp_server.workspace as ws_mod
     original = ws_mod.WORKSPACE_BASE
     ws_mod.WORKSPACE_BASE = tmp_path
-    from mcp_server.server import app
-    with TestClient(app) as client:
+    monkeypatch.setattr(server, "_SECRET_TOKEN", "test-mcp-token")
+    with TestClient(server.app, headers={"Authorization": "Bearer test-mcp-token"}) as client:
         yield client
     ws_mod.WORKSPACE_BASE = original
 

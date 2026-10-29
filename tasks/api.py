@@ -435,6 +435,9 @@ async def update_task(task_id: str, body: TaskUpdateRequest, request: Request, u
 
 
 
+_PURGEABLE_STATUSES = frozenset({"done", "failed", "cancelled", "wont_do"})
+
+
 @task_router.post("/purge", summary="Bulk-delete terminal tasks older than N days")
 async def purge_old_tasks(
     request: Request,
@@ -450,9 +453,15 @@ async def purge_old_tasks(
     import time as _time
     store = _get_store(request)
     cutoff = _time.time() - days * 86400
-    target_statuses = {s.strip().lower() for s in statuses.split(",")}
-
-    all_tasks = await store.list_all(limit=10_000)
+    # Only terminal statuses are purgeable, and non-admins purge only their own
+    # tasks — otherwise any user could wipe every tenant's live work.
+    target_statuses = {s.strip().lower() for s in statuses.split(",")} & _PURGEABLE_STATUSES
+    if _is_admin(user):
+        owner_id = None
+        all_tasks = await store.list_all(limit=10_000)
+    else:
+        owner_id = _user_id(user)
+        all_tasks = await store.list_for_user(owner_id, limit=10_000)
     deleted = 0
     for task in all_tasks:
         ts = task.updated_at or task.created_at or 0
@@ -461,7 +470,7 @@ async def purge_old_tasks(
             and isinstance(ts, (int, float))
             and ts < cutoff
         ):
-            await store.delete(task.task_id, owner_id=None)  # admin purge — no owner check
+            await store.delete(task.task_id, owner_id=owner_id)
             deleted += 1
     if deleted:
         _invalidate_task_caches()

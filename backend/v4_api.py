@@ -50,13 +50,13 @@ def _get_tasks_cache_lock() -> asyncio.Lock:
     return _TASKS_CACHE_LOCK
 
 
-async def _get_cached_tasks(limit: int = 50) -> list[dict]:
+async def _get_cached_tasks(limit: int = 50, owner_id: str | None = None) -> list[dict]:
     """Return cached task dicts; fetches + caches from TaskStore when stale.
 
     Uses single-flight locking (same pattern as tasks/api.py) so concurrent
     dashboard pollers share one MongoDB query per TTL window.
     """
-    cache_key = f"tasks:{limit}"
+    cache_key = f"tasks:{owner_id or '*'}:{limit}"
 
     # Fast path: serve from cache (no lock needed for read, CPython GIL-safe)
     now = time.monotonic()
@@ -77,7 +77,10 @@ async def _get_cached_tasks(limit: int = 50) -> list[dict]:
                 if now2 - ts < _TASKS_CACHE_TTL:
                     return cached
 
-            tasks = await store.list_all(limit=limit)
+            if owner_id is None:
+                tasks = await store.list_all(limit=limit)
+            else:
+                tasks = await store.list_for_user(owner_id, limit=limit)
             result: list[dict] = [
                 {
                     "task_id": t.task_id,
@@ -440,5 +443,9 @@ async def v4_tasks(request: Request, limit: int = 50) -> dict[str, Any]:
     (default 8s) to prevent dashboard refresh bursts from hitting MongoDB
     for every open tab.
     """
-    tasks = await _get_cached_tasks(limit=limit)
+    from tasks.api import _is_admin, _user_id
+
+    user = getattr(request.state, "user", None)
+    owner_id = None if user is not None and _is_admin(user) else _user_id(user or {})
+    tasks = await _get_cached_tasks(limit=max(1, min(limit, 200)), owner_id=owner_id)
     return {"tasks": tasks}

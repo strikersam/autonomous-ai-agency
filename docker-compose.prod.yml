@@ -107,6 +107,7 @@ services:
       - llm-net
     environment:
       - PORT=8008
+      - MCP_SECRET_TOKEN=${MCP_SECRET_TOKEN:-}
       - MCP_WORKSPACE_BASE=/workspaces
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       - GH_TOKEN=${GH_TOKEN:-}
@@ -147,6 +148,7 @@ services:
       - OLLAMA_BASE=http://ollama:11434
       - MONGO_URL=mongodb://mongo:27017
       - MCP_SERVER_BASE_URL=http://mcp-server:8008
+      - MCP_SECRET_TOKEN=${MCP_SECRET_TOKEN:-}
       - CHAT_HISTORY_ENABLED=${CHAT_HISTORY_ENABLED:-true}
       - CONTEXT_WINDOW_ENABLED=${CONTEXT_WINDOW_ENABLED:-true}
       - PROMPT_CACHE_ENABLED=${PROMPT_CACHE_ENABLED:-true}

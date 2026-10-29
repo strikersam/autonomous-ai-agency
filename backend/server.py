@@ -166,9 +166,11 @@ async def _scheduler_on_fire(job) -> None:
     async with _scheduler_run_slot():
         try:
             orch = get_workflow_orchestrator()
+            # A job created with approval_gate must still stop at the
+            # orchestrator's ApprovalGate; only ungated jobs auto-approve.
             req = ExecutionRequest(
                 request=job.instruction,
-                auto_approve=True,
+                auto_approve=not job.requires_approval,
                 user_id="scheduler",
             )
             run = await orch.execute(req)
@@ -10186,6 +10188,7 @@ class LegacyScheduleToggleRequest(BaseModel):
 async def legacy_scheduler_create(
     body: LegacyScheduleJobRequest, user: dict = Depends(get_current_user)
 ):
+    _require_admin(user)
     job = get_scheduler().create(
         name=body.name,
         cron=body.cron,
@@ -10221,6 +10224,7 @@ async def legacy_scheduler_get(job_id: str, user: dict = Depends(get_current_use
 
 @app.post("/agent/scheduler/jobs/{job_id}/trigger")
 async def legacy_scheduler_trigger(job_id: str, user: dict = Depends(get_current_user)):
+    _require_admin(user)
     try:
         job = get_scheduler().trigger(job_id)
         _DASHBOARD_CACHE.pop("scheduler:jobs", None)
@@ -10231,6 +10235,7 @@ async def legacy_scheduler_trigger(job_id: str, user: dict = Depends(get_current
 
 @app.delete("/agent/scheduler/jobs/{job_id}")
 async def legacy_scheduler_delete(job_id: str, user: dict = Depends(get_current_user)):
+    _require_admin(user)
     result = get_scheduler().delete(job_id)
     if result:
         _DASHBOARD_CACHE.pop("scheduler:jobs", None)
@@ -10241,6 +10246,7 @@ async def legacy_scheduler_delete(job_id: str, user: dict = Depends(get_current_
 async def legacy_scheduler_toggle(
     job_id: str, body: LegacyScheduleToggleRequest, user: dict = Depends(get_current_user)
 ):
+    _require_admin(user)
     try:
         job = get_scheduler().toggle(job_id, enabled=(body.status == "active"))
         _DASHBOARD_CACHE.pop("scheduler:jobs", None)

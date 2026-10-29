@@ -14,10 +14,39 @@ import logging
 import secrets
 import threading
 import time
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
+
+class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        raise urllib.error.HTTPError(req.full_url, code, "redirects are not followed", headers, fp)
+
+
+_NO_REDIRECT_OPENER = urllib.request.build_opener(_RefuseRedirects)
+
+
+def target_block_reason(kind: str, target: str, file_root: Path) -> str | None:
+    """Return why an externally supplied watch target is refused, or None if allowed.
+
+    URL targets must pass the shared SSRF guard (CLAUDE.md rule 14); file targets
+    must resolve inside *file_root* (rule 13) so the hash cannot probe host files.
+    """
+    if kind == "url":
+        from agent.web_reach import unsafe_target_reason
+        return unsafe_target_reason(target)
+    if kind == "file":
+        try:
+            resolved = Path(target).resolve()
+        except (OSError, RuntimeError):
+            return "unresolvable path"
+        if not resolved.is_relative_to(file_root.resolve()):
+            return "path is outside the workspace"
+        return None
+    return f"unsupported kind: {kind!r}"
+
 
 log = logging.getLogger("qwen-watchdog")
 
@@ -185,7 +214,9 @@ class ResourceWatchdog:
             if resource.kind == "file":
                 content = Path(resource.target).read_bytes()
             elif resource.kind == "url":
-                with urllib.request.urlopen(resource.target, timeout=10) as resp:  # noqa: S310  # nosec: B110 - URL is from trusted resource (WatchedResource)
+                # Redirects are refused: the target was SSRF-checked once at
+                # registration and a hop could land on an internal address.
+                with _NO_REDIRECT_OPENER.open(resource.target, timeout=10) as resp:  # noqa: S310  # nosec B310 - validated by target_block_reason
                     content = resp.read()
             else:
                 return None
