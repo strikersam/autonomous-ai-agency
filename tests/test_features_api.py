@@ -120,7 +120,25 @@ def test_budget_list(client):
 
 # ─── Scheduler ────────────────────────────────────────────────────────────────
 
-def test_scheduler_create_and_list(client):
+@pytest.fixture()
+def as_admin():
+    """Scheduler mutations run agent instructions, so they are admin-only."""
+    proxy.app.dependency_overrides[proxy._get_admin_identity_from_request] = (
+        lambda: proxy.AdminIdentity(username="admin", auth_source="token")
+    )
+    yield
+    proxy.app.dependency_overrides.pop(proxy._get_admin_identity_from_request, None)
+
+
+def test_scheduler_mutations_reject_plain_api_key(client):
+    """Regression: a non-admin key must not create, trigger or delete jobs."""
+    body = {"name": "x", "cron": "0 9 * * 1", "instruction": "Run lint"}
+    assert client.post("/agent/scheduler/jobs", json=body).status_code in (401, 403)
+    assert client.post("/agent/scheduler/jobs/any/trigger").status_code in (401, 403)
+    assert client.delete("/agent/scheduler/jobs/any").status_code in (401, 403)
+
+
+def test_scheduler_create_and_list(client, as_admin):
     r = client.post(
         "/agent/scheduler/jobs",
         json={"name": "test-job", "cron": "0 9 * * 1", "instruction": "Run lint"},
@@ -134,7 +152,7 @@ def test_scheduler_create_and_list(client):
     assert job_id in ids
 
 
-def test_scheduler_trigger(client):
+def test_scheduler_trigger(client, as_admin):
     r = client.post(
         "/agent/scheduler/jobs",
         json={"name": "fire", "cron": "0 0 1 1 *", "instruction": "do it"},
@@ -145,7 +163,7 @@ def test_scheduler_trigger(client):
     assert r.json()["run_count"] == 1
 
 
-def test_scheduler_delete(client):
+def test_scheduler_delete(client, as_admin):
     r = client.post(
         "/agent/scheduler/jobs",
         json={"name": "del-job", "cron": "* * * * *", "instruction": "x"},
@@ -156,7 +174,7 @@ def test_scheduler_delete(client):
     assert r.json()["deleted"] is True
 
 
-def test_scheduler_trigger_not_found(client):
+def test_scheduler_trigger_not_found(client, as_admin):
     r = client.post("/agent/scheduler/jobs/job_nope999/trigger")
     assert r.status_code == 404
 

@@ -239,3 +239,28 @@ def test_proxy_sessions_are_private_to_their_key(monkeypatch, tmp_path):
         assert client.get(f"/agent/memory/{sid}").status_code == 200
     finally:
         proxy.app.dependency_overrides.pop(proxy.verify_api_key, None)
+
+
+def test_v4_scheduler_trigger_requires_admin(scheduler, monkeypatch):
+    import backend.v4_api as v4
+    from packages.scheduler import scheduler as sched_mod
+
+    monkeypatch.setattr(sched_mod, "get_scheduler", lambda: scheduler)
+    job = scheduler.create(name="victim", cron="0 4 * * *", instruction="work")
+    client = _app_with(v4.v4_router)
+
+    assert client.post(f"/v4/scheduler/trigger/{job.job_id}", headers=_as(MALLORY)).status_code == 403
+    assert scheduler.fired == []
+
+
+def test_watchdog_rechecks_url_before_every_poll(monkeypatch):
+    """Regression: a target that rebinds to a private address after registration is not fetched."""
+    import agent.watchdog as wd_mod
+
+    opened: list = []
+    monkeypatch.setattr(wd_mod._NO_REDIRECT_OPENER, "open", lambda *a, **k: opened.append(a))
+    wd = wd_mod.ResourceWatchdog()
+    resource = wd.watch(name="probe", kind="url", target="http://127.0.0.1:9/internal")
+
+    assert wd._hash(resource) is None
+    assert opened == []

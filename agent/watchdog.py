@@ -214,8 +214,13 @@ class ResourceWatchdog:
             if resource.kind == "file":
                 content = Path(resource.target).read_bytes()
             elif resource.kind == "url":
-                # Redirects are refused: the target was SSRF-checked once at
-                # registration and a hop could land on an internal address.
+                # Re-check on every poll (DNS can rebind after registration) and
+                # refuse redirects, since a hop could land on an internal address.
+                from agent.web_reach import unsafe_target_reason
+                reason = unsafe_target_reason(resource.target)
+                if reason:
+                    log.warning("Watchdog skipped %s: %s", resource.resource_id, reason)
+                    return None
                 with _NO_REDIRECT_OPENER.open(resource.target, timeout=10) as resp:  # noqa: S310  # nosec B310 - validated by target_block_reason
                     content = resp.read()
             else:
