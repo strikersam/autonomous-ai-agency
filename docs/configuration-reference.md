@@ -23,6 +23,7 @@ Complete reference for every environment variable in `.env`. Copy `.env.example`
 | `ADMIN_WINDOWS_ALLOWED_USERS` | (empty) | No | Comma-separated Windows usernames allowed to log in (e.g. `HOSTNAME\alice,alice`). Empty = all local users allowed. |
 | `ADMIN_WINDOWS_DEFAULT_DOMAIN` | `.` | No | Default domain for username normalization. `.` means local machine. |
 | `CRON_SECRET` | (none) | Recommended | Shared secret the Cloudflare cron sends as `x-cron-secret` on `POST /api/scheduler/tick` (set the same value as the worker's `CRON_SECRET`). When set, a wrong or missing header is refused (403) and `GET /api/autonomy/tick` callers carrying it skip the throttle. When unset, both ticks stay open for keep-alive but admit one anonymous call per 20 s (scheduler) / 60 s (autonomy). |
+| `MCP_SECRET_TOKEN` | (none) | Yes, wherever the MCP app runs | Bearer token for the MCP server (`/mcp-internal` on the backend, and the standalone `mcp_server` container). The server fails closed: with this unset every `/mcp` call returns 401, because the endpoint exposes shell execution. render.yaml generates it on the web service; set the same value as `OPENCLAW_MCP_SECRET_TOKEN` for OpenClaw. Generate: `python -c "import secrets; print(secrets.token_urlsafe(32))"` |
 
 ---
 

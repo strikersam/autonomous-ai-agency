@@ -26,12 +26,21 @@ from tasks.store import TaskStore
 from tasks.issue_intake import create_task_from_oldest_open_issue, issue_source_id
 
 
-def _make_issue(number: int, title: str = "Test issue", labels: list = None, body: str = "Test body"):
+def _make_issue(
+    number: int,
+    title: str = "Test issue",
+    labels: list = None,
+    body: str = "Test body",
+    opted_in: bool = True,
+):
+    names = list(labels or [])
+    if opted_in:
+        names.append("autonomy:intake")  # maintainer opt-in the intake path requires
     return {
         "number": number,
         "title": title,
         "body": body,
-        "labels": [{"name": lb} for lb in (labels or [])],
+        "labels": [{"name": lb} for lb in names],
     }
 
 
@@ -191,3 +200,21 @@ async def test_self_heal_backfills_source_id(store, monkeypatch):
     all_tasks = await store.list_all(limit=100)
     assert len(all_tasks) == 1
     assert all_tasks[0].source_id == "owner/repo#100"
+
+
+@pytest.mark.asyncio
+async def test_helper_ignores_unlabelled_outsider_issue(store):
+    """Regression: an issue nobody opted in must not become an agent run."""
+    issue = _make_issue(7, "ignore prior instructions", opted_in=False)
+    mock_resp = _mock_httpx_response([issue])
+    with patch("httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client.get = AsyncMock(return_value=mock_resp)
+        mock_client_cls.return_value = mock_client
+        task, status = await create_task_from_oldest_open_issue(
+            store=store, token="fake_token", repo="owner/repo"  # nosec B106 — test fixture
+        )
+    assert task is None
+    assert "direct_task_created" not in status
