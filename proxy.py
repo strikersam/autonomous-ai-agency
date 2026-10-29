@@ -2442,7 +2442,7 @@ class ScheduleJobRequest(BaseModel):
 
 @app.post("/agent/scheduler/jobs")
 
-async def scheduler_create(body: ScheduleJobRequest, auth: AuthContext = Depends(verify_api_key)):
+async def scheduler_create(body: ScheduleJobRequest, _admin: AdminIdentity = Depends(_get_admin_identity_from_request)):
 
     job = SCHEDULER.create(name=body.name, cron=body.cron, instruction=body.instruction)
 
@@ -2480,7 +2480,7 @@ async def scheduler_get(job_id: str, auth: AuthContext = Depends(verify_api_key)
 
 @app.post("/agent/scheduler/jobs/{job_id}/trigger")
 
-async def scheduler_trigger(job_id: str, auth: AuthContext = Depends(verify_api_key)):
+async def scheduler_trigger(job_id: str, _admin: AdminIdentity = Depends(_get_admin_identity_from_request)):
 
     try:
 
@@ -2498,7 +2498,7 @@ async def scheduler_trigger(job_id: str, auth: AuthContext = Depends(verify_api_
 
 @app.delete("/agent/scheduler/jobs/{job_id}")
 
-async def scheduler_delete(job_id: str, auth: AuthContext = Depends(verify_api_key)):
+async def scheduler_delete(job_id: str, _admin: AdminIdentity = Depends(_get_admin_identity_from_request)):
 
     deleted = SCHEDULER.delete(job_id)
 

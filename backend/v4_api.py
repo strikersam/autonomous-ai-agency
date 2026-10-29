@@ -415,7 +415,16 @@ async def v4_scheduler_jobs(request: Request) -> dict[str, Any]:
 
 @v4_router.post("/scheduler/trigger/{job_id}")
 async def v4_scheduler_trigger(job_id: str, request: Request) -> dict[str, Any]:
-    """Trigger a scheduled job immediately."""
+    """Trigger a scheduled job immediately. Admin-only: jobs are platform-wide."""
+    user = getattr(request.state, "user", None)
+    if user is None:
+        # The router dependency already authenticated the caller (any transport);
+        # resolve the same identity here to read its role.
+        from backend import server as _server
+        user = await _server.get_optional_user(request)
+    role = user.get("role") if isinstance(user, dict) else getattr(user, "role", None)
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
     try:
         from packages.scheduler.scheduler import get_scheduler
         sched = get_scheduler()
