@@ -113,7 +113,9 @@ def _run(argv: list[str], root: Path, env: dict[str, str] | None = None) -> tupl
         return 1, f"timed out after {_TEST_TIMEOUT_S}s"
     except OSError as exc:
         return 127, f"could not run {argv[0]}: {exc}"
-    return proc.returncode, (proc.stdout + proc.stderr)[-2000:]
+    # stdout last: callers read the final line (pytest's summary), and a plugin
+    # warning on stderr must not displace it.
+    return proc.returncode, (proc.stderr + proc.stdout)[-2000:]
 
 
 def _last_line(out: str) -> str:

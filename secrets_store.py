@@ -337,17 +337,14 @@ class SecretsStore:
                 docs = await self._col.find({
                     "$or": [
                         {"owner_id": requester_id},
-                        {"scope": {"$in": ["workspace", "global"]}},
-                    ]
-                }).to_list(length=1000)
-            else:
-                docs = await self._col.find({
-                    "$or": [
-                        {"owner_id": requester_id},
                         {"scope": "workspace"},
                     ]
                 }).to_list(length=1000)
-            return [SecretRecord.from_storage_dict({**d}) for d in docs]
+            else:
+                docs = await self._col.find({"owner_id": requester_id}).to_list(length=1000)
+            # The query narrows the scan; _can_read is the policy, same as get_metadata.
+            records = [SecretRecord.from_storage_dict({**d}) for d in docs]
+            return [r for r in records if _can_read(r, requester_id, requester_role)]
         else:
             result = []
             for rec in self._mem.values():

@@ -1,3 +1,16 @@
+# NEXT_ACTION — updated 2026-10-29 (security audit, branch `security/cloudflare-audit-fixes`)
+
+Ran the cloudflare/security-audit-skill workflow (standard profile, sandboxed source-and-local only). The run is **incomplete**: coverage critics, a second hunter wave, 7 Phase-3 validations and Phase-5 record verification were not run (user asked to finish; agent limit hit). Fixed 9 independently confirmed findings plus 2 parent-verified ones (task purge scope, cron issue-intake label gate), each with a regression test. Audit artifacts live outside the repo (`~/security-audit-skill/autonomous-ai-agency/run-1/`).
+
+## Open items
+
+1. **JWT revocation** (confirmed, low) — logout/password rotation do not revoke access or refresh tokens; needs a per-user `token_version` claim checked in `get_optional_user`, `JWTUserStateMiddleware` and `/api/auth/refresh`.
+2. **Needs validation, then fix** — Google login links by email without `verified_email` (`packages/auth/oauth.py`, risky module: rule 15 review first); GitHub repo-connect callback state not bound to the browser (check registered callback URL); `/auth/callback` accepts any URL token (login CSRF); quick-note CI pipeline has no author trust gate and gives an unrestricted shell with persisted `GH_PAT` (check repo issue visibility); Mongo `$regex` search unescaped.
+3. **Unvalidated candidates** — anonymous `/api/autonomy/tick` and `/status` echo other users' task titles; DNS-rebinding gap in `unsafe_target_reason`; E2B `extract_changes_to_worktree` writes sandbox-reported paths without containment; SEO browser fetch has no SSRF route guard; self-registered users can queue self-repo-ship agent work.
+4. **Unaudited surfaces** — agile/ceo/spec/code-mode routers, `services/hermes_server.py`, `direct_chat.py` host GH token fallback.
+
+---
+
 # NEXT_ACTION — updated 2026-10-25 (daily automation, branch `claude/intelligent-gates-xd0rsk`)
 
 Gemini 4 Argon (`gemini-4-argon` / `google/gemini-4-argon`, GA 2026-10-13) declared at priority 99. $2/$10 intro pricing with 5% cache read override. PR #1830 open; 31 tests pass; catalogue 100 ids; PARITY OK.
