@@ -1,4 +1,16 @@
-# NEXT_ACTION — updated 2026-10-29 (security audit, branch `security/cloudflare-audit-fixes`)
+# NEXT_ACTION — updated 2026-10-30 (daily automation, branch `claude/intelligent-gates-hfu9ql`)
+
+Daily automation complete. PR #1861 open. CI green → auto-merge to master.
+
+Three models added: GPT-6.1 Terra ($1/$5), Kimi K3.1 Pro ($2/$10), Inception Mercury 3 ($0.10/$0.35).
+
+## Next daily run suggestions (2026-10-31)
+- Check PR #1861 merged; if not, investigate CI failure.
+- Look for any new model releases: GPT-6.1 Terra Pro if it surfaces, Kimi K3.1 Pro Highspeed (mentioned in search results but pricing unconfirmed), any new Anthropic or Google releases.
+- Monitor Inception Mercury 3 for a standalone API ID (currently only OpenRouter confirmed).
+
+---
+# Previous NEXT_ACTION — 2026-10-29 (security audit, branch `security/cloudflare-audit-fixes`)
 
 Ran the cloudflare/security-audit-skill workflow (standard profile, sandboxed source-and-local only). The run is **incomplete**: coverage critics, a second hunter wave, 7 Phase-3 validations and Phase-5 record verification were not run (user asked to finish; agent limit hit). Fixed 9 independently confirmed findings plus 2 parent-verified ones (task purge scope, cron issue-intake label gate), each with a regression test. Audit artifacts live outside the repo (`~/security-audit-skill/autonomous-ai-agency/run-1/`).
 
