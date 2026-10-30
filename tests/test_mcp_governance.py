@@ -46,7 +46,8 @@ def client(monkeypatch):
         return {"ok": True, "tool": name}
 
     monkeypatch.setattr(server, "_handle_tool", fake_handle_tool)
-    test_client = TestClient(server.app)
+    monkeypatch.setattr(server, "_SECRET_TOKEN", "test-mcp-token")
+    test_client = TestClient(server.app, headers={"Authorization": "Bearer test-mcp-token"})
     test_client.tool_calls = calls  # type: ignore[attr-defined]
     return test_client
 

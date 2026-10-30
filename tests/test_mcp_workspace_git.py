@@ -29,6 +29,17 @@ from fastapi.testclient import TestClient
 # Fixtures
 # ---------------------------------------------------------------------------
 
+_MCP_TOKEN = "test-mcp-token"
+_MCP_HEADERS = {"Authorization": f"Bearer {_MCP_TOKEN}"}
+
+
+@pytest.fixture(autouse=True)
+def _mcp_token(monkeypatch):
+    """The MCP app fails closed without a token, so every test configures one."""
+    import mcp_server.server as server
+    monkeypatch.setattr(server, "_SECRET_TOKEN", _MCP_TOKEN)
+
+
 @pytest.fixture
 def git_config_env(monkeypatch, tmp_path):
     """Ensure git commits work without a global ~/.gitconfig.
@@ -117,7 +128,7 @@ def bare_repo(tmp_path, git_config_env):
 
 def _rpc(client: TestClient, method: str, params: dict | None = None) -> dict:
     """Send a JSON-RPC 2.0 request to the mounted MCP server."""
-    resp = client.post("/mcp-internal/mcp", json={
+    resp = client.post("/mcp-internal/mcp", headers=_MCP_HEADERS, json={
         "jsonrpc": "2.0",
         "id": 1,
         "method": method,
@@ -192,7 +203,7 @@ class TestMCPServerProtocol:
         assert "error" in result or _is_error(result)
 
     def test_notifications_initialized_returns_204(self, client: TestClient) -> None:
-        resp = client.post("/mcp-internal/mcp", json={
+        resp = client.post("/mcp-internal/mcp", headers=_MCP_HEADERS, json={
             "jsonrpc": "2.0",
             "id": None,
             "method": "notifications/initialized",

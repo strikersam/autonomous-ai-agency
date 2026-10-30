@@ -91,6 +91,20 @@ async def _require_admin(request: Request) -> None:
         raise HTTPException(status_code=403, detail="Admin access required")
 
 
+async def _require_company_or_admin(request: Request, company_id: str) -> None:
+    """Admins may wake any or all companies; other users only a company they can access."""
+    user = getattr(request.state, "user", None)
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    role = user.get("role", "user") if isinstance(user, Mapping) else getattr(user, "role", "user")
+    if role == "admin":
+        return
+    if not company_id:
+        raise HTTPException(status_code=403, detail="Admin access required")
+    from backend.company_api import get_company_access
+    await get_company_access(company_id, dict(user) if isinstance(user, Mapping) else user)
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @runtime_router.get("/")
@@ -312,7 +326,7 @@ async def run_task_on_runtime(
 
 
 @runtime_router.post("/{runtime_id}/start")
-async def start_runtime_container(runtime_id: str) -> dict:
+async def start_runtime_container(runtime_id: str, _: Any = Depends(_require_admin)) -> dict:
     """Start a stopped runtime container.
 
     Returns 200 with an informational payload when Docker is unavailable
@@ -348,7 +362,7 @@ async def start_runtime_container(runtime_id: str) -> dict:
 
 
 @runtime_router.post("/{runtime_id}/stop")
-async def stop_runtime_container(runtime_id: str) -> dict:
+async def stop_runtime_container(runtime_id: str, _: Any = Depends(_require_admin)) -> dict:
     """Stop a running runtime container."""
     result = await stop_runtime(runtime_id)
     if result.get("docker_unavailable"):
@@ -361,7 +375,7 @@ async def stop_runtime_container(runtime_id: str) -> dict:
 
 
 @runtime_router.post("/start-all")
-async def start_all() -> dict:
+async def start_all(_: Any = Depends(_require_admin)) -> dict:
     """Start all runtime containers.
 
     Returns partial results — individual runtime failures are included
@@ -393,6 +407,7 @@ async def start_all() -> dict:
 
 @runtime_router.post("/wake-company-runtimes")
 async def wake_company_runtimes(
+    request: Request,
     company_id: str = "",
 ) -> dict:
     """Wake all agent runtimes for a company (or all companies if no company_id).
@@ -403,6 +418,7 @@ async def wake_company_runtimes(
 
     Returns per-runtime start results with Docker container names.
     """
+    await _require_company_or_admin(request, company_id)
     try:
         from services.company_agency import get_company_agency_service
         agency = get_company_agency_service()
@@ -465,7 +481,7 @@ async def wake_company_runtimes(
 
 
 @runtime_router.post("/stop-all")
-async def stop_all() -> dict:
+async def stop_all(_: Any = Depends(_require_admin)) -> dict:
     """Stop all runtime containers.
 
     Returns partial results — individual runtime failures are included
