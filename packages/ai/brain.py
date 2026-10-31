@@ -253,7 +253,7 @@ async def resolve_active_brain(
         # operator (updated_at is empty on the safe-default boot state).
         # This keeps the existing test contract intact: when no PATCH has
         # been issued, the resolver falls through to provider records / env.
-        if cfg.updated_at:
+        if cfg.updated_at and cfg.updated_by != "brain_watchdog":
             preference = get_brain_preference()
             # If operator wants ollama-only, ignore a stale cloud config.
             # This is the fix for Issue 1 (chat 240s timeout): when

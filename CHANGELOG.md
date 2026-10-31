@@ -33,6 +33,8 @@
 - **Close the remaining scheduler and watchdog gaps from the security audit follow-up** (2026-10-29). Review of #1858 found two holes left open. The proxy's own `/agent/scheduler/jobs` create, trigger and delete routes, and `POST /v4/scheduler/trigger/{job_id}`, now require admin like the backend routes, so a plain API key or role:user can no longer create and fire agent instructions. The proxy watchdog re-runs `unsafe_target_reason` before every URL poll instead of only at registration, so a hostname that rebinds to a private address later is skipped. Files: `proxy.py`, `backend/v4_api.py`, `agent/watchdog.py`, `tests/test_features_api.py`, `tests/test_security_audit_authz.py`.
 
 ### Fixed
+- `backend/server.py` — Autonomy status probe now ignores watchdog failover configs (updated_by="brain_watchdog") when determining if a brain is explicitly configured. This ensures a misconfigured deploy (no operator-set brain) correctly reports "no_brain" instead of silently using a watchdog-selected provider.
+- `packages/ai/brain.py` — Brain resolver (`resolve_active_brain`) now ignores watchdog failover configs when checking for operator-set brain config. This preserves operator intent (e.g., BRAIN_PREFERENCE=colibri) over runtime watchdog failovers.
 - **PR gate reported a passing pytest run as unparsed when a plugin warned on stderr** (2026-10-29). `agent/pr_gate._run` joined stdout then stderr and `_last_line` read the last line, so a pytest-asyncio deprecation warning displaced pytest's `N passed` summary from the evidence. Output is now joined stderr first, so the summary stays last. Files: `agent/pr_gate.py` (covered by `tests/test_agent_pr_gate.py::test_additive_change_passes_with_evidence`).
 
 ### Security
