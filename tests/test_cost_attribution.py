@@ -328,6 +328,8 @@ class TestNoFuzzyCollisionWithPaidModels:
         ("openai/gpt-oss-120b", "gpt-oss-120b"),
         # TokenIn (free re-serve) vs Moonshot's own API (paid) — same Kimi K3.
         ("myt/kimi-k3-free", "kimi-k3"),
+        # OpenRouter ":free" tier vs MiniMax's own API (paid) — same M3.1 Flash.
+        ("minimax/minimax-m3.1-flash:free", "MiniMax-M3.1-Flash"),
     }
 
     def test_no_undocumented_fuzzy_collision(self):

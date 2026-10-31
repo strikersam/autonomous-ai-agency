@@ -32,7 +32,8 @@ import yaml
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 FREE_MODEL_ID = "minimax/minimax-m3.1-flash:free"
-PAID_MODEL_ID = "minimax/minimax-m3.1-flash"
+# MiniMax direct, priced under its native id since the 2026-10-23 entry.
+PAID_MODEL_ID = "MiniMax-M3.1-Flash"
 
 
 @pytest.fixture(scope="module")

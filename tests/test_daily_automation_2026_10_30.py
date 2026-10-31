@@ -402,15 +402,15 @@ class TestMercury3Yaml:
 
 
 # ---------------------------------------------------------------------------
-# Catalogue consistency — 88 declared IDs after this change
+# Catalogue consistency — the one exact pin on the catalogue size
 # ---------------------------------------------------------------------------
 
 class TestCatalogueSize:
-    def test_catalogue_has_88_models(self, llm_models):
-        """models.yaml should have 88 declared model entries after adding 3 new models."""
+    def test_catalogue_has_89_models(self, llm_models):
+        """88 after this file's 3 models, 89 with minimax/minimax-m3.1-flash:free."""
         models = llm_models.get("models", {})
-        assert len(models) == 88, (
-            f"Expected 88 model IDs in models.yaml, got {len(models)}. "
+        assert len(models) == 89, (
+            f"Expected 89 model IDs in models.yaml, got {len(models)}. "
             "If you added or removed other models, update this count."
         )
 

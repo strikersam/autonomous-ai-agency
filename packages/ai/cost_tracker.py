@@ -241,9 +241,8 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "nvidia/nemotron-3.5-super-vl:free": (0.0, 0.0),
     # --- MiniMax M3.1 Flash (OpenRouter free, added 2026-10-22) ---
     # Released 2026-10-19. 1M-token context; free via OpenRouter ":free" tier.
-    # Paid rate (MiniMax direct): $0.15/$0.60 per MTok input/output.
+    # Paid rate (MiniMax direct) is the "MiniMax-M3.1-Flash" entry below.
     "minimax/minimax-m3.1-flash:free": (0.0, 0.0),
-    "minimax/minimax-m3.1-flash": (0.15, 0.60),
     # --- DeepSeek ---
     "deepseek-chat": (0.27, 1.10),
     "deepseek-coder": (0.27, 1.10),
