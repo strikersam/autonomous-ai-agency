@@ -129,6 +129,10 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     #          gemini-4-argon-pricing, 2026-10-25.
     "gemini-4-argon": (2.0, 10.0),            # Google direct API ID; intro price
     "google/gemini-4-argon": (2.0, 10.0),     # OpenRouter ID; same pricing
+    # --- Gemini 4 Carbon (declared 2026-10-31, unprobed, explicit-only) ---
+    # Rate as declared in config/llm/models.yaml ($4.00/$20.00 per MTok);
+    # an estimate until catalogue-probe.yml sees a live 200 on this account.
+    "gemini-4-carbon": (4.0, 20.0),
     # --- Anthropic (paid) — Claude 5 family + Sonnet 4.x / Opus 4.x ---
     # Prices verified from platform.claude.com/docs/en/about-claude/pricing 2026-09-06.
     "claude-opus-5": (5.0, 25.0),          # Opus 5 — $5/$25 per MTok
