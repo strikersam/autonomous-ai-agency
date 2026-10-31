@@ -410,3 +410,11 @@ class TestSelectorUsesFieldsGhExposes:
         assert "select(.pull_request == null)" in run
         for role in ("OWNER", "MEMBER", "COLLABORATOR"):
             assert f'.author_association == "{role}"' in run
+
+    def test_selector_pipeline_fails_on_a_gh_api_error(self, job: dict) -> None:
+        """The step has no `shell:`, so it runs as `bash -e` without pipefail:
+        a failing `gh api` piped into `sort | sed` would exit 0 and read as an
+        empty queue. pipefail must be on before the NUM pipeline."""
+        run = _step(job, "Find next pending")["run"]
+        assert "set -o pipefail" in run
+        assert run.index("set -o pipefail") < run.index('NUM=$(gh api "repos/$REPO/issues')

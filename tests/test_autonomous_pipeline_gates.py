@@ -164,6 +164,30 @@ class TestReviewBotsAreCounted:
         assert "REVIEWS_SEEN" in (_step(quick_note, "review_apply")["env"] or {})
 
 
+# The pick step pipes `gh api --paginate --jq '<expr>'` into `sort -n | sed -n 1p`.
+_SELECTOR_JQ = re.compile(r"--jq '(.+?)'\s*\\\s*\|\s*sort -n \| sed -n 1p\)", re.S)
+
+
+def _pick(jq_binary: str, expr: str, pages: list[list[dict]]) -> str:
+    """Mirror the pick step: `gh api --paginate --jq` runs the jq on each page,
+    then `sort -n | sed -n 1p` keeps the lowest issue number."""
+    numbers: list[int] = []
+    for page in pages:
+        # jq_binary is resolved by shutil.which, the expression comes from a
+        # workflow file in this repo, the payload is a test literal, and the
+        # call is list form with no shell — the vetted pattern `.bandit`
+        # describes for individual B603/B607 suppressions.
+        result = subprocess.run(  # nosec B603
+            [jq_binary, "-r", expr],
+            input=json.dumps(page),
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        numbers += [int(line) for line in result.stdout.split()]
+    return str(min(numbers)) if numbers else ""
+
+
 class TestTheQueueHoldsWorkNotPaperwork:
     NON_IMPLEMENTABLE = ("agency-escalation", "trend-digest", "crispy-burn-in")
 
@@ -199,7 +223,7 @@ class TestTheQueueHoldsWorkNotPaperwork:
             pytest.skip("jq not installed")
 
         run = _step(quick_note, "pick")["run"]
-        match = re.search(r"--jq '(.+?)'\)", run, re.S)
+        match = _SELECTOR_JQ.search(run)
         assert match, "could not extract the selector's jq expression"
 
         backlog = [
@@ -226,17 +250,35 @@ class TestTheQueueHoldsWorkNotPaperwork:
         # workflow file in this repo, the payload is a literal above, and the
         # call is list form with no shell — the vetted pattern `.bandit`
         # describes for individual B603/B607 suppressions.
-        result = subprocess.run(  # nosec B603
-            [jq_binary, "-r", match.group(1)],
-            input=json.dumps(backlog),
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        assert result.stdout.strip() == "1370", (
+        picked = _pick(jq_binary, match.group(1), [backlog])
+        assert picked == "1370", (
             "the selector must skip every status-report and blocked issue and "
-            f"take the oldest remaining one; got {result.stdout.strip()!r}"
+            f"take the oldest remaining one; got {picked!r}"
         )
+
+    def test_the_selector_reads_past_a_page_full_of_pull_requests(
+        self, quick_note: dict
+    ) -> None:
+        """`/issues` lists open PRs too, and they count toward each page; an
+        issue behind 100 PRs is on page two, so every page must be read."""
+        jq_binary = shutil.which("jq")
+        if jq_binary is None:  # pragma: no cover
+            pytest.skip("jq not installed")
+
+        run = _step(quick_note, "pick")["run"]
+        assert re.search(r'gh api "repos/\$REPO/issues\?[^"]*" --paginate', run)
+        match = _SELECTOR_JQ.search(run)
+        assert match
+        prs = [
+            {"number": 2000 + i, "labels": [], "author_association": "OWNER",
+             "pull_request": {"url": "https://api.github.com/x"}}
+            for i in range(100)
+        ]
+        page_two = [
+            {"number": 1500, "labels": [], "author_association": "OWNER"},
+            {"number": 1400, "labels": [], "author_association": "OWNER"},
+        ]
+        assert _pick(jq_binary, match.group(1), [prs, page_two]) == "1400"
 
     def test_the_selector_returns_nothing_when_only_reports_are_open(
         self, quick_note: dict
@@ -247,7 +289,7 @@ class TestTheQueueHoldsWorkNotPaperwork:
             pytest.skip("jq not installed")
 
         run = _step(quick_note, "pick")["run"]
-        match = re.search(r"--jq '(.+?)'\)", run, re.S)
+        match = _SELECTOR_JQ.search(run)
         assert match
         backlog = [
             {"number": 1312, "labels": [{"name": "agency-escalation"}]},
@@ -257,14 +299,7 @@ class TestTheQueueHoldsWorkNotPaperwork:
         # workflow file in this repo, the payload is a literal above, and the
         # call is list form with no shell — the vetted pattern `.bandit`
         # describes for individual B603/B607 suppressions.
-        result = subprocess.run(  # nosec B603
-            [jq_binary, "-r", match.group(1)],
-            input=json.dumps(backlog),
-            capture_output=True,
-            text=True,
-            check=True,
-        )
-        assert result.stdout.strip() == ""
+        assert _pick(jq_binary, match.group(1), [backlog]) == ""
 
 
 class TestUnfixableFailuresDoNotEscalate:
