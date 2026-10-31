@@ -1,3 +1,16 @@
+# NEXT_ACTION — updated 2026-10-30 (daily automation, branch `claude/intelligent-gates-hfu9ql`)
+
+Daily automation complete. PR #1861 open. CI green → auto-merge to master.
+
+Three models added: GPT-6.1 Terra ($1/$5), Kimi K3.1 Pro ($2/$10), Inception Mercury 3 ($0.10/$0.35).
+
+## Next daily run suggestions (2026-10-31)
+- Check PR #1861 merged; if not, investigate CI failure.
+- Look for any new model releases: GPT-6.1 Terra Pro if it surfaces, Kimi K3.1 Pro Highspeed (mentioned in search results but pricing unconfirmed), any new Anthropic or Google releases.
+- Monitor Inception Mercury 3 for a standalone API ID (currently only OpenRouter confirmed).
+
+---
+# Previous NEXT_ACTION — 2026-10-29 (security audit, branch `security/cloudflare-audit-fixes`)
 # NEXT_ACTION — updated 2026-10-31 (security audit remaining findings, branch `security/audit-remaining`)
 
 All leads left open by #1858/#1860 are fixed in one PR: DNS-pinned fetches (`agent/web_reach.py` `pinned_transport`), SEO browser SSRF guard, logout revocation (`tokens_valid_after`), login-CSRF nonce on `/auth/callback`, GitHub repo-connect claim code, Google `verified_email`, self-repo shipping limited to system/admin tasks, anonymous heartbeat redaction, E2B write-back containment, literal company search, quick-note CI author gate + credential isolation, diag/seed hardening.

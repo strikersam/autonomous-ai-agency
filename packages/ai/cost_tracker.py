@@ -177,6 +177,38 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "gpt-6-luna": (0.1, 0.5),              # Luna: fast/high-volume, $0.1/$0.5 per MTok (released Sept 22)
     "gpt-6.1-sol": (2.0, 10.0),            # gpt-6.1-sol: $2/$10 per MTok (released Sept 29)
     "openai/gpt-6.1-sol": (2.0, 10.0),    # OpenRouter path — same pricing
+    # --- OpenAI (paid) — GPT-6.1 Terra (added 2026-10-30) ---
+    # Released 2026-10-26. Cost-efficient tier model optimised for computer use
+    # and agentic work; substantial improvement over GPT-5.6 Terra in coding,
+    # desktop interaction and factuality.
+    # Context: 1,050,000 tokens; max output: 128K tokens.
+    # Pricing: $1.00/$5.00 per MTok (standard short context ≤272K);
+    #          long-context tier (>272K): $2.00/$7.50 per MTok.
+    # Cached input: $0.05/MTok (5 % of standard $1.00/MTok input rate).
+    # Tool calling goes through the Responses API.
+    # Sources: openrouter.ai/openai/gpt-6.1-terra,
+    #          requesty.ai/models/openai/gpt-6.1-terra, 2026-10-30.
+    "gpt-6.1-terra": (1.0, 5.0),          # direct OpenAI API id
+    "openai/gpt-6.1-terra": (1.0, 5.0),  # OpenRouter router id
+    # --- Moonshot AI / Kimi K3.1 Pro (added 2026-10-30) ---
+    # Released 2026-10-23. Successor to Kimi K3 with a larger parameter count
+    # and improved coding, reasoning, and long-context retrieval.
+    # Context: 1,048,576 tokens. Supports function calling, streaming, JSON mode.
+    # Pricing: $2.00/$10.00 per MTok.
+    # Previously deferred (row 105) pending confirmed API ID; confirmed 2026-10-30
+    # via openrouter.ai/moonshotai/kimi-k3.1-pro.
+    # Sources: openrouter.ai/moonshotai/kimi-k3.1-pro, 2026-10-30.
+    "kimi-k3.1-pro": (2.0, 10.0),         # Moonshot direct API id
+    "moonshotai/kimi-k3.1-pro": (2.0, 10.0),  # OpenRouter router id
+    # --- Inception / Mercury 3 (added 2026-10-30) ---
+    # Released 2026-10-16 to 2026-10-19 (sources differ). Inception's third-gen
+    # diffusion-based language model; 1M-token context, 131K max output.
+    # Pricing: $0.10/$0.35 per MTok. Cached input ~90 % discount → $0.01/MTok
+    # (10 % of input rate). Available on Inception API, OpenRouter, Baseten, Vercel.
+    # Inception API offers 100 M free tokens (limited-time promotion).
+    # Sources: openrouter.ai/inception/mercury-3, mindstudio.ai/blog/mercury-3-pricing-api,
+    #          computeprices.com/models/mercury-3, 2026-10-30.
+    "inception/mercury-3": (0.10, 0.35),  # OpenRouter router id
     # --- xAI / Grok ---
     # Grok 4.7 released 2026-09-21. $2.00/$6.00 per MTok (<200K tier);
     # 500K context window. xAI's recommended model for coding and agents.
@@ -377,6 +409,13 @@ _CACHE_READ_FRACTIONS: tuple[tuple[str, float], ...] = (
     # Source: openrouter.ai/openai/gpt-6.1-sol, 2026-10-10.
     ("gpt-6.1-sol", 0.05),
     ("openai/gpt-6.1-sol", 0.05),
+    # OpenAI GPT-6.1 Terra: cache reads at $0.05/MTok = 5 % of $1.00/MTok input rate.
+    # Source: openrouter.ai/openai/gpt-6.1-terra, 2026-10-30.
+    ("gpt-6.1-terra", 0.05),
+    ("openai/gpt-6.1-terra", 0.05),
+    # Inception Mercury 3: cached input ~90 % cheaper → $0.01/MTok = 10 % of $0.10/MTok.
+    # Source: mindstudio.ai/blog/mercury-3-pricing-api, 2026-10-30.
+    ("inception/mercury-3", 0.10),
     # Meta Muse Wonder: cached input $0.20/MTok = 5 % of $4.00/MTok input rate.
     # Source: openrouter.ai/meta/muse-wonder, 2026-10-24.
     ("muse-wonder-1.0", 0.05),
@@ -391,6 +430,15 @@ def _cache_read_fraction(model: str) -> float:
         if ml.startswith(prefix):
             return frac
     return 1.0
+
+
+# Prompt-size pricing tiers, keyed by exact cost-table id: a call whose prompt
+# exceeds ``threshold`` tokens is billed at the long-context input/output rates.
+_LONG_CONTEXT_TIERS: dict[str, tuple[int, float, float]] = {
+    # GPT-6.1 Terra: $2.00/$7.50 per MTok above 272K input tokens (see table).
+    "gpt-6.1-terra": (272_000, 2.0, 7.5),
+    "openai/gpt-6.1-terra": (272_000, 2.0, 7.5),
+}
 
 
 def cost_for_tokens(
@@ -416,6 +464,9 @@ def cost_for_tokens(
     if costs is None:
         return 0.0
     input_per_m, output_per_m = costs
+    tier = _LONG_CONTEXT_TIERS.get(model)
+    if tier is not None and prompt_tokens > tier[0]:
+        input_per_m, output_per_m = tier[1], tier[2]
     # Price cached and non-cached input tokens separately.
     cached = max(0, min(cached_tokens, prompt_tokens))
     non_cached = prompt_tokens - cached
