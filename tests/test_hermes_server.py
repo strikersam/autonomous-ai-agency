@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import pytest
 from fastapi.testclient import TestClient
 
 from services.hermes_server import app
@@ -15,6 +16,22 @@ from runtimes.base import TaskResult
 
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def _hermes_key(monkeypatch):
+    """/tasks fails closed without HERMES_API_KEY, so every test configures one."""
+    monkeypatch.setenv("HERMES_API_KEY", "test-key")
+    client.headers["Authorization"] = "Bearer test-key"
+    yield
+    client.headers.pop("Authorization", None)
+
+
+def test_tasks_refused_when_no_key_is_configured(monkeypatch):
+    """Regression: an unset HERMES_API_KEY must not leave /tasks open."""
+    monkeypatch.delenv("HERMES_API_KEY", raising=False)
+    r = client.post("/tasks", json={"instruction": "x"})
+    assert r.status_code == 401
 
 
 def test_health_reports_ours():

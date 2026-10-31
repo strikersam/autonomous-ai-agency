@@ -64,6 +64,13 @@ def _sprint_to_dict(sprint: Any) -> dict[str, Any]:
     }
 
 
+def _require_admin(request: Request) -> Any:
+    """Sprints are one platform-wide board, so changing them needs the admin role."""
+    from packages.auth.rbac import require_admin
+
+    return require_admin(request)
+
+
 # ── Request schemas ─────────────────────────────────────────────────────────
 
 class SprintCreateRequest(BaseModel):
@@ -85,14 +92,14 @@ async def list_sprints() -> dict[str, Any]:
 
 
 @agile_router.post("/sprints", status_code=201)
-async def create_sprint(body: SprintCreateRequest, _user: Any = Depends(_require_auth)) -> dict[str, Any]:
+async def create_sprint(body: SprintCreateRequest, _user: Any = Depends(_require_admin)) -> dict[str, Any]:
     mgr = _get_mgr()
     sprint = mgr.create_sprint(name=body.name, goal=body.goal)
     return {"ok": True, "data": _sprint_to_dict(sprint)}
 
 
 @agile_router.post("/sprints/{sprint_id}/start")
-async def start_sprint(sprint_id: str, body: SprintStartRequest = SprintStartRequest(), _user: Any = Depends(_require_auth)) -> dict[str, Any]:
+async def start_sprint(sprint_id: str, body: SprintStartRequest = SprintStartRequest(), _user: Any = Depends(_require_admin)) -> dict[str, Any]:
     mgr = _get_mgr()
     sprint = mgr.get_sprint(sprint_id)
     if sprint is None:
@@ -107,7 +114,7 @@ async def start_sprint(sprint_id: str, body: SprintStartRequest = SprintStartReq
 
 
 @agile_router.post("/sprints/{sprint_id}/complete")
-async def complete_sprint(sprint_id: str, _user: Any = Depends(_require_auth)) -> dict[str, Any]:
+async def complete_sprint(sprint_id: str, _user: Any = Depends(_require_admin)) -> dict[str, Any]:
     mgr = _get_mgr()
     sprint = mgr.get_sprint(sprint_id)
     if sprint is None:

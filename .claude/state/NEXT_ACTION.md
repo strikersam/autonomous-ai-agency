@@ -6,7 +6,7 @@ All leads left open by #1858/#1860 are fixed in one PR: DNS-pinned fetches (`age
 
 1. **Operator check** — bare `/api/auth/<provider>/login` links (no login-page nonce) now end on the callback error screen; use the login page.
 2. **Product check** — regular users' tasks now run report-only (no platform GitHub token / auto-commit); quick notes and portfolio board changes are admin-only. Reverse in `tasks/service.py::_owner_may_ship_code` if users should ship code.
-3. **Unaudited surfaces** — agile/ceo/spec/code-mode routers, `services/hermes_server.py`, `direct_chat.py` host GH token fallback (never assigned to a hunter in the audit run).
+3. ~~Unaudited surfaces~~ — reviewed 2026-10-31 (branch `security/bandit-tmp-fix`): Hermes `/tasks` fails closed with a render-generated `HERMES_API_KEY`; spec approve/reject and sprint changes admin-only; `direct_chat` no longer falls back to the host GitHub token; ceo and code-mode routers already admin-gate their mutations. Operator: confirm `agency-hermes` picked up the generated `HERMES_API_KEY` after the blueprint sync.
 
 ---
 
