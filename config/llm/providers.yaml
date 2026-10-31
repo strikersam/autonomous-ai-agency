@@ -141,7 +141,7 @@ providers:
     # silently until the whole 120s budget was gone, with no failover. At 60s
     # a hung call leaves the router half the budget to try the next provider.
     timeout_sec: 60
-    default_model: ${NVIDIA_DEFAULT_MODEL:-nvidia/nemotron-3-super-120b-a12b}
+    default_model: ${NVIDIA_DEFAULT_MODEL:-nvidia/nemotron-3-ultra-550b-a55b}
     notes: The always-on free floor. Kept last among free tiers on purpose.
 
   google:

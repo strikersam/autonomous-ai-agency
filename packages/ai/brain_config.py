@@ -176,7 +176,9 @@ def _build_tier_from_yaml(yaml_data: dict[str, Any]) -> dict[str, str]:
 # (see ``brain_policy.DEFAULT_FREE_NVIDIA_MODEL``). A bad DB write or a corrupt
 # config doc must never displace it.
 SAFE_DEFAULT_PROVIDER: str = "nvidia"
-SAFE_DEFAULT_MODEL: str = "nvidia/nemotron-3-super-120b-a12b"
+# nemotron-3-super-120b-a12b retired 2026-10-30 (HTTP 404, issue #1813).
+# nemotron-3-ultra-550b-a55b promoted; tool calling confirmed by probe run 33220369591.
+SAFE_DEFAULT_MODEL: str = "nvidia/nemotron-3-ultra-550b-a55b"
 
 # Provider ids the Brain card recognises. The Literal keeps the Pydantic model
 # strict so a typo in the UI ("cerebrass") fails validation instead of
@@ -202,10 +204,10 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
         "judge":     "openai/gpt-oss-120b",
     },
     "nvidia": {
-        "planner":   "nvidia/nemotron-3-super-120b-a12b",
-        "executor":  "nvidia/nemotron-3-super-120b-a12b",
-        "verifier":  "nvidia/nemotron-3-super-120b-a12b",
-        "judge":     "nvidia/nemotron-3-super-120b-a12b",
+        "planner":   "nvidia/nemotron-3-ultra-550b-a55b",
+        "executor":  "nvidia/nemotron-3-ultra-550b-a55b",
+        "verifier":  "nvidia/nemotron-3-ultra-550b-a55b",
+        "judge":     "nvidia/nemotron-3-ultra-550b-a55b",
     },
     "tokenin": {
         "planner":   "myt/deepseek-v4-pro-free",
@@ -360,19 +362,15 @@ PROVIDER_DEFAULT_BASE_URL: dict[str, str] = {
 # the YAML catalog; never reorder existing keys (sort-stable external contract).
 PROVIDER_CANDIDATES: dict[str, list[str]] = {
     "nvidia": [
-        # Probed live 2026-08-28 — every id here returned HTTP 200 to a real
-        # completion. The previous list was made entirely of ids that were
-        # listed in the catalogue and returned 410 or 404 when called.
-        "nvidia/nemotron-3-super-120b-a12b",
-        # Intermittent, not dead — 404 at 17:02/17:05 on 2026-08-28, then HTTP
-        # 200 with a real tool_call at 23:25 and again on 2026-08-29 07:37.
-        # Kept behind the default, which has answered on every probe.
+        # Promoted to default 2026-10-30: nemotron-3-super retired (HTTP 404,
+        # issue #1813). Tool calling confirmed by probe run 33220369591 (2026-08-28).
         "nvidia/nemotron-3-ultra-550b-a55b",
         # mistralai/mistral-nemotron and openai/gpt-oss-120b removed 2026-10-01:
         # NVIDIA answers HTTP 410 for both (gpt-oss-120b is still served by Groq).
         "openai/gpt-oss-20b",
         # deepseek-ai/deepseek-v4.1-flash removed 2026-09-27: never probed, and
         # every production attempt timed out. Mirrors config/models.yaml.
+        # nemotron-3-super removed 2026-10-30: HTTP 404 on NIM (issue #1813).
     ],
     # tokenin.my.id — free frontier gateway. Ordered highest-RPM first so the
     # rotation prefers the models that 429 least; opus is last so it stays a

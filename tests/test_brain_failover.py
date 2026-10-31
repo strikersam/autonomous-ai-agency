@@ -241,7 +241,8 @@ def test_unhealthy_provider_skipped(monkeypatch):
 #   ALIAS_FIXTURE only needs an entry in ``_MODEL_ALIASES`` with differing
 #   per-provider values. Aliases are consulted *before* the model list, so this
 #   case is about the mapping and is deliberately indifferent to liveness.
-RESOLVER_FIXTURE = "nvidia/nemotron-3-super-120b-a12b"
+# nemotron-3-super-120b-a12b retired 2026-10-30 (HTTP 404, issue #1813); updated to ultra.
+RESOLVER_FIXTURE = "nvidia/nemotron-3-ultra-550b-a55b"
 ALIAS_FIXTURE = "meta/llama-4-maverick-17b-128e-instruct"
 
 
@@ -288,8 +289,9 @@ def test_resolve_model_fuzzy_match(monkeypatch):
     mgr = _make_manager()
     p = mgr.get_provider("nvidia")
     # A bare family name should fuzzy-match the provider's fully-qualified id.
-    model = mgr.resolve_model(p, "nemotron-3-super-120b-a12b")
-    assert "nemotron-3-super" in model.lower()
+    # Using the ultra variant (super retired 2026-10-30, HTTP 404, issue #1813).
+    model = mgr.resolve_model(p, "nemotron-3-ultra-550b-a55b")
+    assert "nemotron-3-ultra" in model.lower()
 
 
 # ── Status snapshot ──────────────────────────────────────────────────────

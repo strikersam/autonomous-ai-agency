@@ -45,12 +45,14 @@ RETIRED = [
     "nvidia/llama-3.1-nemotron-ultra-253b-v1",
     "qwen/qwen3-coder-480b-a35b-instruct",
     "qwen/qwen2.5-coder-32b-instruct",
+    # nvidia/nemotron-3-super-120b-a12b retired 2026-10-30 (HTTP 404, issue #1813).
+    "nvidia/nemotron-3-super-120b-a12b",
 ]
 
-# The one NVIDIA id proven to answer a live completion (2026-08-28,
-# catalogue-probe run 33192841180). Not "the one the docs name" — the one
-# that returned HTTP 200 with text.
-EXPECTED = "nvidia/nemotron-3-super-120b-a12b"
+# The NVIDIA id confirmed to answer live completions AND tool_calls (probe run
+# 33220369591, 2026-08-28) and promoted as platform default 2026-10-31 after
+# nemotron-3-super-120b-a12b answered HTTP 404 (issue #1813).
+EXPECTED = "nvidia/nemotron-3-ultra-550b-a55b"
 
 
 def _nvidia_default(source: str, anchor: str) -> str:
@@ -168,3 +170,14 @@ class TestNoNvidiaFallbackIsRetired:
         block = block[: block.index("DEFAULT_JUDGE_MODEL")]
         for model_id in RETIRED:
             assert model_id not in block, f"agent role default is retired: {model_id}"
+
+    def test_switch_brain_cli_nvidia_preset_uses_the_default(self) -> None:
+        """``scripts/switch_brain.py nvidia`` PATCHes these ids, and the brain
+        policy endpoint rejects a model that fails its liveness probe (422), so
+        a retired id here makes the CLI switch fail outright."""
+        from scripts import switch_brain
+
+        preset = switch_brain.PROVIDER_PRESETS["nvidia"]
+        for role, model_id in preset.items():
+            assert model_id not in RETIRED, f"switch_brain nvidia {role} is retired: {model_id}"
+            assert model_id == EXPECTED, f"switch_brain nvidia {role} is {model_id}, not {EXPECTED}"

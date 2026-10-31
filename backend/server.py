@@ -2013,6 +2013,8 @@ async def lifespan(app_: "FastAPI"):
             old_models = {
                 "meta/llama-3.3-70b-instruct", "llama-3.3-70b-instruct", "gemma-4",
                 "z-ai/glm-5.2", "meta/llama-4-maverick-17b-128e-instruct",
+                # The NVIDIA preset until it began answering 404 (#1813).
+                "nvidia/nemotron-3-super-120b-a12b",
             }
             # Reasoning-heavy models that blow the planner/executor failover
             # deadline on the free tier: they spend the token budget on thinking
@@ -4190,7 +4192,8 @@ def _nvidia_nim_provider_record() -> Optional[Dict]:
         os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com"
     ).rstrip("/").removesuffix("/v1")
     model = (
-        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b"
+        # nemotron-3-super-120b-a12b retired 2026-10-30 (HTTP 404, issue #1813).
+        os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-ultra-550b-a55b"
     )
     return {
         "provider_id": "nvidia-nim",

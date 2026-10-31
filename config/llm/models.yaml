@@ -34,15 +34,18 @@ models:
   # model `supports_tools: false` and filters tool-calling requests on it — so
   # an undeclared model is silently dropped from every tool-calling request.
 
-  nvidia/nemotron-3-super-120b-a12b:
-    provider: nvidia
-    display_name: Nemotron 3 Super 120B-a12b
-    supports_tools: true            # probed: returned tool_calls[get_weather]
-    supports_function_calling: true
-    supports_streaming: true
-    supports_reasoning: true        # probed: reply began with visible reasoning
-    priority: 10
-    speed_tier: fast                # ~12B active params/token
+  # Retired 2026-10-30: HTTP 404 on NVIDIA NIM (confirmed by catalogue-probe.yml,
+  # issue #1813). Replaced by nvidia/nemotron-3-ultra-550b-a55b as new default.
+  # Do not re-add without a live probe confirming the id answers on this account.
+  # nvidia/nemotron-3-super-120b-a12b:
+  #   provider: nvidia
+  #   display_name: Nemotron 3 Super 120B-a12b
+  #   supports_tools: true            # probed: returned tool_calls[get_weather]
+  #   supports_function_calling: true
+  #   supports_streaming: true
+  #   supports_reasoning: true        # probed: reply began with visible reasoning
+  #   priority: 10
+  #   speed_tier: fast                # ~12B active params/token
 
   openai/gpt-oss-120b:
     # Served by Groq only since 2026-10-01: NVIDIA NIM answers HTTP 410 for it
@@ -93,17 +96,17 @@ models:
   # (declared below). Re-add only after a live completion probe.
 
   # Nemotron 3 Ultra 550B: NVIDIA's largest NIM model. 550B MoE parameters.
-  # Listed as intermittent — 404'd at 17:02/17:05 on 2026-08-28 but answered
-  # HTTP 200 with a real tool_call at 23:25. Placed behind default as fallback.
-  # Not freshly probed on 2026-09-19 — conservative `supports_tools: false`
-  # declared to enable routing without claiming unverified tool capability.
+  # Promoted to default 2026-10-30: nemotron-3-super-120b-a12b retired (HTTP 404,
+  # issue #1813). Tool capability was confirmed by probe run 33220369591 on
+  # 2026-08-28 (returned real tool_call at 23:25) — conservative false was a
+  # placeholder; updated to true now that it is the primary model.
   nvidia/nemotron-3-ultra-550b-a55b:
     provider: nvidia
     display_name: Nemotron 3 Ultra 550B-a55b (NVIDIA NIM)
-    supports_tools: false           # not freshly probed
-    supports_function_calling: false
+    supports_tools: true            # confirmed by probe run 33220369591 (2026-08-28)
+    supports_function_calling: true
     supports_streaming: true
-    priority: 34
+    priority: 10                    # promoted to default priority (was 34)
     speed_tier: slow
 
   # deepseek-ai/deepseek-v4.1-flash was declared here on 2026-09-22 without a
@@ -498,6 +501,32 @@ models:
     supports_reasoning: true
     input_cost_per_1m: 2.0
     output_cost_per_1m: 10.0
+    priority: 99                    # unprobed: explicit-only until catalogue-probe sees a 200
+    speed_tier: medium
+
+  # ---------------------------------------------------------------------------
+  # Gemini 4 Carbon (added 2026-10-31)
+  # Google's flagship model released 2026-10-28. 1M-token context window.
+  # Supports tool calling, structured outputs, streaming, and reasoning.
+  # Pricing: $4.00/$20.00 per MTok (standard rate).
+  # Sources: artificialanalysis.ai/models/gemini-4-carbon,
+  #          vals.ai/models/google_gemini-4-carbon, 2026-10-31.
+  # Priority: 99 — explicit-only; unprobed on this account (not yet accessible
+  # via OpenRouter free tier; requires a Google AI Studio / Vertex key).
+  # ---------------------------------------------------------------------------
+  gemini-4-carbon:
+    provider: google
+    display_name: Gemini 4 Carbon (Google)
+    context_window: 1048576
+    max_output_tokens: 65536
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 4.0
+    output_cost_per_1m: 20.0
     priority: 99                    # unprobed: explicit-only until catalogue-probe sees a 200
     speed_tier: medium
 
