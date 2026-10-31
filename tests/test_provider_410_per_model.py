@@ -177,7 +177,7 @@ async def test_all_models_dead_cools_the_provider(monkeypatch):
 # every fallback call hit the dead model and cooled NVIDIA, the main free brain,
 # for 300s, starving the planner into "planning: TimeoutError".
 
-_LIVE = "nvidia/nemotron-3-super-120b-a12b"  # first live catalogue model
+_LIVE = "nvidia/nemotron-3-ultra-550b-a55b"  # first live catalogue model (super retired, #1813)
 
 
 def _stale_nim() -> ProviderConfig:
