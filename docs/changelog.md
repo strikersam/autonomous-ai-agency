@@ -4,6 +4,15 @@
 
 ## [Unreleased]
 ### Security
+- **Security audit follow-up: the surfaces the audit never covered, plus a Bandit regression from #1864** (2026-10-31).
+  - **Hermes runtime fails closed.** `services/hermes_server.py` `POST /tasks` now refuses every call unless `HERMES_API_KEY` is configured (it used to be open when unset), and compares the bearer in constant time. `render.yaml` generates the key on `agency-hermes` and the web service reads it via `fromService`, so the adapter and server always match. In-process Hermes reads the same variable. Without a key, code tasks fall back to `internal_agent`.
+  - **Spec approvals are admin-only.** `POST /api/specs/{id}/approve` and `/reject` are the human gate behind `AGENT_SPEC_APPROVAL_REQUIRED`. Any signed-in user could previously pass it.
+  - **Sprint changes are admin-only.** `POST /api/agile/sprints`, `/start` and `/complete` change the single platform-wide board.
+  - **Direct chat stops falling back to the host GitHub token.** `direct_chat._get_github_token_for_user` no longer returns `GITHUB_TOKEN` / `GH_PAT` / `GH_TOKEN` for a user-driven run without a GitHub secret, matching `agent/github_tools.py`.
+  - **Security Gate.** A #1864 test hardcoded `/tmp` (Bandit B108) and pushed the alert count from 303 to 304. It now uses `tmp_path`.
+  - Files: `services/hermes_server.py`, `render.yaml`, `backend/spec_router.py`, `agents/agile_api.py`, `direct_chat.py`, `docs/configuration-reference.md`, `.env.example`, `tests/test_security_audit_next_actions.py`, `tests/test_hermes_server.py`, `tests/test_hermes_in_process.py`, `tests/test_security_audit_remaining.py`.
+
+### Security
 - **Security audit, remaining findings: DNS-pinned fetches, login and OAuth binding, logout revocation, CI credential isolation** (2026-10-31). Closes the leads #1858 and #1860 left open; each has a regression test that fails on the old code.
   - **DNS rebinding.** `agent/web_reach.py` gains `vet_host()` and `pinned_transport()` / `pinned_async_transport()`: the connection dials the address the SSRF check approved instead of resolving the name again. TLS still verifies against the hostname. Used by `WebReach.safe_get`, the proxy watchdog, `services/scanner.py`, `services/seo_fetch.py` and the anonymous `/api/setup/detect/models` probe.
   - **SEO browser fetch.** `BrowserFetcher` routes every browser request through an SSRF guard (navigations get the DNS check, subresources the literal check, errors fail closed) and refuses a page whose redirect chain or final URL is not public.
