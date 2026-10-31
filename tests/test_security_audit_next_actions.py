@@ -68,3 +68,16 @@ async def test_direct_chat_never_falls_back_to_the_host_github_token(monkeypatch
     monkeypatch.setenv("GH_PAT", "ghp_HOST")
     monkeypatch.setenv("GH_TOKEN", "ghp_HOST")
     assert await direct_chat._get_github_token_for_user("nobody@example.test") is None
+
+
+def test_every_service_running_hermes_adapters_gets_the_shared_key():
+    """Regression: the worker lacked HERMES_API_KEY, so fail-closed Hermes refused its tasks."""
+    from pathlib import Path
+
+    import yaml
+
+    services = yaml.safe_load((Path(__file__).resolve().parents[1] / "render.yaml").read_text())["services"]
+    by_name = {s["name"]: s for s in services}
+    for name in ("local-llm-server", "local-llm-server-worker"):
+        keys = [e for e in by_name[name].get("envVars", []) if e.get("key") == "HERMES_API_KEY"]
+        assert keys and keys[0].get("fromService", {}).get("name") == "agency-hermes", name

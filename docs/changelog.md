@@ -4,6 +4,7 @@
 
 ## [Unreleased]
 ### Security
+- **Background worker gets the Hermes key too** (2026-10-31). `local-llm-server-worker` runs the same runtime adapters as the web service but had no `HERMES_API_KEY`, so after #1865 made Hermes fail closed, worker-dispatched code tasks lost Hermes and fell back to `internal_agent`. `render.yaml` now passes the worker the same key via `fromService` from `agency-hermes`.
 - **Security audit follow-up: the surfaces the audit never covered, plus a Bandit regression from #1864** (2026-10-31).
   - **Hermes runtime fails closed.** `services/hermes_server.py` `POST /tasks` now refuses every call unless `HERMES_API_KEY` is configured (it used to be open when unset), and compares the bearer in constant time. `render.yaml` generates the key on `agency-hermes` and the web service reads it via `fromService`, so the adapter and server always match. In-process Hermes reads the same variable. Without a key, code tasks fall back to `internal_agent`.
   - **Spec approvals are admin-only.** `POST /api/specs/{id}/approve` and `/reject` are the human gate behind `AGENT_SPEC_APPROVAL_REQUIRED`. Any signed-in user could previously pass it.
