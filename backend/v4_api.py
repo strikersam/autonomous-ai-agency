@@ -50,13 +50,13 @@ def _get_tasks_cache_lock() -> asyncio.Lock:
     return _TASKS_CACHE_LOCK
 
 
-async def _get_cached_tasks(limit: int = 50) -> list[dict]:
+async def _get_cached_tasks(limit: int = 50, owner_id: str | None = None) -> list[dict]:
     """Return cached task dicts; fetches + caches from TaskStore when stale.
 
     Uses single-flight locking (same pattern as tasks/api.py) so concurrent
     dashboard pollers share one MongoDB query per TTL window.
     """
-    cache_key = f"tasks:{limit}"
+    cache_key = f"tasks:{owner_id or '*'}:{limit}"
 
     # Fast path: serve from cache (no lock needed for read, CPython GIL-safe)
     now = time.monotonic()
@@ -77,7 +77,10 @@ async def _get_cached_tasks(limit: int = 50) -> list[dict]:
                 if now2 - ts < _TASKS_CACHE_TTL:
                     return cached
 
-            tasks = await store.list_all(limit=limit)
+            if owner_id is None:
+                tasks = await store.list_all(limit=limit)
+            else:
+                tasks = await store.list_for_user(owner_id, limit=limit)
             result: list[dict] = [
                 {
                     "task_id": t.task_id,
@@ -123,6 +126,37 @@ async def _save_improvement_state(data: dict) -> None:
     await asyncio.to_thread(lambda: _STATE_FILE.write_text(json.dumps(data, indent=2)))
 
 
+async def _learning_loop_proof() -> dict[str, Any]:
+    """Trend-watcher heartbeat + lessons totals for GET /v4/status.
+
+    Proof the agency's other two learning halves are live: whether the trend
+    watcher is scanning the web (`last_fetch`, `fetch_count`, `total_alerts`),
+    and whether the learn-from-failure loop is accumulating lessons. Both are
+    read-only and fail soft to `{}` (empty under a bare TestClient, where no
+    watcher is bootstrapped and the store may be empty), so the status contract
+    always carries the keys. The lessons count is offloaded off the event loop
+    because the Mongo-backed count is synchronous pymongo and this route is
+    polled (rule 25).
+    """
+    trend_watcher: dict[str, Any] = {}
+    try:
+        from agent.trend_watcher import get_trend_watcher
+        watcher = get_trend_watcher()
+        if watcher is not None:
+            trend_watcher = watcher.get_stats()
+    except Exception as exc:
+        log.debug("v4/status: trend watcher unavailable: %s", exc)
+
+    lessons: dict[str, int] = {}
+    try:
+        from agent.lessons import lessons_count
+        lessons = await asyncio.to_thread(lessons_count)
+    except Exception as exc:
+        log.debug("v4/status: lessons store unavailable: %s", exc)
+
+    return {"trend_watcher": trend_watcher, "lessons": lessons}
+
+
 # ── GET /v4/status ───────────────────────────────────────────────────────────
 
 @v4_router.get("/status")
@@ -140,6 +174,8 @@ async def v4_status(request: Request) -> dict[str, Any]:
     except Exception as exc:
         log.debug("v4/status: self-healing agent unavailable: %s", exc)
 
+    proof = await _learning_loop_proof()
+
     return {
         "improvement_loop": {
             "last_scan": state.get("last_scan"),
@@ -154,6 +190,7 @@ async def v4_status(request: Request) -> dict[str, Any]:
             "recent_events": recent_events,
             "event_count": len(recent_events),
         },
+        **proof,
     }
 
 
@@ -234,6 +271,19 @@ async def v4_improvements_resolve(issue_id: str, request: Request) -> dict[str, 
     return {"resolved": False, "issue_id": issue_id, "detail": "Issue not found"}
 
 
+async def _require_admin_request(request: Request) -> None:
+    """Raise 403 unless the authenticated caller is an admin."""
+    user = getattr(request.state, "user", None)
+    if user is None:
+        # The router dependency already authenticated the caller (any transport);
+        # resolve the same identity here to read its role.
+        from backend import server as _server
+        user = await _server.get_optional_user(request)
+    role = user.get("role") if isinstance(user, dict) else getattr(user, "role", None)
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+
 # ── GET /v4/quick-notes ──────────────────────────────────────────────────────
 
 @v4_router.get("/quick-notes")
@@ -268,7 +318,12 @@ class V4QuickNoteBody(BaseModel):
 
 @v4_router.post("/quick-notes", status_code=201)
 async def v4_quick_notes_submit(body: V4QuickNoteBody, request: Request) -> dict[str, Any]:
-    """Submit a quick note instruction. Creates a Task with task_type='quick_note'."""
+    """Submit a quick note instruction. Creates a Task with task_type='quick_note'.
+
+    Admin-only: the note becomes system-owned work that ships code to the
+    operator's repo with the platform GitHub token.
+    """
+    await _require_admin_request(request)
     note_id = f"qn_{secrets.token_hex(6)}"
     try:
         from tasks.store import get_task_store
@@ -378,7 +433,8 @@ async def v4_scheduler_jobs(request: Request) -> dict[str, Any]:
 
 @v4_router.post("/scheduler/trigger/{job_id}")
 async def v4_scheduler_trigger(job_id: str, request: Request) -> dict[str, Any]:
-    """Trigger a scheduled job immediately."""
+    """Trigger a scheduled job immediately. Admin-only: jobs are platform-wide."""
+    await _require_admin_request(request)
     try:
         from packages.scheduler.scheduler import get_scheduler
         sched = get_scheduler()
@@ -406,5 +462,9 @@ async def v4_tasks(request: Request, limit: int = 50) -> dict[str, Any]:
     (default 8s) to prevent dashboard refresh bursts from hitting MongoDB
     for every open tab.
     """
-    tasks = await _get_cached_tasks(limit=limit)
+    from tasks.api import _is_admin, _user_id
+
+    user = getattr(request.state, "user", None)
+    owner_id = None if user is not None and _is_admin(user) else _user_id(user or {})
+    tasks = await _get_cached_tasks(limit=max(1, min(limit, 200)), owner_id=owner_id)
     return {"tasks": tasks}

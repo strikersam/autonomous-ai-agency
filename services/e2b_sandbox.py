@@ -49,7 +49,7 @@ import tarfile
 import time
 from typing import Any
 
-from agent.mcp_client import MCPUnavailableError
+from agent.mcp_client import MCPFileNotFoundError, MCPUnavailableError
 from services.e2b_config import E2BConfig, e2b_enabled, is_e2b_sdk_importable, resolve_e2b_config
 
 log = logging.getLogger("qwen-proxy")
@@ -93,6 +93,23 @@ def _resolve_sandbox_path(path: str) -> str:
     if path.startswith("/"):
         return path
     return os.path.join(SANDBOX_WORKDIR, path)
+
+
+
+def _contained_host_path(root: str, rel: str) -> str | None:
+    """Resolve *rel* under *root*; None if it escapes it or targets ``.git``.
+
+    ``realpath`` also follows symlinks already in the worktree, so a link that
+    points outside is refused as well.
+    """
+    if not rel or os.path.isabs(rel):
+        return None
+    target = os.path.realpath(os.path.join(root, rel))
+    if not target.startswith(root + os.sep):
+        return None
+    if os.path.relpath(target, root).split(os.sep)[0] == ".git":
+        return None
+    return target
 
 
 class E2BSandboxSession:
@@ -283,6 +300,9 @@ class E2BSandboxSession:
         try:
             content = await sb.files.read(full_path)
         except Exception as exc:
+            # E2B's FileNotFoundException (not SandboxNotFoundException): the file is absent.
+            if isinstance(exc, FileNotFoundError) or type(exc).__name__ == "FileNotFoundException":
+                raise MCPFileNotFoundError(f"read_file({path}): file not found") from exc
             raise MCPUnavailableError(f"read_file({path}) failed: {exc}") from exc
         if isinstance(content, bytes):
             content = content.decode("utf-8", errors="replace")
@@ -736,22 +756,30 @@ class E2BSandboxSession:
                 changed = [l.strip().lstrip("./") for l in stdout.strip().splitlines() if l.strip()]
 
             # Read each changed file from the sandbox and write it to the host.
+            # The file list is sandbox output, i.e. model-influenced: every path
+            # must resolve inside the worktree before the host writes it.
+            root = os.path.realpath(worktree_path)
+            written: list[str] = []
             for f in changed:
+                host_path = _contained_host_path(root, f)
+                if host_path is None:
+                    log.warning("E2B extract: refused path outside worktree: %r", f)
+                    continue
                 try:
                     full_sandbox_path = os.path.join(SANDBOX_WORKDIR, f)
                     content = await self._sandbox.files.read(full_sandbox_path)
                     if isinstance(content, bytes):
                         content = content.decode("utf-8", errors="replace")
-                    host_path = os.path.join(worktree_path, f)
                     os.makedirs(os.path.dirname(host_path), exist_ok=True)
                     with open(host_path, "w", encoding="utf-8") as fh:
                         fh.write(content)
+                    written.append(f)
                 except Exception as exc:
                     log.debug("E2B extract: skip %s (%s)", f, exc)
 
             log.info("E2B extract: %d changed files written back to %s",
-                     len(changed), worktree_path)
-            return changed
+                     len(written), worktree_path)
+            return written
         except Exception as exc:
             log.warning("E2B extract_changes_to_worktree failed: %s", exc)
             return []

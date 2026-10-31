@@ -149,12 +149,54 @@ def _delegation_tool_lines() -> str:
     )
 
 
+def _code_mode_tool_lines(api_user: tuple[str | None, str | None] | None = None) -> str:
+    """Advertise run_code only while an operator has Code Mode on (rule 19).
+
+    ``api_user`` is the run's ``(user_id, github_token)``, so only the APIs this run
+    can call are listed; None is an internal system run.
+    """
+    from agent.code_mode import tool_prompt_lines
+    from agent.code_mode_connectors import namespace_prompt_lines, snippet_prompt_lines
+
+    lines = tool_prompt_lines()
+    if not lines:
+        return ""
+    user_id, user_token = api_user or (None, None)
+    return f"{lines}{namespace_prompt_lines(user_id=user_id, user_token=user_token)}{snippet_prompt_lines()}"
+
+
+def _code_mode_example() -> str:
+    from agent.code_mode import run_code_example
+
+    return run_code_example()
+
+
 def build_tool_prompt(
     *,
     goal: str,
     step: dict[str, Any],
     observations: list[dict[str, Any]],
     remaining_calls: int,
+    api_user: tuple[str | None, str | None] | None = None,
+) -> list[dict[str, str]]:
+    """Messages for one tool-selection call (``api_user``: see :func:`_code_mode_tool_lines`)."""
+    from agent.code_mode import fill_tool_list
+
+    messages = _tool_prompt_messages(
+        goal=goal, step=step, observations=observations, remaining_calls=remaining_calls,
+        api_user=api_user,
+    )
+    messages[0]["content"] = fill_tool_list(messages[0]["content"])
+    return messages
+
+
+def _tool_prompt_messages(
+    *,
+    goal: str,
+    step: dict[str, Any],
+    observations: list[dict[str, Any]],
+    remaining_calls: int,
+    api_user: tuple[str | None, str | None] | None = None,
 ) -> list[dict[str, str]]:
     observed = json.dumps(observations, indent=2)
     return [
@@ -186,6 +228,7 @@ def build_tool_prompt(
                 "  for the current date.\n"
                 f"{_code_graph_tool_lines()}"
                 f"{_delegation_tool_lines()}"
+                f"{_code_mode_tool_lines(api_user)}"
                 "GITHUB API:\n"
                 "- github_get_issue(repo_name, issue_number)\n"
                 "- github_comment_on_issue(repo_name, issue_number, body)\n"
@@ -218,6 +261,7 @@ def build_tool_prompt(
                 "Example: {\"tool\": \"list_files\", \"args\": {\"path\": \".\"}}\n"
                 "Example: {\"tool\": \"search_code\", \"args\": {\"query\": \"TODO\"}}\n"
                 f"{_web_search_example()}"
+                f"{_code_mode_example()}"
                 "Example: {\"tool\": \"finish\", \"args\": {\"reason\": \"done inspecting\"}}\n\n"
                 "CRITICAL: The JSON MUST have a \"tool\" key. Do NOT return results, status, or\n"
                 "observations — return ONLY the next tool call to make.\n"

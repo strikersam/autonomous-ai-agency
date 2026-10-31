@@ -13,16 +13,25 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import time
 import asyncio
 import httpx
 
+from agent import code_mode_metrics as _cm_metrics
 from agent.context_manager import ContextManager
 from agent.context_pruner import ContextPruner
 from agent.models import AgentPlan, ToolCall, VerificationResult
+from agent.write_gate import (
+    PROPOSAL_TOOLS,
+    WRITE_TOOLS,
+    code_mode_writes_enabled,
+    gated_write,
+    queue_proposal,
+)
 from agent.token_budget import BudgetExceededError, TokenBudget
+from packages.governance.audit import scrub
 from packages.ai.user_token_quota import (
     anthropic_usage_total,
     ensure_user_within_quota,
@@ -52,6 +61,8 @@ except ImportError:
     log.debug("agent/checkpoint.py not available — checkpointing disabled")
 
 log = logging.getLogger("qwen-agent")
+
+_TOOL_EVENTS = frozenset({"tool_call", "tool_result"})
 
 _REPOWISE_TOOLS = frozenset({"get_overview", "get_context", "get_risk", "get_why"})
 
@@ -270,6 +281,15 @@ MAX_SUBAGENT_DEPTH: int = int(os.environ.get("MAX_SUBAGENT_DEPTH", "5"))
 
 
 
+def _read_limit(value: Any) -> int:
+    """``read_file``'s ``max_chars``: the 12,000 default unless a sane positive integer is given."""
+    try:
+        limit = int(value)
+    except (TypeError, ValueError):
+        return 12000
+    return limit if limit > 0 else 12000
+
+
 def _summarise_tool_result(result: Any) -> str:
     """Condense a tool result down to what belongs in an audit row.
 
@@ -296,6 +316,21 @@ def _summarise_tool_result(result: Any) -> str:
 
 class AgentPhaseError(Exception):
     """Raised when a named agent phase (planning, verification, etc.) fails."""
+
+_RUNNER_BOUND_TOOLS = frozenset({
+    "read_file", "head_file", "list_files", "search_code", "write_file", "file_index",
+})
+
+
+def _compact_if_enabled(prompt_text: str) -> str:
+    """Code Mode phase 3: a one-line tool index instead of the full catalogue, when switched on."""
+    from agent.code_mode import callable_tools, code_mode_active
+    from agent.code_mode_connectors import compact_catalog_enabled, compact_prompt
+
+    if not (code_mode_active() and compact_catalog_enabled()):
+        return prompt_text
+    return compact_prompt(prompt_text, list(callable_tools(prompt_text)))
+
 
 def _handler_params(handler: Any) -> frozenset[str]:
     """Parameter names a registry handler accepts ('' when not introspectable)."""
@@ -828,6 +863,9 @@ class AgentRunner:
             _run_start_time = self._run_started
             _time_budget_s = self._run_budget_s
             time_budget_exceeded = False
+            # Code Mode A/B seed: a run with no session id still needs its own
+            # seed, or step N of every such run would land in the same arm.
+            cm_seed = session_id or f"run-{uuid.uuid4().hex}"
 
             for step in plan.steps[:max_steps]:
                 # Time-budget check: stop early to avoid the hard task-execution
@@ -856,8 +894,13 @@ class AgentRunner:
 
                 step_data = step.model_dump()
                 self._log_event(session_id, "step_start", {"step_id": step_data["id"], "description": step_data["description"]})
-                async with _timed_phase("execute_step", step_id=step_data["id"]):
-                    result = await self._execute_step(plan.goal, step_data, requested_model, user_id, memory_store)
+                cm_token = _cm_metrics.begin_step(_cm_metrics.assign_arm(cm_seed, step_data["id"]))
+                result = {}
+                try:
+                    async with _timed_phase("execute_step", step_id=step_data["id"]):
+                        result = await self._execute_step(plan.goal, step_data, requested_model, user_id, memory_store)
+                finally:
+                    _cm_metrics.end_step(cm_token, result.get("status", "error") if isinstance(result, dict) else "error")
                 # Sub-agent condensed summary: trim step results before storing so
                 # the orchestrator's context stays lean.  (1-2k token budget.)
                 condensed = ContextManager.condense_step_result(result)
@@ -1372,7 +1415,16 @@ class AgentRunner:
                 # keep the tool-selection prompt lean.  Recent observations are
                 # passed verbatim; older ones are summarised.
                 masked_obs = self.ctx.mask_observations(observations)
-                tool_messages = build_tool_prompt(goal=goal, step=step, observations=masked_obs, remaining_calls=remaining)
+                tool_messages = build_tool_prompt(
+                    goal=goal, step=step, observations=masked_obs, remaining_calls=remaining,
+                    api_user=(user_id, getattr(getattr(self, "github", None), "token", None)),
+                )
+                # run_code's allow-list comes from this base prompt only: the
+                # enrichment and scratchpad added below carry observation text,
+                # and a "- fetch_url(" line in a read file must not re-enable a
+                # tool an operator switched off.
+                base_tool_prompt = str(tool_messages[0].get("content", ""))
+                tool_messages[0]["content"] = _compact_if_enabled(base_tool_prompt)
                 # ── Harness enrichment: inject tool + skill catalog into tool prompt ───
                 self._inject_enrichment(tool_messages, str(self.tools.root))
                 # Inject ReAct scratchpad trace into the system message so the
@@ -1381,11 +1433,16 @@ class AgentRunner:
                 if scratchpad_ctx and tool_messages:
                     sys_content = str(tool_messages[0].get("content", ""))
                     tool_messages[0]["content"] = f"{sys_content}\n\n{scratchpad_ctx}"
+                cm_stats = _cm_metrics.current()
+                if cm_stats is not None:
+                    cm_stats.record_selection(tool_messages)
                 async with _timed_phase("tool_selection", step_id=step.get("id"), remaining=remaining):
                     tool_call = await self._chat_json(executor_model, tool_messages)
                 call = self._coerce_tool_call(tool_call)
             except Exception as exc:
                 tool_retry_count += 1
+                if _cm_metrics.current() is not None:
+                    _cm_metrics.current().selection_errors += 1
                 error_msg = f"tool selection failed: {exc}"
                 observations.append({"tool": "error", "result": error_msg})
                 log.warning(
@@ -1426,6 +1483,33 @@ class AgentRunner:
                 scratchpad.record_action(call.tool, call.args)
                 scratchpad.record_observation(tool_result)
                 continue
+            if call.tool == "run_code":
+                proposals: list[dict[str, Any]] = []
+                code_obs = await self._run_code_mode(
+                    call.args, base_tool_prompt,
+                    user_id=user_id, memory_store=memory_store, proposals=proposals,
+                )
+                observations.append({"tool": "run_code", "result": code_obs})
+                context_items.append({"tool": "run_code", "result": code_obs})
+                scratchpad.record_action("run_code", {"code": str(call.args.get("code", ""))[:200]})
+                scratchpad.record_observation(code_obs)
+                for proposal in proposals:  # phase 6: Verifier, then a human, then the write
+                    gate = await gated_write(
+                        self, proposal["tool"], proposal["args"], goal=goal, step=step,
+                        verifier_model=verifier_model, user_id=user_id, memory_store=memory_store,
+                        require_approval=True,
+                    )
+                    if gate.applied_path and gate.applied_path not in changed_files:
+                        changed_files.append(gate.applied_path)
+                    observations.append({"tool": proposal["tool"], "args": proposal["args"], "result": gate.result})
+                    scratchpad.record_observation(gate.result)
+                continue
+            if call.tool == "save_snippet":
+                saved = await self._save_snippet(call.args, user_id)
+                observations.append({"tool": "save_snippet", "result": saved})
+                scratchpad.record_action("save_snippet", {"name": str(call.args.get("name", ""))[:60]})
+                scratchpad.record_observation(saved)
+                continue
             if call.tool == "spawn_subagent":
                 sub_result = await self._run_tool(
                     "spawn_subagent", call.args, user_id=user_id, memory_store=memory_store,
@@ -1445,6 +1529,19 @@ class AgentRunner:
                 context_items.append({"tool": "spawn_subagent", "result": sub_result})
                 scratchpad.record_action("spawn_subagent", call.args)
                 scratchpad.record_observation(noted)
+                continue
+            if call.tool in WRITE_TOOLS:
+                # Rule 16: a tool-loop write passes syntax, safety and the Verifier first.
+                gate = await gated_write(
+                    self, call.tool, call.args, goal=goal, step=step, verifier_model=verifier_model,
+                    user_id=user_id, memory_store=memory_store,
+                )
+                if gate.applied_path and gate.applied_path not in changed_files:
+                    changed_files.append(gate.applied_path)
+                observations.append({"tool": call.tool, "args": call.args, "result": gate.result})
+                context_items.append({"tool": call.tool, "result": gate.result})
+                scratchpad.record_action(call.tool, call.args)
+                scratchpad.record_observation(gate.result)
                 continue
             scratchpad.record_action(call.tool, call.args)
             self._log_event(session_id, "tool_call", {"tool": call.tool, "args": call.args})
@@ -1484,7 +1581,7 @@ class AgentRunner:
                 "description": step["description"],
                 "status": "skipped",
                 "reason": "No target files identified",
-                "changed_files": [],
+                "changed_files": changed_files,
                 "observations": observations,
                 "models": {"executor": executor_model, "verifier": verifier_model},
             }
@@ -1494,7 +1591,8 @@ class AgentRunner:
                 "step_id": step["id"],
                 "description": step["description"],
                 "status": "applied",
-                "changed_files": [],
+                # Tool-loop writes that passed the write gate (agent/write_gate.py).
+                "changed_files": changed_files,
                 "observations": observations,
                 "models": {"executor": executor_model, "verifier": verifier_model},
             }
@@ -1773,6 +1871,113 @@ class AgentRunner:
                 pass
             return err
 
+    async def _run_code_mode(
+        self,
+        args: dict[str, Any],
+        tool_prompt: str,
+        user_id: str | None = None,
+        memory_store: UserMemoryStore | None = None,
+        proposals: list[dict[str, Any]] | None = None,
+    ) -> str:
+        """Run one Code Mode program; each inner tool call goes through _run_tool.
+
+        With ``proposals`` given and AGENT_CODE_MODE_WRITES_ENABLED on, the program's
+        edit_file/write_file calls are queued there instead of run (phase 6).
+        """
+        from agent.code_mode import CodeModeLimits, callable_tools, code_mode_active, run_code
+        from agent.tool_output_store import offload_hint
+
+        stats = _cm_metrics.current()
+        if not code_mode_active():
+            if stats is not None:
+                stats.record_program(False, 0, "switched off")
+            return "[run_code is not available for this step — call one tool per response]"
+
+        from agent.code_mode_connectors import ConnectorContext, build_namespaces
+        from agent.code_mode_snippets import scope_for
+
+        writes = proposals is not None and code_mode_writes_enabled()
+
+        async def _call(name: str, call_args: dict[str, Any]) -> Any:
+            if writes and name in PROPOSAL_TOOLS:
+                return queue_proposal(proposals, name, call_args)
+            return await self._run_tool(name, call_args, user_id=user_id, memory_store=memory_store)
+
+        limits = CodeModeLimits()
+        tools = callable_tools(tool_prompt, writes=writes)
+        namespaces = build_namespaces(ConnectorContext(
+            prompt_text=tool_prompt, callable_tools=tools, call_tool=_call,
+            governed=self._governed_external, scope=scope_for(user_id),
+            user_id=user_id, user_token=getattr(getattr(self, "github", None), "token", None),
+        ))
+        outcome = await run_code(str(args.get("code", "")), _call, tools, limits, namespaces=namespaces)
+        self._log_event(
+            getattr(self, "_current_session_id", None), "code_mode",
+            {"ok": outcome.ok, "tool_calls": outcome.calls, "error": outcome.error},
+        )
+        if stats is not None:
+            stats.record_program(outcome.ok, len(outcome.calls), outcome.error)
+        text, truncated = outcome.render(limits.max_result_chars)
+        if truncated:
+            text += offload_hint(outcome.result, limits.max_result_chars, getattr(self.ctx, "owner", None))
+        return text
+
+    async def _governed_external(
+        self, label: str, args: dict[str, Any], thunk: Callable[[], Awaitable[Any]],
+    ) -> Any:
+        """The governance seam for calls that are not registry tools (mcp.*, api.*)."""
+        from packages.governance.enforcement import governance_enabled
+
+        if not governance_enabled():
+            return await thunk()
+        import time as _time
+
+        from packages.governance.enforcement import get_gate, resolve_identity_for_runner
+
+        from agent.code_mode_connectors import governance_surface
+
+        gate = get_gate()
+        identity = resolve_identity_for_runner(self, source_ip=None)
+        surface = governance_surface(label, args)
+        guard = await (
+            gate.guard(identity, label, args, surface=surface[0], action=surface[1])
+            if surface else gate.guard(identity, label, args)
+        )
+        if not guard.allowed:
+            return guard.denial_message
+        started = _time.monotonic()
+        error: str | None = None
+        result: Any = None
+        try:
+            result = await thunk()
+            return result
+        except Exception as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            raise
+        finally:
+            gate.record_result(
+                identity, label, args, guard.decision,
+                result=_summarise_tool_result(result), error=error,
+                duration_ms=(_time.monotonic() - started) * 1000,
+            )
+
+    async def _save_snippet(self, args: dict[str, Any], user_id: str | None) -> str:
+        """The save_snippet tool: store a run_code program for snippets.run (phase 5)."""
+        from agent.code_mode_snippets import get_snippet_store, scope_for, snippets_enabled
+
+        if not snippets_enabled():
+            return "[save_snippet is switched off by the operator]"
+        name, code = args.get("name"), args.get("code")
+
+        async def _save() -> str | None:
+            return get_snippet_store().save(scope_for(user_id), name, code, str(args.get("description", "")))
+
+        # Through the governance seam: a policy may deny or hold save_snippet (Codex on #1818).
+        problem = await self._governed_external("save_snippet", {"name": str(name)[:60]}, _save)
+        if isinstance(problem, str) and problem.startswith("[governance]"):
+            return problem
+        return f"[save_snippet refused: {problem}]" if problem else f"saved snippet {name!r}; run it with snippets.run({name!r})"
+
     async def _dispatch_tool(
         self,
         tool: str,
@@ -1860,7 +2065,10 @@ class AgentRunner:
         # Try the tool registry first for dynamically registered tools.
         # Falls back to the hardcoded if/elif chain for legacy tools.
         tr = self._get_tool_registry()
-        if tr is not None:
+        # Tools the chain below implements with this runner's workspace and its
+        # sandbox (_mcp) routing must not be shadowed by the process-wide
+        # registry copies, which were bound to the server's own root (bug #9).
+        if tr is not None and tool not in _RUNNER_BOUND_TOOLS:
             tool_def = tr.get(tool)
             if tool_def is not None:
                 # Registry handlers that declare ``workspace_root`` act on the
@@ -1895,7 +2103,7 @@ class AgentRunner:
                     return await self._mcp.call_tool("read_file", args)
                 except _MCPUnavail:
                     pass
-            return self.tools.read_file(str(args.get("path", "")))
+            return self.tools.read_file(str(args.get("path", "")), _read_limit(args.get("max_chars")))
         if tool == "head_file":
             # head_file is read_file + truncate; route through _mcp when attached.
             if self._mcp is not None:
@@ -2097,9 +2305,16 @@ class AgentRunner:
     # ------------------------------------------------------------------
 
     def _log_event(self, session_id: str | None, event_type: str, payload: dict[str, Any]) -> None:
-        """Append an event to the durable session log if a store is wired in."""
+        """Append an event to the durable session log if a store is wired in.
+
+        Tool args and results carry file bodies and fetched content; the store
+        persists payloads verbatim, so those two fields are scrubbed of secrets
+        and truncated first, the same way the governance audit trail does it.
+        """
         if session_id and self._session_store:
             try:
+                if event_type in _TOOL_EVENTS:
+                    payload = {k: scrub(v) if k in ("args", "result") else v for k, v in payload.items()}
                 self._session_store.append_event(session_id, event_type, payload)
             except Exception as exc:
                 log.debug("event log write failed (non-fatal): %s", exc)

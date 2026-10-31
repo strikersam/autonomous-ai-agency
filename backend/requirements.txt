@@ -1,4 +1,4 @@
-fastapi>=0.143.2
+fastapi>=0.162.0
 uvicorn[standard]>=0.54.0
 motor>=3.7.1
 pymongo>=4.19.0
@@ -31,11 +31,11 @@ dnspython>=2.9.0
 # Headless-browser rendering for the website scanner (JS-rendered / bot-protected
 # sites). The Chromium binary is installed in the Docker image (see Dockerfile.backend);
 # where it is absent the scanner gracefully falls back to static-HTML detection.
-playwright>=1.64.0
+playwright>=1.64.1
 
 # CTO-level PDF export for SEO/GEO/AEO/AIO audit reports (services/seo_report_pdf.py).
 # Must stay in sync with the root requirements.txt entry.
-reportlab>=5.0.1,<6
+reportlab>=5.1.0,<6
 
 # Free server-side TTS for /agent/sam/speak (voice/tts.py gTTS backend). The
 # push-to-talk SAM flow falls back to browser SpeechSynthesis without it, but
@@ -47,7 +47,7 @@ gTTS>=2.5.0
 # THIS file (not root requirements.txt), so langfuse MUST be here — without it,
 # get_langfuse_client() logs "langfuse package not installed" and no traces
 # are emitted, even when LANGFUSE_PUBLIC_KEY/SECRET_KEY are set on Render.
-langfuse>=5.0.1,<6
+langfuse>=5.0.4,<6
 
 # ── Runtime deps that shipped code imports directly ──────────────────────────
 # Same failure mode as the scanner/langfuse entries above: Dockerfile.backend
@@ -58,12 +58,12 @@ langfuse>=5.0.1,<6
 # Anthropic SDK — agent/loop.py imports it for the native Messages API path.
 # Without it the import raises, the loop silently falls through to the
 # OpenAI-compatible failover, and paid Claude calls degrade.
-anthropic>=1.15.0
+anthropic>=2.3.0
 
 # E2B Firecracker micro-VM sandbox — services/e2b_config.is_e2b_sdk_importable().
 # Without it the Providers screen reports "e2b OFFLINE / SDK not installed"
 # no matter how E2B_API_KEY is configured.
-e2b-code-interpreter>=2.11.0,<3.0.0
+e2b-code-interpreter>=2.11.3,<3.0.0
 
 # config/models.yaml catalog loader (packages/ai/brain_config.py and 4 other
 # call sites). Present transitively via uvicorn[standard] today; pinned here so

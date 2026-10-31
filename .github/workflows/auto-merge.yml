@@ -72,7 +72,10 @@ jobs:
             exit 0
           fi
           echo "Auto-merging PR #$PR_NUMBER after successful CI..."
-          gh pr merge "$PR_NUMBER" --squash --admin --delete-branch || {
+          # Merge only the commit CI just passed: a later push (untested) or a stale
+          # run for an older head must not be merged under --admin.
+          gh pr merge "$PR_NUMBER" --squash --admin --delete-branch \
+            --match-head-commit "${{ github.event.workflow_run.head_sha }}" || {
             echo "::warning::Auto-merge failed (branch protection or conflicts). Manual merge may be needed."
             exit 0
           }

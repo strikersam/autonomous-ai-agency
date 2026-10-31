@@ -233,6 +233,96 @@ _AGENT_RUNTIME: tuple[ControlSpec, ...] = (
         maximum=100,
     ),
     _toggle(
+        "AGENT_CODE_MODE_ENABLED",
+        "Agent Code Mode (run_code)",
+        "governance",
+        "true",
+        "Lets the executing agent batch several read-only lookups into one small "
+        "program (run_code) instead of one model call per tool, so intermediate "
+        "results stay out of the prompt. Programs are interpreted, never executed; "
+        "every inner call still passes the governance gate. When off, run_code is "
+        "left out of the agent's tool prompt and refused.",
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    _number(
+        "AGENT_CODE_MODE_HOLDOUT_PERCENT",
+        "Code Mode measurement holdout (%)",
+        "governance",
+        "10",
+        "Share of agent steps run without run_code, chosen by a stable hash of "
+        "session and step, as the comparison group for GET "
+        "/api/admin/agent/code-mode/metrics. 0 gives every step run_code and "
+        "stops the comparison.",
+        live=True,
+        maximum=100,
+    ),
+    _toggle(
+        "AGENT_CODE_MODE_COMPACT_CATALOG",
+        "Code Mode compact tool index",
+        "governance",
+        "false",
+        "While Code Mode is on, give the executor a one-line tool index instead of "
+        "the full tool catalogue; it looks arguments up with tools.describe() inside "
+        "run_code. Cuts prompt size; compare on the Code Mode metrics before keeping it.",
+        live=True,
+        risk=RISK_LOW,
+    ),
+    _toggle(
+        "AGENT_CODE_MODE_MCP_ENABLED",
+        "Code Mode: read-only MCP servers",
+        "governance",
+        "true",
+        "Lets run_code programs call read-only tools of configured MCP servers "
+        "(mcp.render.list_services(), ...). Only tools annotated read-only, or "
+        "list_/get_ tools not marked destructive, are reachable; results are redacted.",
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    _toggle(
+        "AGENT_CODE_MODE_OPENAPI_ENABLED",
+        "Code Mode: OpenAPI connectors",
+        "governance",
+        "true",
+        "Lets run_code programs call GET operations of the APIs declared in "
+        "config/code_mode_openapi.yaml (api.<name>.call(...)). URLs are SSRF-checked, "
+        "redirects refused, tokens stay server-side.",
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    _toggle(
+        "AGENT_CODE_MODE_SNIPPETS_ENABLED",
+        "Code Mode: saved programs",
+        "governance",
+        "true",
+        "Lets agents save a run_code program (save_snippet) and re-run it by name "
+        "(snippets.run) with the same limits and read-only reach.",
+        live=True,
+        risk=RISK_LOW,
+    ),
+    _toggle(
+        "AGENT_CODE_MODE_WRITES_ENABLED",
+        "Code Mode: writes behind approval",
+        "governance",
+        "false",
+        "Lets a run_code program propose edit_file/write_file calls (at most 5). Each is "
+        "applied only after the syntax and safety checks, the Verifier, and a human approval "
+        "in the Approvals queue; an unanswered approval expires and is denied.",
+        live=True,
+        risk=RISK_HIGH,
+    ),
+    _toggle(
+        "CODE_MODE_MCP_SERVER_ENABLED",
+        "Agency API as a Code Mode MCP server",
+        "governance",
+        "true",
+        "Serves POST /api/code-mode/mcp: two MCP tools (search, execute) that reach the "
+        "agency API from a program, GET only, with the caller's own permissions. "
+        "Off: the endpoint answers 404.",
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    _toggle(
         "RUNTIME_EXTERNAL_DISABLED",
         "Register no external runtimes",
         "agent_runtime",

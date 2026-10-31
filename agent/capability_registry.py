@@ -406,6 +406,17 @@ def _register_builtin_tools(registry: ToolRegistry, workspace_root: str | None =
     from agent.tools import WorkspaceTools
 
     ws = WorkspaceTools(workspace_root or os.environ.get("AGENT_WORKSPACE_ROOT", "."))
+    by_root: dict[str, WorkspaceTools] = {}
+
+    def _ws(root: str | None) -> WorkspaceTools:
+        """The workspace a call acts on. ``AgentRunner`` injects its own root
+        (overwriting any model value); only callers without one fall back to the
+        process root this singleton was built with (bug #9)."""
+        if not root:
+            return ws
+        if root not in by_root:
+            by_root[root] = WorkspaceTools(root)
+        return by_root[root]
 
     _register_web_reach_tools(registry)
     _register_browser_tools(registry)
@@ -425,8 +436,8 @@ def _register_builtin_tools(registry: ToolRegistry, workspace_root: str | None =
         },
         capabilities=["filesystem", "read"],
     )
-    def _read_file_tool(path: str) -> str:
-        return ws.read_file(path)
+    def _read_file_tool(path: str, workspace_root: str | None = None) -> str:
+        return _ws(workspace_root).read_file(path)
 
     @registry.agent_tool(
         name="write_file",
@@ -441,8 +452,8 @@ def _register_builtin_tools(registry: ToolRegistry, workspace_root: str | None =
         },
         capabilities=["filesystem", "write"],
     )
-    def _write_file_tool(path: str, content: str) -> str:
-        return ws.write_file(path, content)
+    def _write_file_tool(path: str, content: str, workspace_root: str | None = None) -> str:
+        return _ws(workspace_root).write_file(path, content)
 
     @registry.agent_tool(
         name="search_code",
@@ -457,8 +468,8 @@ def _register_builtin_tools(registry: ToolRegistry, workspace_root: str | None =
         },
         capabilities=["code", "search"],
     )
-    def _search_code_tool(query: str, limit: int = 20) -> list:
-        return ws.search_code(query, limit)
+    def _search_code_tool(query: str, limit: int = 20, workspace_root: str | None = None) -> list:
+        return _ws(workspace_root).search_code(query, limit)
 
     @registry.agent_tool(
         name="list_files",
@@ -473,8 +484,8 @@ def _register_builtin_tools(registry: ToolRegistry, workspace_root: str | None =
         },
         capabilities=["filesystem", "read"],
     )
-    def _list_files_tool(path: str = ".", limit: int = 200) -> list:
-        return ws.list_files(path, limit)
+    def _list_files_tool(path: str = ".", limit: int = 200, workspace_root: str | None = None) -> list:
+        return _ws(workspace_root).list_files(path, limit)
 
     @registry.agent_tool(
         name="apply_diff",
@@ -489,8 +500,8 @@ def _register_builtin_tools(registry: ToolRegistry, workspace_root: str | None =
         },
         capabilities=["filesystem", "write", "edit"],
     )
-    def _apply_diff_tool(path: str, new_content: str) -> dict:
-        return ws.apply_diff(path, new_content)
+    def _apply_diff_tool(path: str, new_content: str, workspace_root: str | None = None) -> dict:
+        return _ws(workspace_root).apply_diff(path, new_content)
 
     @registry.agent_tool(
         name="edit_file",
@@ -517,8 +528,8 @@ def _register_builtin_tools(registry: ToolRegistry, workspace_root: str | None =
         },
         capabilities=["filesystem", "write", "edit"],
     )
-    def _edit_file_tool(path: str, old_string: str, new_string: str) -> dict:
-        return ws.edit_file(path, old_string, new_string)
+    def _edit_file_tool(path: str, old_string: str, new_string: str, workspace_root: str | None = None) -> dict:
+        return _ws(workspace_root).edit_file(path, old_string, new_string)
 
     @registry.agent_tool(
         name="finish",

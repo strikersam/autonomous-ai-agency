@@ -119,6 +119,14 @@ class MCPUnavailableError(RuntimeError):
     """Raised when the MCP server is unreachable or the circuit is open."""
 
 
+class MCPFileNotFoundError(MCPUnavailableError, FileNotFoundError):
+    """The sandbox reached the file system and the file is not there.
+
+    Distinct from every other read failure (sandbox gone, permission, network), so a
+    caller that must tell "new file" from "could not read" never parses a message.
+    """
+
+
 @dataclass
 class MCPToolResult:
     """Result from ``call_tool_structured()``.

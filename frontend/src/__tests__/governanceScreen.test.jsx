@@ -135,6 +135,26 @@ test('pending approvals render and approving calls the approve endpoint', async 
   expect(api.denyGovernanceRequest).not.toHaveBeenCalled();
 });
 
+test('a proposed write shows its file and diff, and offers no session grant', async () => {
+  // Codex P1 on #1823: the reviewer must see what they authorise before clicking Approve.
+  mockAll({
+    grants: [],
+    approvals: [{
+      approval_id: 'apr_cm', agent_id: 'agent:coder', action: 'code_mode.edit_file',
+      surface: 'filesystem', session_id: 'sess-1',
+      reason: 'a run_code program proposed this write (Code Mode phase 6)',
+      rule_id: 'code_mode.writes.require_approval', seconds_remaining: 120,
+      arguments: { path: 'app.py', diff_chunks: ['--- a/app.py\n+++ b/app.py\n-x = 1', '\n+x = 2'] },
+    }],
+  });
+  render(<GovernanceScreen />);
+  await waitFor(() => expect(screen.getByText(/Awaiting your decision/i)).toBeInTheDocument());
+  expect(screen.getByText('app.py')).toBeInTheDocument();
+  expect(screen.getByLabelText('Proposed change')).toHaveTextContent('+x = 2');
+  expect(screen.queryByText(/Approve for this action/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/Approve all \(session\)/)).not.toBeInTheDocument();
+});
+
 test('stacked approvals show their position; a single one does not', async () => {
   const pending = (id) => ({
     approval_id: id, agent_id: 'agent:coder', action: `act_${id}`,

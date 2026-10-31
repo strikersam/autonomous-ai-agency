@@ -110,12 +110,11 @@ jobs:
             # closed without a line of code. Excluding them here is not a filter
             # on content; it is the difference between a queue of tasks and a
             # queue of paperwork.
-            NUM=$(gh issue list \
-              --repo "$REPO" \
-              --state open \
-              --json number,labels \
-              --limit 100 \
-              --jq '[.[] | select(([(.labels // [])[].name] - ["quick-note:exhausted","quick-note:rejected","quick-note:needs-source","quick-note:needs-review","agency-escalation","trend-digest","routine-backlog","crispy-burn-in","catalogue-drift","bounty-hunt"]) == [(.labels // [])[].name])] | sort_by(.number) | .[0].number // empty')
+            # `gh issue list --json` cannot report who opened an issue (gh exits 1),
+            # so read the REST endpoint, which carries author_association but
+            # also returns pull requests — drop those first.
+            NUM=$(gh api "repos/$REPO/issues?state=open&per_page=100" \
+              --jq '[.[] | select(.pull_request == null) | select(.author_association == "OWNER" or .author_association == "MEMBER" or .author_association == "COLLABORATOR") | select(([(.labels // [])[].name] - ["quick-note:exhausted","quick-note:rejected","quick-note:needs-source","quick-note:needs-review","agency-escalation","trend-digest","routine-backlog","crispy-burn-in","catalogue-drift","bounty-hunt"]) == [(.labels // [])[].name])] | sort_by(.number) | .[0].number // empty')
           fi
           if [ -z "$NUM" ]; then
             echo "No pending quick-note issues found — nothing to do."
@@ -223,7 +222,7 @@ jobs:
           URL="repos/$REPO/issues/$PICK_NUM/comments?per_page=100"
           COMMENTS=0
           while [ -n "$URL" ]; do
-            PAGE_OUT=$(gh api "$URL" --jq '.[] | select(.user.type == "User") | {author: .user.login, created: .created_at, body: .body}' 2>/tmp/capture_err) || {
+            PAGE_OUT=$(gh api "$URL" --jq '.[] | select(.user.type == "User" and (.author_association == "OWNER" or .author_association == "MEMBER" or .author_association == "COLLABORATOR")) | {author: .user.login, created: .created_at, body: .body}' 2>/tmp/capture_err) || {
               echo "WARN: gh api failed for page $PAGE: $(cat /tmp/capture_err 2>/dev/null)" >&2
               gh issue comment "$PICK_NUM" --repo "$REPO" --body "WARN: Could not fetch issue comments (page $PAGE). Implement agent will use body + any earlier comments only." 2>/dev/null || true
               break
@@ -529,6 +528,12 @@ jobs:
           ISSUE_BODY_FILE: /tmp/issue_body.txt
           ISSUE_COMMENTS_FILE: /tmp/issue_comments.jsonl
         run: |
+          # The agent below is steered by issue/comment/URL text and can run
+          # shell commands; take the checkout's persisted GitHub credential out
+          # of .git/config for its duration (kept in an unexported variable).
+          _GIT_AUTH=$(git config --local --get http.https://github.com/.extraheader || true)
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          trap '[ -n "$_GIT_AUTH" ] && git config --local http.https://github.com/.extraheader "$_GIT_AUTH"' EXIT
           python3 .github/scripts/implement_agent.py \
             "$ISSUE_URL" \
             "$ISSUE_NUM" \
@@ -766,6 +771,12 @@ jobs:
           PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
           REVIEWS_SEEN: ${{ steps.bots.outputs.reviews_seen }}
         run: |
+          # The agent below is steered by issue/comment/URL text and can run
+          # shell commands; take the checkout's persisted GitHub credential out
+          # of .git/config for its duration (kept in an unexported variable).
+          _GIT_AUTH=$(git config --local --get http.https://github.com/.extraheader || true)
+          git config --local --unset-all http.https://github.com/.extraheader || true
+          trap '[ -n "$_GIT_AUTH" ] && git config --local http.https://github.com/.extraheader "$_GIT_AUTH"' EXIT
           python3 .github/scripts/apply_review.py \
             "$PR_NUMBER" \
             2>&1 | tee /tmp/review_apply_output.txt

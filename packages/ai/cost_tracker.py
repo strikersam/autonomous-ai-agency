@@ -120,6 +120,15 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # standard $1.50/$7.50 from 2027-01-01. Intro price tracked here.
     "gemini-3.7-flash": (0.75, 3.75),
     "gemini-3.8-flash": (0.75, 3.75),
+    # Gemini 4 Argon (GA 2026-10-13): $2.00/$10.00 per MTok introductory (through
+    # 2026-11-30); standard $4.00/$20.00 from 2026-12-01. Cached input $0.10/MTok
+    # (5 % of input rate — see _CACHE_READ_FRACTIONS overrides). 1M context.
+    # Supports tool calling, streaming, JSON mode.
+    # Sources: openrouter.ai/google/gemini-4-argon, computingforgeeks.com/
+    #          gemini-4-argon-released-features-benchmarks/, eesel.ai/blog/
+    #          gemini-4-argon-pricing, 2026-10-25.
+    "gemini-4-argon": (2.0, 10.0),            # Google direct API ID; intro price
+    "google/gemini-4-argon": (2.0, 10.0),     # OpenRouter ID; same pricing
     # --- Anthropic (paid) — Claude 5 family + Sonnet 4.x / Opus 4.x ---
     # Prices verified from platform.claude.com/docs/en/about-claude/pricing 2026-09-06.
     "claude-opus-5": (5.0, 25.0),          # Opus 5 — $5/$25 per MTok
@@ -168,6 +177,38 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "gpt-6-luna": (0.1, 0.5),              # Luna: fast/high-volume, $0.1/$0.5 per MTok (released Sept 22)
     "gpt-6.1-sol": (2.0, 10.0),            # gpt-6.1-sol: $2/$10 per MTok (released Sept 29)
     "openai/gpt-6.1-sol": (2.0, 10.0),    # OpenRouter path — same pricing
+    # --- OpenAI (paid) — GPT-6.1 Terra (added 2026-10-30) ---
+    # Released 2026-10-26. Cost-efficient tier model optimised for computer use
+    # and agentic work; substantial improvement over GPT-5.6 Terra in coding,
+    # desktop interaction and factuality.
+    # Context: 1,050,000 tokens; max output: 128K tokens.
+    # Pricing: $1.00/$5.00 per MTok (standard short context ≤272K);
+    #          long-context tier (>272K): $2.00/$7.50 per MTok.
+    # Cached input: $0.05/MTok (5 % of standard $1.00/MTok input rate).
+    # Tool calling goes through the Responses API.
+    # Sources: openrouter.ai/openai/gpt-6.1-terra,
+    #          requesty.ai/models/openai/gpt-6.1-terra, 2026-10-30.
+    "gpt-6.1-terra": (1.0, 5.0),          # direct OpenAI API id
+    "openai/gpt-6.1-terra": (1.0, 5.0),  # OpenRouter router id
+    # --- Moonshot AI / Kimi K3.1 Pro (added 2026-10-30) ---
+    # Released 2026-10-23. Successor to Kimi K3 with a larger parameter count
+    # and improved coding, reasoning, and long-context retrieval.
+    # Context: 1,048,576 tokens. Supports function calling, streaming, JSON mode.
+    # Pricing: $2.00/$10.00 per MTok.
+    # Previously deferred (row 105) pending confirmed API ID; confirmed 2026-10-30
+    # via openrouter.ai/moonshotai/kimi-k3.1-pro.
+    # Sources: openrouter.ai/moonshotai/kimi-k3.1-pro, 2026-10-30.
+    "kimi-k3.1-pro": (2.0, 10.0),         # Moonshot direct API id
+    "moonshotai/kimi-k3.1-pro": (2.0, 10.0),  # OpenRouter router id
+    # --- Inception / Mercury 3 (added 2026-10-30) ---
+    # Released 2026-10-16 to 2026-10-19 (sources differ). Inception's third-gen
+    # diffusion-based language model; 1M-token context, 131K max output.
+    # Pricing: $0.10/$0.35 per MTok. Cached input ~90 % discount → $0.01/MTok
+    # (10 % of input rate). Available on Inception API, OpenRouter, Baseten, Vercel.
+    # Inception API offers 100 M free tokens (limited-time promotion).
+    # Sources: openrouter.ai/inception/mercury-3, mindstudio.ai/blog/mercury-3-pricing-api,
+    #          computeprices.com/models/mercury-3, 2026-10-30.
+    "inception/mercury-3": (0.10, 0.35),  # OpenRouter router id
     # --- xAI / Grok ---
     # Grok 4.7 released 2026-09-21. $2.00/$6.00 per MTok (<200K tier);
     # 500K context window. xAI's recommended model for coding and agents.
@@ -177,6 +218,16 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # openrouter.ai/x-ai/grok-4.7, 2026-10-06.
     "grok-4.7": (2.0, 6.0),
     "x-ai/grok-4.7": (2.0, 6.0),
+    # --- Meta / Muse Wonder (added 2026-10-24) ---
+    # Released 2026-10-12. Meta's first pay-as-you-go frontier model, positioned
+    # for agentic coding (long tool-use chains, multi-step debugging, large repos).
+    # 1,048,576-token context. Supports function calling, streaming, JSON mode.
+    # Pricing: $4.00/$20.00 per MTok; cached input $0.20/MTok (5 % of input rate).
+    # Preview tier — Meta is the only host on OpenRouter; no competing provider.
+    # Sources: openrouter.ai/meta/muse-wonder, computeprices.com/providers/
+    # openrouter/models/muse-wonder, eesel.ai/blog/meta-muse-wonder, 2026-10-24.
+    "muse-wonder-1.0": (4.0, 20.0),       # Meta Model API canonical ID
+    "meta/muse-wonder": (4.0, 20.0),       # OpenRouter router ID
     "gpt-4o": (2.5, 10.0),
     "gpt-4o-mini": (0.15, 0.6),
     "o1": (15.0, 60.0),
@@ -215,6 +266,12 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "meta-models/muse-spark-open": (1.25, 4.25),
     # --- Groq: Qwen 3.8 27B (added 2026-09-18) ---
     "qwen/qwen3.8-27b": (0.80, 4.00),
+    # --- Groq: Qwen3.6 27B (added 2026-10-23) ---
+    # Dense 27B successor to Qwen 3.8 27B (MoE). Released 2026-10-21 on Groq.
+    # Reasoning + non-reasoning switching; supports vision, tool calling.
+    # ~464 t/s on Groq LPU hardware. Pricing: $0.60/$3.00 per MTok.
+    # Source: artificialanalysis.ai/models/qwen3-6-27b/providers, 2026-10-23.
+    "qwen/qwen3.6-27b": (0.60, 3.00),
     # --- Mistral API (added 2026-09-19) ---
     # Pricing approximate; verify at mistral.ai/pricing before billing-sensitive use.
     # Mistral Large 4 ("Le Chonk", added 2026-10-09) — 1.05T MoE, 49B active.
@@ -258,6 +315,12 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "qwen-max": (2.40, 9.60),             # Qwen2.5-Max — highest capability
     "qwen-turbo": (0.05, 0.10),            # Qwen2.5-Turbo — fast / 1M context
     "qwen-coder-plus": (0.40, 1.20),       # Qwen2.5-Coder-Plus — code executor preset
+    # --- MiniMax (added 2026-10-23) ---
+    # MiniMax M3.1 Flash: lighter/cheaper successor to MiniMax M3. 1M context.
+    # Weights open-sourced 2026-10-23. Supports tool calling.
+    # Pricing: $0.15/$0.60 per MTok (cached: $0.015/$0.015 per MTok).
+    # Source: techenclave.com/news/items/minimax-releases-m3-1-flash, 2026-10-23.
+    "MiniMax-M3.1-Flash": (0.15, 0.60),
     # --- Moonshot / Kimi (added 2026-09-20; Kimi K3 added 2026-10-19) ---
     # Approximate pricing from platform.moonshot.cn/pricing, 2026-09-20.
     # Kimi K3 pricing: $3.00/$15.00 per MTok (Moonshot official, 2026-10-19).
@@ -333,6 +396,11 @@ _CACHE_READ_FRACTIONS: tuple[tuple[str, float], ...] = (
     ("claude-fable-5-1", 0.025),   # Fable 5.1 — 2.5 % of input rate
     ("claude-mythos-5-1", 0.025),  # Mythos 5.1 — same gated tier as Fable 5.1
     ("claude-opus-5-5", 0.05),     # Opus 5.5  — 5 % of input rate
+    # Gemini 4 Argon: cache reads at $0.10/MTok = 5 % of $2.00/MTok input rate.
+    # Must appear before the generic "gemini-" 25 % fallback.
+    # Source: computingforgeeks.com/gemini-4-argon-released-features-benchmarks/, 2026-10-25.
+    ("gemini-4-argon", 0.05),
+    ("google/gemini-4-argon", 0.05),
     # Generic fallbacks.
     ("claude-", 0.10),
     ("gemini-", 0.25),
@@ -346,6 +414,17 @@ _CACHE_READ_FRACTIONS: tuple[tuple[str, float], ...] = (
     # Source: openrouter.ai/openai/gpt-6.1-sol, 2026-10-10.
     ("gpt-6.1-sol", 0.05),
     ("openai/gpt-6.1-sol", 0.05),
+    # OpenAI GPT-6.1 Terra: cache reads at $0.05/MTok = 5 % of $1.00/MTok input rate.
+    # Source: openrouter.ai/openai/gpt-6.1-terra, 2026-10-30.
+    ("gpt-6.1-terra", 0.05),
+    ("openai/gpt-6.1-terra", 0.05),
+    # Inception Mercury 3: cached input ~90 % cheaper → $0.01/MTok = 10 % of $0.10/MTok.
+    # Source: mindstudio.ai/blog/mercury-3-pricing-api, 2026-10-30.
+    ("inception/mercury-3", 0.10),
+    # Meta Muse Wonder: cached input $0.20/MTok = 5 % of $4.00/MTok input rate.
+    # Source: openrouter.ai/meta/muse-wonder, 2026-10-24.
+    ("muse-wonder-1.0", 0.05),
+    ("meta/muse-wonder", 0.05),
 )
 
 
@@ -356,6 +435,15 @@ def _cache_read_fraction(model: str) -> float:
         if ml.startswith(prefix):
             return frac
     return 1.0
+
+
+# Prompt-size pricing tiers, keyed by exact cost-table id: a call whose prompt
+# exceeds ``threshold`` tokens is billed at the long-context input/output rates.
+_LONG_CONTEXT_TIERS: dict[str, tuple[int, float, float]] = {
+    # GPT-6.1 Terra: $2.00/$7.50 per MTok above 272K input tokens (see table).
+    "gpt-6.1-terra": (272_000, 2.0, 7.5),
+    "openai/gpt-6.1-terra": (272_000, 2.0, 7.5),
+}
 
 
 def cost_for_tokens(
@@ -381,6 +469,9 @@ def cost_for_tokens(
     if costs is None:
         return 0.0
     input_per_m, output_per_m = costs
+    tier = _LONG_CONTEXT_TIERS.get(model)
+    if tier is not None and prompt_tokens > tier[0]:
+        input_per_m, output_per_m = tier[1], tier[2]
     # Price cached and non-cached input tokens separately.
     cached = max(0, min(cached_tokens, prompt_tokens))
     non_cached = prompt_tokens - cached

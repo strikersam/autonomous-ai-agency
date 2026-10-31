@@ -342,6 +342,24 @@ class Settings:
         self.agent_delegation_enabled_raw: str = os.environ.get("AGENT_DELEGATION_ENABLED", "false")
         self.agent_delegation_max_per_session: int = _env_int("AGENT_DELEGATION_MAX_PER_SESSION", 5)
 
+        # AGENT_CODE_MODE_ENABLED — lets the executor batch several read-only
+        # tool calls into one run_code program (agent/code_mode.py) instead of
+        # one LLM round trip per call. Default on.
+        self.agent_code_mode_enabled_raw: str = os.environ.get("AGENT_CODE_MODE_ENABLED", "true")
+        # AGENT_CODE_MODE_HOLDOUT_PERCENT — share of steps run WITHOUT run_code
+        # so agent/code_mode_metrics.py can compare the two arms (phase 2).
+        self.agent_code_mode_holdout_percent: int = _env_int("AGENT_CODE_MODE_HOLDOUT_PERCENT", 10)
+        # Code Mode phases 3-5 and 7 (agent/code_mode_connectors.py,
+        # backend/code_mode_mcp_router.py). All read-only.
+        self.agent_code_mode_compact_catalog_raw: str = os.environ.get("AGENT_CODE_MODE_COMPACT_CATALOG", "false")
+        self.agent_code_mode_mcp_raw: str = os.environ.get("AGENT_CODE_MODE_MCP_ENABLED", "true")
+        self.agent_code_mode_openapi_raw: str = os.environ.get("AGENT_CODE_MODE_OPENAPI_ENABLED", "true")
+        self.agent_code_mode_snippets_raw: str = os.environ.get("AGENT_CODE_MODE_SNIPPETS_ENABLED", "true")
+        # Phase 6 (agent/write_gate.py): programs may propose writes, applied only after
+        # the Verifier and a human approve. Off unless an operator turns it on.
+        self.agent_code_mode_writes_raw: str = os.environ.get("AGENT_CODE_MODE_WRITES_ENABLED", "false")
+        self.code_mode_mcp_server_raw: str = os.environ.get("CODE_MODE_MCP_SERVER_ENABLED", "true")
+
         # ── Code graph (agent/code_graph.py) ────────────────────────────────
         # Structural code queries — who calls a function, what a diff touches —
         # for any of 162 languages, via the codebase-memory-mcp CLI. Opt-in:
@@ -597,6 +615,45 @@ class Settings:
     def agent_delegation_enabled(self) -> bool:
         """True only when an operator switched agent-to-agent delegation on."""
         return self.agent_delegation_enabled_raw.strip().lower() in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def _truthy(raw: str) -> bool:
+        return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+    @property
+    def agent_code_mode_compact_catalog(self) -> bool:
+        """True when run_code steps get a one-line tool index instead of the full catalogue."""
+        return self._truthy(self.agent_code_mode_compact_catalog_raw)
+
+    @property
+    def agent_code_mode_mcp(self) -> bool:
+        """True when run_code programs may call read-only MCP server tools (mcp.<server>.<tool>)."""
+        return self._truthy(self.agent_code_mode_mcp_raw)
+
+    @property
+    def agent_code_mode_openapi(self) -> bool:
+        """True when run_code programs may call configured OpenAPI connectors (api.<name>)."""
+        return self._truthy(self.agent_code_mode_openapi_raw)
+
+    @property
+    def agent_code_mode_snippets(self) -> bool:
+        """True when agents may save run_code programs and re-run them (snippets.run)."""
+        return self._truthy(self.agent_code_mode_snippets_raw)
+
+    @property
+    def agent_code_mode_writes(self) -> bool:
+        """True when run_code programs may propose edit_file/write_file calls (approval-gated)."""
+        return self._truthy(self.agent_code_mode_writes_raw)
+
+    @property
+    def code_mode_mcp_server(self) -> bool:
+        """True when /api/code-mode/mcp serves the agency API through search/execute."""
+        return self._truthy(self.code_mode_mcp_server_raw)
+
+    @property
+    def agent_code_mode_enabled(self) -> bool:
+        """True only when an operator switched Code Mode (run_code) on."""
+        return self.agent_code_mode_enabled_raw.strip().lower() in {"1", "true", "yes", "on"}
 
     @property
     def code_graph_enabled(self) -> bool:

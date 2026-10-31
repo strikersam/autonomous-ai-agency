@@ -17,6 +17,31 @@ TEXT_EXTENSIONS = {
     ".sh", ".bat", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".scss", ".sql",
     ".xml", ".env",
 }
+# Never read by the search/index tools: secrets must not surface in snippets or sizes.
+SECRET_FILENAMES = frozenset({".env", "keys.json"})
+
+
+def plan_string_edit(original: str, old_string: str, new_string: str) -> str | None:
+    """``original`` with one occurrence of ``old_string`` replaced, or None when it is absent.
+
+    Exact match first; then a match ignoring trailing whitespace per line, so
+    copy-paste differences (e.g. trailing tabs) don't block the edit. Pure: the
+    write gate (agent/write_gate.py) previews an edit with it before anything is written.
+    """
+    if old_string in original:
+        return original.replace(old_string, new_string, 1)
+    stripped_original = "\n".join(l.rstrip() for l in original.splitlines())
+    stripped_old = "\n".join(l.rstrip() for l in old_string.splitlines())
+    if stripped_old not in stripped_original:
+        return None
+    start = stripped_original.index(stripped_old)
+    prefix_lines = stripped_original[:start].count("\n")
+    end_line = prefix_lines + stripped_old.count("\n") + 1
+    orig_lines = original.splitlines(keepends=True)
+    updated = "".join(orig_lines[:prefix_lines]) + new_string + "".join(orig_lines[end_line:])
+    if not updated.endswith("\n") and original.endswith("\n"):
+        updated += "\n"
+    return updated
 
 
 class WorkspaceTools:
@@ -73,6 +98,18 @@ class WorkspaceTools:
         if not target.startswith(root + os.sep) and target != root:
             raise ValueError(f"Security: path traversal attempt rejected: {filepath!r}")
         return target
+
+    def _searchable(self, full: Path) -> bool:
+        """A text file that search/index may read: inside the root once symlinks resolve, not a secret."""
+        real = os.path.realpath(full)
+        # Both names count: a link called notes.txt may point at .env. Case-folded for
+        # case-insensitive filesystems.
+        for name in {full.name.lower(), os.path.basename(real).lower()}:
+            if name in SECRET_FILENAMES or name.startswith(".env.") or name.endswith(".env"):
+                return False
+        if full.suffix.lower() not in TEXT_EXTENSIONS and full.name != ".gitignore":
+            return False
+        return real.startswith(os.path.realpath(self.workspace_root) + os.sep)
 
     def _resolve_path(self, path: str) -> Path:
         cleaned = path.strip().replace("/", os.sep)
@@ -135,35 +172,16 @@ class WorkspaceTools:
             return {"path": path, "diff": "", "error": f"file not found: {path!r}"}
 
         original = target.read_text(encoding="utf-8")
-
-        # Exact match first.
-        if old_string in original:
-            updated = original.replace(old_string, new_string, 1)
-        else:
-            # Whitespace-normalised fallback: strip trailing spaces per line so
-            # that copy-paste differences (e.g. trailing tabs) don't block the edit.
-            stripped_original = "\n".join(l.rstrip() for l in original.splitlines())
-            stripped_old = "\n".join(l.rstrip() for l in old_string.splitlines())
-            if stripped_old in stripped_original:
-                # Rebuild the original with the stripped lines only in the matched block.
-                start = stripped_original.index(stripped_old)
-                prefix_lines = stripped_original[:start].count("\n")
-                end_line = prefix_lines + stripped_old.count("\n") + 1
-                orig_lines = original.splitlines(keepends=True)
-                before = "".join(orig_lines[:prefix_lines])
-                after = "".join(orig_lines[end_line:])
-                updated = before + new_string + after
-                if not updated.endswith("\n") and original.endswith("\n"):
-                    updated += "\n"
-            else:
-                return {
-                    "path": path,
-                    "diff": "",
-                    "error": (
-                        f"old_string not found in {path!r}. "
-                        "Check indentation and whitespace and try again."
-                    ),
-                }
+        updated = plan_string_edit(original, old_string, new_string)
+        if updated is None:
+            return {
+                "path": path,
+                "diff": "",
+                "error": (
+                    f"old_string not found in {path!r}. "
+                    "Check indentation and whitespace and try again."
+                ),
+            }
 
         diff = "\n".join(
             difflib.unified_diff(
@@ -230,6 +248,8 @@ class WorkspaceTools:
         target = self._resolve_path(path)
         entries: list[dict[str, str | int]] = []
         if target.is_file():
+            if not self._searchable(target):
+                return []
             lines = len(target.read_text(encoding="utf-8", errors="ignore").splitlines())
             return [{"path": str(target.relative_to(self.root)), "lines": lines, "bytes": target.stat().st_size}]
 
@@ -237,7 +257,7 @@ class WorkspaceTools:
             dirnames[:] = [d for d in dirnames if d not in {".git", "__pycache__", ".venv", "node_modules"}]
             for filename in filenames:
                 full = Path(dirpath) / filename
-                if full.suffix.lower() not in TEXT_EXTENSIONS and full.name not in {".env", ".gitignore"}:
+                if not self._searchable(full):
                     continue
                 try:
                     content = full.read_text(encoding="utf-8", errors="ignore")
@@ -256,7 +276,7 @@ class WorkspaceTools:
         lowered = query.lower()
         for rel_path in self.list_files(limit=1000):
             p = self.root / rel_path
-            if p.suffix.lower() not in TEXT_EXTENSIONS and p.name not in {".env", ".gitignore"}:
+            if not self._searchable(p):
                 continue
             try:
                 text = p.read_text(encoding="utf-8")
