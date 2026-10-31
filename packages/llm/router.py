@@ -457,8 +457,11 @@ class LLMRouter:
         if pinned is not None and pinned.provider == config.id:
             if request.pin_model:
                 return [pinned]
+            # The named model is an explicit choice; its fallbacks are not, so
+            # they get the same paid filter as an unpinned request.
             others = [
-                m for m in self._registry.for_provider(config.id) if m.id != pinned.id
+                m for m in self._registry.for_provider(config.id)
+                if m.id != pinned.id and (allow_paid or m.is_free or m.paid_opt_in)
             ]
             return [pinned, *others]
         if request.pin_model:
