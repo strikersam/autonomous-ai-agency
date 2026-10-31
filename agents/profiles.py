@@ -104,11 +104,11 @@ def _nvidia_defaults() -> dict[str, str]:
         # Probed-live NVIDIA default; meta/llama-3.3-70b-instruct, which was here,
         # answers 410 (retired).
         return {
-            "architect": "nvidia/nemotron-3-super-120b-a12b",
-            "scout":     "nvidia/nemotron-3-super-120b-a12b",
-            "coder":     "nvidia/nemotron-3-super-120b-a12b",
-            "reviewer":  "nvidia/nemotron-3-super-120b-a12b",
-            "verifier":  "nvidia/nemotron-3-super-120b-a12b",
+            "architect": "nvidia/nemotron-3-ultra-550b-a55b",
+            "scout":     "nvidia/nemotron-3-ultra-550b-a55b",
+            "coder":     "nvidia/nemotron-3-ultra-550b-a55b",
+            "reviewer":  "nvidia/nemotron-3-ultra-550b-a55b",
+            "verifier":  "nvidia/nemotron-3-ultra-550b-a55b",
         }
     if os.environ.get("DEEPSEEK_API_KEY"):
         return {

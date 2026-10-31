@@ -552,9 +552,9 @@ _PROVIDER_REGISTRY: list[dict[str, Any]] = [
         # Fallback only: replaced at import by config/models.yaml's live-probed
         # candidates (see below). Kept in step with it so an import failure
         # cannot resurrect ids that answer 410/404 (glm-5.2, llama-4-*, ...).
-        "default_model": "nvidia/nemotron-3-super-120b-a12b",
+        # nemotron-3-super-120b-a12b retired 2026-10-30 (HTTP 404, issue #1813).
+        "default_model": "nvidia/nemotron-3-ultra-550b-a55b",
         "models": [
-            "nvidia/nemotron-3-super-120b-a12b",
             "nvidia/nemotron-3-ultra-550b-a55b",
             "openai/gpt-oss-20b",
         ],

@@ -1,3 +1,15 @@
+# NEXT_ACTION — updated 2026-10-31 (daily automation, branch `claude/intelligent-gates-ibfi0w`)
+
+**What shipped:** Retired `nvidia/nemotron-3-super-120b-a12b` (HTTP 404 since issue #1813); promoted `nvidia/nemotron-3-ultra-550b-a55b` as the platform default across all 19 files. Added `gemini-4-carbon` to `config/llm/models.yaml` (Google Oct 28 flagship; priority 99/explicit-only until a live probe). 201 targeted tests pass; all pre-commit checks green.
+
+## Open items for next daily run
+
+1. **Gemini 4 Carbon live probe** — priority 99 (explicit-only). Once the PR merges and the Google AI Studio account is probed, lower priority and add to routing presets.
+2. **Nemotron 3 Ultra tool-call confirmation** — `supports_tools: true` was set in registry and models.yaml based on probe run 33220369591 (2026-08-28). Monitor the first production call to confirm.
+3. **Security audit follow-ups from 2026-10-29** — JWT revocation, Google login `verified_email`, GitHub callback state, and other open items still pending (see row below).
+
+---
+
 # NEXT_ACTION — updated 2026-10-29 (security audit, branch `security/cloudflare-audit-fixes`)
 
 Ran the cloudflare/security-audit-skill workflow (standard profile, sandboxed source-and-local only). The run is **incomplete**: coverage critics, a second hunter wave, 7 Phase-3 validations and Phase-5 record verification were not run (user asked to finish; agent limit hit). Fixed 9 independently confirmed findings plus 2 parent-verified ones (task purge scope, cron issue-intake label gate), each with a regression test. Audit artifacts live outside the repo (`~/security-audit-skill/autonomous-ai-agency/run-1/`).
