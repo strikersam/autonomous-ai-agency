@@ -110,12 +110,11 @@ jobs:
             # closed without a line of code. Excluding them here is not a filter
             # on content; it is the difference between a queue of tasks and a
             # queue of paperwork.
-            NUM=$(gh issue list \
-              --repo "$REPO" \
-              --state open \
-              --json number,labels,author,authorAssociation \
-              --limit 100 \
-              --jq '[.[] | select(.authorAssociation == "OWNER" or .authorAssociation == "MEMBER" or .authorAssociation == "COLLABORATOR") | select(([(.labels // [])[].name] - ["quick-note:exhausted","quick-note:rejected","quick-note:needs-source","quick-note:needs-review","agency-escalation","trend-digest","routine-backlog","crispy-burn-in","catalogue-drift","bounty-hunt"]) == [(.labels // [])[].name])] | sort_by(.number) | .[0].number // empty')
+            # `gh issue list --json` cannot report who opened an issue (gh exits 1),
+            # so read the REST endpoint, which carries author_association but
+            # also returns pull requests — drop those first.
+            NUM=$(gh api "repos/$REPO/issues?state=open&per_page=100" \
+              --jq '[.[] | select(.pull_request == null) | select(.author_association == "OWNER" or .author_association == "MEMBER" or .author_association == "COLLABORATOR") | select(([(.labels // [])[].name] - ["quick-note:exhausted","quick-note:rejected","quick-note:needs-source","quick-note:needs-review","agency-escalation","trend-digest","routine-backlog","crispy-burn-in","catalogue-drift","bounty-hunt"]) == [(.labels // [])[].name])] | sort_by(.number) | .[0].number // empty')
           fi
           if [ -z "$NUM" ]; then
             echo "No pending quick-note issues found — nothing to do."
