@@ -170,3 +170,14 @@ class TestNoNvidiaFallbackIsRetired:
         block = block[: block.index("DEFAULT_JUDGE_MODEL")]
         for model_id in RETIRED:
             assert model_id not in block, f"agent role default is retired: {model_id}"
+
+    def test_switch_brain_cli_nvidia_preset_uses_the_default(self) -> None:
+        """``scripts/switch_brain.py nvidia`` PATCHes these ids, and the brain
+        policy endpoint rejects a model that fails its liveness probe (422), so
+        a retired id here makes the CLI switch fail outright."""
+        from scripts import switch_brain
+
+        preset = switch_brain.PROVIDER_PRESETS["nvidia"]
+        for role, model_id in preset.items():
+            assert model_id not in RETIRED, f"switch_brain nvidia {role} is retired: {model_id}"
+            assert model_id == EXPECTED, f"switch_brain nvidia {role} is {model_id}, not {EXPECTED}"
