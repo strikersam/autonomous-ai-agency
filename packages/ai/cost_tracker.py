@@ -432,6 +432,15 @@ def _cache_read_fraction(model: str) -> float:
     return 1.0
 
 
+# Prompt-size pricing tiers, keyed by exact cost-table id: a call whose prompt
+# exceeds ``threshold`` tokens is billed at the long-context input/output rates.
+_LONG_CONTEXT_TIERS: dict[str, tuple[int, float, float]] = {
+    # GPT-6.1 Terra: $2.00/$7.50 per MTok above 272K input tokens (see table).
+    "gpt-6.1-terra": (272_000, 2.0, 7.5),
+    "openai/gpt-6.1-terra": (272_000, 2.0, 7.5),
+}
+
+
 def cost_for_tokens(
     model: str, prompt_tokens: int, completion_tokens: int, cached_tokens: int = 0
 ) -> float:
@@ -455,6 +464,9 @@ def cost_for_tokens(
     if costs is None:
         return 0.0
     input_per_m, output_per_m = costs
+    tier = _LONG_CONTEXT_TIERS.get(model)
+    if tier is not None and prompt_tokens > tier[0]:
+        input_per_m, output_per_m = tier[1], tier[2]
     # Price cached and non-cached input tokens separately.
     cached = max(0, min(cached_tokens, prompt_tokens))
     non_cached = prompt_tokens - cached

@@ -48,6 +48,9 @@ GPT61_TERRA_OPENROUTER_ID = "openai/gpt-6.1-terra"
 GPT61_TERRA_INPUT_COST = 1.0
 GPT61_TERRA_OUTPUT_COST = 5.0
 GPT61_TERRA_CACHE_FRACTION = 0.05  # $0.05 / $1.00 = 5 %
+GPT61_TERRA_LONG_THRESHOLD = 272_000  # prompts above this use the long tier
+GPT61_TERRA_LONG_INPUT_COST = 2.0
+GPT61_TERRA_LONG_OUTPUT_COST = 7.5
 
 # Kimi K3.1 Pro
 KIMI_K31_PRO_DIRECT_ID = "kimi-k3.1-pro"
@@ -92,10 +95,20 @@ class TestGpt61TerraCostTracker:
         assert cost is not None
 
     def test_input_cost(self, ct):
-        cost = ct.cost_for_tokens(GPT61_TERRA_OPENAI_ID, 1_000_000, 0)
-        assert cost == pytest.approx(GPT61_TERRA_INPUT_COST), (
-            f"{GPT61_TERRA_OPENAI_ID} input must be ${GPT61_TERRA_INPUT_COST}/MTok"
+        cost = ct.cost_for_tokens(GPT61_TERRA_OPENAI_ID, GPT61_TERRA_LONG_THRESHOLD, 0)
+        assert cost == pytest.approx(GPT61_TERRA_INPUT_COST * 0.272), (
+            f"{GPT61_TERRA_OPENAI_ID} input must be ${GPT61_TERRA_INPUT_COST}/MTok up to 272K"
         )
+
+    def test_long_context_tier_starts_above_272k(self, ct):
+        n = GPT61_TERRA_LONG_THRESHOLD + 1
+        cost = ct.cost_for_tokens(GPT61_TERRA_OPENAI_ID, n, 1_000_000)
+        expected = (n * GPT61_TERRA_LONG_INPUT_COST + 1_000_000 * GPT61_TERRA_LONG_OUTPUT_COST) / 1e6
+        assert cost == pytest.approx(expected)
+
+    def test_long_context_tier_applies_to_a_1m_prompt(self, ct):
+        cost = ct.cost_for_tokens(GPT61_TERRA_OPENAI_ID, 1_000_000, 0)
+        assert cost == pytest.approx(GPT61_TERRA_LONG_INPUT_COST)
 
     def test_output_cost(self, ct):
         cost = ct.cost_for_tokens(GPT61_TERRA_OPENAI_ID, 0, 1_000_000)
@@ -104,8 +117,8 @@ class TestGpt61TerraCostTracker:
         )
 
     def test_combined_cost(self, ct):
-        cost = ct.cost_for_tokens(GPT61_TERRA_OPENAI_ID, 1_000_000, 1_000_000)
-        assert cost == pytest.approx(GPT61_TERRA_INPUT_COST + GPT61_TERRA_OUTPUT_COST)
+        cost = ct.cost_for_tokens(GPT61_TERRA_OPENAI_ID, 200_000, 1_000_000)
+        assert cost == pytest.approx(GPT61_TERRA_INPUT_COST * 0.2 + GPT61_TERRA_OUTPUT_COST)
 
     def test_cache_fraction_explicit(self, ct):
         fractions = {prefix: frac for prefix, frac in ct._CACHE_READ_FRACTIONS}
@@ -143,8 +156,12 @@ class TestGpt61TerraOpenRouterCostTracker:
         assert cost is not None
 
     def test_input_cost(self, ct):
+        cost = ct.cost_for_tokens(GPT61_TERRA_OPENROUTER_ID, GPT61_TERRA_LONG_THRESHOLD, 0)
+        assert cost == pytest.approx(GPT61_TERRA_INPUT_COST * 0.272)
+
+    def test_long_context_tier(self, ct):
         cost = ct.cost_for_tokens(GPT61_TERRA_OPENROUTER_ID, 1_000_000, 0)
-        assert cost == pytest.approx(GPT61_TERRA_INPUT_COST)
+        assert cost == pytest.approx(GPT61_TERRA_LONG_INPUT_COST)
 
     def test_output_cost(self, ct):
         cost = ct.cost_for_tokens(GPT61_TERRA_OPENROUTER_ID, 0, 1_000_000)
