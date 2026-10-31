@@ -340,7 +340,7 @@ loops:
     source: .github/workflows/process-quick-note.yml
     self_heal: true
     gate: telegram
-    purpose: Turn quick-note issues into context + implementation PRs (skips rejected, exhausted, needs-source and needs-review notes). Only issues and comments from OWNER/MEMBER/COLLABORATOR authors are used, and the checkout's GitHub credential is removed from .git/config while the agents run.
+    purpose: Turn quick-note issues into context + implementation PRs (skips rejected, exhausted, needs-source and needs-review notes). The queue is read from every page of the REST issues endpoint (pull requests dropped). Only issues and comments from OWNER/MEMBER/COLLABORATOR authors are used, and the checkout's GitHub credential is removed from .git/config while the agents run.
 
   - id: enrich-quick-note-context
     name: Enrich Quick-Note Context
