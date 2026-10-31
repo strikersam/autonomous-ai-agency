@@ -30,7 +30,8 @@ log = logging.getLogger("brain_policy")
 # SAFE_DEFAULT_MODEL — tests/test_brain_default_consistency.py enforces that.
 # The old default (meta/llama-3.3-70b-instruct) is kept as the fallback in
 # the model registry.
-DEFAULT_FREE_NVIDIA_MODEL = "nvidia/nemotron-3-super-120b-a12b"
+# nemotron-3-super-120b-a12b retired 2026-10-30 (HTTP 404, issue #1813).
+DEFAULT_FREE_NVIDIA_MODEL = "nvidia/nemotron-3-ultra-550b-a55b"
 
 _TRUTHY = {"1", "true", "yes", "on"}
 

@@ -120,18 +120,17 @@ def _register_defaults() -> None:
     #
     # Probed live 2026-08-28 (catalogue-probe run 33201732226): serves, and
     # emits tool_calls.
+    # nvidia/nemotron-3-super-120b-a12b retired 2026-10-30 (HTTP 404, issue #1813).
+    # Replaced by nemotron-3-ultra-550b-a55b as the default NVIDIA NIM model.
     register(ModelInfo(
-        model_id="nvidia/nemotron-3-super-120b-a12b",
+        model_id="nvidia/nemotron-3-ultra-550b-a55b",
         provider_id="nvidia",
-        display_name="Nemotron 3 Super 120B-a12b",
-        supports_tools=True,
+        display_name="Nemotron 3 Ultra 550B-a55b",
+        supports_tools=True,   # confirmed by probe run 33220369591 (2026-08-28)
         supports_streaming=True,
-        # NVIDIA's /v1/models returns no capability fields, so these are the
-        # conservative defaults rather than measured limits — they prune
-        # prompts rather than overflow them. Raise once someone measures.
         context_window=32768,
         max_output_tokens=4096,
-        speed_tier="fast",
+        speed_tier="slow",
         input_cost_per_1m=0.0,
         output_cost_per_1m=0.0,
         priority=10,
@@ -149,9 +148,9 @@ def _register_defaults() -> None:
         input_cost_per_1m=0.0,
         output_cost_per_1m=0.0,
         priority=10,
-        fallback_model="nvidia/nemotron-3-super-120b-a12b",
+        fallback_model="nvidia/nemotron-3-ultra-550b-a55b",
     ))
-    
+
     # Groq (free, fast). Groq's live free models are the GPT-OSS pair registered
     # below (also served by NVIDIA NIM). The two ids that used to sit here —
     # deepseek-r1-distill-llama-70b and llama-4-maverick-17b-128e-instruct — are
@@ -205,7 +204,7 @@ def _register_defaults() -> None:
         priority=12,
         # Was gemini-2.0-flash, never registered here. Falls back across
         # providers, which is the pattern the free-tier entries already use.
-        fallback_model="nvidia/nemotron-3-super-120b-a12b",
+        fallback_model="nvidia/nemotron-3-ultra-550b-a55b",
     ))
 
     # Ollama (local, no cost)

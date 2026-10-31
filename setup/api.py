@@ -428,7 +428,8 @@ async def detect_configured_providers():
         "nvidia_nim": {
             "configured": bool(nvidia_key),
             "base_url": os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com",
-            "default_model": os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-super-120b-a12b",
+            # nemotron-3-super-120b-a12b retired 2026-10-30 (HTTP 404, issue #1813).
+            "default_model": os.environ.get("NVIDIA_DEFAULT_MODEL") or "nvidia/nemotron-3-ultra-550b-a55b",
             # Curated roster of free-tier NVIDIA NIM models verified live in the
             # live probe on 2026-06-20. qwen3-coder-480b / qwen2.5-coder-32b /
             # deepseek-r1 / granite-34b / phi-3-medium / mistral-large-2 /

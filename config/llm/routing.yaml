@@ -87,7 +87,7 @@ routing:
       # and production logged `nvidia-nim/z-ai/glm-5.2 returned 410 Gone` every
       # cycle. These two answered HTTP 200 on the last catalogue probe (NVIDIA
       # 2026-08-28, Groq/Cerebras 2026-08-29/09-01) and both carry a >=32k window.
-      prefer_models: [nvidia/nemotron-3-super-120b-a12b, openai/gpt-oss-120b]
+      prefer_models: [nvidia/nemotron-3-ultra-550b-a55b, openai/gpt-oss-120b]
       min_context_window: 32768
       priority: HIGH
 

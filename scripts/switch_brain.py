@@ -69,10 +69,10 @@ PROVIDER_PRESETS: dict[str, dict[str, str]] = {
         "judge": "openai/gpt-oss-120b",
     },
     "nvidia": {
-        "planner": "nvidia/nemotron-3-super-120b-a12b",
-        "executor": "nvidia/nemotron-3-super-120b-a12b",
-        "verifier": "nvidia/nemotron-3-super-120b-a12b",
-        "judge": "nvidia/nemotron-3-super-120b-a12b",
+        "planner": "nvidia/nemotron-3-ultra-550b-a55b",
+        "executor": "nvidia/nemotron-3-ultra-550b-a55b",
+        "verifier": "nvidia/nemotron-3-ultra-550b-a55b",
+        "judge": "nvidia/nemotron-3-ultra-550b-a55b",
     },
     "ollama": {
         "planner": "deepseek-r1:32b",

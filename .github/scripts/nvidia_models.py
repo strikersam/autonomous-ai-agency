@@ -169,7 +169,9 @@ def reset_cache() -> None:
 # catalogue advertised and the API answered 404 for, which is exactly the
 # failure this module was written to end. Do not add an id you have not probed.
 NVIDIA_CANDIDATE_MODELS: list[tuple[str, str]] = [
-    ("nvidia/nemotron-3-super-120b-a12b", "Nemotron 3 Super (probed live 2026-08-28)"),
+    # nemotron-3-super-120b-a12b retired 2026-10-30 (HTTP 404, issue #1813).
+    # nemotron-3-ultra-550b-a55b promoted; tool_calls confirmed by probe run 33220369591 (2026-08-28).
+    ("nvidia/nemotron-3-ultra-550b-a55b", "Nemotron 3 Ultra (tool_calls confirmed 2026-08-28)"),
     # mistralai/mistral-nemotron and openai/gpt-oss-120b were probed 200 on
     # 2026-08-28 and answer HTTP 410 on NVIDIA as of 2026-09-30; removed 2026-10-01.
 ]

@@ -101,7 +101,13 @@ class TestTheMigrationWritesOnlyLiveModels:
         )
 
     @pytest.mark.parametrize(
-        "poisoned", ("z-ai/glm-5.2", "meta/llama-4-maverick-17b-128e-instruct")
+        "poisoned",
+        (
+            "z-ai/glm-5.2",
+            "meta/llama-4-maverick-17b-128e-instruct",
+            # The NVIDIA preset this migration wrote until it 404'd (#1813).
+            "nvidia/nemotron-3-super-120b-a12b",
+        ),
     )
     def test_the_ids_it_used_to_write_are_migrated_off(self, poisoned: str) -> None:
         """Rows this migration poisoned must be able to recover.

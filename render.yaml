@@ -91,7 +91,7 @@ services:
       # Do not change this value to an id that has not been probed: a model can
       # be listed in NVIDIA's catalogue and still refuse to serve.
       - key: NVIDIA_DEFAULT_MODEL
-        value: "nvidia/nemotron-3-super-120b-a12b"
+        value: "nvidia/nemotron-3-ultra-550b-a55b"
 
       # Cerebras — the first link in the documented free-cloud failover chain
       # (Cerebras -> Groq -> NVIDIA NIM -> Ollama, CLAUDE.md §4). It was set in
@@ -728,7 +728,7 @@ services:
       # background agent/CEO task runs stay on the fast path too. Confirmed live:
       # https://build.nvidia.com/meta/llama-3.3-70b-instruct
       - key: NVIDIA_DEFAULT_MODEL
-        value: "nvidia/nemotron-3-super-120b-a12b"
+        value: "nvidia/nemotron-3-ultra-550b-a55b"
       # UNIT 7: AGENT_<ROLE>_MODEL env vars removed — catalog (config/models.yaml)
       # + DB BrainConfig are now the single source of truth via
       # resolve_component_model(). The free NVIDIA z-ai/glm-5.2 model is the
@@ -809,9 +809,9 @@ services:
         value: "/app/runtimes/extensions/prime_agent/agency-provider.ts"
       # Model ids the extension advertises; must exist on the proxy.
       - key: PRIME_AGENT_MODELS
-        value: "nvidia/nemotron-3-super-120b-a12b"
+        value: "nvidia/nemotron-3-ultra-550b-a55b"
       - key: PRIME_AGENT_MODEL
-        value: "nvidia/nemotron-3-super-120b-a12b"
+        value: "nvidia/nemotron-3-ultra-550b-a55b"
       # Bearer token the extension sends to our own proxy ($PROXY_API_KEY).
       - key: PROXY_API_KEY
         sync: false
@@ -922,7 +922,7 @@ services:
       - key: NVIDIA_BASE_URL
         value: "https://integrate.api.nvidia.com"
       - key: NVIDIA_DEFAULT_MODEL
-        value: "nvidia/nemotron-3-super-120b-a12b"
+        value: "nvidia/nemotron-3-ultra-550b-a55b"
       - key: LLM_PROVIDER
         value: "nvidia-nim"
       # UNIT 7: AGENT_<ROLE>_MODEL env vars removed — catalog (config/models.yaml)
