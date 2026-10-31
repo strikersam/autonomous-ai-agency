@@ -470,7 +470,7 @@ async def test_browser_redirect_chain_to_internal_is_refused(monkeypatch):
 
 # ── 9. quick-note CI: model-driven shell never sees the job's credentials ─────
 
-def test_implement_agent_tool_env_has_no_credentials(monkeypatch):
+def test_implement_agent_tool_env_has_no_credentials(monkeypatch, tmp_path):
     import importlib.util
     from pathlib import Path
 
@@ -480,7 +480,7 @@ def test_implement_agent_tool_env_has_no_credentials(monkeypatch):
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     for k, v in {"GH_PAT": "x", "GITHUB_TOKEN": "x", "NVIDIA_API_KEY": "x", "CEREBRAS_API_KEY": "x",
-                 "AWS_SECRET_ACCESS_KEY": "x", "PATH": "/usr/bin", "HOME": "/tmp"}.items():
+                 "AWS_SECRET_ACCESS_KEY": "x", "PATH": "/usr/bin", "HOME": str(tmp_path)}.items():
         monkeypatch.setenv(k, v)
     env = mod._tool_env()
     assert "PATH" in env and "HOME" in env
