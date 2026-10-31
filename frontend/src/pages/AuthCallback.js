@@ -32,6 +32,16 @@ export default function AuthCallback() {
     const accessToken  = params.get('access_token');
     const refreshToken = params.get('refresh_token');
 
+    // Only accept tokens for a login this tab started: the login page saved a
+    // nonce and the backend echoes it back. A crafted link with another
+    // account's tokens has no matching nonce and must not replace the session.
+    const expectedNonce = sessionStorage.getItem('oauth_login_nonce');
+    sessionStorage.removeItem('oauth_login_nonce');
+    if (!expectedNonce || params.get('nonce') !== expectedNonce) {
+      setStatus('error');
+      return;
+    }
+
     if (socialToken) {
       // Social login: store JWT then sync AuthContext before navigating so
       // ProtectedRoute sees the authenticated user and doesn't bounce to /login.

@@ -36,6 +36,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
+import httpcore
 import httpx
 
 log = logging.getLogger("qwen-proxy")
@@ -86,26 +87,89 @@ def unsafe_target_reason(url: str) -> str | None:
     host = parsed.hostname
     if not host:
         return "URL has no host"
+    _, reason = vet_host(host)
+    if reason:
+        return reason
+    return _egress_policy_reason(host)
+
+
+def _non_public(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    return (
+        ip.is_private
+        or ip.is_loopback
+        or ip.is_link_local
+        or ip.is_multicast
+        or ip.is_reserved
+        or ip.is_unspecified
+    )
+
+
+def vet_host(host: str) -> tuple[str | None, str | None]:
+    """Resolve *host* once and return ``(address_to_dial, None)`` or ``(None, reason)``.
+
+    Every resolved address must be public. Callers that then connect must dial
+    the returned address, not re-resolve the name: a second lookup is what DNS
+    rebinding exploits (see ``pinned_transport``).
+    """
     try:
         infos = socket.getaddrinfo(host, None)
     except socket.gaierror as exc:
-        return f"could not resolve host: {exc}"
+        return None, f"could not resolve host: {exc}"
+    first: str | None = None
     for info in infos:
         addr = info[4][0]
         try:
             ip = ipaddress.ip_address(addr)
         except ValueError:
             continue
-        if (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_multicast
-            or ip.is_reserved
-            or ip.is_unspecified
-        ):
-            return f"host resolves to a non-public address ({addr})"
-    return _egress_policy_reason(host)
+        if _non_public(ip):
+            return None, f"host resolves to a non-public address ({addr})"
+        first = first or addr
+    if first is None:
+        return None, "host has no usable address"
+    return first, None
+
+
+class _PinnedSyncBackend(httpcore.SyncBackend):
+    """Dial the address ``vet_host`` approved, so the connection cannot rebind."""
+
+    def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):  # noqa: ANN001
+        addr, reason = vet_host(host)
+        if reason:
+            raise httpcore.ConnectError(f"refused: {reason}")
+        return super().connect_tcp(addr, port, timeout, local_address, socket_options)
+
+
+class _PinnedAsyncBackend(httpcore.AnyIOBackend):
+    async def connect_tcp(self, host, port, timeout=None, local_address=None, socket_options=None):  # noqa: ANN001
+        import anyio
+
+        addr, reason = await anyio.to_thread.run_sync(vet_host, host)
+        if reason:
+            raise httpcore.ConnectError(f"refused: {reason}")
+        return await super().connect_tcp(addr, port, timeout, local_address, socket_options)
+
+
+def pinned_transport() -> httpx.HTTPTransport:
+    """Sync httpx transport whose every connection dials a vetted public address.
+
+    TLS still verifies the certificate against the URL's hostname: httpcore takes
+    ``server_hostname`` from the request origin, not from the dialled address.
+    """
+    transport = httpx.HTTPTransport()
+    transport._pool = httpcore.ConnectionPool(  # noqa: SLF001 - no public network_backend hook in httpx
+        ssl_context=httpx.create_ssl_context(), network_backend=_PinnedSyncBackend()
+    )
+    return transport
+
+
+def pinned_async_transport() -> httpx.AsyncHTTPTransport:
+    """Async counterpart of ``pinned_transport``."""
+    transport = httpx.AsyncHTTPTransport()
+    transport._pool = httpcore.AsyncConnectionPool(  # noqa: SLF001
+        ssl_context=httpx.create_ssl_context(), network_backend=_PinnedAsyncBackend()
+    )
+    return transport
 
 
 def _domain_matches(host: str, pattern: str) -> bool:
@@ -349,7 +413,12 @@ class WebReach:
         reason = unsafe_target_reason(url)
         if reason:
             raise ValueError(f"refused: {reason}")
-        with httpx.Client(headers={"User-Agent": _UA}, timeout=self.timeout, follow_redirects=False) as client:
+        with httpx.Client(
+            headers={"User-Agent": _UA},
+            timeout=self.timeout,
+            follow_redirects=False,
+            transport=pinned_transport(),
+        ) as client:
             current = url
             for _ in range(max_redirects + 1):
                 resp = client.get(current)
