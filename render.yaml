@@ -325,9 +325,13 @@ services:
       - key: TASK_HARNESS_ENABLED
         value: "false"
 
-      # Adapter-specific settings (used when sidecar runtimes are enabled)
+      # Adapter-specific settings (used when sidecar runtimes are enabled).
+      # Shared with agency-hermes, which refuses /tasks without it.
       - key: HERMES_API_KEY
-        sync: false
+        fromService:
+          type: web
+          name: agency-hermes
+          envVarKey: HERMES_API_KEY
       - key: HERMES_TIMEOUT_SEC
         value: "300"
       - key: OPENCODE_MODEL
@@ -667,6 +671,13 @@ services:
     plan: free
     startCommand: python worker_main.py
     envVars:
+      # Worker runs the same runtime adapters as the web service; agency-hermes
+      # refuses /tasks without this shared key.
+      - key: HERMES_API_KEY
+        fromService:
+          type: web
+          name: agency-hermes
+          envVarKey: HERMES_API_KEY
       - key: MONGO_URL
         sync: false
       - key: DB_NAME
@@ -918,9 +929,10 @@ services:
       # + DB BrainConfig are now the single source of truth via
       # resolve_component_model(). The free NVIDIA z-ai/glm-5.2 model is the
       # catalog's nvidia role preset, so behaviour is unchanged.
-      # Optional bearer gate — set in dashboard if needed
+      # Bearer gate for /tasks — required (the server fails closed without it);
+      # the web service reads the same value via fromService.
       - key: HERMES_API_KEY
-        sync: false
+        generateValue: true
       # Task timeout
       - key: HERMES_TIMEOUT_SEC
         value: "300"

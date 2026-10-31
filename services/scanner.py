@@ -42,6 +42,8 @@ import ipaddress
 import socket
 from urllib.parse import urljoin, urlparse
 
+from agent.web_reach import pinned_async_transport
+
 
 def _is_safe_url(url: str) -> bool:
     """Block SSRF: reject loopback, link-local, private, and non-HTTP schemes."""
@@ -337,6 +339,7 @@ class WebsiteScanner:
                     follow_redirects=True,
                     max_redirects=self.max_redirects,
                     event_hooks={"request": [ssrf_request_hook]},
+                    transport=pinned_async_transport(),
                     headers={
                         "User-Agent": self.user_agent,
                         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",

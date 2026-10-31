@@ -271,6 +271,19 @@ async def v4_improvements_resolve(issue_id: str, request: Request) -> dict[str, 
     return {"resolved": False, "issue_id": issue_id, "detail": "Issue not found"}
 
 
+async def _require_admin_request(request: Request) -> None:
+    """Raise 403 unless the authenticated caller is an admin."""
+    user = getattr(request.state, "user", None)
+    if user is None:
+        # The router dependency already authenticated the caller (any transport);
+        # resolve the same identity here to read its role.
+        from backend import server as _server
+        user = await _server.get_optional_user(request)
+    role = user.get("role") if isinstance(user, dict) else getattr(user, "role", None)
+    if role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+
 # ── GET /v4/quick-notes ──────────────────────────────────────────────────────
 
 @v4_router.get("/quick-notes")
@@ -305,7 +318,12 @@ class V4QuickNoteBody(BaseModel):
 
 @v4_router.post("/quick-notes", status_code=201)
 async def v4_quick_notes_submit(body: V4QuickNoteBody, request: Request) -> dict[str, Any]:
-    """Submit a quick note instruction. Creates a Task with task_type='quick_note'."""
+    """Submit a quick note instruction. Creates a Task with task_type='quick_note'.
+
+    Admin-only: the note becomes system-owned work that ships code to the
+    operator's repo with the platform GitHub token.
+    """
+    await _require_admin_request(request)
     note_id = f"qn_{secrets.token_hex(6)}"
     try:
         from tasks.store import get_task_store
@@ -416,15 +434,7 @@ async def v4_scheduler_jobs(request: Request) -> dict[str, Any]:
 @v4_router.post("/scheduler/trigger/{job_id}")
 async def v4_scheduler_trigger(job_id: str, request: Request) -> dict[str, Any]:
     """Trigger a scheduled job immediately. Admin-only: jobs are platform-wide."""
-    user = getattr(request.state, "user", None)
-    if user is None:
-        # The router dependency already authenticated the caller (any transport);
-        # resolve the same identity here to read its role.
-        from backend import server as _server
-        user = await _server.get_optional_user(request)
-    role = user.get("role") if isinstance(user, dict) else getattr(user, "role", None)
-    if role != "admin":
-        raise HTTPException(status_code=403, detail="Admin access required")
+    await _require_admin_request(request)
     try:
         from packages.scheduler.scheduler import get_scheduler
         sched = get_scheduler()

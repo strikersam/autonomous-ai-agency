@@ -174,10 +174,11 @@ def test_autonomy_tick_skips_a_task_the_dispatcher_holds(monkeypatch):
     monkeypatch.setattr("tasks.store.get_task_store", lambda: _Store())
     monkeypatch.setattr(service, "claim_task_run", held)
     monkeypatch.setattr(server, "_anon_tick_last", {})
-    monkeypatch.delenv("CRON_SECRET", raising=False)
+    # A cron-authenticated caller sees dispatch detail; anonymous output is redacted.
+    monkeypatch.setenv("CRON_SECRET", "dummy-cron-secret")
     client = TestClient(server.app, raise_server_exceptions=False)
     monkeypatch.setenv("SELF_BOOTSTRAP_ENABLED", "true")
-    body = client.get("/api/autonomy/tick").json()
+    body = client.get("/api/autonomy/tick", headers={"x-cron-secret": "dummy-cron-secret"}).json()
     assert body["dispatch"].get("task_id") == task.task_id, body
     assert body["dispatch"]["task_id"] == task.task_id
     assert body["dispatch"]["skipped"] == "task already running elsewhere"

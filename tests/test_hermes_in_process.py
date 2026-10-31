@@ -30,6 +30,11 @@ def _free_port() -> int:
         return int(s.getsockname()[1])
 
 
+@pytest.fixture(autouse=True)
+def _hermes_key(monkeypatch):
+    monkeypatch.setenv("HERMES_API_KEY", "test-key")
+
+
 @pytest.fixture
 def hermes_enabled(monkeypatch):
     """Enable the in-process server on a free port, and always tear it down."""
@@ -186,7 +191,7 @@ class TestCodingModelPreference:
         )
 
         from services.hermes_server import TaskIn, run_task
-        await run_task(TaskIn(instruction="refactor this"), authorization=None)
+        await run_task(TaskIn(instruction="refactor this"), authorization="Bearer test-key")
 
         assert captured["model"] == "north-mini-code-1.0", (
             "Hermes must pick the coding specialist, or it is internal_agent "
@@ -213,7 +218,7 @@ class TestCodingModelPreference:
         from services.hermes_server import TaskIn, run_task
         await run_task(
             TaskIn(instruction="x", model="meta/llama-3.3-70b-instruct"),
-            authorization=None,
+            authorization="Bearer test-key",
         )
 
         assert captured["model"] == "meta/llama-3.3-70b-instruct"
@@ -242,7 +247,7 @@ class TestCodingModelPreference:
         )
 
         from services.hermes_server import TaskIn, run_task
-        out = await run_task(TaskIn(instruction="x"), authorization=None)
+        out = await run_task(TaskIn(instruction="x"), authorization="Bearer test-key")
 
         assert out["success"] is True
         assert captured["model"] is None, "falls back to the default brain"

@@ -350,10 +350,18 @@ def _uid(request: Request) -> str:
     return str(getattr(user, "email", "anonymous"))
 
 
-async def _detect_ollama_models(base_url: str = "http://localhost:11434") -> list[dict]:
-    """Query Ollama /api/tags to get the list of locally available models."""
+async def _detect_ollama_models(base_url: str = "http://localhost:11434", *, pinned: bool = False) -> list[dict]:
+    """Query Ollama /api/tags to get the list of locally available models.
+
+    *pinned* dials only the address the SSRF check approved (DNS-rebinding safe);
+    it is set for the caller-supplied, non-loopback probe.
+    """
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
+        transport = None
+        if pinned:
+            from agent.web_reach import pinned_async_transport
+            transport = pinned_async_transport()
+        async with httpx.AsyncClient(timeout=5, transport=transport) as client:
             resp = await client.get(f"{base_url}/api/tags")
             if resp.status_code == 200:
                 data   = resp.json()
@@ -479,13 +487,29 @@ def _ollama_probe_block_reason(url: str, request: Request) -> str | None:
     return f"{reason} — sign in as an admin to probe a private Ollama address" if reason else None
 
 
+def _probe_needs_pinning(url: str, request: Request) -> bool:
+    """True when *url* passed the public-address check (non-admin, non-loopback)."""
+    import ipaddress
+    from urllib.parse import urlparse
+
+    if get_user_role(getattr(request.state, "user", None) or {}) == UserRole.ADMIN:
+        return False
+    host = (urlparse(url).hostname or "").lower()
+    if host == "localhost":
+        return False
+    try:
+        return not ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return True
+
+
 @setup_router.get("/detect/models")
 async def detect_models_for_wizard(request: Request, ollama_url: str = "http://localhost:11434"):
     """Return list of locally available Ollama models (used in Step 2)."""
     blocked = _ollama_probe_block_reason(ollama_url, request)
     if blocked:
         return {"models": [], "total": 0, "ollama_url": ollama_url, "error": blocked}
-    models  = await _detect_ollama_models(ollama_url)
+    models  = await _detect_ollama_models(ollama_url, pinned=_probe_needs_pinning(ollama_url, request))
     return {"models": models, "total": len(models), "ollama_url": ollama_url}
 
 

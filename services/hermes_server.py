@@ -28,6 +28,7 @@ Design notes
 """
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 import time
@@ -59,14 +60,16 @@ class TaskIn(BaseModel):
 
 
 def _check_auth(authorization: str | None) -> None:
-    """Optional bearer gate. Only enforced when HERMES_API_KEY is configured."""
+    """Bearer gate for task execution. Fails closed when HERMES_API_KEY is unset.
+
+    ``/tasks`` runs the agent loop with caller-supplied context (workspace,
+    tokens) on a publicly reachable service, so it is never open by default.
+    """
     expected = (os.environ.get("HERMES_API_KEY") or "").strip()
-    if not expected:
-        return  # open by default (local/sidecar use)
     token = ""
     if authorization and authorization.lower().startswith("bearer "):
         token = authorization[7:].strip()
-    if token != expected:
+    if not expected or not hmac.compare_digest(token, expected):
         raise HTTPException(status_code=401, detail="Invalid Hermes API key")
 
 
