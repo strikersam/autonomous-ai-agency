@@ -52,6 +52,7 @@ scratch/verification/report.md
 
 # Graphify knowledge graph — the bulky, machine-specific outputs are not tracked.
 graphify-out/graph.json
+graphify-out/.graphify_build_state.json
 graphify-out/.graphify_labels.json
 # …and the signature written alongside the labels file. Ignoring the labels but
 # not its .sig left the signature showing up as an untracked file every session,

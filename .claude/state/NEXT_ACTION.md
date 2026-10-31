@@ -7,6 +7,19 @@
 1. **Gemini 4 Carbon live probe** — priority 99 (explicit-only). Once the PR merges and the Google AI Studio account is probed, lower priority and add to routing presets.
 2. **Nemotron 3 Ultra tool-call confirmation** — `supports_tools: true` was set in registry and models.yaml based on probe run 33220369591 (2026-08-28). Monitor the first production call to confirm.
 3. **Security audit follow-ups from 2026-10-29** — JWT revocation, Google login `verified_email`, GitHub callback state, and other open items still pending (see row below).
+# NEXT_ACTION — updated 2026-10-30 (daily automation, branch `claude/intelligent-gates-hfu9ql`)
+
+Daily automation complete. PR #1861 open. CI green → auto-merge to master.
+
+Three models added: GPT-6.1 Terra ($1/$5), Kimi K3.1 Pro ($2/$10), Inception Mercury 3 ($0.10/$0.35).
+
+## Next daily run suggestions (2026-10-31)
+- Check PR #1861 merged; if not, investigate CI failure.
+- Look for any new model releases: GPT-6.1 Terra Pro if it surfaces, Kimi K3.1 Pro Highspeed (mentioned in search results but pricing unconfirmed), any new Anthropic or Google releases.
+- Monitor Inception Mercury 3 for a standalone API ID (currently only OpenRouter confirmed).
+
+---
+# Previous NEXT_ACTION — 2026-10-29 (security audit, branch `security/cloudflare-audit-fixes`)
 # NEXT_ACTION — updated 2026-10-31 (security audit remaining findings, branch `security/audit-remaining`)
 
 All leads left open by #1858/#1860 are fixed in one PR: DNS-pinned fetches (`agent/web_reach.py` `pinned_transport`), SEO browser SSRF guard, logout revocation (`tokens_valid_after`), login-CSRF nonce on `/auth/callback`, GitHub repo-connect claim code, Google `verified_email`, self-repo shipping limited to system/admin tasks, anonymous heartbeat redaction, E2B write-back containment, literal company search, quick-note CI author gate + credential isolation, diag/seed hardening.

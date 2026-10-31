@@ -242,12 +242,14 @@ class TestGemini4ArgonYaml:
 # ---------------------------------------------------------------------------
 
 class TestCatalogueSize:
-    def test_catalogue_has_85_ids(self, llm_models):
-        """models.yaml should have 85 declared model entries after adding gemini-4-argon."""
+    def test_catalogue_has_at_least_85_ids_including_argon(self, llm_models):
+        """gemini-4-argon brought the catalogue to 85 ids. The exact current
+        total is pinned by the newest daily-automation test file; pinning it
+        here too made every later model addition fail this older test."""
         models = llm_models.get("models", {})
-        assert len(models) == 85, (
-            f"Expected 85 model IDs in models.yaml, got {len(models)}. "
-            "If you added or removed other models, update this count."
+        assert "gemini-4-argon" in models
+        assert len(models) >= 85, (
+            f"Expected at least 85 model IDs in models.yaml, got {len(models)}."
         )
 
 
