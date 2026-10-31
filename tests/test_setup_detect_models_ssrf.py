@@ -11,8 +11,9 @@ import setup.api as setup_api
 def calls(monkeypatch) -> list:
     seen: list = []
 
-    async def _fake(url: str) -> list:
+    async def _fake(url: str, *, pinned: bool = False) -> list:
         seen.append(url)
+        _fake.pinned = pinned
         return [{"name": "llama3", "size_gb": 1.0, "modified": ""}]
 
     monkeypatch.setattr(setup_api, "_detect_ollama_models", _fake)
@@ -37,6 +38,14 @@ def test_anonymous_probe_of_private_address_is_refused(anon, calls, url) -> None
 def test_default_loopback_ollama_still_works(anon, calls, url) -> None:
     body = anon.get("/api/setup/detect/models", params={"ollama_url": url}).json()
     assert body["total"] == 1 and calls == [url]
+
+
+def test_public_probe_dials_the_vetted_address(anon, calls, monkeypatch) -> None:
+    """A caller-supplied public host is fetched through the DNS-pinned transport."""
+    monkeypatch.setattr(setup_api, "_probe_needs_pinning", lambda url, request: True)
+    monkeypatch.setattr(setup_api, "_ollama_probe_block_reason", lambda url, request: None)
+    anon.get("/api/setup/detect/models", params={"ollama_url": "http://ollama.example.com:11434"})
+    assert setup_api._detect_ollama_models.pinned is True
 
 
 def test_admin_may_probe_a_lan_ollama() -> None:

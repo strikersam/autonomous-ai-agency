@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Any, List, Optional, Dict
 from datetime import datetime
 import logging
+import re
 import os
 import json
 import secrets
@@ -42,6 +43,17 @@ from models.company_graph import (
 )
 
 log = logging.getLogger("company_graph.store")
+
+# User search text is matched literally: as a raw $regex it would let any
+# caller run catastrophic-backtracking patterns on the shared mongod.
+_SEARCH_MAX_CHARS = 200
+_SEARCH_MAX_TIME_MS = 5000
+
+
+def _literal_pattern(text: str) -> str:
+    """Escape *text* for use as a substring ``$regex`` and cap its length."""
+    return re.escape(text[:_SEARCH_MAX_CHARS])
+
 
 # Configuration
 STORAGE_BACKEND = os.environ.get("STORAGE_BACKEND", "mongodb").lower()
@@ -519,11 +531,12 @@ class MongoDBStore:
         if owner_id:
             query["owner_id"] = owner_id
         if search:
+            pattern = _literal_pattern(search)
             query["$or"] = [
-                {"name": {"$regex": search, "$options": "i"}},
-                {"domain": {"$regex": search, "$options": "i"}}
+                {"name": {"$regex": pattern, "$options": "i"}},
+                {"domain": {"$regex": pattern, "$options": "i"}}
             ]
-        cursor = db.companies.find(query).skip(offset).limit(limit)
+        cursor = db.companies.find(query).skip(offset).limit(limit).max_time_ms(_SEARCH_MAX_TIME_MS)
         companies = []
         async for doc in cursor:
             companies.append(self._prepare_result(doc, Company))
@@ -896,11 +909,12 @@ class MongoDBStore:
         if tags:
             query_filter["tags"] = {"$in": tags}
         if query:
+            pattern = _literal_pattern(query)
             query_filter["$or"] = [
-                {"title": {"$regex": query, "$options": "i"}},
-                {"content": {"$regex": query, "$options": "i"}}
+                {"title": {"$regex": pattern, "$options": "i"}},
+                {"content": {"$regex": pattern, "$options": "i"}}
             ]
-        cursor = db.knowledge_items.find(query_filter).skip(offset).limit(limit)
+        cursor = db.knowledge_items.find(query_filter).skip(offset).limit(limit).max_time_ms(_SEARCH_MAX_TIME_MS)
         items = []
         async for doc in cursor:
             items.append(self._prepare_result(doc, KnowledgeItem))

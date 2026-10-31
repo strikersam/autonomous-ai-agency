@@ -201,9 +201,14 @@ async def google_fetch_user(access_token: str) -> dict | None:
         if resp.status_code != 200:
             return None
         ud = resp.json()
+        # The email is used to link to existing accounts (admin included), so
+        # only an address Google has verified for this identity counts.
+        verified = ud.get("verified_email") is True
+        if not verified:
+            log.warning("Google login: email not verified for goog_%s", ud.get("id"))
         return {
             "user_id": f"goog_{ud['id']}",
-            "email": ud.get("email", "").lower(),
+            "email": ud.get("email", "").lower() if verified else "",
             "name": ud.get("name", ud.get("email", "")),
             "avatar_url": ud.get("picture", ""),
             "provider": "google",
