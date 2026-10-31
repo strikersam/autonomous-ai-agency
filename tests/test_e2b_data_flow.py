@@ -440,3 +440,28 @@ async def test_maybe_attaches_with_explicit_opt_in(monkeypatch, patched_async_sa
     assert session is not None
     assert runner._mcp is session
     await session.close()
+
+
+@pytest.mark.asyncio
+async def test_extract_changes_refuses_paths_outside_worktree(monkeypatch, patched_async_sandbox, fake_sandbox):
+    """Regression: sandbox-reported '../' or absolute paths never reach a host write."""
+    monkeypatch.setenv("E2B_API_KEY", "e2b_test_key")
+    monkeypatch.setenv("E2B_ENABLED", "true")
+    session = E2BSandboxSession()
+    await session.open()
+    fake_sandbox.files.fs[f"{SANDBOX_WORKDIR}/ok.py"] = "ok"
+    fake_sandbox.files.fs[f"{SANDBOX_WORKDIR}/../escape.txt"] = "pwned"
+    fake_sandbox.commands.set_result(
+        f"git -C {SANDBOX_WORKDIR} ls-files --modified --others",
+        _FakeCmdResult(stdout="ok.py\n../escape.txt\n/tmp/abs-escape.txt\n.git/hooks/pre-commit\n", exit_code=0),
+    )
+    session._seeded = True
+
+    with tempfile.TemporaryDirectory() as parent:
+        worktree = os.path.join(parent, "wt")
+        os.makedirs(worktree)
+        changed = await session.extract_changes_to_worktree(worktree)
+
+        assert changed == ["ok.py"]
+        assert not os.path.exists(os.path.join(parent, "escape.txt"))
+        assert not os.path.exists(os.path.join(worktree, ".git", "hooks", "pre-commit"))

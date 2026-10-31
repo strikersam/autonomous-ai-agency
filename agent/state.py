@@ -132,6 +132,7 @@ class AgentSessionStore:
                 ("repo_ref",          "TEXT"),
                 ("active_objective",  "TEXT"),
                 ("event_count",       "INTEGER NOT NULL DEFAULT 0"),
+                ("owner_id",          "TEXT NOT NULL DEFAULT ''"),
             ]:
                 if col not in existing:
                     conn.execute(
@@ -171,6 +172,7 @@ class AgentSessionStore:
                     last_plan=json.loads(row["last_plan"]) if row["last_plan"] else None,
                     last_result=json.loads(row["last_result"]) if row["last_result"] else None,
                     event_count=row["event_count"] if "event_count" in col_names else 0,
+                    owner_id=self._row_get(row, "owner_id") or "",
                 )
         return sessions
 
@@ -179,8 +181,8 @@ class AgentSessionStore:
             """
             INSERT OR REPLACE INTO agent_sessions
                 (session_id, title, provider_id, workspace_id, repo_url, repo_ref, active_objective, created_at, updated_at,
-                 last_plan, last_result, event_count)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 last_plan, last_result, event_count, owner_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 session.session_id,
@@ -195,6 +197,7 @@ class AgentSessionStore:
                 json.dumps(session.last_plan.model_dump()) if session.last_plan else None,
                 json.dumps(session.last_result) if session.last_result else None,
                 session.event_count,
+                session.owner_id or "",
             ),
         )
 

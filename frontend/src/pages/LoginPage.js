@@ -80,9 +80,15 @@ export default function LoginPage() {
   // is ignored by the backend (it accepts /start/{nonce} as a path param).
   // This is a plain <a href> navigation — no fetch() needed, no CORS
   // opaqueredirect issues, works with JS disabled.
+  // The same nonce also binds the login to this tab: it is saved in
+  // sessionStorage on click and must come back on /auth/callback, so a link
+  // carrying someone else's tokens is refused (login CSRF).
+  const [loginNonce] = useState(
+    () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+  );
   const makeNonceHref = (provider) =>
     hasBackendConfig
-      ? `${backendUrl}/api/auth/${provider}/start/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+      ? `${backendUrl}/api/auth/${provider}/start/${loginNonce}`
       : undefined;
   const githubHref = makeNonceHref('github');
   const googleHref = makeNonceHref('google');
@@ -94,6 +100,7 @@ export default function LoginPage() {
   // needed because the default <a> navigation is what we want.
   const handleSocialClick = (provider) => {
     if (!hasBackendConfig || socialLoading) return;
+    sessionStorage.setItem('oauth_login_nonce', loginNonce);
     setSocialLoading(provider);
     // The browser will navigate away shortly — no need to clear the state.
   };

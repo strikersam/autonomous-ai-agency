@@ -14,10 +14,31 @@ import logging
 import secrets
 import threading
 import time
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
+
+import httpx
+
+def target_block_reason(kind: str, target: str, file_root: Path) -> str | None:
+    """Return why an externally supplied watch target is refused, or None if allowed.
+
+    URL targets must pass the shared SSRF guard (CLAUDE.md rule 14); file targets
+    must resolve inside *file_root* (rule 13) so the hash cannot probe host files.
+    """
+    if kind == "url":
+        from agent.web_reach import unsafe_target_reason
+        return unsafe_target_reason(target)
+    if kind == "file":
+        try:
+            resolved = Path(target).resolve()
+        except (OSError, RuntimeError):
+            return "unresolvable path"
+        if not resolved.is_relative_to(file_root.resolve()):
+            return "path is outside the workspace"
+        return None
+    return f"unsupported kind: {kind!r}"
+
 
 log = logging.getLogger("qwen-watchdog")
 
@@ -185,8 +206,17 @@ class ResourceWatchdog:
             if resource.kind == "file":
                 content = Path(resource.target).read_bytes()
             elif resource.kind == "url":
-                with urllib.request.urlopen(resource.target, timeout=10) as resp:  # noqa: S310  # nosec: B110 - URL is from trusted resource (WatchedResource)
-                    content = resp.read()
+                # Re-check on every poll (DNS can rebind after registration),
+                # dial only the vetted address, and refuse redirects.
+                from agent.web_reach import pinned_transport, unsafe_target_reason
+                reason = unsafe_target_reason(resource.target)
+                if reason:
+                    log.warning("Watchdog skipped %s: %s", resource.resource_id, reason)
+                    return None
+                with httpx.Client(transport=pinned_transport(), timeout=10, follow_redirects=False) as client:
+                    resp = client.get(resource.target)
+                    resp.raise_for_status()
+                    content = resp.content
             else:
                 return None
             return hashlib.sha256(content).hexdigest()

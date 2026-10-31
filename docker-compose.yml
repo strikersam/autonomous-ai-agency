@@ -219,6 +219,7 @@ services:
       - "127.0.0.1:8008:8008"
     environment:
       - PORT=8008
+      - MCP_SECRET_TOKEN=${MCP_SECRET_TOKEN:-}
       - MCP_WORKSPACE_BASE=/workspaces
       - GITHUB_TOKEN=${GITHUB_TOKEN:-}
       - GH_TOKEN=${GH_TOKEN:-}
@@ -276,6 +277,7 @@ services:
       - JCODE_BASE_URL=http://jcode:8080
       - TASK_HARNESS_BASE_URL=http://task-harness:8080
       - MCP_SERVER_BASE_URL=http://mcp-server:8008
+      - MCP_SECRET_TOKEN=${MCP_SECRET_TOKEN:-}
       - OLLAMA_WINDOWS_SERVER=${OLLAMA_WINDOWS_SERVER:-}
       - OLLAMA_WINDOWS_MODEL=${OLLAMA_WINDOWS_MODEL:-llama3.2}
       - HF_TOKEN=${HF_TOKEN:-}

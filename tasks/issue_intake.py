@@ -255,9 +255,13 @@ async def create_task_from_oldest_open_issue(
             return None, status
 
         all_issues = [i for i in resp.json() if "pull_request" not in i]
+        # Same opt-in gate as the webhook path: only an issue a maintainer has
+        # labelled (intake label, or the operator's quick-note label) may become
+        # an agent run. Anyone can open an issue; only triagers can label one.
         actionable = [
             i for i in all_issues
-            if "quick-note:exhausted" not in [lb.get("name", "") for lb in i.get("labels", [])]
+            if "quick-note:exhausted" not in _issue_labels(i)
+            and (INTAKE_LABEL in _issue_labels(i) or "quick-note" in _issue_labels(i))
         ]
 
         from tasks.service import TaskWorkflowService

@@ -8,16 +8,15 @@ import os
 import sys
 import json
 import asyncio
-import tempfile
 import subprocess
 import time
 from pathlib import Path
 from typing import Optional
 from datetime import datetime
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel
 from dotenv import load_dotenv
 import uvicorn
@@ -69,23 +68,25 @@ class ServiceDaemon:
         # Path.resolve() call so CodeQL's py/path-injection taint tracking
         # sees the barrier before the filesystem operation.
         # expanduser() is safe — it only expands ~ and doesn't change path semantics.
+        # Only the owner's home directory is allowed: the daemon later executes
+        # <repo_path>/.venv/bin/python, so a shared, world-writable root such as
+        # /tmp would let another local user plant the interpreter it runs.
         home_str = str(Path.home())
-        # Allowed prefixes: home directory or the OS temp dir. tempfile.gettempdir() resolves the
-        # platform-correct location (TMPDIR on Linux/macOS, TEMP on Windows) and is the secure default.
-        tmp_str = tempfile.gettempdir()  # nosec B108 — resolved from TMPDIR/TEMP env, never hardcoded
         repo_clean = Path(repo_path).expanduser()
         models_clean = Path(models_path).expanduser()
         repo_str = str(repo_clean)
         models_str = str(models_clean)
         # Path.is_relative_to handles trailing separators and cross-platform path quirks.
-        _tmp_path = Path(tmp_str)
         _home_path = Path(home_str)
-        if not (Path(repo_str).is_relative_to(_home_path) or Path(repo_str).is_relative_to(_tmp_path)):
-            raise ValueError(f"repo_path must be under home directory or temp dir, got: {repo_str}")
-        if not (Path(models_str).is_relative_to(_home_path) or Path(models_str).is_relative_to(_tmp_path)):
-            raise ValueError(f"models_path must be under home directory or temp dir, got: {models_str}")
+        if not Path(repo_str).is_relative_to(_home_path):
+            raise ValueError(f"repo_path must be under home directory, got: {repo_str}")
+        if not Path(models_str).is_relative_to(_home_path):
+            raise ValueError(f"models_path must be under home directory, got: {models_str}")
         resolved_repo = repo_clean.resolve()
         resolved_models = models_clean.resolve()
+        resolved_home = _home_path.resolve()
+        if not (resolved_repo.is_relative_to(resolved_home) and resolved_models.is_relative_to(resolved_home)):
+            raise ValueError("configured paths must resolve inside the home directory")
 
         self.repo_path = resolved_repo
         self.models_path = resolved_models
@@ -248,13 +249,24 @@ app.add_middleware(
         "http://127.0.0.1:3001",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:8000",
-        "*"  # Allow all origins for localhost development
     ],
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
     max_age=3600,
 )
+
+
+_ALLOWED_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+@app.middleware("http")
+async def _reject_foreign_host(request: Request, call_next):
+    """Refuse requests whose Host is not loopback, which blocks DNS-rebinding pages."""
+    host = (request.headers.get("host") or "").rsplit(":", 1)[0].strip("[]")
+    if host not in _ALLOWED_HOSTS:
+        return JSONResponse({"detail": "forbidden host"}, status_code=403)
+    return await call_next(request)
 
 
 @app.get("/health")

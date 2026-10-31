@@ -1,3 +1,28 @@
+# NEXT_ACTION — updated 2026-10-31 (security audit remaining findings, branch `security/audit-remaining`)
+
+All leads left open by #1858/#1860 are fixed in one PR: DNS-pinned fetches (`agent/web_reach.py` `pinned_transport`), SEO browser SSRF guard, logout revocation (`tokens_valid_after`), login-CSRF nonce on `/auth/callback`, GitHub repo-connect claim code, Google `verified_email`, self-repo shipping limited to system/admin tasks, anonymous heartbeat redaction, E2B write-back containment, literal company search, quick-note CI author gate + credential isolation, diag/seed hardening.
+
+## Open items
+
+1. **Operator check** — bare `/api/auth/<provider>/login` links (no login-page nonce) now end on the callback error screen; use the login page.
+2. **Product check** — regular users' tasks now run report-only (no platform GitHub token / auto-commit); quick notes and portfolio board changes are admin-only. Reverse in `tasks/service.py::_owner_may_ship_code` if users should ship code.
+3. ~~Unaudited surfaces~~ — reviewed 2026-10-31 (branch `security/bandit-tmp-fix`): Hermes `/tasks` fails closed with a render-generated `HERMES_API_KEY`; spec approve/reject and sprint changes admin-only; `direct_chat` no longer falls back to the host GitHub token; ceo and code-mode routers already admin-gate their mutations. Operator: confirm `agency-hermes` picked up the generated `HERMES_API_KEY` after the blueprint sync.
+
+---
+
+# NEXT_ACTION — updated 2026-10-29 (security audit, branch `security/cloudflare-audit-fixes`)
+
+Ran the cloudflare/security-audit-skill workflow (standard profile, sandboxed source-and-local only). The run is **incomplete**: coverage critics, a second hunter wave, 7 Phase-3 validations and Phase-5 record verification were not run (user asked to finish; agent limit hit). Fixed 9 independently confirmed findings plus 2 parent-verified ones (task purge scope, cron issue-intake label gate), each with a regression test. Audit artifacts live outside the repo (`~/security-audit-skill/autonomous-ai-agency/run-1/`).
+
+## Open items
+
+1. **JWT revocation** (confirmed, low) — logout/password rotation do not revoke access or refresh tokens; needs a per-user `token_version` claim checked in `get_optional_user`, `JWTUserStateMiddleware` and `/api/auth/refresh`.
+2. **Needs validation, then fix** — Google login links by email without `verified_email` (`packages/auth/oauth.py`, risky module: rule 15 review first); GitHub repo-connect callback state not bound to the browser (check registered callback URL); `/auth/callback` accepts any URL token (login CSRF); quick-note CI pipeline has no author trust gate and gives an unrestricted shell with persisted `GH_PAT` (check repo issue visibility); Mongo `$regex` search unescaped.
+3. **Unvalidated candidates** — anonymous `/api/autonomy/tick` and `/status` echo other users' task titles; DNS-rebinding gap in `unsafe_target_reason`; E2B `extract_changes_to_worktree` writes sandbox-reported paths without containment; SEO browser fetch has no SSRF route guard; self-registered users can queue self-repo-ship agent work.
+4. **Unaudited surfaces** — agile/ceo/spec/code-mode routers, `services/hermes_server.py`, `direct_chat.py` host GH token fallback.
+
+---
+
 # NEXT_ACTION — updated 2026-10-25 (daily automation, branch `claude/intelligent-gates-xd0rsk`)
 
 Gemini 4 Argon (`gemini-4-argon` / `google/gemini-4-argon`, GA 2026-10-13) declared at priority 99. $2/$10 intro pricing with 5% cache read override. PR #1830 open; 31 tests pass; catalogue 100 ids; PARITY OK.
