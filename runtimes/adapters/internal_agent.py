@@ -63,7 +63,8 @@ def _resolve_nvidia_default_model() -> str:
             return cands[0]
         return SAFE_DEFAULT_MODEL
     except Exception:
-        return "nvidia/nemotron-3-super-120b-a12b"
+        # nemotron-3-super-120b-a12b retired 2026-10-30 (HTTP 404, issue #1813).
+        return "nvidia/nemotron-3-ultra-550b-a55b"
 
 
 _NVIDIA_DEFAULT_MODEL = _resolve_nvidia_default_model()

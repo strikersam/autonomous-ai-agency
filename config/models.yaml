@@ -42,7 +42,7 @@
 catalog_version: 1
 safe_default:
   provider: nvidia
-  model: nvidia/nemotron-3-super-120b-a12b
+  model: nvidia/nemotron-3-ultra-550b-a55b
 
 # Recommended priority for auto-config (first key present wins) and for the
 # watchdog's failover chain. Cloud chain is Cerebras → Groq → NVIDIA (NIM).
@@ -68,10 +68,10 @@ providers:
     base_url_env: NVIDIA_BASE_URL
     default_base_url: https://integrate.api.nvidia.com
     role_presets:
-      planner:   nvidia/nemotron-3-super-120b-a12b
-      executor:  nvidia/nemotron-3-super-120b-a12b
-      verifier:  nvidia/nemotron-3-super-120b-a12b
-      judge:     nvidia/nemotron-3-super-120b-a12b
+      planner:   nvidia/nemotron-3-ultra-550b-a55b
+      executor:  nvidia/nemotron-3-ultra-550b-a55b
+      verifier:  nvidia/nemotron-3-ultra-550b-a55b
+      judge:     nvidia/nemotron-3-ultra-550b-a55b
     candidates:
       # Every id here returned HTTP 200 to a live completion on 2026-08-28 via
       # .github/workflows/catalogue-probe.yml against the production key.
@@ -79,7 +79,7 @@ providers:
       # text, the gpt-oss pair answered 200 with an empty body under an 8-token
       # cap (reasoning models), so they sit behind as fallbacks.
       #
-      # Proven dead on that run — do not re-add without a probe:
+      # Proven dead — do not re-add without a probe:
       #   z-ai/glm-5.2 (410), z-ai/glm-5.1 (410),
       #   meta/llama-4-maverick-17b-128e-instruct (410),
       #   nvidia/nemotron-nano-3-30b-a3b (404),
@@ -88,14 +88,11 @@ providers:
       #   nvidia/llama-3.1-nemotron-51b-instruct (404),
       #   deepseek-ai/deepseek-r1 (404),
       #   meta/llama-4-scout-17b-16e-instruct (404),
-      #   nvidia/nemotron-3.5-lightning-30b-a3b (404)
-      - nvidia/nemotron-3-super-120b-a12b
-      # Intermittent, not dead. It 404'd at 17:02 and 17:05 on 2026-08-28 and
-      # was wrongly retired on that; it then answered HTTP 200 with a real
-      # tool_call at 23:25 (probe run 33220369591), and again on 2026-08-29 at
-      # 07:37 (run 33241283346). Behind the default deliberately: the id above
-      # has answered on every probe, this one has not.
+      #   nvidia/nemotron-3.5-lightning-30b-a3b (404),
+      #   nvidia/nemotron-3-super-120b-a12b (404, retired 2026-10-30, issue #1813)
       - nvidia/nemotron-3-ultra-550b-a55b
+      # Promoted to default 2026-10-30: nemotron-3-super retired (HTTP 404).
+      # Tool calling confirmed by probe run 33220369591 (2026-08-28).
       # mistralai/mistral-nemotron and openai/gpt-oss-120b removed 2026-10-01: NVIDIA
       # answers HTTP 410 for both on every attempt (gpt-oss-120b stays on Groq).
       - openai/gpt-oss-20b

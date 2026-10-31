@@ -27,8 +27,9 @@ _PROVIDERS: tuple[tuple[str, str, str, str], ...] = (
     ("cerebras", "https://api.cerebras.ai/v1/chat/completions", "CEREBRAS_API_KEY", "gpt-oss-120b"),
     ("groq", "https://api.groq.com/openai/v1/chat/completions", "GROQ_API_KEY", "openai/gpt-oss-120b"),
     ("mistral", "https://api.mistral.ai/v1/chat/completions", "MISTRAL_API_KEY", "mistral-small-latest"),
+    # nemotron-3-super-120b-a12b retired 2026-10-30 (HTTP 404, issue #1813).
     ("nvidia", "https://integrate.api.nvidia.com/v1/chat/completions", "NVIDIA_API_KEY",
-     "nvidia/nemotron-3-super-120b-a12b"),
+     "nvidia/nemotron-3-ultra-550b-a55b"),
 )
 
 
