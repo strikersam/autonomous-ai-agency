@@ -340,7 +340,7 @@ loops:
     source: .github/workflows/process-quick-note.yml
     self_heal: true
     gate: telegram
-    purpose: Turn quick-note issues into context + implementation PRs (skips rejected, exhausted, needs-source and needs-review notes).
+    purpose: Turn quick-note issues into context + implementation PRs (skips rejected, exhausted, needs-source and needs-review notes). Only issues and comments from OWNER/MEMBER/COLLABORATOR authors are used, and the checkout's GitHub credential is removed from .git/config while the agents run.
 
   - id: enrich-quick-note-context
     name: Enrich Quick-Note Context
@@ -366,7 +366,7 @@ loops:
     source: .github/workflows/issue-context-generator.yml
     self_heal: true
     gate: none
-    purpose: Generate a context plan + draft PR for each new issue (detects & proposes fix); a quick note whose linked source cannot be read gets no verdict (quick-note:needs-source) instead of a blind reject, and a reject that ignores prior art in the repo or cites a missing path goes to a human (quick-note:needs-review).
+    purpose: Generate a context plan + draft PR for each new issue (detects & proposes fix); a quick note whose linked source cannot be read gets no verdict (quick-note:needs-source) instead of a blind reject, and a reject that ignores prior art in the repo or cites a missing path goes to a human (quick-note:needs-review). Only an issue from an OWNER/MEMBER/COLLABORATOR author dispatches the implementation workflow.
 
   - id: agile-ceremonies
     name: Agile Ceremonies

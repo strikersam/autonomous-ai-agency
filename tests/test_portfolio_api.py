@@ -77,14 +77,27 @@ class TestBoardPayload:
 
 
 class TestRoutes:
-    def _client(self):
+    def _client(self, role: str = "admin"):
         fastapi = pytest.importorskip("fastapi")
         pytest.importorskip("httpx")
         from fastapi.testclient import TestClient
         app = fastapi.FastAPI()
+
+        @app.middleware("http")
+        async def _user(request, call_next):
+            # Board mutations are admin-only; JWTUserStateMiddleware does this in prod.
+            request.state.user = {"_id": "u1", "role": role}
+            return await call_next(request)
+
         app.include_router(papi.portfolio_router)
         _install_service()
         return TestClient(app)
+
+    def test_non_admin_cannot_change_the_board(self):
+        c = self._client(role="user")
+        assert c.post("/api/portfolio/materialize").status_code == 403
+        assert c.post("/api/portfolio/initiatives", json={"title": "x"}).status_code == 403
+        assert c.get("/api/portfolio/board").status_code != 403
 
     def test_get_board(self):
         c = self._client()

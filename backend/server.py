@@ -1468,6 +1468,23 @@ def create_refresh_token(user_id: str) -> str:
     )
 
 
+def _token_revoked(payload: dict, user: Optional[dict]) -> bool:
+    """True when *payload* was issued before the user's last logout (revocation cutoff).
+
+    Logout stores ``tokens_valid_after`` (epoch seconds) on the user; every
+    access and refresh token issued in an earlier second stops working,
+    including ones held by someone else. ``iat`` has one-second resolution, so
+    the logout second itself is allowed to keep an immediate re-login working.
+    """
+    cutoff = (user or {}).get("tokens_valid_after")
+    if not cutoff:
+        return False
+    try:
+        return int(payload.get("iat", 0)) < int(cutoff)
+    except (TypeError, ValueError):
+        return True
+
+
 def _token_response(*, uid: str, email: str, name: str, role: str, access: str, refresh: str) -> dict[str, Any]:
     return {
         "_id": uid,
@@ -1520,7 +1537,7 @@ async def get_optional_user(request: Request) -> Optional[dict]:
                 "name": "Admin",
                 "role": "admin",
             }
-        if not user:
+        if not user or _token_revoked(payload, user):
             return None
         user["_id"] = str(user["_id"])
         user.pop("password_hash", None)
@@ -2117,7 +2134,10 @@ CORS_ORIGINS = [
 # ─── Social Login (GitHub & Google) ───────────────────────────────────────────
 
 
-async def _store_login_state(state: str, provider: str) -> None:
+_BROWSER_NONCE_RE = re.compile(r"^[a-z0-9]{6,64}$")
+
+
+async def _store_login_state(state: str, provider: str, nonce: str | None = None) -> None:
     """Persist an OAuth *login* state server-side in the shared oauth_states store.
 
     Session cookies do NOT reliably survive the OAuth round-trip in this
@@ -2133,9 +2153,21 @@ async def _store_login_state(state: str, provider: str) -> None:
             "state": state,
             "flow_type": "login",
             "provider": provider,
+            # Per-click value the login page also keeps in sessionStorage; it is
+            # echoed to /auth/callback so the SPA accepts only a login it started.
+            "browser_nonce": nonce if nonce and _BROWSER_NONCE_RE.match(nonce) else None,
             "created_at": datetime.now(timezone.utc),
         }
     )
+
+
+def _callback_redirect(access: str, refresh: str, state_doc: Optional[dict]) -> RedirectResponse:
+    """Redirect to the SPA callback with the tokens and the login's browser nonce."""
+    url = f"{frontend_url}/auth/callback?access_token={access}&refresh_token={refresh}"
+    nonce = (state_doc or {}).get("browser_nonce")
+    if nonce:
+        url += f"&nonce={nonce}"
+    return RedirectResponse(url)
 
 
 def _valid_login_state(doc: Optional[dict], provider: str) -> bool:
@@ -2164,7 +2196,7 @@ async def github_login(request: Request, nonce: str | None = None):
         # login page with a readable reason instead of a raw JSON 503.
         return RedirectResponse(f"{frontend_url}/login?oauth_error=github_not_configured")
     state = secrets.token_urlsafe(32)
-    await _store_login_state(state, "github")
+    await _store_login_state(state, "github", nonce)
     redirect_uri = (
         f"{OAUTH_REDIRECT_BASE}/api/auth/github/callback"
         if OAUTH_REDIRECT_BASE
@@ -2258,9 +2290,7 @@ async def github_callback(request: Request, code: str = None, state: str = None)
     # 5. Generate tokens and redirect to frontend
     access = create_access_token(user_id, email)
     refresh = create_refresh_token(user_id)
-    return RedirectResponse(
-        f"{frontend_url}/auth/callback?access_token={access}&refresh_token={refresh}"
-    )
+    return _callback_redirect(access, refresh, state_doc)
 
 
 @app.get("/api/auth/github/repo-access")
@@ -2532,7 +2562,7 @@ async def google_login(request: Request, nonce: str | None = None):
         # login page with a readable reason instead of a raw JSON 503.
         return RedirectResponse(f"{frontend_url}/login?oauth_error=google_not_configured")
     state = secrets.token_urlsafe(32)
-    await _store_login_state(state, "google")
+    await _store_login_state(state, "google", nonce)
     # Use OAUTH_REDIRECT_BASE so the redirect_uri matches what is registered in Google Console.
     # Falls back to url_for only in local dev where no proxy is involved.
     redirect_uri = (
@@ -2611,6 +2641,10 @@ async def google_callback(request: Request, code: str = None, state: str = None)
             "auth", f"New user {email} registered via Google", user_id=user_id
         )
     else:
+        if user.get("provider") == "google" and user.get("provider_user_id") not in (None, "", uid_str):
+            # The address is bound to a different Google identity already.
+            log.warning("Google login refused: email %s is linked to another Google account", email)
+            raise HTTPException(status_code=403, detail="This email is linked to a different Google account")
         user_id = str(user["_id"])
         await get_db().users.update_one(
             {"_id": user["_id"]},
@@ -2630,9 +2664,7 @@ async def google_callback(request: Request, code: str = None, state: str = None)
     # 4. Generate tokens and redirect to frontend
     access = create_access_token(user_id, email)
     refresh = create_refresh_token(user_id)
-    return RedirectResponse(
-        f"{frontend_url}/auth/callback?access_token={access}&refresh_token={refresh}"
-    )
+    return _callback_redirect(access, refresh, state_doc)
 
 
 app.add_middleware(
@@ -2697,7 +2729,7 @@ class JWTUserStateMiddleware(BaseHTTPMiddleware):
                             "name": "Admin",
                             "role": "admin",
                         }
-                    if user:
+                    if user and not _token_revoked(payload, user):
                         user["_id"] = str(user["_id"])
                         user.pop("password_hash", None)
                         request.state.user = user
@@ -4054,6 +4086,13 @@ async def logout(user: dict = Depends(get_current_user)):
     })
     response.delete_cookie("access_token", path="/")
     response.delete_cookie("refresh_token", path="/")
+    # Revoke every token issued so far for this user, not just this browser's.
+    try:
+        await get_db().users.update_one(
+            _user_id_filter(user["_id"]), {"$set": {"tokens_valid_after": int(_time.time())}}
+        )
+    except Exception:
+        log.exception("logout: could not record token revocation for %s", user.get("_id"))
     return response
 
 
@@ -4092,6 +4131,8 @@ async def refresh_token(request: Request):
                     user = None
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        if _token_revoked(payload, user):
+            raise HTTPException(status_code=401, detail="Session revoked")
         uid = str(user["_id"])
         access = create_access_token(uid, user["email"])
         return {"access_token": access}
@@ -4598,7 +4639,8 @@ def _served_models(provider_id: str) -> list[str]:
 @app.post("/api/admin/seed")
 async def admin_seed() -> dict[str, object]:
     """Idempotent admin re-seed endpoint. Only available when TESTING=true."""
-    if not os.environ.get("TESTING"):
+    # Exactly "true": any non-empty value (even TESTING=false) used to enable it.
+    if os.environ.get("TESTING", "").strip().lower() != "true":
         raise HTTPException(status_code=404, detail="Not found")
     await seed_admin()
     return {"ok": True}
@@ -7510,8 +7552,10 @@ async def observability_diag_public():
 
     diag = {
         "env_vars": {
-            "LANGFUSE_PUBLIC_KEY": f"{pk[:8]}..." if pk else "(not set)",
-            "LANGFUSE_SECRET_KEY": f"{sk[:4]}..." if sk else "(not set)",
+            # Presence only: this endpoint is public, and rule 6 forbids even
+            # partial secrets in a response.
+            "LANGFUSE_PUBLIC_KEY": "(set)" if pk else "(not set)",
+            "LANGFUSE_SECRET_KEY": "(set)" if sk else "(not set)",
             "LANGFUSE_HOST": host,
         },
         "enabled": bool(pk and sk),
@@ -8204,6 +8248,20 @@ async def get_public_kpis() -> dict:
 # run as a background task and the result is cached here. The cache is
 # refreshed on every hit if the previous background task has completed.
 _autonomy_ceo_cache: dict[str, object] = {"triggered": False}
+_DISPATCH_PRIVATE_KEYS = frozenset({"task_id", "task_title", "error", "result_error", "requeue_error"})
+
+
+def _redact_dispatch(dispatch: object) -> object:
+    """Strip per-task identifiers and raw error text from anonymous heartbeat output.
+
+    The heartbeat endpoints are public for keep-alive, but the task they pick is
+    any tenant's; its id, title and error text stay in the server log only.
+    """
+    if not isinstance(dispatch, dict):
+        return dispatch
+    return {k: v for k, v in dispatch.items() if k not in _DISPATCH_PRIVATE_KEYS}
+
+
 _autonomy_dispatch_cache: dict[str, object] = {"ran": False}
 _autonomy_bg_task: asyncio.Task | None = None
 _autonomy_bg_last_run: float = 0.0
@@ -8653,7 +8711,7 @@ async def autonomy_status() -> dict[str, object]:
         "missing_secrets": missing_secrets,
         "self_bootstrap": self_bootstrap_status,
         "ceo": ceo_status,
-        "dispatch": dispatch_status,
+        "dispatch": _redact_dispatch(dispatch_status),
         "company_count": company_count,
         "schedule_count": len(SCHEDULER.list()) if SCHEDULER else 0,
         "specialist_count": specialist_count,
@@ -9084,6 +9142,10 @@ async def autonomy_tick(request: Request) -> dict[str, object]:
     except Exception as exc:
         result["dispatch"]["error"] = str(exc)[:200]
 
+    if not _cron_secret_ok(request):
+        log.info("autonomy tick dispatch: %s", result["dispatch"])
+        result["dispatch"] = _redact_dispatch(result["dispatch"])
+        result.pop("requeue_error", None)
     return result
 
 
@@ -9656,11 +9718,13 @@ async def github_oauth_start(
 
 
 def _oauth_popup_html(
-    success: bool, login: str = "", error_msg: str = ""
+    success: bool, login: str = "", error_msg: str = "", claim_code: str = ""
 ) -> HTMLResponse:
     """Tiny HTML page that fires postMessage to the opener then self-closes."""
     if success:
-        payload = json.dumps({"type": "github_oauth", "success": True, "login": login})
+        payload = json.dumps(
+            {"type": "github_oauth", "success": True, "login": login, "claim_code": claim_code}
+        )
         body = "<p style='font-family:monospace;padding:2rem'>GitHub connected! Closing…</p>"
     else:
         escaped = html.escape(error_msg)
@@ -9700,7 +9764,7 @@ async def github_oauth_callback(
         return await _error(error_description or error or "Authorization denied")
 
     state_doc = await get_db().oauth_states.find_one({"state": state})
-    if not state_doc:
+    if not state_doc or not _valid_repo_state(state_doc):
         return await _error("OAuth state expired or invalid — please try again.")
 
     is_redirect: bool = state_doc.get("redirect", False)
@@ -9750,6 +9814,57 @@ async def github_oauth_callback(
 
     login: str = gh_user.get("login", "")
 
+    # The browser that completed GitHub's consent is not proven to belong to
+    # the account that started the flow (state is transferable). Park the token
+    # behind a one-time claim code only this browser receives; the logged-in
+    # owner of the state redeems it via POST /api/github/oauth/claim.
+    claim_code = secrets.token_urlsafe(32)
+    await get_db().github_oauth_claims.insert_one(
+        {
+            "claim_hash": hashlib.sha256(claim_code.encode()).hexdigest(),
+            "user_id": user_id,
+            "token": access_token,
+            "github_login": login,
+            "created_at": datetime.now(timezone.utc),
+        }
+    )
+    if state_doc.get("redirect"):
+        return RedirectResponse(f"{frontend_url}/settings?github_claim={claim_code}")
+    return _oauth_popup_html(True, login=login, claim_code=claim_code)
+
+
+_REPO_OAUTH_TTL_S = 600
+
+
+def _valid_repo_state(state_doc: dict) -> bool:
+    """A repo-connect state: right flow, has an owner, and not older than 10 minutes."""
+    if state_doc.get("flow_type") != "repo" or not state_doc.get("user_id"):
+        return False
+    created = state_doc.get("created_at")
+    if isinstance(created, datetime):
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - created).total_seconds() <= _REPO_OAUTH_TTL_S
+    return False
+
+
+class GitHubOAuthClaimBody(BaseModel):
+    claim_code: str = Field(..., min_length=16, max_length=128)
+
+
+@app.post("/api/github/oauth/claim")
+async def github_oauth_claim(body: GitHubOAuthClaimBody, user: dict = Depends(get_current_user)):
+    """Bind a completed repo-connect OAuth to the signed-in user who started it."""
+    claim_hash = hashlib.sha256(body.claim_code.encode()).hexdigest()
+    doc = await get_db().github_oauth_claims.find_one({"claim_hash": claim_hash})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Unknown or expired claim")
+    await get_db().github_oauth_claims.delete_one({"claim_hash": claim_hash})
+    if not _valid_repo_state({**doc, "flow_type": "repo"}) or str(doc["user_id"]) != str(user["_id"]):
+        raise HTTPException(status_code=403, detail="This GitHub authorisation belongs to another session")
+    user_id = doc["user_id"]
+    access_token = doc["token"]
+    login = doc.get("github_login", "")
     now_iso = datetime.now(timezone.utc).isoformat()
     await get_db().github_settings.update_one(
         {"user_id": user_id},
@@ -9778,9 +9893,7 @@ async def github_oauth_callback(
         },
     )
     await log_activity("github", f"GitHub OAuth connected — @{login}", user_id=user_id)
-    if state_doc.get("redirect"):
-        return RedirectResponse(f"{frontend_url}/settings?github_authorized=true")
-    return _oauth_popup_html(True, login=login)
+    return {"connected": True, "login": login}
 
 
 @app.put("/api/github/token")
