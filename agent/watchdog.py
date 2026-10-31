@@ -14,19 +14,11 @@ import logging
 import secrets
 import threading
 import time
-import urllib.error
-import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-class _RefuseRedirects(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
-        raise urllib.error.HTTPError(req.full_url, code, "redirects are not followed", headers, fp)
-
-
-_NO_REDIRECT_OPENER = urllib.request.build_opener(_RefuseRedirects)
-
+import httpx
 
 def target_block_reason(kind: str, target: str, file_root: Path) -> str | None:
     """Return why an externally supplied watch target is refused, or None if allowed.
@@ -214,15 +206,17 @@ class ResourceWatchdog:
             if resource.kind == "file":
                 content = Path(resource.target).read_bytes()
             elif resource.kind == "url":
-                # Re-check on every poll (DNS can rebind after registration) and
-                # refuse redirects, since a hop could land on an internal address.
-                from agent.web_reach import unsafe_target_reason
+                # Re-check on every poll (DNS can rebind after registration),
+                # dial only the vetted address, and refuse redirects.
+                from agent.web_reach import pinned_transport, unsafe_target_reason
                 reason = unsafe_target_reason(resource.target)
                 if reason:
                     log.warning("Watchdog skipped %s: %s", resource.resource_id, reason)
                     return None
-                with _NO_REDIRECT_OPENER.open(resource.target, timeout=10) as resp:  # noqa: S310  # nosec B310 - validated by target_block_reason
-                    content = resp.read()
+                with httpx.Client(transport=pinned_transport(), timeout=10, follow_redirects=False) as client:
+                    resp = client.get(resource.target)
+                    resp.raise_for_status()
+                    content = resp.content
             else:
                 return None
             return hashlib.sha256(content).hexdigest()

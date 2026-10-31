@@ -217,8 +217,12 @@ jobs:
       # auto-implemented. We now (a) leave the issue OPEN, (b) trigger the
       # implementation workflow directly via workflow_dispatch so a real
       # code PR follows the context PR without manual intervention.
+      # Only issues from people with write-level association may start the
+      # GH_PAT implement-and-merge pipeline; anyone else's issue still gets a
+      # context PR for a maintainer to review, but nothing is built from it.
       - name: Comment + dispatch auto-implementation
         if: >-
+          contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association) &&
           steps.pr.outputs.pr_number != '' &&
           steps.context.outputs.verdict != 'reject' &&
           steps.context.outputs.verdict != 'unverified' &&

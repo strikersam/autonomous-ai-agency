@@ -68,6 +68,7 @@ The `backend/` app powers the separate React control plane and includes routes f
 - observability summaries and metrics
 - platform info and activity
 - GitHub repo, branch, file, and PR flows
+- GitHub repo-connect OAuth: `POST /api/github/oauth/start` (authenticated) returns the authorize URL; `GET /api/github/oauth/callback` no longer stores the token itself but hands the completing browser a one-time `claim_code` (popup `postMessage`, or `?github_claim=` in redirect mode); `POST /api/github/oauth/claim` `{claim_code}` (authenticated) binds the token only when the caller is the account that started the flow (`403` otherwise, `404` unknown or used code, 10-minute expiry)
 - schedules and legacy scheduler compatibility routes
 - governance: posture, policy, approvals, audit, sandboxes, and session budgets (`/api/governance/*`, admin-only)
 - agent token usage per user for the current UTC day: `GET /api/usage/agent-tokens` (the caller's own usage; `401` unauthenticated) and `GET /api/admin/usage/agent-tokens` (every user, highest first; admin only, `403` otherwise). Both return `daily_cap` (`AGENT_USER_TOKENS_PER_DAY`, `0` = off), `tokens_used`, `remaining` (`null` when off) and `exceeded`. Counts are in-memory per process. Implemented in `backend/usage_router.py`

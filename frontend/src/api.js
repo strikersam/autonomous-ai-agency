@@ -264,6 +264,9 @@ export const githubStatus = () => API.get('/api/github/status');
 export const getGithubStatus = githubStatus; // alias used by GitHubAccessSection
 export const startGithubOAuth = (redirect = false) =>
   API.post('/api/github/oauth/start', null, redirect ? { params: { redirect: 'true' } } : {});
+// Redeems the one-time code the repo-connect OAuth callback hands this browser.
+export const claimGithubOAuth = (claimCode) =>
+  API.post('/api/github/oauth/claim', { claim_code: claimCode });
 export const setGithubToken = (token) => API.put('/api/github/token', { token });
 export const deleteGithubToken = () => API.delete('/api/github/token');
 export const listGithubRepos = (q = '', page = 1) => API.get('/api/github/repos', { params: { q, page } });
