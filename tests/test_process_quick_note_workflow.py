@@ -390,3 +390,23 @@ class TestRetryDoesNotReopenAnIssueClosedMidRun:
         guard_at = run.index('"$STATE_AT_PICK" = "OPEN"')
         assert all(guard_at < m.start() for m in re.finditer(r"gh issue reopen", run))
         assert "exit 0" in run[guard_at:guard_at + 300]
+
+
+class TestSelectorUsesFieldsGhExposes:
+    """#1864 filtered the queue on ``authorAssociation`` via
+    ``gh issue list --json``, which has no such field: gh exits 1 with
+    ``Unknown JSON field: "authorAssociation"`` and every scheduled run failed
+    at the pick step (run 41210194159). The REST issues endpoint does carry
+    ``author_association``, so the selector reads it through ``gh api`` —
+    which also lists pull requests, so those must be dropped."""
+
+    def test_selector_does_not_request_an_unsupported_gh_issue_list_field(self, job: dict) -> None:
+        run = _step(job, "Find next pending")["run"]
+        assert "authorAssociation" not in run
+
+    def test_selector_filters_on_rest_author_association_and_skips_prs(self, job: dict) -> None:
+        run = _step(job, "Find next pending")["run"]
+        assert 'gh api "repos/$REPO/issues?state=open' in run
+        assert "select(.pull_request == null)" in run
+        for role in ("OWNER", "MEMBER", "COLLABORATOR"):
+            assert f'.author_association == "{role}"' in run

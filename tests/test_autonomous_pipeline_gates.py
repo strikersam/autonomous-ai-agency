@@ -212,11 +212,16 @@ class TestTheQueueHoldsWorkNotPaperwork:
             {"number": 1375, "labels": [{"name": "enhancement"}]},
             {"number": 1380, "labels": []},
         ]
+        # The selector reads the REST issues endpoint (`gh api`), whose items
+        # carry `author_association` and include open pull requests.
         for issue in backlog:
-            issue["authorAssociation"] = "OWNER"
+            issue["author_association"] = "OWNER"
         # An outsider's unlabelled issue, oldest of all, must never be picked:
         # only write-level authors may drive the GH_PAT implement pipeline.
-        backlog.insert(0, {"number": 1300, "labels": [], "authorAssociation": "NONE"})
+        backlog.insert(0, {"number": 1300, "labels": [], "author_association": "NONE"})
+        # An owner's open pull request is not an issue to implement.
+        backlog.insert(1, {"number": 1305, "labels": [], "author_association": "OWNER",
+                           "pull_request": {"url": "https://api.github.com/x"}})
         # jq_binary is resolved by shutil.which, the expression comes from a
         # workflow file in this repo, the payload is a literal above, and the
         # call is list form with no shell — the vetted pattern `.bandit`
