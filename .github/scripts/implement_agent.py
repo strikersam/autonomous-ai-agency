@@ -90,13 +90,27 @@ _API_KEY_ENV_VARS = (
 )
 
 
+_SECRET_ENV_SEGMENTS = frozenset({"KEY", "KEYS", "TOKEN", "SECRET", "PASSWORD", "PAT", "CREDENTIAL", "CREDENTIALS"})
+
+
+def _tool_env() -> dict[str, str]:
+    """Environment for model-chosen shell commands, with every credential removed.
+
+    The command text is steered by issue/comment/URL content, so it must not be
+    able to read the job's provider keys or GitHub token (it also keeps tests
+    that check model selection independent of the CI keys).
+    """
+    env = {
+        k: v for k, v in os.environ.items()
+        if not _SECRET_ENV_SEGMENTS.intersection(k.upper().split("_"))
+    }
+    for key in _API_KEY_ENV_VARS:
+        env.pop(key, None)
+    return env
+
+
 def tool_bash(cmd: str) -> str:
-    # Strip API keys when running pytest so tests that check model selection
-    # are not affected by whatever keys are set in the CI environment.
-    env = dict(os.environ)
-    if "pytest" in cmd:
-        for key in _API_KEY_ENV_VARS:
-            env.pop(key, None)
+    env = _tool_env()
     try:
         result = subprocess.run(
             cmd, shell=True, capture_output=True, text=True, timeout=120, env=env  # nosec B602

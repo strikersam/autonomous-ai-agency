@@ -18,10 +18,11 @@ import logging
 import time
 from typing import Dict, List, Optional
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from agents.agile_sprints import AgileManager
+from packages.auth.rbac import require_admin
 from agents.portfolio import InitiativeStatus, PortfolioManager
 from agents.portfolio_intelligence import PortfolioIntelligence
 
@@ -270,7 +271,7 @@ async def _materialize_and_log(svc: PortfolioService) -> list[str]:
         return []
 
 
-@portfolio_router.post("/refresh", response_model=BoardOut)
+@portfolio_router.post("/refresh", response_model=BoardOut, dependencies=[Depends(require_admin)])
 async def refresh_board() -> BoardOut:
     """Force a re-sweep of all signals and return the rebuilt board.
 
@@ -286,7 +287,7 @@ async def refresh_board() -> BoardOut:
     return board
 
 
-@portfolio_router.post("/materialize", response_model=BoardOut)
+@portfolio_router.post("/materialize", response_model=BoardOut, dependencies=[Depends(require_admin)])
 async def materialize_portfolio() -> BoardOut:
     """Manually trigger portfolio → task materialization and return the board.
 
@@ -302,13 +303,13 @@ async def materialize_portfolio() -> BoardOut:
 
 
 # Backward-compatible alias for the old demo-seed route — now rebuilds from signals.
-@portfolio_router.post("/seed", response_model=BoardOut)
+@portfolio_router.post("/seed", response_model=BoardOut, dependencies=[Depends(require_admin)])
 async def reseed() -> BoardOut:
     """Deprecated alias for /refresh (the board is no longer demo-seeded)."""
     return await refresh_board()
 
 
-@portfolio_router.post("/initiatives", response_model=InitiativeOut, status_code=201)
+@portfolio_router.post("/initiatives", response_model=InitiativeOut, status_code=201, dependencies=[Depends(require_admin)])
 async def add_initiative(body: InitiativeIn) -> InitiativeOut:
     """Add a manual initiative on top of the auto-generated portfolio."""
     svc = get_service()
@@ -331,7 +332,7 @@ async def add_initiative(body: InitiativeIn) -> InitiativeOut:
     return PortfolioService._initiative_out(init)
 
 
-@portfolio_router.delete("/initiatives/{initiative_id}", status_code=204)
+@portfolio_router.delete("/initiatives/{initiative_id}", status_code=204, dependencies=[Depends(require_admin)])
 async def remove_initiative(initiative_id: str) -> None:
     """Remove an initiative from the portfolio (no-op if it is already gone)."""
     svc = get_service()

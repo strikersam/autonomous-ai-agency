@@ -47,6 +47,27 @@ class TaskRuleError(ValueError):
 _SELF_REPO_SHIP_CODE_TASK_TYPES = {"portfolio_initiative", "issue", "quick_note", "general"}
 
 
+async def _owner_may_ship_code(owner_id: str | None) -> bool:
+    """Whether *owner_id*'s task may run with the platform GitHub token and auto-commit.
+
+    Self-repo shipping pushes branches and opens PRs on the operator's repo,
+    so it is limited to platform-owned work ("system...") and admins. Any
+    other user's task still runs, report-only. Fails closed.
+    """
+    if not owner_id or owner_id.startswith("system"):
+        return bool(owner_id)
+    try:
+        from backend.server import _doc_id_filter, get_db
+
+        user = await get_db().users.find_one(_doc_id_filter(owner_id))
+        if user is None:
+            user = await get_db().users.find_one({"email": owner_id})
+        return bool(user) and user.get("role") == "admin"
+    except Exception as exc:  # noqa: BLE001 - unknown owner never gets repo write
+        log.debug("ship-code owner lookup failed for %s: %s", owner_id, exc)
+        return False
+
+
 def _get_workflow_engine() -> WorkflowEngine:
     """Return a lazily-created WorkflowEngine singleton."""
     if not hasattr(_get_workflow_engine, "_instance"):
@@ -905,7 +926,7 @@ class TaskExecutionCoordinator:
             )
             await self.store.update(task)
 
-            spec = self._build_spec(task, agent)
+            spec = self._build_spec(task, agent, may_ship=await _owner_may_ship_code(task.owner_id))
 
             # ── Workflow phase: CLASSIFY then EXECUTE ──
             domain = classify_domain(f"{task.title} {task.description}")
@@ -1307,7 +1328,7 @@ class TaskExecutionCoordinator:
             return auto_assigned
         return None
 
-    def _build_spec(self, task: Task, agent: AgentDefinition | None) -> TaskSpec:
+    def _build_spec(self, task: Task, agent: AgentDefinition | None, *, may_ship: bool = True) -> TaskSpec:
         task_type = task.task_type or (agent.task_types[0] if agent and agent.task_types else "general")
         runtime_preference = task.runtime_id or (agent.runtime_id if agent else None) or "internal_agent"
         model_preference = task.model_preference or (agent.model if agent else None)
@@ -1386,7 +1407,7 @@ class TaskExecutionCoordinator:
                     "Task %s company repo resolution failed (continuing with default workspace): %s",
                     task.task_id, exc,
                 )
-        elif task_type in _SELF_REPO_SHIP_CODE_TASK_TYPES:
+        elif task_type in _SELF_REPO_SHIP_CODE_TASK_TYPES and may_ship:
             self._inject_self_repo_ship_context(task, context)
 
         return TaskSpec(

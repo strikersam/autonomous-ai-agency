@@ -322,8 +322,9 @@ async def _get_github_token_for_user(user_email: str) -> str | None:
                     return value
     except Exception as e:
         log.debug("Could not fetch GitHub token from secrets: %s", e)
-    # Fallback: env var
-    return os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_PAT") or os.environ.get("GH_TOKEN")
+    # No server-wide token fallback (same rule as agent/github_tools.py): a
+    # user-driven run must not inherit the host's GITHUB_TOKEN / GH_PAT.
+    return None
 
 
 def _is_trivial_message(content: str) -> bool:

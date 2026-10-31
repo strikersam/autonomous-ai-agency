@@ -258,7 +258,21 @@ def test_watchdog_rechecks_url_before_every_poll(monkeypatch):
     import agent.watchdog as wd_mod
 
     opened: list = []
-    monkeypatch.setattr(wd_mod._NO_REDIRECT_OPENER, "open", lambda *a, **k: opened.append(a))
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return None
+
+        def get(self, *a, **k):
+            opened.append(a)
+
+    monkeypatch.setattr(wd_mod.httpx, "Client", _Client)
     wd = wd_mod.ResourceWatchdog()
     resource = wd.watch(name="probe", kind="url", target="http://127.0.0.1:9/internal")
 

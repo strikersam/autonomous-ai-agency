@@ -1,3 +1,15 @@
+# NEXT_ACTION — updated 2026-10-31 (security audit remaining findings, branch `security/audit-remaining`)
+
+All leads left open by #1858/#1860 are fixed in one PR: DNS-pinned fetches (`agent/web_reach.py` `pinned_transport`), SEO browser SSRF guard, logout revocation (`tokens_valid_after`), login-CSRF nonce on `/auth/callback`, GitHub repo-connect claim code, Google `verified_email`, self-repo shipping limited to system/admin tasks, anonymous heartbeat redaction, E2B write-back containment, literal company search, quick-note CI author gate + credential isolation, diag/seed hardening.
+
+## Open items
+
+1. **Operator check** — bare `/api/auth/<provider>/login` links (no login-page nonce) now end on the callback error screen; use the login page.
+2. **Product check** — regular users' tasks now run report-only (no platform GitHub token / auto-commit); quick notes and portfolio board changes are admin-only. Reverse in `tasks/service.py::_owner_may_ship_code` if users should ship code.
+3. ~~Unaudited surfaces~~ — reviewed 2026-10-31 (branch `security/bandit-tmp-fix`): Hermes `/tasks` fails closed with a render-generated `HERMES_API_KEY`; spec approve/reject and sprint changes admin-only; `direct_chat` no longer falls back to the host GitHub token; ceo and code-mode routers already admin-gate their mutations. Operator: confirm `agency-hermes` picked up the generated `HERMES_API_KEY` after the blueprint sync.
+
+---
+
 # NEXT_ACTION — updated 2026-10-29 (security audit, branch `security/cloudflare-audit-fixes`)
 
 Ran the cloudflare/security-audit-skill workflow (standard profile, sandboxed source-and-local only). The run is **incomplete**: coverage critics, a second hunter wave, 7 Phase-3 validations and Phase-5 record verification were not run (user asked to finish; agent limit hit). Fixed 9 independently confirmed findings plus 2 parent-verified ones (task purge scope, cron issue-intake label gate), each with a regression test. Audit artifacts live outside the repo (`~/security-audit-skill/autonomous-ai-agency/run-1/`).

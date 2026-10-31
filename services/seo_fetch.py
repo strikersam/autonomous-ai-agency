@@ -12,11 +12,12 @@ agnostic to how a page was retrieved.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Protocol, Tuple
+from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 import httpx
 
@@ -91,10 +92,13 @@ class HttpxFetcher:
     ) -> None:
         # With an injected transport (tests) there is no real network to guard;
         # otherwise every request and redirect hop is SSRF-checked (rule 14).
+        from agent.web_reach import pinned_async_transport
         from services.scanner import ssrf_request_hook
 
+        # The hook re-checks each hop; the pinned transport makes the socket
+        # dial that same vetted address (no DNS rebinding between the two).
         self._client = httpx.AsyncClient(
-            transport=transport,
+            transport=transport if transport is not None else pinned_async_transport(),
             event_hooks={} if transport is not None else {"request": [ssrf_request_hook]},
             follow_redirects=True,
             timeout=timeout,
@@ -143,6 +147,48 @@ class HttpxFetcher:
         await self._client.aclose()
 
 
+
+async def _browser_ssrf_guard(route: Any) -> None:
+    """Playwright route handler: SSRF-check every browser request (rule 14), fail closed.
+
+    Navigations, whose content ends up in the report, get the DNS-resolving
+    check; subresources get the cheap literal check the scanner uses.
+    """
+    from services.scanner import _is_blocked_host, _is_safe_url
+
+    try:
+        req = route.request
+        if req.is_navigation_request():
+            blocked = not await asyncio.to_thread(_is_safe_url, req.url)
+        else:
+            blocked = _is_blocked_host(req.url)
+    except Exception as exc:  # noqa: BLE001 - an unclassifiable request is refused
+        log.debug("SEO browser guard error for %s: %s", getattr(route.request, "url", "?"), exc)
+        blocked = True
+    if blocked:
+        await route.abort()
+    else:
+        await route.continue_()
+
+
+async def _refuse_unsafe_redirects(resp: Any, final_url: str) -> None:
+    """Raise if any redirect hop or the final page URL is not a public target.
+
+    Playwright does not route redirect hops, so the chain is checked after
+    navigation and the page is discarded rather than reported.
+    """
+    from services.scanner import _is_safe_url
+
+    urls = [final_url]
+    req = getattr(resp, "request", None)
+    while req is not None:
+        urls.append(req.url)
+        req = req.redirected_from
+    for u in urls:
+        if not await asyncio.to_thread(_is_safe_url, u):
+            raise ValueError(f"refused: browser navigation reached a non-public address ({u})")
+
+
 class BrowserFetcher:
     """Browser backend: renders pages with a real Chromium via Playwright.
 
@@ -167,11 +213,13 @@ class BrowserFetcher:
         self._pw = None
         self._browser = None
         # httpx is used only for best-effort HEAD checks.
+        from agent.web_reach import pinned_async_transport
         from services.scanner import ssrf_request_hook
 
         self._http = httpx.AsyncClient(
             follow_redirects=True, timeout=timeout, headers={"User-Agent": user_agent},
             event_hooks={"request": [ssrf_request_hook]},
+            transport=pinned_async_transport(),
         )
 
     async def _ensure_browser(self) -> None:
@@ -199,15 +247,18 @@ class BrowserFetcher:
         context = await self._browser.new_context(
             user_agent=self._ua, locale="en-US", viewport={"width": 1366, "height": 900}
         )
+        await context.route("**/*", _browser_ssrf_guard)
         page = await context.new_page()
         t0 = time.monotonic()
         try:
             resp = await page.goto(url, wait_until="domcontentloaded", timeout=self._timeout_ms)
+            await _refuse_unsafe_redirects(resp, page.url)
             # let late client-side rendering settle, bounded.
             try:
                 await page.wait_for_load_state("networkidle", timeout=3000)
             except Exception:  # noqa: BLE001 - networkidle is best-effort
                 pass
+            await _refuse_unsafe_redirects(None, page.url)
             html = await page.content()
             status = resp.status if resp else 0
             final_url = page.url

@@ -9,8 +9,8 @@ Routes (mounted on ``backend.server.app`` via ``build_spec_router(get_current_us
 
   GET  /api/specs                 → list specs, newest first (optional ?status=)
   GET  /api/specs/{spec_id}       → one spec incl. markdown
-  POST /api/specs/{spec_id}/approve
-  POST /api/specs/{spec_id}/reject
+  POST /api/specs/{spec_id}/approve   (admin)
+  POST /api/specs/{spec_id}/reject    (admin)
 """
 from __future__ import annotations
 
@@ -47,6 +47,11 @@ def build_spec_router(get_current_user: Callable[..., Any]) -> APIRouter:
         return spec
 
     async def _decide(spec_id: str, status: str, user: dict) -> dict:
+        # The approval gate (AGENT_SPEC_APPROVAL_REQUIRED) is a human-operator
+        # check on agent plans; a regular user approving one would bypass it.
+        from backend.company_api import _is_admin
+        if not _is_admin(user):
+            raise HTTPException(status_code=403, detail="Admin access required")
         from services.spec_store import set_spec_status
         decided_by = str(user.get("email") or user.get("id") or "operator")
         spec = await set_spec_status(spec_id, status, decided_by=decided_by)
