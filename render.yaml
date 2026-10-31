@@ -671,6 +671,13 @@ services:
     plan: free
     startCommand: python worker_main.py
     envVars:
+      # Worker runs the same runtime adapters as the web service; agency-hermes
+      # refuses /tasks without this shared key.
+      - key: HERMES_API_KEY
+        fromService:
+          type: web
+          name: agency-hermes
+          envVarKey: HERMES_API_KEY
       - key: MONGO_URL
         sync: false
       - key: DB_NAME
