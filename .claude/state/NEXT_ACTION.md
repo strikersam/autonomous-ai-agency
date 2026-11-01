@@ -1,3 +1,15 @@
+# NEXT_ACTION — updated 2026-11-01 (daily automation, PR #1871)
+
+**What shipped:** Fixed `claude-sonnet-5-5` cache-read fraction (10 % → 5 %). Anthropic halved Sonnet 5.5 cache-read prices on 2026-10-07 when Haiku 5.5 launched; the per-model override was missing from `_CACHE_READ_FRACTIONS`. 16 new tests; all gates green. PR #1871 open, awaiting CI and merge.
+
+## Open items for next daily run
+
+1. **Merge PR #1871** — if CI is green, merge to master.
+2. **Check for November model releases** — no confirmed new models as of 2026-11-01 (GPT-6.1 Astra was cancelled; Qwen 4 has no API yet). Re-check on next run.
+3. **Gemini 4 Argon pricing note** — introductory price ($2/$10/MTok) ends 2026-11-30; standard $4/$20 starts 2026-12-01. Remind operator before December.
+4. **Mistral Large 4 GA status** — open weights promised end of October; verify whether released and update catalogue note from "Preview" to "GA" if confirmed.
+
+---
 # NEXT_ACTION — updated 2026-10-31 (daily automation, branch `claude/intelligent-gates-ibfi0w`)
 
 **What shipped:** Retired `nvidia/nemotron-3-super-120b-a12b` (HTTP 404 since issue #1813); promoted `nvidia/nemotron-3-ultra-550b-a55b` as the platform default across all 19 files. Added `gemini-4-carbon` to `config/llm/models.yaml` (Google Oct 28 flagship; priority 99/explicit-only until a live probe). 201 targeted tests pass; all pre-commit checks green.
