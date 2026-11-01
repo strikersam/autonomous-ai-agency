@@ -166,14 +166,23 @@ class LLMProvider(ABC):
         return list(self.config.models)
 
     def cost(self, model: str, usage: Usage) -> float:
-        """USD cost for one completion, from the model registry."""
+        """USD cost for one completion, from the model registry.
+
+        ``usage.cached_tokens`` is the part of ``prompt_tokens`` served from the
+        provider's prompt cache; it is priced at the model's cache-read fraction
+        of the input rate (``cost_tracker._cache_read_fraction``).
+        """
+        from packages.ai.cost_tracker import _cache_read_fraction
         from packages.llm.registry import get_registry
 
         spec = get_registry().get(model)
         if spec is None:
             return 0.0
+        cached = max(0, min(usage.cached_tokens, usage.prompt_tokens))
+        input_rate = spec.input_cost_per_1m / 1_000_000.0
         return (
-            usage.prompt_tokens * spec.input_cost_per_1m / 1_000_000.0
+            (usage.prompt_tokens - cached) * input_rate
+            + cached * input_rate * _cache_read_fraction(model)
             + usage.completion_tokens * spec.output_cost_per_1m / 1_000_000.0
         )
 

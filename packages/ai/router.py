@@ -1375,10 +1375,14 @@ class ProviderRouter:
                             except Exception:
                                 pass
                             _cached = int(_usage.get("cache_read_input_tokens") or 0)
+                            _prompt = int(_usage.get("prompt_tokens") or 0)
+                            if provider.type == "anthropic":
+                                from packages.ai.cost_tracker import anthropic_prompt_tokens
+                                _prompt = anthropic_prompt_tokens(_usage)
                             _record_cost(
                                 model,
                                 provider_id=provider.provider_id,
-                                prompt_tokens=int(_usage.get("prompt_tokens") or 0),
+                                prompt_tokens=_prompt,
                                 completion_tokens=int(_usage.get("completion_tokens") or 0),
                                 cached_tokens=_cached,
                                 tag=_tag,
@@ -1389,7 +1393,7 @@ class ProviderRouter:
                                 _tokens_for_director,
                                 _cost_for(
                                     model,
-                                    int(_usage.get("prompt_tokens") or 0),
+                                    _prompt,
                                     int(_usage.get("completion_tokens") or 0),
                                     _cached,
                                 ),
