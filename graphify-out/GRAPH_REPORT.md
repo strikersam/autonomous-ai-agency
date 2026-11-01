@@ -1,17 +1,17 @@
 # Graph Report - autonomous-ai-agency  (2026-11-01)
 
 ## Corpus Check
-- 1210 files · ~1,361,451 words
+- 1210 files · ~1,361,497 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 58 file(s) not represented in the graph (top: (none) 20, .css 5, .bat 5)
 
 ## Summary
-- 25142 nodes · 47045 edges · 1206 communities (1006 shown, 200 thin omitted)
+- 25142 nodes · 47047 edges · 1205 communities (1005 shown, 200 thin omitted)
 - Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 2544 edges (avg confidence: 0.92)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `82ee21f5`
+- Built from commit: `d5667c37`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -505,7 +505,6 @@
 - Skill: repowise-intelligence
 - browser
 - node
-- workflow_orchestrator.py
 - Contributing to local-llm-server
 - refresh_agent_built_proof.py
 - ollama
@@ -1167,7 +1166,7 @@
 ## Import Cycles
 - 2-file cycle: `backend/server.py -> backend/v4_api.py -> backend/server.py`
 
-## Communities (1206 total, 200 thin omitted)
+## Communities (1205 total, 200 thin omitted)
 
 ### Community 0 - "typing"
 Cohesion: 0.02
@@ -1195,7 +1194,7 @@ Nodes (105): WorkerSpec, get_tracker(), set_quick_note_queue(), get_skill_regist
 
 ### Community 6 - "llm/router.py"
 Cohesion: 0.02
-Nodes (32): Bulkheads, Circuit breaker, Configuration, Context management, LLM Router — architecture, Request lifecycle, The three failure scopes, What problem it solves (+24 more)
+Nodes (33): Bulkheads, Circuit breaker, Configuration, Context management, LLM Router — architecture, Request lifecycle, The three failure scopes, What problem it solves (+25 more)
 
 ### Community 7 - "AgentRunner"
 Cohesion: 0.03
@@ -1215,7 +1214,7 @@ Nodes (92): _register_builtin_tools(), _apply_diff_tool(), _edit_file_tool(), _l
 
 ### Community 11 - "gateway.py"
 Cohesion: 0.04
-Nodes (52): _build_cost_table(), _cache_read_fraction(), cost_for_tokens(), _load_env_overrides(), record_usage(), build_router(), gateway_metrics(), usage_metrics_enabled() (+44 more)
+Nodes (51): _build_cost_table(), cost_for_tokens(), _load_env_overrides(), record_usage(), build_router(), gateway_metrics(), usage_metrics_enabled(), consumer_label() (+43 more)
 
 ### Community 12 - "backend/server.py"
 Cohesion: 0.02
@@ -1230,8 +1229,8 @@ Cohesion: 0.05
 Nodes (21): build_messages(), capability_summary(), _first_proposals_object(), gather_research(), GitHub, is_duplicate(), is_risky(), issue_body() (+13 more)
 
 ### Community 15 - "LLMProvider"
-Cohesion: 0.05
-Nodes (18): Modules, anthropic_prompt_tokens(), classify_error(), LLMProvider, OpenAICompatible, retry_after_seconds(), GeminiProvider, build_provider() (+10 more)
+Cohesion: 0.04
+Nodes (19): Modules, anthropic_prompt_tokens(), _cache_read_fraction(), classify_error(), LLMProvider, OpenAICompatible, retry_after_seconds(), GeminiProvider (+11 more)
 
 ### Community 16 - "pr_gate.py"
 Cohesion: 0.09
@@ -1266,8 +1265,8 @@ Cohesion: 0.07
 Nodes (16): Agency, AgencyCycleResult, AgentDirective, AgentRole, _build_ceo_prompt(), _build_quick_note_instruction(), _collect_recent_git_context(), _now_str() (+8 more)
 
 ### Community 25 - "llm/config.py"
-Cohesion: 0.04
-Nodes (26): AgentPolicy, _apply_env_overrides(), _apply_key_env(), _build(), _coerce(), config_dir(), _env_key_names(), expand_env() (+18 more)
+Cohesion: 0.05
+Nodes (25): _apply_env_overrides(), _apply_key_env(), _build(), _coerce(), config_dir(), _env_key_names(), expand_env(), _fields_of() (+17 more)
 
 ### Community 27 - "services/background.py"
 Cohesion: 0.06
@@ -1678,8 +1677,8 @@ Cohesion: 0.05
 Nodes (42): env, if, name, permissions, runs-on, services, steps, ANTHROPIC_API_KEY (+34 more)
 
 ### Community 135 - "user_token_quota.py"
-Cohesion: 0.03
-Nodes (48): check(), Snippet, SnippetStore, build_usage_router(), all_agent_token_usage(), my_agent_token_usage(), anthropic_usage_total(), _counted() (+40 more)
+Cohesion: 0.02
+Nodes (53): check(), Snippet, SnippetStore, build_usage_router(), all_agent_token_usage(), my_agent_token_usage(), anthropic_usage_total(), _counted() (+45 more)
 
 ### Community 136 - "CEOLedger"
 Cohesion: 0.07
@@ -3000,10 +2999,6 @@ Nodes (16): cap_add, cap_drop, cpus, description, image, internet, memory, netwo
 ### Community 489 - "node"
 Cohesion: 0.12
 Nodes (16): allowed_domains, cap_drop, cpus, description, image, internet, memory, network (+8 more)
-
-### Community 490 - "workflow_orchestrator.py"
-Cohesion: 0.15
-Nodes (5): kill_switch_engaged(), _orchestrator_bypass(), Phase, reset_ceo_fallback_stats(), reset_orchestrator()
 
 ### Community 491 - "Contributing to local-llm-server"
 Cohesion: 0.12
@@ -5201,7 +5196,7 @@ Nodes (3): GooseAdapter, JCodeAdapter, RuntimeHealth
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `AgentRunner` connect `AgentRunner` to `proxy.py`, `WorkspaceTools`, `RepoConnection`, `backend/server.py`, `LocalWorkspace`, `pr_gate.py`, `ContextPruner`, `failover_client.py`, `TokenBudget`, `._dispatch_tool`, `FreeBuffAgent`, `direct_chat.py`, `GitHubTools`, `runtimes/manager.py`, `Universality: case-coverage matrix`, `Evidence-driven verification`, `ceo_dispatcher.py`, `skill_registry.py`, `Agency Core — Ruthless Architecture Audit & Migration Plan`, `MCPUnavailableError`, `policy.py`, `AgentSessionStore`, `empirical_verify.py`, `verification_strategies.py`, `ContextManager`, `loop.py`, `ReactScratchpad`, `Agency Core — Progress & Resume Log`, `WorkflowOrchestrator`, `RepowiseIntelligence`, `Agent Governance Guide`, `CEODispatcher`, `Competitor Analysis — Autonomous AI Agency`, `workflow_orchestrator.py`, `internal_agent.py`, `prompts.py`, `SECTION A — Agent Efficiency (Hermes / AOS / MYT)`, `code_mode.py`, `HarnessEnrichment`?**
+- **Why does `AgentRunner` connect `AgentRunner` to `proxy.py`, `user_token_quota.py`, `WorkspaceTools`, `RepoConnection`, `backend/server.py`, `LocalWorkspace`, `pr_gate.py`, `ContextPruner`, `failover_client.py`, `TokenBudget`, `._dispatch_tool`, `FreeBuffAgent`, `direct_chat.py`, `GitHubTools`, `runtimes/manager.py`, `Universality: case-coverage matrix`, `Evidence-driven verification`, `ceo_dispatcher.py`, `skill_registry.py`, `Agency Core — Ruthless Architecture Audit & Migration Plan`, `MCPUnavailableError`, `policy.py`, `AgentSessionStore`, `empirical_verify.py`, `verification_strategies.py`, `ContextManager`, `loop.py`, `ReactScratchpad`, `Agency Core — Progress & Resume Log`, `WorkflowOrchestrator`, `RepowiseIntelligence`, `Agent Governance Guide`, `CEODispatcher`, `Competitor Analysis — Autonomous AI Agency`, `internal_agent.py`, `prompts.py`, `SECTION A — Agent Efficiency (Hermes / AOS / MYT)`, `code_mode.py`, `HarnessEnrichment`?**
   _High betweenness centrality (0.041) - this node is a cross-community bridge._
 - **What connects `docker`, `RENDER_API_KEY`, `react-app` to the rest of the system?**
   _31 weakly-connected nodes found - possible documentation gaps or missing edges._
