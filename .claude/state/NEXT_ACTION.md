@@ -1,3 +1,15 @@
+# NEXT_ACTION — updated 2026-11-01 (drill: board cleared)
+
+**What shipped:** #1876 (proof numbers), #1871 (Sonnet 5.5 cache-read fraction 5 %, checked against the pricing page), #1877 (Anthropic cache reads were costed near zero; `LLMProvider.cost` now prices cached tokens at the cache-read rate), #1875 (auto-merge uses `--auto`, never `--admin`; Security Gate reruns on `ready_for_review`). Inventory: 0 open PRs/issues, master green, Render live on 6cc0e0f.
+
+## Open items
+
+1. **Operator decision: enforce branch protection for admins on master.** Until it is on, a manual `--admin` merge can still skip required checks.
+2. **Operator decision: Render capacity.** The first `get_overview` in a task workspace takes 3–7 min on the 0.15-CPU instance (see #1872). Fix: add the `local-llm-server-worker` service from `render.yaml`, or a larger plan.
+3. **Tour video count is stale.** `brag-output/brag.mp4` (README-linked) still says "446 of 1109" agent PRs; `proof/agent-built.md` now says 536 of 1281. Needs a re-render, not a text edit.
+4. Carried over unchanged from the earlier 2026-11-01 entry, not re-verified this session: November model-release check, Gemini 4 Argon pricing change on 2026-12-01, Mistral Large 4 GA status.
+
+---
 # NEXT_ACTION — updated 2026-11-01 (daily automation, PR #1871)
 
 **What shipped:** Fixed `claude-sonnet-5-5` cache-read fraction (10 % → 5 %). Anthropic halved Sonnet 5.5 cache-read prices on 2026-10-07 when Haiku 5.5 launched; the per-model override was missing from `_CACHE_READ_FRACTIONS`. 16 new tests; all gates green. PR #1871 open, awaiting CI and merge.
