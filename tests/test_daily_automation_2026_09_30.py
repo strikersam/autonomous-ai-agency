@@ -79,12 +79,13 @@ class TestAnthropicCacheReadFractions:
     def test_opus_5_5_dated_alias_is_5_percent(self, ct):
         assert ct._cache_read_fraction("claude-opus-5-5-20260922") == pytest.approx(0.05)
 
-    def test_sonnet_5_5_is_10_percent(self, ct):
-        """Sonnet 5.5 uses the generic 10 % fallback — unchanged."""
-        assert ct._cache_read_fraction("claude-sonnet-5-5") == pytest.approx(0.10)
+    def test_sonnet_5_5_is_5_percent(self, ct):
+        """Sonnet 5.5 cache reads are 0.05x base input ($0.10/MTok). They were
+        10 % when this file was written; the pricing page has since changed."""
+        assert ct._cache_read_fraction("claude-sonnet-5-5") == pytest.approx(0.05)
 
-    def test_sonnet_5_5_dated_alias_is_10_percent(self, ct):
-        assert ct._cache_read_fraction("claude-sonnet-5-5-20260929") == pytest.approx(0.10)
+    def test_sonnet_5_5_dated_alias_is_5_percent(self, ct):
+        assert ct._cache_read_fraction("claude-sonnet-5-5-20260929") == pytest.approx(0.05)
 
     def test_sonnet_5_is_10_percent(self, ct):
         assert ct._cache_read_fraction("claude-sonnet-5") == pytest.approx(0.10)
@@ -135,10 +136,10 @@ class TestCacheReadCostCalculations:
         cost = ct.cost_for_tokens("claude-opus-5-5", 1_000_000, 0, 1_000_000)
         assert cost < 0.40
 
-    def test_sonnet_5_5_all_cached_uses_10_percent(self, ct):
-        """Sonnet 5.5 at $2/MTok: 1M cached = $2 × 10 % = $0.20."""
+    def test_sonnet_5_5_all_cached_uses_5_percent(self, ct):
+        """Sonnet 5.5 at $2/MTok: 1M cached = $2 × 5 % = $0.10."""
         cost = ct.cost_for_tokens("claude-sonnet-5-5", 1_000_000, 0, 1_000_000)
-        assert cost == pytest.approx(0.20)
+        assert cost == pytest.approx(0.10)
 
     def test_non_cached_fable_5_1_unchanged(self, ct):
         """Non-cached input is billed at the full input rate."""

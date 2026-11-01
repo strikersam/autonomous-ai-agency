@@ -384,8 +384,8 @@ _COST_TABLE: dict[str, tuple[float, float]] = _build_cost_table()
 #   Exceptions (per platform.claude.com/docs/en/about-claude/pricing, 2026-09-30):
 #     Fable 5.1 / Mythos 5.1 — 2.5 % ($0.25/MTok on a $10/MTok input rate).
 #     Opus 5.5              — 5 %   ($0.20/MTok on a $4/MTok input rate).
-#     Sonnet 5.5            — 5 %   ($0.10/MTok on a $2/MTok input rate).
-#       Halved alongside Haiku 5.5 launch on 2026-10-07 (SiliconANGLE, 9to5Mac).
+#     Sonnet 5.5            — 5 %   ($0.10/MTok on a $2/MTok input rate;
+#       checked against the pricing page 2026-11-01 — it was 10 % on 2026-09-30).
 # Google Gemini: cached content billed at 25 % of the input rate (ai.google.dev/gemini-api/docs/caching).
 # DeepSeek API: cache hit at 1/50th of the input rate (api-docs.deepseek.com/quick_start/pricing).
 # Groq: implicit caching (automatic, 5-min TTL) discounts repeat inputs 50 %
@@ -397,7 +397,7 @@ _CACHE_READ_FRACTIONS: tuple[tuple[str, float], ...] = (
     ("claude-fable-5-1", 0.025),   # Fable 5.1 — 2.5 % of input rate
     ("claude-mythos-5-1", 0.025),  # Mythos 5.1 — same gated tier as Fable 5.1
     ("claude-opus-5-5", 0.05),     # Opus 5.5  — 5 % of input rate
-    ("claude-sonnet-5-5", 0.05),   # Sonnet 5.5 — 5 % of input rate (halved 2026-10-07)
+    ("claude-sonnet-5-5", 0.05),   # Sonnet 5.5 — 5 % of input rate
     # Gemini 4 Argon: cache reads at $0.10/MTok = 5 % of $2.00/MTok input rate.
     # Must appear before the generic "gemini-" 25 % fallback.
     # Source: computingforgeeks.com/gemini-4-argon-released-features-benchmarks/, 2026-10-25.
