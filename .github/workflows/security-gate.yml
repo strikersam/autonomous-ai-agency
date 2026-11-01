@@ -4,6 +4,10 @@ on:
   pull_request:
     branches: [master]
     paths-ignore: ["docs/context/**", "graphify-out/**"]
+    # ready_for_review is not a default type. Without it, a PR that got its
+    # code while draft (quick-note PRs) is never scanned: the job skipped on
+    # every draft push, and GitHub counts a skipped required job as passing.
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   security-events: write
