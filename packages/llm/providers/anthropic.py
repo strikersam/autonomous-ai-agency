@@ -494,8 +494,10 @@ class AnthropicProvider(LLMProvider):
 
         raw_usage = data.get("usage") or {}
         output_details = raw_usage.get("output_tokens_details") or {}
+        from packages.ai.cost_tracker import anthropic_prompt_tokens
+
         usage = Usage(
-            prompt_tokens=int(raw_usage.get("input_tokens") or 0),
+            prompt_tokens=anthropic_prompt_tokens(raw_usage),
             completion_tokens=int(raw_usage.get("output_tokens") or 0),
             cached_tokens=int(raw_usage.get("cache_read_input_tokens") or 0),
             reasoning_tokens=int(output_details.get("reasoning_tokens") or 0),

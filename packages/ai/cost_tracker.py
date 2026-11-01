@@ -445,6 +445,24 @@ _LONG_CONTEXT_TIERS: dict[str, tuple[int, float, float]] = {
 }
 
 
+def anthropic_prompt_tokens(usage: dict) -> int:
+    """Total prompt tokens for an Anthropic ``usage`` block.
+
+    Anthropic's ``input_tokens`` excludes cache reads and cache writes, which it
+    reports separately. Everything else here (``cost_for_tokens``, OpenAI- and
+    Gemini-shaped usage) treats cached tokens as a subset of the prompt count,
+    so an Anthropic count passed through unchanged clamps cache reads to the
+    uncached remainder and prices a cache-heavy call as nearly free. Cache
+    writes are counted at the plain input rate (Anthropic bills them at 1.25x
+    or 2x), which understates them slightly but no longer drops them.
+    """
+    return (
+        int(usage.get("input_tokens", usage.get("prompt_tokens")) or 0)
+        + int(usage.get("cache_read_input_tokens") or 0)
+        + int(usage.get("cache_creation_input_tokens") or 0)
+    )
+
+
 def cost_for_tokens(
     model: str, prompt_tokens: int, completion_tokens: int, cached_tokens: int = 0
 ) -> float:
