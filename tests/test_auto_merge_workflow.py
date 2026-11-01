@@ -39,3 +39,26 @@ def test_guards_run_before_the_merge(merge_step: dict) -> None:
     merge_at = run.index("gh pr merge")
     for guard in ("isDraft", "^agent/", "^dependabot/"):
         assert run.index(guard) < merge_at, guard
+
+
+def test_merge_waits_for_every_required_check(merge_step: dict) -> None:
+    """#1873 merged with Security Gate red and #1863 with its Python tests
+    skipped: --admin overrode branch protection on any green CI run. --auto
+    lets GitHub merge only once every required check passes."""
+    run = merge_step["run"]
+    merge_cmd = run[run.index("gh pr merge"):].split("||")[0]
+    assert "--admin" not in merge_cmd
+    assert "--auto" in merge_cmd
+    assert "--match-head-commit" in merge_cmd
+
+
+def test_no_workflow_merges_with_admin() -> None:
+    """Any `gh pr merge --admin` in a workflow skips required checks."""
+    workflows = WORKFLOW.parent
+    offenders = [
+        f"{p.name}:{n}"
+        for p in sorted(workflows.glob("*.yml"))
+        for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
+        if "--admin" in line and not line.lstrip().startswith("#")
+    ]
+    assert offenders == []
