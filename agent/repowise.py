@@ -10,6 +10,13 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Set, Tuple
 import hashlib
 
+# One git call may not hold a tool step (and, on a CPU-capped host, the whole
+# container) for longer than this.
+_GIT_TIMEOUT_S = 60
+# `git blame` is the expensive per-file call; ownership is computed for the
+# most-changed files only, never for every tracked file.
+_OWNERSHIP_TOP_FILES = 20
+
 class RepowiseIntelligence:
     def __init__(self, root: Path):
         self.root = root
@@ -29,10 +36,11 @@ class RepowiseIntelligence:
         """Run a git command and return stdout as string."""
         try:
             result = subprocess.run(
-                cmd, cwd=self.root, capture_output=True, text=True, check=True
+                cmd, cwd=self.root, capture_output=True, text=True, check=True,
+                timeout=_GIT_TIMEOUT_S,
             )
             return result.stdout.strip()
-        except (subprocess.CalledProcessError, OSError):
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
             return ""
 
     def _get_last_commit(self) -> str:
@@ -232,62 +240,44 @@ class RepowiseIntelligence:
                 except Exception:
                     file_data[f]["complexity"] = 0
 
-        # We'll do a simpler approach for ownership: blame each file and compute per-author lines.
-        # This can be slow for many files, but we'll try.
-        for f in files:
-            try:
-                # Use git blame to get lines and authors
-                blame_output = self._run_git_command(["git", "blame", "--line-porcelain", f])
-                if blame_output:
-                    # Parse blame output
-                    current_author = None
-                    for line in blame_output.splitlines():
-                        if line.startswith("author "):
-                            current_author = line[7:]  # after "author "
-                        elif line.startswith(("0", "1", "2", "3", "4", "5", "6", "7", "8", "9")):
-                            # This is a line of the file, count it for the current author
-                            if current_author:
-                                file_data[f]["ownership"][current_author] = file_data[f]["ownership"].get(current_author, 0) + 1
-                                file_data[f]["total_lines"] += 1
-            except Exception:
-                # If blame fails, skip
-                continue
-
-        # Now, compute hotspots: we can use the number of changes (commits that touched the file)
-        # We'll get the commit count per file from git log.
-        for f in files:
-            try:
-                changes = self._run_git_command(["git", "log", "--oneline", "--follow", "--", f])
-                if changes:
-                    change_count = len(changes.splitlines())
-                    file_data[f]["hotspot_changes"] = change_count
-            except Exception:
-                pass
-
-        # Co-change pairs: we'll look at commits and see which files are changed together.
-        # We'll limit to commits that changed less than, say, 20 files to avoid massive commits.
+        # One `git log` pass gives per-file change counts and co-change data.
+        # (This used to run `git log --follow` and `git blame` once per tracked
+        # file: ~4,400 subprocesses on this repo, enough on a 0.15-CPU host to
+        # starve the container until its health check failed.)
         try:
-            # Get commits with their files
-            # We'll use: git log --pretty=format:"%H" --name-only
-            # But we'll do it in a way that we can parse.
-            # We'll use a temporary file or process line by line.
-            # We'll do: git log --pretty=format:"%H" --name-only | awk ... but we'll do in Python.
             output = self._run_git_command(["git", "log", "--pretty=format:%H", "--name-only"])
             if output:
-                commits = output.split("\n\n")  # each commit is hash followed by files, separated by blank line
-                for commit_block in commits:
-                    lines = commit_block.splitlines()
+                for commit_block in output.split("\n\n"):
+                    lines = [ln for ln in commit_block.splitlines() if ln]
                     if not lines:
                         continue
-                    commit_hash = lines[0]
-                    files_changed = lines[1:]
-                    if len(files_changed) > 20:
-                        # Skip large commits
-                        continue
-                    # Update commit_file_map
-                    commit_file_map[commit_hash] = files_changed
+                    commit_hash, files_changed = lines[0], lines[1:]
+                    for changed in set(files_changed):
+                        if changed in file_data:
+                            file_data[changed]["hotspot_changes"] += 1
+                    # Skip large commits for co-change pairs.
+                    if len(files_changed) <= 20:
+                        commit_file_map[commit_hash] = files_changed
         except Exception:
             pass
+
+        # Ownership: blame only the most-changed files.
+        top_files = sorted(
+            (f for f in files if file_data[f]["hotspot_changes"] > 0),
+            key=lambda f: file_data[f]["hotspot_changes"], reverse=True,
+        )[:_OWNERSHIP_TOP_FILES]
+        for f in top_files:
+            try:
+                blame_output = self._run_git_command(["git", "blame", "--line-porcelain", f])
+                current_author = None
+                for line in blame_output.splitlines():
+                    if line.startswith("author "):
+                        current_author = line[7:]
+                    elif line.startswith("\t") and current_author:
+                        file_data[f]["ownership"][current_author] = file_data[f]["ownership"].get(current_author, 0) + 1
+                        file_data[f]["total_lines"] += 1
+            except Exception:
+                continue
 
         # Now compute co-change pairs: for each pair of files, count how many times they appear together in a commit.
         cochange_counts = {}

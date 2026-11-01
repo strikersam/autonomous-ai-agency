@@ -136,3 +136,54 @@ if __name__ == "__main__":
     # For manual testing
     import sys
     sys.exit(pytest.main([__file__, "-v"]))
+
+def _git_repo_with_files(root: Path, n_files: int) -> None:
+    import subprocess
+
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=root, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=root, check=True)
+    for i in range(n_files):
+        (root / f"m{i}.py").write_text(f"def f{i}():\n    return {i}\n")
+    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=root, check=True)
+    (root / "m0.py").write_text("def f0():\n    return 'changed'\n")
+    subprocess.run(["git", "commit", "-q", "-am", "touch m0"], cwd=root, check=True)
+
+
+def test_git_intelligence_cost_does_not_scale_with_file_count(tmp_path, monkeypatch):
+    """Production 2026-11-01: get_overview on a 2,200-file checkout ran a
+    `git blame` and a `git log --follow` per tracked file (~4,400 subprocesses),
+    which on Render's 0.15-CPU free tier starved the container until /api/ping
+    timed out and the instance was killed. The number of git calls must stay
+    bounded however many files the repo has."""
+    _git_repo_with_files(tmp_path, 60)
+    intel = RepowiseIntelligence(tmp_path)
+    calls: list[list[str]] = []
+    real = intel._run_git_command
+
+    def counting(cmd):
+        calls.append(cmd)
+        return real(cmd)
+
+    monkeypatch.setattr(intel, "_run_git_command", counting)
+    intel._build_git_intelligence()
+    per_file = [c for c in calls if c[:2] in (["git", "blame"],) or "--follow" in c]
+    assert len(per_file) <= 20, f"{len(per_file)} per-file git calls for 60 files"
+
+    data = json.loads(intel.git_history_file.read_text())
+    by_file = {h["file"]: h["changes"] for h in data["hotspots"]}
+    assert by_file["m0.py"] == 2 and by_file["m1.py"] == 1
+    assert data["ownership"]["m0.py"] == {"t": 100.0}
+
+
+def test_git_command_timeout_returns_empty(tmp_path, monkeypatch):
+    import subprocess
+
+    intel = RepowiseIntelligence(tmp_path)
+
+    def slow(*a, **k):
+        raise subprocess.TimeoutExpired(cmd=a[0], timeout=k.get("timeout"))
+
+    monkeypatch.setattr(subprocess, "run", slow)
+    assert intel._run_git_command(["git", "log"]) == ""
