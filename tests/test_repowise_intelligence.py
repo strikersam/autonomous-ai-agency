@@ -137,18 +137,22 @@ if __name__ == "__main__":
     import sys
     sys.exit(pytest.main([__file__, "-v"]))
 
-def _git_repo_with_files(root: Path, n_files: int) -> None:
+def _git(root: Path, *args: str) -> None:
     import subprocess
 
-    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
-    subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=root, check=True)
-    subprocess.run(["git", "config", "user.name", "t"], cwd=root, check=True)
+    subprocess.run(["git", *args], cwd=root, check=True)  # nosec B603 B607 - fixed git argv
+
+
+def _git_repo_with_files(root: Path, n_files: int) -> None:
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "t@example.com")
+    _git(root, "config", "user.name", "t")
     for i in range(n_files):
         (root / f"m{i}.py").write_text(f"def f{i}():\n    return {i}\n")
-    subprocess.run(["git", "add", "-A"], cwd=root, check=True)
-    subprocess.run(["git", "commit", "-q", "-m", "init"], cwd=root, check=True)
+    _git(root, "add", "-A")
+    _git(root, "commit", "-q", "-m", "init")
     (root / "m0.py").write_text("def f0():\n    return 'changed'\n")
-    subprocess.run(["git", "commit", "-q", "-am", "touch m0"], cwd=root, check=True)
+    _git(root, "commit", "-q", "-am", "touch m0")
 
 
 def test_git_intelligence_cost_does_not_scale_with_file_count(tmp_path, monkeypatch):
