@@ -864,7 +864,8 @@ jobs:
 
       # ── 13. Merge PR and delete branch ────────────────────────────────────
       # Squash-merges and deletes the feature branch on success.
-      # --admin bypasses changelog CI check for auto-generated PRs.
+      # --auto: GitHub merges once every required check is green. It used to be
+      # --admin, which merged over red or pending required checks.
       - name: Mark PR ready for review (draft → ready)
         id: ready
         # Only PASS. WARN previously auto-merged, and on 2026-08-28 that
@@ -922,15 +923,23 @@ jobs:
           fi
           # Belt-and-suspenders again: rather than write a subject with a
           # dangling "#", fall back to the PR title gh would use anyway.
-          MERGE_ARGS=(--repo "$REPO" --squash --delete-branch --admin)
+          MERGE_ARGS=(--repo "$REPO" --squash --auto)
           if [ -n "$ISSUE_NUM" ]; then
             MERGE_ARGS+=(--subject "feat: implement quick-note issue #$ISSUE_NUM")
           else
             echo "::warning::ISSUE_NUM is empty; letting gh derive the squash subject."
           fi
           gh pr merge "$PR_NUMBER" "${MERGE_ARGS[@]}"
-          echo "merged=true" >> "$GITHUB_OUTPUT"
-          echo "Merged and deleted branch for PR #$PR_NUMBER"
+          # --auto returns as soon as the merge is queued. Close the issue here
+          # only if the PR is already merged; otherwise the PR body's
+          # "Closes #N" closes it when GitHub merges, and never if a check fails.
+          STATE=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json state -q '.state' 2>/dev/null || echo "")
+          if [ "$STATE" = "MERGED" ]; then
+            echo "merged=true" >> "$GITHUB_OUTPUT"
+            echo "Merged PR #$PR_NUMBER"
+          else
+            echo "PR #$PR_NUMBER queued; GitHub merges it once required checks pass (state=$STATE)."
+          fi
 
       # ── 14. Close issue on success ─────────────────────────────────────────
       - name: Close issue — success
@@ -961,7 +970,7 @@ jobs:
           gh issue comment "$ISSUE_NUM" \
             --repo "$REPO" \
             --body "$(cat <<MSG
-          ✅ Done — PR #$PR_NUMBER merged into master (branch deleted).
+          ✅ Done — PR #$PR_NUMBER merged into master.
 
           ### What was implemented
           $IMPL_SUMMARY

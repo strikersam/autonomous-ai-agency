@@ -62,7 +62,7 @@ jobs:
             exit 0
           fi
           # Dependabot PRs belong to dependabot-auto-merge.yml, which holds
-          # major bumps for a human (rule 40). --admin here would bypass that.
+          # major bumps for a human (rule 40).
           if echo "$HEAD_BRANCH" | grep -qE '^dependabot/'; then
             echo "Skipping PR #$PR_NUMBER — Dependabot PRs are merged by dependabot-auto-merge.yml."
             exit 0
@@ -71,11 +71,16 @@ jobs:
             echo "::warning::PR #$PR_NUMBER metadata unreadable — not merging blind."
             exit 0
           fi
-          echo "Auto-merging PR #$PR_NUMBER after successful CI..."
-          # Merge only the commit CI just passed: a later push (untested) or a stale
-          # run for an older head must not be merged under --admin.
-          gh pr merge "$PR_NUMBER" --squash --admin --delete-branch \
+          echo "Queueing PR #$PR_NUMBER for merge once every required check is green..."
+          # --auto, never --admin. "CI succeeded" is one workflow; Security Gate,
+          # CodeQL and the rest are separate required checks that may still be
+          # pending or red. --admin skipped them: #1873 merged on 2026-11-01 with
+          # Security Gate red (+12 Bandit alerts on master), and #1863 merged with
+          # its required Python tests skipped. --auto lets GitHub merge only when
+          # branch protection is satisfied. --match-head-commit pins the commit CI
+          # passed, so a later untested push is never merged.
+          gh pr merge "$PR_NUMBER" --squash --auto \
             --match-head-commit "${{ github.event.workflow_run.head_sha }}" || {
-            echo "::warning::Auto-merge failed (branch protection or conflicts). Manual merge may be needed."
+            echo "::warning::Could not queue auto-merge (conflicts, stale head, or auto-merge disabled). Manual merge may be needed."
             exit 0
           }
