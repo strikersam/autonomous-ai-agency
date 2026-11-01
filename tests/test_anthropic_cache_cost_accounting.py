@@ -59,3 +59,22 @@ def test_router_translated_usage_costs_cache_reads() -> None:
     prompt = anthropic_prompt_tokens(usage)
     cost = cost_for_tokens("claude-opus-5-5", prompt, 0, usage["cache_read_input_tokens"])
     assert cost == pytest.approx(EXPECTED_COST)
+
+
+def test_provider_cost_discounts_cache_reads() -> None:
+    """LLMProvider.cost billed every prompt token at the full input rate, so
+    once cache reads sit inside prompt_tokens a 1M-token Opus 5.5 cache read
+    was estimated at $4 instead of $0.20 (Codex, #1877)."""
+    from packages.llm.registry import get_registry
+    from packages.llm.types import Usage
+
+    spec = get_registry().get("claude-opus-5-5")
+    assert spec is not None
+    provider = AnthropicProvider(ProviderConfig(
+        id="anthropic-test", kind="anthropic",
+        base_url="https://api.anthropic.com", key_env=["ANTHROPIC_API_KEY"],
+    ))
+    usage = Usage(prompt_tokens=1_000_050, completion_tokens=0, cached_tokens=1_000_000)
+    rate = spec.input_cost_per_1m / 1_000_000
+    expected = 50 * rate + 1_000_000 * rate * 0.05
+    assert provider.cost("claude-opus-5-5", usage) == pytest.approx(expected)
