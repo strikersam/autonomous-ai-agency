@@ -2,7 +2,7 @@ fastapi>=0.162.0
 uvicorn[standard]>=0.54.0
 motor>=3.7.1
 pymongo>=4.19.0
-pydantic>=2.14.1
+pydantic>=2.14.2
 python-dotenv>=1.2.4
 httpx>=0.28.1
 bcrypt>=5.0.0
@@ -25,8 +25,8 @@ lxml>=6.1.3           # HTML parser for BeautifulSoup (seo_audit.py uses bs4 "lx
 #     (without it, gucci.com-class Akamai sites return a blocked/empty body).
 #   - dnspython: the MX/NS/TXT/CNAME analysis (_analyze_dns) that yields the
 #     ~11 "no-browser-needed" systems (Akamai, Microsoft 365, Salesforce, …).
-curl_cffi>=0.16.3
-dnspython>=2.9.0
+curl_cffi>=0.17.0
+dnspython>=2.9.1
 
 # Headless-browser rendering for the website scanner (JS-rendered / bot-protected
 # sites). The Chromium binary is installed in the Docker image (see Dockerfile.backend);

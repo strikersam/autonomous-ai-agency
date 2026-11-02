@@ -1,8 +1,14 @@
 name: Autonomous Agency Cycle
 
+# Render usage: the tick runs CEO triage plus a dispatch for up to 90 s on a
+# 0.15 CPU free instance, and every call also wakes the service. Every 2 min
+# starved /api/ping (health check timeouts, 5 restarts in 24 h on 2026-11-01)
+# and kept the instance awake all night. Every 10 min from 06:00 to 21:59 UTC
+# is still frequent enough for the autonomy loop and lets the instance sleep
+# during quiet hours (see keepalive.yml).
 on:
   schedule:
-    - cron: "*/2 * * * *"
+    - cron: "*/10 6-21 * * *"
   workflow_dispatch: {}
 
 permissions:
