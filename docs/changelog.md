@@ -3,6 +3,8 @@
      move the gate to root. -->
 
 ## [Unreleased]
+### Added
+- **Add `agent/truncation_guard.py` to flag responses cut off at the output limit** (2026-11-02). From the weekly harness scan of Balanov/uncut, which exits with an error instead of presenting a provider-truncated reply as complete. `is_truncated()` and `require_complete()` classify a `finish_reason` of `length`, `max_tokens` or `max_output_tokens` as truncated and raise `TruncatedResponseError`. The helper is not wired into `agent/loop.py` (needs sign-off, CLAUDE.md rule 40), so runtime behaviour is unchanged. Files: `agent/truncation_guard.py`, `tests/test_truncation_guard.py`, `docs/research/harness-scan-log.md`.
 ### Fixed
 - **Fix `claude-sonnet-5-5` cache-read cost fraction** (2026-11-01). The pricing page (platform.claude.com/docs/en/about-claude/pricing, checked 2026-11-01) now prices Sonnet 5.5 cache hits at 0.05x base input ($0.10/MTok); on 2026-09-30 it was 10 %. `_CACHE_READ_FRACTIONS` in `packages/ai/cost_tracker.py` had no Sonnet 5.5 override, so `claude-sonnet-5-5` and `claude-sonnet-5-5-20260929` fell through to the generic `claude-` 10 % fraction and over-billed cache-heavy work by 2×. Added `("claude-sonnet-5-5", 0.05)` before the generic fallback: a 1 M-token fully-cached Sonnet 5.5 prompt now costs $0.10 instead of $0.20. The 2026-09-30 tests that pinned the old 10 % rate are updated to the current price. Files: `packages/ai/cost_tracker.py`, `tests/test_daily_automation_2026_11_01.py`, `tests/test_daily_automation_2026_09_30.py`.
 ### Changed
