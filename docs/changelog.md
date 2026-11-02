@@ -3,6 +3,8 @@
      move the gate to root. -->
 
 ## [Unreleased]
+### Changed
+- **Mistral Large 4 promoted to GA; context window expanded to 1 M** (2026-11-02). Mistral went generally available on 2026-11-01 and simultaneously released open weights to HuggingFace (`mistralai/Mistral-Large-4-0-Instruct`). The Preview API had a 131,072-token ceiling that the GA API lifts to the model's full 1,048,576-token context. The max-output limit rises from 4,096 to 32,768 tokens at GA. The list price ($1.36/$4.18 per MTok) is unchanged from Preview; the 50 % launch discount had already expired. Files: `config/llm/models.yaml`, `packages/ai/cost_tracker.py`, `tests/test_daily_automation_2026_11_02.py` (15 tests). Sources: mistral.ai/news/mistral-large-4-ga, huggingface.co/mistralai/Mistral-Large-4-0-Instruct, openrouter.ai/mistralai/mistral-large-4-0, 2026-11-01.
 ### Fixed
 - **Fix `claude-sonnet-5-5` cache-read cost fraction** (2026-11-01). The pricing page (platform.claude.com/docs/en/about-claude/pricing, checked 2026-11-01) now prices Sonnet 5.5 cache hits at 0.05x base input ($0.10/MTok); on 2026-09-30 it was 10 %. `_CACHE_READ_FRACTIONS` in `packages/ai/cost_tracker.py` had no Sonnet 5.5 override, so `claude-sonnet-5-5` and `claude-sonnet-5-5-20260929` fell through to the generic `claude-` 10 % fraction and over-billed cache-heavy work by 2×. Added `("claude-sonnet-5-5", 0.05)` before the generic fallback: a 1 M-token fully-cached Sonnet 5.5 prompt now costs $0.10 instead of $0.20. The 2026-09-30 tests that pinned the old 10 % rate are updated to the current price. Files: `packages/ai/cost_tracker.py`, `tests/test_daily_automation_2026_11_01.py`, `tests/test_daily_automation_2026_09_30.py`.
 ### Changed

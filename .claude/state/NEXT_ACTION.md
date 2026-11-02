@@ -1,3 +1,16 @@
+# NEXT_ACTION — updated 2026-11-02 (daily automation, branch `claude/intelligent-gates-1tggkz`)
+
+**What shipped:** Mistral Large 4 promoted from Preview to GA in model catalogue. `context_window` updated 131,072 → 1,048,576 (full 1 M context unlocked at GA); `max_output_tokens` updated 4,096 → 32,768. Open weights released to HuggingFace same day (`mistralai/Mistral-Large-4-0-Instruct`). 15 tests pass; all gates green. PR open, awaiting CI.
+
+## Open items
+
+1. **Mistral Large 4 live probe** — priority 62 (candidate); first live call post-GA will confirm the full 1 M context is usable on this account's free-tier key.
+2. **Gemini 4 Argon pricing change** — introductory price ($2/$10/MTok) ends 2026-11-30; standard $4/$20 from 2026-12-01. Update `_DEFAULT_COST_TABLE` entries before that date.
+3. **Gemini 4 Carbon live probe** — priority 99 (explicit-only). Once the PR merges and the Google AI Studio account is probed, lower priority and add to routing presets.
+4. **November model releases** — no confirmed new models as of 2026-11-02 (GPT-6.1 Astra cancelled; Qwen 4 no API yet). Re-check mid-November.
+5. **Operator decision: enforce branch protection for admins on master.** Until it is on, a manual `--admin` merge can still skip required checks.
+
+---
 # NEXT_ACTION — updated 2026-11-01 (drill: board cleared)
 
 **What shipped:** #1876 (proof numbers), #1871 (Sonnet 5.5 cache-read fraction 5 %, checked against the pricing page), #1877 (Anthropic cache reads were costed near zero; `LLMProvider.cost` now prices cached tokens at the cache-read rate), #1875 (auto-merge uses `--auto`, never `--admin`; Security Gate reruns on `ready_for_review`). Inventory: 0 open PRs/issues, master green, Render live on 6cc0e0f.

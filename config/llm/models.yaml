@@ -778,19 +778,22 @@ models:
     speed_tier: medium
 
   # Mistral Large 4 ("Le Chonk"). Mistral's 1.05T-parameter MoE flagship,
-  # released 2026-10-06 as a public preview. 49B active parameters; multimodal;
-  # native function calling. Context: 131072 (API limit; model supports up to 1M).
-  # Preview API price: $1.36/$4.18 per MTok (list); 50 % launch discount in effect
-  # through approx. 2026-10-20. Not yet probed on this account; live health checks apply.
-  # Source: techcrunch.com/2026/10/06/mistrals-new-1t-model-aims-to-leapfrog,
-  # openrouter.ai/mistralai/mistral-large-4-0, 2026-10-06.
+  # generally available 2026-11-01; open weights also released to HuggingFace
+  # (mistralai/Mistral-Large-4-0-Instruct) on the same date. 49B active
+  # parameters; multimodal; native function calling.
+  # Context: 1,048,576 tokens (full 1 M context unlocked at GA; Preview API had
+  # a 131,072-token ceiling). Max output: 32,768 tokens.
+  # GA API price: $1.36/$4.18 per MTok (list); launch discount expired.
+  # Sources: mistral.ai/news/mistral-large-4-ga, huggingface.co/mistralai/
+  #          Mistral-Large-4-0-Instruct, openrouter.ai/mistralai/mistral-large-4-0,
+  #          2026-11-01.
   # Costs zero: this deployment's Mistral key is on the free tier (same as
   # other Mistral entries). A billed key should restore list prices.
   mistral-large-4-0:
     provider: mistral
     display_name: Mistral Large 4 (Le Chonk)
-    context_window: 131072
-    max_output_tokens: 4096
+    context_window: 1048576
+    max_output_tokens: 32768
     supports_tools: true
     supports_function_calling: true
     supports_json: true
