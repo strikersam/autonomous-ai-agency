@@ -63,6 +63,31 @@ UNTRUSTED_EXTERNAL = "untrusted-external"
 def unsafe_target_reason(url: str) -> str | None:
     """Return why *url* must not be fetched, or None if it's a safe public target.
 
+    A block is also reported as a ``safety_event`` span event (hostname only,
+    never the URL) so operators can see what the agents were stopped from doing.
+    """
+    reason = _unsafe_target_reason(url)
+    if reason:
+        _report_block(url, reason)
+    return reason
+
+
+def _report_block(url: str, reason: str) -> None:
+    try:
+        from services.otel_tracing import emit_safety_event
+
+        try:
+            host = urllib.parse.urlparse(url).hostname or ""
+        except ValueError:
+            host = ""
+        emit_safety_event("web_reach_block", host, reason)
+    except Exception:  # nosec B110 — telemetry must never change the verdict
+        pass
+
+
+def _unsafe_target_reason(url: str) -> str | None:
+    """Return why *url* must not be fetched, or None if it's a safe public target.
+
     These tools take URLs chosen by an LLM — including URLs quoted inside
     content the LLM itself fetched or read from an issue/PR body, i.e. an
     attacker-controlled source in the classic SSRF sense. Unlike the

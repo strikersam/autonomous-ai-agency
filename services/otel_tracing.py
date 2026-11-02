@@ -326,6 +326,28 @@ def otel_status_error(message: str) -> Any:
         return None
 
 
+def emit_safety_event(kind: str, subject: str, reason: str) -> None:
+    """Record that a guard stopped an action, as an event on the current span.
+
+    ``kind`` is a short slug (``web_reach_block``, ``verifier_reject``);
+    ``subject`` must already be free of secrets/credentials/payloads (pass a
+    hostname or file path, never a full URL). No-op when OTel is disabled or
+    the SDK is missing, and never raises: telemetry must not change the
+    outcome of the guard that called it.
+    """
+    if not _OTEL_ENABLED:
+        return
+    try:
+        import opentelemetry.trace as otel_trace
+
+        otel_trace.get_current_span().add_event(
+            "safety_event",
+            {"kind": kind[:64], "subject": subject[:200], "reason": reason[:200]},
+        )
+    except Exception:  # nosec B110 — telemetry is best-effort
+        pass
+
+
 # ── Trace ID correlation with Langfuse ────────────────────────────────────────
 
 
