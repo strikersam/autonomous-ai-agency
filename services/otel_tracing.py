@@ -340,10 +340,15 @@ def emit_safety_event(kind: str, subject: str, reason: str) -> None:
     try:
         import opentelemetry.trace as otel_trace
 
-        otel_trace.get_current_span().add_event(
-            "safety_event",
-            {"kind": kind[:64], "subject": subject[:200], "reason": reason[:200]},
-        )
+        attrs = {"kind": kind[:64], "subject": subject[:200], "reason": reason[:200]}
+        span = otel_trace.get_current_span()
+        if span.is_recording():
+            span.add_event("safety_event", attrs)
+            return
+        # No request/@traced span is active (nothing installs the middleware), and
+        # a non-recording span would silently drop the event: open a short span.
+        with get_tracer("safety").start_as_current_span("safety_event") as own:
+            own.add_event("safety_event", attrs)
     except Exception:  # nosec B110 — telemetry is best-effort
         pass
 
