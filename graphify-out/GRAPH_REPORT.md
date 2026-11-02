@@ -1,17 +1,17 @@
 # Graph Report - autonomous-ai-agency  (2026-11-02)
 
 ## Corpus Check
-- 1211 files · ~1,362,333 words
+- 1211 files · ~1,362,370 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 57 file(s) not represented in the graph (top: (none) 19, .css 5, .bat 5)
 
 ## Summary
-- 25155 nodes · 47091 edges · 1211 communities (1020 shown, 191 thin omitted)
+- 25155 nodes · 47092 edges · 1211 communities (1019 shown, 192 thin omitted)
 - Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 2545 edges (avg confidence: 0.92)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `f537fa95`
+- Built from commit: `f42a3ef4`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -919,7 +919,7 @@
 - on
 - verify.sh
 - Skill: browserbase-browser — Real Browser Automation
-- NEXT_ACTION — updated 2026-10-05
+- TracerFactory
 - sqlite_atomic.py
 - worker/index.js
 - contract_enforcement.py
@@ -1022,7 +1022,7 @@
 - Command: /plan
 - OpenAI Codex CLI — Local LLM Server Config
 - AI Engineering Insights Skill
-- trip
+- span_context_from_request
 - Review instructions
 - CircuitState
 - setup-claude-code.sh script
@@ -1178,7 +1178,7 @@
 ## Import Cycles
 - 2-file cycle: `backend/server.py -> backend/v4_api.py -> backend/server.py`
 
-## Communities (1211 total, 191 thin omitted)
+## Communities (1211 total, 192 thin omitted)
 
 ### Community 0 - "typing"
 Cohesion: 0.01
@@ -1601,8 +1601,8 @@ Cohesion: 0.12
 Nodes (16): require_authenticated(), require_power_user(), add_peer(), get_folder_index(), get_sync_file(), get_sync_service(), list_conflicts(), list_peers() (+8 more)
 
 ### Community 113 - "Any"
-Cohesion: 0.06
-Nodes (13): get_tracer(), _NoOpSpan, _NoOpTracer, otel_middleware_factory(), otel_status_error(), otel_status_ok(), span_context_from_request(), span_context_to_headers() (+5 more)
+Cohesion: 0.09
+Nodes (9): get_tracer(), _NoOpSpan, _NoOpTracer, otel_middleware_factory(), otel_status_error(), otel_status_ok(), traced(), decorator() (+1 more)
 
 ### Community 114 - "skill_bindings.py"
 Cohesion: 0.07
@@ -1633,8 +1633,8 @@ Cohesion: 0.11
 Nodes (17): Context: what already works (do NOT redo), Definition of done (per task), How to verify the whole thing end-to-end (local, no external infra), P0 — Make autonomy real in production, P2 — ECC harness & polish, Pending Activities — Implementation Playbook, Task 10 — ECC cross-harness adapter (currently PLANNED only), Task 1 — Build the actual Kimi web-bridge service (free inference, no API key) (+9 more)
 
 ### Community 121 - "NEXT_ACTION.md"
-Cohesion: 0.05
-Nodes (38): Last session (2026-10-07, daily automation), NEXT_ACTION — updated 2026-10-07, NEXT_ACTION — updated 2026-10-08, NEXT_ACTION — updated 2026-10-08 (screen audit fixes), NEXT_ACTION — updated 2026-10-09, NEXT_ACTION — updated 2026-10-10 (daily automation, GPT-6.1 Sol), NEXT_ACTION — updated 2026-10-10 (Octop-inspired features), NEXT_ACTION — updated 2026-10-11 (durable state on SQLite) (+30 more)
+Cohesion: 0.04
+Nodes (45): Agent code work ships 2026-10-04 — branch `fix/agent-work-ships`, Bedrock live 2026-10-04, Bedrock model switch 2026-10-04 — branch `fix/bedrock-qwen3-coder`, Last session (2026-10-04, daily automation), Last session (2026-10-07, daily automation), NEXT_ACTION — updated 2026-10-05, NEXT_ACTION — updated 2026-10-07, NEXT_ACTION — updated 2026-10-08 (+37 more)
 
 ### Community 122 - "ContextPruner"
 Cohesion: 0.10
@@ -2317,8 +2317,8 @@ Cohesion: 0.12
 Nodes (14): _run(), _run(), _company_attr(), company_stack_tags(), extract_stack_tags(), fan_out_trend(), fan_out_trends(), is_code_change_trend() (+6 more)
 
 ### Community 298 - "web_reach.py"
-Cohesion: 0.10
-Nodes (16): _domain_list_reason(), _domain_matches(), _get(), _html_links(), _non_public(), _parse_domain_list(), _PinnedAsyncBackend, _PinnedSyncBackend (+8 more)
+Cohesion: 0.08
+Nodes (19): _domain_list_reason(), _domain_matches(), _get(), _html_links(), _non_public(), _parse_domain_list(), _PinnedAsyncBackend, _PinnedSyncBackend (+11 more)
 
 ### Community 299 - "UI Designer Agent Personality"
 Cohesion: 0.07
@@ -4576,10 +4576,6 @@ Nodes (6): fail(), pass(), verify.sh script, snapshot_files(), write_legacy_role
 Cohesion: 0.25
 Nodes (7): Applying to your platform, Core commands, Mode selection, Setup, Skill: browserbase-browser — Real Browser Automation, Troubleshooting, Workflow pattern
 
-### Community 908 - "NEXT_ACTION — updated 2026-10-05"
-Cohesion: 0.29
-Nodes (7): Agent code work ships 2026-10-04 — branch `fix/agent-work-ships`, Bedrock live 2026-10-04, Bedrock model switch 2026-10-04 — branch `fix/bedrock-qwen3-coder`, Last session (2026-10-04, daily automation), NEXT_ACTION — updated 2026-10-05, Open items for next daily run, Portfolio duplicate loop 2026-10-04 — branch `fix/portfolio-duplicate-loop`
-
 ### Community 909 - "sqlite_atomic.py"
 Cohesion: 0.24
 Nodes (5): _persist_tokens(), atomic_increment(), _checked(), is_sqlite_collection(), purge_expired()
@@ -4964,9 +4960,9 @@ Nodes (5): Codex Config File (`~/.codex/config.yaml`), Notes, OpenAI Codex CLI �
 Cohesion: 0.33
 Nodes (5): AI Engineering Insights Skill, Key Design Choices, Module: `agents/ai_insights.py`, References, What's Unique About the DX Report
 
-### Community 1013 - "trip"
+### Community 1013 - "span_context_from_request"
 Cohesion: 0.33
-Nodes (3): CanaryTripped, _notify(), trip()
+Nodes (3): span_context_from_request(), span_context_to_headers(), TraceContext
 
 ### Community 1014 - "Review instructions"
 Cohesion: 0.33
@@ -5263,7 +5259,7 @@ Nodes (3): _derive_workspace_root(), _hash_component(), _safe_resolve()
 ## Knowledge Gaps
 - **31 isolated node(s):** `docker`, `RENDER_API_KEY`, `react-app`, `ADR-0008`, `ADR-0008` (+26 more)
   These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 12797 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **191 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **192 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
