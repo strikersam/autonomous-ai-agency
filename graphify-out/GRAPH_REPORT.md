@@ -1,17 +1,17 @@
 # Graph Report - autonomous-ai-agency  (2026-11-02)
 
 ## Corpus Check
-- 1211 files · ~1,362,370 words
+- 1211 files · ~1,362,391 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 57 file(s) not represented in the graph (top: (none) 19, .css 5, .bat 5)
 
 ## Summary
-- 25155 nodes · 47092 edges · 1211 communities (1019 shown, 192 thin omitted)
+- 25155 nodes · 47093 edges · 1211 communities (1019 shown, 192 thin omitted)
 - Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 2545 edges (avg confidence: 0.92)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `f42a3ef4`
+- Built from commit: `506edb02`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
