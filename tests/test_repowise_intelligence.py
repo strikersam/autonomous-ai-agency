@@ -194,8 +194,9 @@ def test_git_command_timeout_returns_empty(tmp_path, monkeypatch):
 
 
 def test_symbol_graph_parses_each_file_once(tmp_path, monkeypatch):
-    """A second AST pass walked every call and computed nothing; it was ~20s of
-    a ~27s build here, ~3 min on Render's 0.15-CPU instance (2026-11-01)."""
+    """A second AST pass walked every call and computed nothing. Removing it
+    took _build_symbol_graph from 19.8s to 3.4s locally on this repo; the
+    effect on Render's 0.15-CPU instance is estimated, not measured."""
     import ast as ast_mod
 
     for i in range(5):
