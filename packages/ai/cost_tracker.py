@@ -273,10 +273,12 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "qwen/qwen3.6-27b": (0.60, 3.00),
     # --- Mistral API (added 2026-09-19) ---
     # Pricing approximate; verify at mistral.ai/pricing before billing-sensitive use.
-    # Mistral Large 4 ("Le Chonk", added 2026-10-09) — 1.05T MoE, 49B active.
-    # Preview list price: $1.36/$4.18 per MTok. Source: openrouter.ai/mistralai/
-    # mistral-large-4-0, techcrunch.com/2026/10/06, 2026-10-06.
-    "mistral-large-4-0": (1.36, 4.18),      # Mistral Large 4 — $1.36/$4.18 per MTok
+    # Mistral Large 4 ("Le Chonk", GA 2026-11-01) — 1.05T MoE, 49B active.
+    # Open weights released to HuggingFace same date (mistralai/Mistral-Large-4-0-Instruct).
+    # GA list price: $1.36/$4.18 per MTok (launch discount expired; same as Preview).
+    # Sources: mistral.ai/news/mistral-large-4-ga, openrouter.ai/mistralai/mistral-large-4-0,
+    # 2026-11-01.
+    "mistral-large-4-0": (1.36, 4.18),      # Mistral Large 4 — $1.36/$4.18 per MTok (GA)
     "mistral-large-latest": (3.00, 9.00),   # Mistral Large 2 — $3/$9 per MTok
     "mistral-small-latest": (0.10, 0.30),   # Mistral Small 3 — $0.10/$0.30 per MTok
     "codestral-latest": (0.30, 0.90),       # Codestral — $0.30/$0.90 per MTok
