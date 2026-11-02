@@ -126,10 +126,28 @@ async function handle(request, env) {
     }), url);
 }
 
+// True when `hour` (0-23, UTC) falls inside [start, end), wrapping midnight.
+export function isQuietHour(hour, env) {
+  const start = Number.parseInt((env && env.KEEPALIVE_QUIET_START_UTC) ?? "22", 10);
+  const end = Number.parseInt((env && env.KEEPALIVE_QUIET_END_UTC) ?? "6", 10);
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start === end) return false;
+  return start < end ? hour >= start && hour < end : hour >= start || hour < end;
+}
+
 export default {
   fetch: handle,
 
   async scheduled(event, env, ctx) {
+    // QUIET HOURS: stay silent so the free Render instance can sleep. Render
+    // bills free instance hours while awake (750 h/month shared by all free
+    // services) and one always-on service already uses 720-744 h. Defaults to
+    // 22:00-05:59 UTC; set KEEPALIVE_QUIET_START_UTC equal to
+    // KEEPALIVE_QUIET_END_UTC to disable and keep the service awake 24x7.
+    if (isQuietHour(new Date(event.scheduledTime || Date.now()).getUTCHours(), env)) {
+      console.log("quiet hours: skipping keep-warm and scheduler tick");
+      return;
+    }
+
     // Cloudflare Cron fires every minute. Two pings run in PARALLEL:
     //
     //   1. GET /api/ping  — unauthenticated, no DB I/O. The PRIMARY keep-warm
