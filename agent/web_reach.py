@@ -74,7 +74,12 @@ def unsafe_target_reason(url: str) -> str | None:
 
 def _report_block(url: str, reason: str) -> None:
     try:
+        from packages.security.canary import contains_canary
         from services.otel_tracing import emit_safety_event
+
+        # The canary credential must never leave the process, not even to a collector.
+        if contains_canary(url):
+            return
 
         try:
             host = urllib.parse.urlparse(url).hostname or ""

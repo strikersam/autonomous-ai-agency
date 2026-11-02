@@ -84,3 +84,14 @@ def test_opens_own_span_when_no_recording_span(monkeypatch):
     ot.emit_safety_event("k", "host", "why")
     assert spans == ["safety_event"]
     assert events and events[0][1]["subject"] == "host"
+
+
+def test_canary_url_is_never_reported(monkeypatch):
+    from packages.security import canary
+
+    events = _fake_otel(monkeypatch)
+    monkeypatch.setattr(ot, "_OTEL_ENABLED", True)
+    monkeypatch.setattr(canary, "canary_value", lambda: "decoy-credential-123")
+    monkeypatch.setattr(canary, "trip", lambda *a, **k: None)
+    assert unsafe_target_reason("http://decoy-credential-123.example/") is not None
+    assert events == []
