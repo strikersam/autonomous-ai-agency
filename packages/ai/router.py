@@ -1074,7 +1074,13 @@ class ProviderRouter:
         aws_secret_key = (
             os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY") or ""
         ).strip()
-        if aws_access_key and aws_secret_key:
+        # Bedrock is a paid provider. It registers only when the operator has
+        # opted into paid brains (ALLOW_PAID_BRAIN), the same gate the agent loop
+        # and model router already apply. Without it, AWS credentials in the
+        # environment resurrected Bedrock on every boot even after it was removed.
+        from packages.ai.brain import allow_paid_brain
+
+        if aws_access_key and aws_secret_key and allow_paid_brain():
             aws_region = (
                 os.environ.get("AWS_REGION")
                 or os.environ.get("AWS_DEFAULT_REGION")
