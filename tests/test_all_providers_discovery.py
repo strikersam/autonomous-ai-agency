@@ -45,10 +45,19 @@ def _router(monkeypatch, **env) -> ProviderRouter:
         # the count==16 contract below. Delenv them so the test is hermetic.
         "COLIBRI_ENABLED", "KIMI_BRIDGE_ENABLED",
         "LOCAL_BRAIN_ENABLED", "KIMI_LOCAL_LLAMA_ENABLED",
+        # Bedrock is a paid provider: from_env registers it only when paid
+        # brains are opted in. Clear the flag so the count==16 contract is
+        # hermetic; tests that want Bedrock pass AWS creds and the helper opts
+        # the paid gate in for them below.
+        "ALLOW_PAID_BRAIN",
     ]:
         monkeypatch.delenv(key, raising=False)
     for k, v in env.items():
         monkeypatch.setenv(k, v)
+    # A test that wires AWS credentials means to exercise Bedrock, which only
+    # registers under the paid-brain opt-in. Enable it for those tests.
+    if env.get("AWS_ACCESS_KEY_ID") or env.get("BEDROCK_ACCESS_KEY"):
+        monkeypatch.setenv("ALLOW_PAID_BRAIN", "true")
     return ProviderRouter.from_env()
 
 

@@ -198,6 +198,14 @@ class TestBedrockResponseToOpenai:
 # ── from_env() Bedrock discovery ──────────────────────────────────────────────
 
 class TestFromEnvBedrock:
+    @pytest.fixture(autouse=True)
+    def _paid_brain_on(self, monkeypatch):
+        # Bedrock is a paid provider: from_env registers it only when the
+        # operator has opted into paid brains. These tests cover the
+        # registration shape once opted in, so enable the gate.
+        monkeypatch.setenv("ALLOW_PAID_BRAIN", "true")
+        yield
+
     def test_bedrock_added_when_both_keys_present(self, monkeypatch):
         monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIATEST1234567890AB")
         monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test_secret")
@@ -208,6 +216,17 @@ class TestFromEnvBedrock:
         assert len(bedrock) == 1
         assert bedrock[0].type == "bedrock"
         assert bedrock[0].priority == 15
+
+    def test_bedrock_not_added_when_paid_brain_disabled(self, monkeypatch):
+        # Credentials present but paid brains not opted in: no provider. This is
+        # the "removing Bedrock sticks" contract — AWS keys alone never register.
+        monkeypatch.setenv("ALLOW_PAID_BRAIN", "false")
+        monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIATEST1234567890AB")
+        monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test_secret")
+        monkeypatch.delenv("NVIDIA_API_KEY", raising=False)
+        monkeypatch.delenv("NVidiaApiKey", raising=False)
+        router = ProviderRouter.from_env()
+        assert not any(p.provider_id == "bedrock" for p in router.providers)
 
     def test_bedrock_not_added_when_access_key_missing(self, monkeypatch):
         monkeypatch.delenv("AWS_ACCESS_KEY_ID", raising=False)

@@ -5,25 +5,33 @@ name: Keep-alive (prevent free-tier spin-down)
 # INSIDE the web service (render.yaml: RUN_BACKGROUND_IN_WEB=true), so keeping
 # the web service awake keeps the loops running — no paid worker required.
 #
-# This pings /api/ping (no DB I/O — cheaper than /api/health) every 3 min from
-# GitHub's runners. The 3-min interval gives 5 pings inside Render's 15-min
-# sleep window — wide margin against GitHub cron jitter (which can delay
-# scheduled runs by 5-10 min under load). Override the target with a repo
+# This pings /api/ping (no DB I/O — cheaper than /api/health) every 5 min from
+# GitHub's runners. The 5-min interval gives 3 pings inside Render's 15-min
+# sleep window — enough margin against GitHub cron jitter now that the
+# Cloudflare Worker also pings every minute. Override the target with a repo
 # variable KEEPALIVE_URL if the service URL changes.
 #
+# Render usage: a free web service bills instance hours while it is awake, and
+# the free quota (750 h/month per workspace) is shared by every free service.
+# One service awake 24x7 is 720-744 h, so any second awake service exhausted
+# the quota mid month and Render suspended everything until the 1st
+# ("Monthly Quota Exceeded", 2026-10-19 to 2026-11-01). Every layer below now
+# stays silent during QUIET HOURS (22:00-05:59 UTC, 23:00-06:59 in Milan in
+# winter) so the instance sleeps about 8 h a day, roughly 240 h a month saved.
+# Any real request (the UI, the Cloudflare Worker route) still wakes it.
+#
 # Layer diagram (defense-in-depth against Render free-tier cold starts):
-#   Layer A: Cloudflare Worker scheduled() — every 1 min (worker/index.js)
-#              GET /api/ping (primary) + POST /api/scheduler/tick (secondary)
-#   Layer B: THIS workflow — every 3 min, GET /api/ping + GET /api/health
-#   Layer C: autonomous-cycle.yml — every 2 min, GET /api/ping + /api/autonomy/tick
-#   Layer D: backend BOT_KEEPALIVE — every 10 min, self-ping (last resort)
+#   Layer A: Cloudflare Worker scheduled() — every 1 min (worker/index.js),
+#              silent in quiet hours
+#   Layer B: THIS workflow — every 5 min from 06:00 to 21:59 UTC
+#   Layer C: autonomous-cycle.yml — every 10 min from 06:00 to 21:59 UTC
 #
 # NOTE: For hard 24×7 uptime, also point a free external monitor
 # (UptimeRobot / cron-job.org) at /api/ping on a 5-minute interval.
 
 on:
   schedule:
-    - cron: "*/3 * * * *"
+    - cron: "*/5 6-21 * * *"
   workflow_dispatch: {}
 
 permissions:

@@ -28,6 +28,10 @@
   // .workers.dev` URL 404s after the rebrand and is no longer referenced
   // anywhere in the codebase.
   "vars": {
-    "PRIMARY_PRODUCTION_URL": "https://autonomous-ai-agency.strikersam.workers.dev"
+    "PRIMARY_PRODUCTION_URL": "https://autonomous-ai-agency.strikersam.workers.dev",
+    // Quiet hours (UTC): the cron skips keep-warm so Render can sleep.
+    // Set both equal to disable and keep the backend awake 24x7.
+    "KEEPALIVE_QUIET_START_UTC": "22",
+    "KEEPALIVE_QUIET_END_UTC": "6"
   }
 }
