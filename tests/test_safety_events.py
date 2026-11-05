@@ -48,6 +48,7 @@ def test_blocked_url_emits_event_with_host_only(monkeypatch):
         ("ftp://sk-live-abc123.example/", "sk-live-abc123"),
         ("ftp://sk-live-abc123/", "sk-live-abc123"),
         ("sk-live-abc123://attacker.example/", "sk-live-abc123"),
+        ("ftp://[fe80::1%25sk-live-abc123.example]/", "sk-live-abc123"),
     ],
 )
 def test_no_part_of_a_blocked_name_or_scheme_is_reported(monkeypatch, url, secret):

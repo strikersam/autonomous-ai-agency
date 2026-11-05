@@ -86,8 +86,9 @@ def _redact_host(host: str) -> str:
     of it leaves the process; the digest still lets operators correlate events.
     """
     try:
-        ipaddress.ip_address(host)
-        return host
+        # A scoped IPv6 literal (fe80::1%<zone>) carries free text in its zone.
+        if getattr(ipaddress.ip_address(host), "scope_id", None) is None:
+            return host
     except ValueError:
         pass
     if not host:
