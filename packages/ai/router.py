@@ -735,6 +735,24 @@ def _normalized_provider_type(record: dict[str, Any]) -> str:
     return raw or "openai-compatible"
 
 
+# Native stop reasons that mean "the provider cut the reply off at its output
+# limit": Anthropic/Bedrock `max_tokens`, Ollama `length`, Gemini `MAX_TOKENS`.
+_TRUNCATION_STOP_REASONS = frozenset({"max_tokens", "length", "max_output_tokens"})
+
+
+def _openai_finish_reason(native: Any) -> str:
+    """Map a provider's native stop reason onto OpenAI's ``finish_reason``.
+
+    Only truncation is distinguished (``"length"``); every other reason stays
+    ``"stop"``, which is what these translations always reported before. A
+    hardcoded ``"stop"`` hid truncated replies from every caller, including the
+    agent loop's truncation guard.
+    """
+    if isinstance(native, str) and native.strip().lower() in _TRUNCATION_STOP_REASONS:
+        return "length"
+    return "stop"
+
+
 class ProviderRouter:
     """Priority-ordered LLM provider fallback with health checks and retries."""
 
@@ -2067,7 +2085,7 @@ class ProviderRouter:
                 {
                     "index": 0,
                     "message": {"role": "assistant", "content": content},
-                    "finish_reason": "stop",
+                    "finish_reason": _openai_finish_reason(data.get("stop_reason")),
                 }
             ],
             "usage": {
@@ -2116,7 +2134,7 @@ class ProviderRouter:
                 {
                     "index": 0,
                     "message": {"role": "assistant", "content": content},
-                    "finish_reason": "stop",
+                    "finish_reason": _openai_finish_reason(data.get("done_reason") if isinstance(data, dict) else None),
                 }
             ],
             "usage": {
@@ -2232,7 +2250,7 @@ class ProviderRouter:
                 {
                     "index": 0,
                     "message": {"role": "assistant", "content": text},
-                    "finish_reason": "stop",
+                    "finish_reason": _openai_finish_reason(data.get("stopReason")),
                 }
             ],
             "usage": {

@@ -259,6 +259,9 @@ class FailoverResult:
     completion_tokens: int = 0
     latency_ms: int = 0
     attempts: list[str] = field(default_factory=list)
+    # OpenAI-style finish_reason of the winning response ("length" means the
+    # provider cut the reply off at its output limit); None when unknown.
+    finish_reason: str | None = None
 
 
 def _key_pool() -> Any:
@@ -508,6 +511,15 @@ def _parse_success(resp: httpx.Response) -> tuple[str, int, int]:
     )
 
 
+def _finish_reason(resp: httpx.Response) -> str | None:
+    """The first choice's ``finish_reason`` from a 2xx body, or None."""
+    try:
+        reason = resp.json()["choices"][0].get("finish_reason")
+    except (ValueError, KeyError, IndexError, TypeError, AttributeError):
+        return None
+    return reason if isinstance(reason, str) else None
+
+
 async def _try_provider(
     provider: Any,
     payload: dict[str, Any],
@@ -606,6 +618,7 @@ async def _try_provider(
                     completion_tokens=completion_tokens,
                     latency_ms=call_ms,
                     attempts=list(attempts),
+                    finish_reason=_finish_reason(resp),
                 ),
                 last_error,
             )
