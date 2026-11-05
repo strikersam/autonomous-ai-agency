@@ -1,3 +1,14 @@
+# NEXT_ACTION — updated 2026-11-02 (daily routine)
+
+**What shipped:** `safety_event` OTel span event for blocked outbound URLs (#1892 item 1, web_reach only). Verifier verdict: PASS+NOTES.
+
+## Open items
+
+1. **Merge the daily-routine PR** once CI is green.
+2. #1892 remaining: item 1 extension to verifier rejections (`agent/loop.py`) and workspace refusals (`agent/tools.py`, risky module, needs human); items 2 and 3 untouched; item 4 audit-only, needs `risky-module-review` and a human.
+3. Local sandbox has no MongoDB, so `tests/test_auth_me_regression.py` errors locally on master too; CI is the source of truth.
+
+---
 # NEXT_ACTION — updated 2026-11-01 (drill: board cleared)
 
 **What shipped:** #1876 (proof numbers), #1871 (Sonnet 5.5 cache-read fraction 5 %, checked against the pricing page), #1877 (Anthropic cache reads were costed near zero; `LLMProvider.cost` now prices cached tokens at the cache-read rate), #1875 (auto-merge uses `--auto`, never `--admin`; Security Gate reruns on `ready_for_review`). Inventory: 0 open PRs/issues, master green, Render live on 6cc0e0f.

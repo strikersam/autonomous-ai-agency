@@ -142,6 +142,7 @@ class TracerFactory:
         """Initialise the OTEL tracer provider on first use."""
         import opentelemetry.trace as otel_trace
         from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.sampling import ALWAYS_ON, TraceIdRatioBased
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
@@ -160,8 +161,10 @@ class TracerFactory:
         )
         provider = TracerProvider(
             resource=resource,
-            sampler=otel_trace.sampling.ALWAYS_ON if _OTEL_SAMPLING_RATE >= 1.0 else
-                     otel_trace.sampling.TraceIdRatioBased(_OTEL_SAMPLING_RATE),
+            # The samplers live in the SDK; `opentelemetry.trace` (the API) has no
+            # `sampling`, so the old lookup raised and every tracer fell back to no-op.
+            sampler=ALWAYS_ON if _OTEL_SAMPLING_RATE >= 1.0 else
+                     TraceIdRatioBased(_OTEL_SAMPLING_RATE),
         )
         provider.add_span_processor(BatchSpanProcessor(exporter))
         otel_trace.set_tracer_provider(provider)
@@ -324,6 +327,33 @@ def otel_status_error(message: str) -> Any:
         return Status(StatusCode.ERROR, message)
     except ImportError:
         return None
+
+
+def emit_safety_event(kind: str, subject: str, reason: str) -> None:
+    """Record that a guard stopped an action, as an event on the current span.
+
+    ``kind`` is a short slug (``web_reach_block``, ``verifier_reject``);
+    ``subject`` must already be free of secrets/credentials/payloads (pass a
+    hostname or file path, never a full URL). No-op when OTel is disabled or
+    the SDK is missing, and never raises: telemetry must not change the
+    outcome of the guard that called it.
+    """
+    if not _OTEL_ENABLED:
+        return
+    try:
+        import opentelemetry.trace as otel_trace
+
+        attrs = {"kind": kind[:64], "subject": subject[:200], "reason": reason[:200]}
+        span = otel_trace.get_current_span()
+        if span.is_recording():
+            span.add_event("safety_event", attrs)
+            return
+        # No request/@traced span is active (nothing installs the middleware), and
+        # a non-recording span would silently drop the event: open a short span.
+        with get_tracer("safety").start_as_current_span("safety_event") as own:
+            own.add_event("safety_event", attrs)
+    except Exception:  # nosec B110 — telemetry is best-effort
+        pass
 
 
 # ── Trace ID correlation with Langfuse ────────────────────────────────────────

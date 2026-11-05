@@ -24,6 +24,7 @@ rule.
 """
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import importlib.util
 import logging
@@ -63,6 +64,78 @@ UNTRUSTED_EXTERNAL = "untrusted-external"
 def unsafe_target_reason(url: str) -> str | None:
     """Return why *url* must not be fetched, or None if it's a safe public target.
 
+    A block is also reported as a ``safety_event`` span event (an IP literal, or a
+    digest of the hostname, never the URL) so operators can see what the agents were
+    stopped from doing.
+    """
+    reason = _unsafe_target_reason(url)
+    if reason:
+        _report_block(url, reason)
+    return reason
+
+
+def _strip_url_controls(url: str) -> str:
+    """*url* without the tab/CR/LF characters ``urllib.parse`` discards."""
+    return url.replace("\t", "").replace("\r", "").replace("\n", "")
+
+
+def _redact_host(host: str) -> str:
+    """*host* safe to export: IP literals as-is, any name as a short SHA-256 digest.
+
+    Every label of an attacker-chosen name can carry exfiltrated data, so no part
+    of it leaves the process; the digest still lets operators correlate events.
+    """
+    try:
+        # A scoped IPv6 literal (fe80::1%<zone>) carries free text in its zone.
+        if getattr(ipaddress.ip_address(host), "scope_id", None) is None:
+            return host
+    except ValueError:
+        pass
+    if not host:
+        return ""
+    return "sha256:" + hashlib.sha256(host.lower().encode()).hexdigest()[:16]
+
+
+# Reasons whose tail can quote URL text (scheme, hostname via the policy engine,
+# resolver errors): only the fixed prefix is exported.
+_REASON_PREFIXES_TO_COLLAPSE = (
+    "unsupported scheme",
+    "blocked by egress policy",
+    "could not resolve host",
+)
+
+
+def _redact_reason(reason: str) -> str:
+    """*reason* without any URL-derived text it may quote."""
+    for prefix in _REASON_PREFIXES_TO_COLLAPSE:
+        if reason.startswith(prefix):
+            return prefix
+    return reason
+
+
+def _report_block(url: str, reason: str) -> None:
+    try:
+        from packages.security.canary import contains_canary
+        from services.otel_tracing import emit_safety_event
+
+        # The canary credential must never leave the process, not even to a collector.
+        if contains_canary(url) or contains_canary(_strip_url_controls(url)):
+            return
+
+        try:
+            host = urllib.parse.urlparse(url).hostname or ""
+        except ValueError:
+            host = ""
+        if contains_canary(host) or contains_canary(reason):
+            return
+        emit_safety_event("web_reach_block", _redact_host(host), _redact_reason(reason))
+    except Exception:  # nosec B110 — telemetry must never change the verdict
+        pass
+
+
+def _unsafe_target_reason(url: str) -> str | None:
+    """Return why *url* must not be fetched, or None if it's a safe public target.
+
     These tools take URLs chosen by an LLM — including URLs quoted inside
     content the LLM itself fetched or read from an issue/PR body, i.e. an
     attacker-controlled source in the classic SSRF sense. Unlike the
@@ -75,7 +148,9 @@ def unsafe_target_reason(url: str) -> str | None:
     # Before any DNS lookup: a lookup of attacker.example/<value> already leaks it.
     from packages.security.canary import contains_canary, trip
 
-    if contains_canary(url):
+    # urlparse silently drops tab/CR/LF, so a canary split by one of them
+    # survives a raw substring check yet reaches DNS whole in the hostname.
+    if contains_canary(url) or contains_canary(_strip_url_controls(url)):
         trip("an outbound URL", None)
         return "URL carries the canary credential"
     try:
