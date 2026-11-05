@@ -140,6 +140,7 @@ async def failover_chat_completion_via_router(
         completion_tokens=response.usage.completion_tokens,
         latency_ms=response.latency_ms,
         attempts=[f"{a.provider}/{a.model}" for a in response.attempts],
+        finish_reason=response.finish_reason,
     )
 
 
