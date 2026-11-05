@@ -39,6 +39,18 @@ def test_blocked_url_emits_event_with_host_only(monkeypatch):
     assert "secret" not in str(attrs)
 
 
+def test_blocked_host_subdomain_labels_are_not_reported(monkeypatch):
+    # A hostname can smuggle a secret out in its leading labels (DNS exfil);
+    # only the registrable tail of the name may reach the collector.
+    events = _fake_otel(monkeypatch)
+    monkeypatch.setattr(ot, "_OTEL_ENABLED", True)
+    assert unsafe_target_reason("ftp://sk-live-abc123.data.attacker.example/") is not None
+    assert len(events) == 1
+    attrs = events[0][1]
+    assert attrs["subject"] == "*.attacker.example"
+    assert "sk-live-abc123" not in str(attrs)
+
+
 def test_silent_when_otel_disabled(monkeypatch):
     events = _fake_otel(monkeypatch)
     monkeypatch.setattr(ot, "_OTEL_ENABLED", False)

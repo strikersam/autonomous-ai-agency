@@ -63,8 +63,8 @@ UNTRUSTED_EXTERNAL = "untrusted-external"
 def unsafe_target_reason(url: str) -> str | None:
     """Return why *url* must not be fetched, or None if it's a safe public target.
 
-    A block is also reported as a ``safety_event`` span event (hostname only,
-    never the URL) so operators can see what the agents were stopped from doing.
+    A block is also reported as a ``safety_event`` span event (the hostname's last
+    two labels, never the URL) so operators can see what the agents were stopped from doing.
     """
     reason = _unsafe_target_reason(url)
     if reason:
@@ -75,6 +75,17 @@ def unsafe_target_reason(url: str) -> str | None:
 def _strip_url_controls(url: str) -> str:
     """*url* without the tab/CR/LF characters ``urllib.parse`` discards."""
     return url.replace("\t", "").replace("\r", "").replace("\n", "")
+
+
+def _redact_host(host: str) -> str:
+    """*host* reduced to its last two labels: leading labels can carry exfiltrated data."""
+    try:
+        ipaddress.ip_address(host)
+        return host
+    except ValueError:
+        pass
+    labels = host.split(".")
+    return host if len(labels) <= 2 else "*." + ".".join(labels[-2:])
 
 
 def _report_block(url: str, reason: str) -> None:
@@ -92,7 +103,7 @@ def _report_block(url: str, reason: str) -> None:
             host = ""
         if contains_canary(host) or contains_canary(reason):
             return
-        emit_safety_event("web_reach_block", host, reason)
+        emit_safety_event("web_reach_block", _redact_host(host), reason)
     except Exception:  # nosec B110 — telemetry must never change the verdict
         pass
 
