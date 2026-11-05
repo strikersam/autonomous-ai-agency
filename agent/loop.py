@@ -31,6 +31,7 @@ from agent.write_gate import (
     queue_proposal,
 )
 from agent.token_budget import BudgetExceededError, TokenBudget
+from agent.truncation_guard import TruncatedResponseError, require_complete
 from packages.governance.audit import scrub
 from packages.ai.user_token_quota import (
     anthropic_usage_total,
@@ -2571,7 +2572,10 @@ class AgentRunner:
                             pass
 
                     record_user_tokens(anthropic_usage_total(resp))
+                    require_complete(getattr(resp, "stop_reason", None))
                     return out_text
+                except TruncatedResponseError:
+                    raise  # a cut-off reply must fail the step, not fall back
                 except Exception as exc:
                     # A *configured* premium provider silently degrading to Ollama
                     # is operationally significant; at DEBUG it was invisible in
@@ -2635,11 +2639,16 @@ class AgentRunner:
                             except Exception:  # nosec B110 -- KPI tracking is best-effort
                                 pass
                         record_user_tokens(anthropic_usage_total(resp))
+                        require_complete(getattr(resp, "stop_reason", None))
                         return out_text
+                    except TruncatedResponseError:
+                        raise  # a cut-off reply must fail the step, not fall back
                     except Exception as exc:
                         # See the Anthropic branch above: a configured premium
                         # provider degrading to Ollama must be visible in prod.
                         log.warning("Bedrock Opus call failed — falling back to Ollama: %s", exc)
+        except TruncatedResponseError:
+            raise  # a cut-off reply must fail the step, not fall back
         except Exception:  # nosec B110 -- KPI tracking is best-effort
             # Any unexpected error should not break the normal Ollama path
             pass
@@ -2723,6 +2732,7 @@ class AgentRunner:
                     pass
             # ★3: enforce per-session token budget cap
             self._record_tokens(self._current_session_id, pt_anth, ct_anth, model=model)
+            require_complete(data.get("stop_reason") if isinstance(data, dict) else None)
             return out_text
 
         # ── Universal multi-provider failover ──────────────────────────────
@@ -2762,6 +2772,7 @@ class AgentRunner:
             self._current_session_id, fo.prompt_tokens, fo.completion_tokens,
             model=getattr(fo, "model", None) or model,
         )
+        require_complete(getattr(fo, "finish_reason", None))
         return fo.text
 
     async def _chat_json(self, model: str, messages: list[dict[str, str]]) -> dict[str, Any]:
