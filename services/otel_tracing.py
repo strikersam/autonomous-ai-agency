@@ -142,6 +142,7 @@ class TracerFactory:
         """Initialise the OTEL tracer provider on first use."""
         import opentelemetry.trace as otel_trace
         from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.sampling import ALWAYS_ON, TraceIdRatioBased
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
@@ -160,8 +161,10 @@ class TracerFactory:
         )
         provider = TracerProvider(
             resource=resource,
-            sampler=otel_trace.sampling.ALWAYS_ON if _OTEL_SAMPLING_RATE >= 1.0 else
-                     otel_trace.sampling.TraceIdRatioBased(_OTEL_SAMPLING_RATE),
+            # The samplers live in the SDK; `opentelemetry.trace` (the API) has no
+            # `sampling`, so the old lookup raised and every tracer fell back to no-op.
+            sampler=ALWAYS_ON if _OTEL_SAMPLING_RATE >= 1.0 else
+                     TraceIdRatioBased(_OTEL_SAMPLING_RATE),
         )
         provider.add_span_processor(BatchSpanProcessor(exporter))
         otel_trace.set_tracer_provider(provider)

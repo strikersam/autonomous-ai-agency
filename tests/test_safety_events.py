@@ -95,3 +95,50 @@ def test_canary_url_is_never_reported(monkeypatch):
     monkeypatch.setattr(canary, "trip", lambda *a, **k: None)
     assert unsafe_target_reason("http://decoy-credential-123.example/") is not None
     assert events == []
+
+
+def test_tab_split_canary_is_blocked_and_never_reported(monkeypatch):
+    """urlparse drops tabs, so a canary split by one used to pass the raw check
+    and reach DNS (and the collector) whole in the hostname."""
+    from packages.security import canary
+
+    events = _fake_otel(monkeypatch)
+    monkeypatch.setattr(ot, "_OTEL_ENABLED", True)
+    monkeypatch.setattr(canary, "canary_value", lambda: "decoy-credential-123")
+    tripped = []
+    monkeypatch.setattr(canary, "trip", lambda *a, **k: tripped.append(a))
+    reason = unsafe_target_reason("http://decoy-cred\tential-123.example/")
+    assert reason == "URL carries the canary credential"
+    assert tripped
+    assert events == []
+
+
+def test_tracer_initialises_with_sdk_sampler(monkeypatch):
+    """The sampler came from the API module, which has no ``sampling``; the
+    lookup raised and every tracer silently became a no-op."""
+    import pytest
+
+    pytest.importorskip("opentelemetry.sdk.trace.sampling")
+    pytest.importorskip("opentelemetry.semconv.resource")
+    exporter_mod = types.ModuleType("opentelemetry.exporter.otlp.proto.grpc.trace_exporter")
+
+    class _Exporter:
+        def __init__(self, *a, **k):
+            pass
+
+        def export(self, spans):
+            return None
+
+        def shutdown(self):
+            return None
+
+        def force_flush(self, timeout_millis=None):
+            return True
+
+    exporter_mod.OTLPSpanExporter = _Exporter
+    monkeypatch.setitem(sys.modules, exporter_mod.__name__, exporter_mod)
+    import opentelemetry.trace as otel_trace
+
+    monkeypatch.setattr(otel_trace, "set_tracer_provider", lambda provider: None)
+    tracer = ot.TracerFactory()._init_tracer("test")
+    assert tracer is not None and tracer is not ot._NOOP_TRACER

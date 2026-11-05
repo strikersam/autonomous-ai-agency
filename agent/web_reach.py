@@ -72,19 +72,26 @@ def unsafe_target_reason(url: str) -> str | None:
     return reason
 
 
+def _strip_url_controls(url: str) -> str:
+    """*url* without the tab/CR/LF characters ``urllib.parse`` discards."""
+    return url.replace("\t", "").replace("\r", "").replace("\n", "")
+
+
 def _report_block(url: str, reason: str) -> None:
     try:
         from packages.security.canary import contains_canary
         from services.otel_tracing import emit_safety_event
 
         # The canary credential must never leave the process, not even to a collector.
-        if contains_canary(url):
+        if contains_canary(url) or contains_canary(_strip_url_controls(url)):
             return
 
         try:
             host = urllib.parse.urlparse(url).hostname or ""
         except ValueError:
             host = ""
+        if contains_canary(host) or contains_canary(reason):
+            return
         emit_safety_event("web_reach_block", host, reason)
     except Exception:  # nosec B110 — telemetry must never change the verdict
         pass
@@ -105,7 +112,9 @@ def _unsafe_target_reason(url: str) -> str | None:
     # Before any DNS lookup: a lookup of attacker.example/<value> already leaks it.
     from packages.security.canary import contains_canary, trip
 
-    if contains_canary(url):
+    # urlparse silently drops tab/CR/LF, so a canary split by one of them
+    # survives a raw substring check yet reaches DNS whole in the hostname.
+    if contains_canary(url) or contains_canary(_strip_url_controls(url)):
         trip("an outbound URL", None)
         return "URL carries the canary credential"
     try:
