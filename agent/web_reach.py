@@ -24,6 +24,7 @@ rule.
 """
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import importlib.util
 import logging
@@ -63,8 +64,9 @@ UNTRUSTED_EXTERNAL = "untrusted-external"
 def unsafe_target_reason(url: str) -> str | None:
     """Return why *url* must not be fetched, or None if it's a safe public target.
 
-    A block is also reported as a ``safety_event`` span event (the hostname's last
-    two labels, never the URL) so operators can see what the agents were stopped from doing.
+    A block is also reported as a ``safety_event`` span event (an IP literal, or a
+    digest of the hostname, never the URL) so operators can see what the agents were
+    stopped from doing.
     """
     reason = _unsafe_target_reason(url)
     if reason:
@@ -78,14 +80,36 @@ def _strip_url_controls(url: str) -> str:
 
 
 def _redact_host(host: str) -> str:
-    """*host* reduced to its last two labels: leading labels can carry exfiltrated data."""
+    """*host* safe to export: IP literals as-is, any name as a short SHA-256 digest.
+
+    Every label of an attacker-chosen name can carry exfiltrated data, so no part
+    of it leaves the process; the digest still lets operators correlate events.
+    """
     try:
         ipaddress.ip_address(host)
         return host
     except ValueError:
         pass
-    labels = host.split(".")
-    return host if len(labels) <= 2 else "*." + ".".join(labels[-2:])
+    if not host:
+        return ""
+    return "sha256:" + hashlib.sha256(host.lower().encode()).hexdigest()[:16]
+
+
+# Reasons whose tail can quote URL text (scheme, hostname via the policy engine,
+# resolver errors): only the fixed prefix is exported.
+_REASON_PREFIXES_TO_COLLAPSE = (
+    "unsupported scheme",
+    "blocked by egress policy",
+    "could not resolve host",
+)
+
+
+def _redact_reason(reason: str) -> str:
+    """*reason* without any URL-derived text it may quote."""
+    for prefix in _REASON_PREFIXES_TO_COLLAPSE:
+        if reason.startswith(prefix):
+            return prefix
+    return reason
 
 
 def _report_block(url: str, reason: str) -> None:
@@ -103,7 +127,7 @@ def _report_block(url: str, reason: str) -> None:
             host = ""
         if contains_canary(host) or contains_canary(reason):
             return
-        emit_safety_event("web_reach_block", _redact_host(host), reason)
+        emit_safety_event("web_reach_block", _redact_host(host), _redact_reason(reason))
     except Exception:  # nosec B110 — telemetry must never change the verdict
         pass
 

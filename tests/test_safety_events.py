@@ -3,6 +3,8 @@ from __future__ import annotations
 import sys
 import types
 
+import pytest
+
 import services.otel_tracing as ot
 from agent.web_reach import unsafe_target_reason
 
@@ -39,15 +41,40 @@ def test_blocked_url_emits_event_with_host_only(monkeypatch):
     assert "secret" not in str(attrs)
 
 
-def test_blocked_host_subdomain_labels_are_not_reported(monkeypatch):
-    # A hostname can smuggle a secret out in its leading labels (DNS exfil);
-    # only the registrable tail of the name may reach the collector.
+@pytest.mark.parametrize(
+    "url, secret",
+    [
+        ("ftp://sk-live-abc123.data.attacker.example/", "sk-live-abc123"),
+        ("ftp://sk-live-abc123.example/", "sk-live-abc123"),
+        ("ftp://sk-live-abc123/", "sk-live-abc123"),
+        ("sk-live-abc123://attacker.example/", "sk-live-abc123"),
+    ],
+)
+def test_no_part_of_a_blocked_name_or_scheme_is_reported(monkeypatch, url, secret):
+    # Any label of a hostname (or the scheme) can smuggle a secret out (DNS exfil).
     events = _fake_otel(monkeypatch)
     monkeypatch.setattr(ot, "_OTEL_ENABLED", True)
-    assert unsafe_target_reason("ftp://sk-live-abc123.data.attacker.example/") is not None
+    assert unsafe_target_reason(url) is not None
     assert len(events) == 1
     attrs = events[0][1]
-    assert attrs["subject"] == "*.attacker.example"
+    assert attrs["subject"].startswith("sha256:")
+    assert secret not in str(attrs)
+
+
+def test_egress_policy_reason_never_quotes_the_host(monkeypatch):
+    # The governance engine's reason names the denied host; it must not be exported.
+    import agent.web_reach as wr
+
+    events = _fake_otel(monkeypatch)
+    monkeypatch.setattr(ot, "_OTEL_ENABLED", True)
+    monkeypatch.setattr(
+        wr,
+        "_unsafe_target_reason",
+        lambda url: "blocked by egress policy: 'sk-live-abc123.evil.example' is not on it",
+    )
+    assert wr.unsafe_target_reason("https://sk-live-abc123.evil.example/")
+    attrs = events[0][1]
+    assert attrs["reason"] == "blocked by egress policy"
     assert "sk-live-abc123" not in str(attrs)
 
 
