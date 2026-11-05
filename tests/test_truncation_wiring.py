@@ -88,3 +88,43 @@ def test_agent_loop_passes_a_complete_reply(tmp_path: Path, monkeypatch) -> None
     out = asyncio.run(runner._chat_text("meta/llama-3.3-70b-instruct",
                                         [{"role": "user", "content": "plan"}]))
     assert out == '{"steps": ['
+
+
+class _FakeSDK:
+    """Stands in for anthropic.AsyncAnthropic / AsyncAnthropicBedrock."""
+
+    def __init__(self, *a, **k) -> None:
+        async def create(**kwargs):
+            return SimpleNamespace(
+                content=[SimpleNamespace(type="text", text='{"steps": [')],
+                stop_reason="max_tokens",
+                usage=SimpleNamespace(input_tokens=1, output_tokens=1),
+            )
+        self.messages = SimpleNamespace(create=create)
+
+
+def _sdk_runner(tmp_path: Path, monkeypatch) -> AgentRunner:
+    """A runner whose paid-SDK path returns a truncated reply, and whose failover
+    fallback would return a complete one: if the SDK path swallowed the
+    truncation and fell back, the call would 'succeed' with the fallback text."""
+    import anthropic
+    monkeypatch.setenv("ALLOW_PAID_BRAIN", "true")
+    monkeypatch.setattr(anthropic, "AsyncAnthropic", _FakeSDK)
+    monkeypatch.setattr(anthropic, "AsyncAnthropicBedrock", _FakeSDK)
+    return _runner_with_failover(tmp_path, monkeypatch, "stop")
+
+
+def test_anthropic_sdk_truncation_is_not_swallowed(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    runner = _sdk_runner(tmp_path, monkeypatch)
+    with pytest.raises(TruncatedResponseError):
+        asyncio.run(runner._chat_text("claude-opus-5-5", [{"role": "user", "content": "plan"}]))
+
+
+def test_bedrock_sdk_truncation_is_not_swallowed(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test-access")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
+    runner = _sdk_runner(tmp_path, monkeypatch)
+    with pytest.raises(TruncatedResponseError):
+        asyncio.run(runner._chat_text("claude-opus-5-5", [{"role": "user", "content": "plan"}]))
