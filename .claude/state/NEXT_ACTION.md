@@ -1,3 +1,16 @@
+# NEXT_ACTION — updated 2026-11-06 (daily automation, branch `claude/intelligent-gates-x7y1ze`)
+
+**What shipped:** Mistral Large 4 (`mistral-large-4-0`) catalogue update — context window corrected to 524 288 (was 131 072), cache-read fraction added at 10 % (was missing, so cached tokens had 0 % discount). Open weights released 2026-10-29 noted in comments. 14 tests pass; all gates green. PR #1902 open, auto-merge armed (SQUASH).
+
+## Open items for next daily run
+
+1. **Confirm PR #1902 merged** — if CI is green it auto-merges. If red, investigate.
+2. **Gemini 4 Argon pricing** — introductory $2/$10/MTok ends 2026-11-30; standard $4/$20 starts 2026-12-01. Update `packages/ai/cost_tracker.py` before December.
+3. **Mistral Large 4 API context window** — currently 524 288; monitor Mistral's docs for an increase to the full 1 M. Raise priority from 62 once confirmed probed and not "public preview".
+4. **November model releases check** — no confirmed new text LLMs beyond what's in the catalogue as of 2026-11-06. Re-check on next run (Qwen 4, any OpenAI Nov release).
+5. **Render quota** — quota reset 2026-11-01; quiet-hours in keepalive/worker prevent repeat exhaustion. Monitor Render logs.
+
+---
 # NEXT_ACTION — updated 2026-11-02 (daily routine)
 
 **What shipped:** `safety_event` OTel span event for blocked outbound URLs (#1892 item 1, web_reach only). Verifier verdict: PASS+NOTES.
