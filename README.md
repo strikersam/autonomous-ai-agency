@@ -20,11 +20,9 @@ Self-hosted · MIT · Your servers, your models, your data
 
 **[▶ Try it live, free](https://autonomous-ai-agency.strikersam.workers.dev/) · [⚡ Run it in one command](#-run-it-in-one-command) · [🤪 Meet SAM](#-meet-sam) · [🧰 Agency Harness](harness/README.md) · [🔬 See the proof](proof/README.md) · [💬 Get help](#need-assistance)**
 
-<video src="brag-output/brag.mp4" poster="brag-output/brag.jpg" controls preload="metadata" width="760" aria-label="Autonomous AI Agency feature tour: paste a URL, get a CTO-grade audit, and run a specialist fleet 24×7 on your own hardware.">
-  <a href="brag-output/brag.mp4"><img src="brag-output/brag.jpg" alt="Autonomous AI Agency feature tour" width="760" /></a>
-</video>
+<a href="brag-output/brag.mp4"><img src="brag-output/preview.gif" alt="Autonomous AI Agency feature tour preview: paste a URL, get a CTO-grade audit, and run a specialist fleet 24×7 on your own hardware." width="760" /></a>
 
-_▶ Feature tour (64 s): paste a URL → stack scan → audit → specialist fleet → plan, execute, verify → spec approval → 24×7 → failover → lessons → meet SAM → autonomy on a leash → what's next. [Open the video](brag-output/brag.mp4) if it doesn't play inline._
+_▶ **[Watch the full 64 s feature tour](brag-output/brag.mp4)**: paste a URL → stack scan → audit → specialist fleet → plan, execute, verify → spec approval → 24×7 → failover → lessons → meet SAM → autonomy on a leash → what's next._
 
 </div>
 
