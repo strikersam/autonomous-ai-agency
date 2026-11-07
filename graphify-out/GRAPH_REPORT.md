@@ -1,7 +1,7 @@
 # Graph Report - autonomous-ai-agency  (2026-11-07)
 
 ## Corpus Check
-- 1226 files · ~1,369,842 words
+- 1226 files · ~1,370,041 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 57 file(s) not represented in the graph (top: (none) 19, .css 5, .bat 5)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `7f4eae6e`
+- Built from commit: `44afd0ec`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -1169,8 +1169,6 @@
 10. `LLMRouter` - 64 edges
 
 ## Surprising Connections (you probably didn't know these)
-- ``models/company_graph.py`` --references--> `Company`  [INFERRED]
-  docs/plans/onboarding-gate-admin-setting.md → models/company_graph.py
 - `A0. Fix live scanner crashes on real-world sites (`services/scanner.py`) — do first` --references--> `DetectedSystem`  [INFERRED]
   docs/architecture/onboarding-flow-fixes-plan-2026-06-13.md → models/company_graph.py
 - `Phase 6 — Green the tests + housekeeping` --references--> `DetectedSystem`  [INFERRED]
@@ -1179,6 +1177,8 @@
   docs/context/pr-634-implementation-tracker.md → models/company_graph.py
 - `Task 6 — Deeper website/repo scanning (more than "2 systems")` --references--> `DetectedSystem`  [INFERRED]
   docs/PENDING_ACTIVITIES.md → models/company_graph.py
+- `Step 2 — Poll progress` --references--> `OnboardingProgress`  [INFERRED]
+  .claude/skills/client-onboarding/SKILL.md → models/company_graph.py
 
 ## Import Cycles
 - 2-file cycle: `backend/server.py -> backend/v4_api.py -> backend/server.py`
@@ -4159,7 +4159,7 @@ Nodes (7): Do, Don't, /drill — clear the board, keep master green, Phase 1 —
 
 ### Community 809 - "NEXT_ACTION"
 Cohesion: 0.20
-Nodes (9): For the next daily automation run, Just completed, NEXT_ACTION, NEXT_ACTION — updated 2026-11-02 (daily routine), NEXT_ACTION — updated 2026-11-07 (agent memory), NEXT_ACTION — updated 2026-11-07 (landing redesign), Open items, Open items (+1 more)
+Nodes (9): For the next daily automation run, Just completed, NEXT_ACTION, NEXT_ACTION — updated 2026-11-02 (daily routine), NEXT_ACTION — updated 2026-11-07 (agent memory), NEXT_ACTION — updated 2026-11-07 (Hallmark redesign, PR #1910), Open items, Open items (+1 more)
 
 ### Community 810 - "codeql-config.yml"
 Cohesion: 0.25
@@ -5218,7 +5218,7 @@ Cohesion: 0.67
 Nodes (3): H1 — Vision Input Support for Multimodal Models [P2] [NVD], H2 — Audio Input / Whisper Transcription [P3] [NVD], SECTION H — Vision / Multimodal (NVD)
 
 ## Knowledge Gaps
-- **29 isolated node(s):** `OPENAI_API_BASE`, `OPENAI_API_KEY`, `react-app`, `ADR-0008`, `ADR-0008` (+24 more)
+- **29 isolated node(s):** `OPENAI_API_BASE`, `OPENAI_API_KEY`, `ADR-0008`, `react-app`, `ADR-0008` (+24 more)
   These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 12893 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
 - **209 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
@@ -5226,16 +5226,16 @@ Nodes (3): H1 — Vision Input Support for Multimodal Models [P2] [NVD], H2 — 
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `AgentRunner` connect `AgentRunner` to `typing`, `backend/server.py`, `ContextPruner`, `Autonomous SDLC Loop (Agency Core, repo-agnostic)`, `proxy.py`, `CEODispatcher`, `GitHubTools`, `failover_client.py`, `WorkflowOrchestrator`, `AgentSessionStore`, `ContextPruner`, `direct_chat.py`, `RepoConnection`, `.delegate`, `require_complete`, `write_gate.py`, `WorkspaceTools`, `empirical_verify.py`, `UserMemoryStore`, `internal_agent.py`, `agent/code_mode_connectors.py`, `SECTION A — Agent Efficiency (Hermes / AOS / MYT)`, `Any`, `LocalWorkspace`, `skill_registry.py`, `ceo_dispatcher.py`, `Architecture reference`, `de`, `Agency Core — Progress & Resume Log`, `TokenBudget`, `Deploy: FreeBuff Telegram bot (24×7)`, `pr_gate.py`, `RepowiseIntelligence`, `ContextManager`, `._dispatch_tool`, `enforcement.py`, `Competitor Analysis — Autonomous AI Agency`, `verification_strategies.py`, `MCPUnavailableError`, `judge_brief.py`, `Evidence-driven verification`, `AgentJobRequest`?**
-  _High betweenness centrality (0.035) - this node is a cross-community bridge._
-- **What connects `OPENAI_API_BASE`, `OPENAI_API_KEY`, `react-app` to the rest of the system?**
+  _High betweenness centrality (0.018) - this node is a cross-community bridge._
+- **What connects `OPENAI_API_BASE`, `OPENAI_API_KEY`, `ADR-0008` to the rest of the system?**
   _29 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `models/company_graph.py` be split into smaller, more focused modules?**
   _Cohesion score 0.024443505212735982 - nodes in this community are weakly interconnected._
-- **Why does `Completed Task Archive — October 2026` connect `Completed Task Archive — October 2026` to `WorkspaceTools`, `NotificationDispatcher`, `company_api.py`, `PortfolioManager`, `KnowledgeScreen.jsx`, `probe_catalogues.py`, `_env_int`, `tasks/service.py`, `telegram_bot.py`, `prompts.py`, `usage_metrics.py`, `get_task_store`, `._dispatch_tool`, `_process_task_callback`, `portfolio_intelligence.py`, `MCPClient`, `seo_api.py`, `ai/router.py`?**
-  _High betweenness centrality (0.020) - this node is a cross-community bridge._
 - **Should `typing` be split into smaller, more focused modules?**
   _Cohesion score 0.012359733289965848 - nodes in this community are weakly interconnected._
 - **Should `json` be split into smaller, more focused modules?**
   _Cohesion score 0.017390504232609495 - nodes in this community are weakly interconnected._
 - **Should `TaskSpec` be split into smaller, more focused modules?**
   _Cohesion score 0.05083870967741935 - nodes in this community are weakly interconnected._
+- **Should `api.js` be split into smaller, more focused modules?**
+  _Cohesion score 0.009696810144355228 - nodes in this community are weakly interconnected._
