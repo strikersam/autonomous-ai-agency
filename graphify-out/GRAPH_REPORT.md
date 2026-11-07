@@ -1,7 +1,7 @@
 # Graph Report - autonomous-ai-agency  (2026-11-07)
 
 ## Corpus Check
-- 1226 files · ~1,370,041 words
+- 1226 files · ~1,370,032 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 57 file(s) not represented in the graph (top: (none) 19, .css 5, .bat 5)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `44afd0ec`
+- Built from commit: `8ae8353d`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -5226,7 +5226,7 @@ Nodes (3): H1 — Vision Input Support for Multimodal Models [P2] [NVD], H2 — 
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `AgentRunner` connect `AgentRunner` to `typing`, `backend/server.py`, `ContextPruner`, `Autonomous SDLC Loop (Agency Core, repo-agnostic)`, `proxy.py`, `CEODispatcher`, `GitHubTools`, `failover_client.py`, `WorkflowOrchestrator`, `AgentSessionStore`, `ContextPruner`, `direct_chat.py`, `RepoConnection`, `.delegate`, `require_complete`, `write_gate.py`, `WorkspaceTools`, `empirical_verify.py`, `UserMemoryStore`, `internal_agent.py`, `agent/code_mode_connectors.py`, `SECTION A — Agent Efficiency (Hermes / AOS / MYT)`, `Any`, `LocalWorkspace`, `skill_registry.py`, `ceo_dispatcher.py`, `Architecture reference`, `de`, `Agency Core — Progress & Resume Log`, `TokenBudget`, `Deploy: FreeBuff Telegram bot (24×7)`, `pr_gate.py`, `RepowiseIntelligence`, `ContextManager`, `._dispatch_tool`, `enforcement.py`, `Competitor Analysis — Autonomous AI Agency`, `verification_strategies.py`, `MCPUnavailableError`, `judge_brief.py`, `Evidence-driven verification`, `AgentJobRequest`?**
-  _High betweenness centrality (0.018) - this node is a cross-community bridge._
+  _High betweenness centrality (0.015) - this node is a cross-community bridge._
 - **What connects `OPENAI_API_BASE`, `OPENAI_API_KEY`, `ADR-0008` to the rest of the system?**
   _29 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `models/company_graph.py` be split into smaller, more focused modules?**
