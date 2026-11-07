@@ -1,3 +1,14 @@
+# NEXT_ACTION — updated 2026-11-07 (landing redesign)
+
+**What shipped:** `frontend/public/home.html` redesigned with Hallmark (github.com/Nutlope/hallmark), Console theme, on branch `claude/agency-redesign-hallmark-ud364l`. sloplint 12 FAIL / 22 REFLEX → 0 / 0 on the served page; independent verifier PASS+NOTES (notes fixed).
+
+## Open items
+
+1. **Copy contradicts #1907:** the page says "Nothing merges or deploys without you" and the FAQ answers "No" to self-merging, but `config/autonomy.yaml` now lets agency PRs self-merge on green CI + verifier PASS. Operator must decide the wording (FAQ text is mirrored in JSON-LD; edit both).
+2. `og.jpg` has two slop tells baked into the image ("MEET SAM" eyebrow, one coloured phrase); regenerate it.
+3. The React dashboard (`frontend/src/v5`) was not redesigned; only the public landing page.
+
+---
 # NEXT_ACTION — updated 2026-11-07 (agent memory)
 
 **What shipped:** per-agent memory with offline dreaming (`services/agent_memory/`) on branch `claude/loving-planck-s0bzrc` (`7c12f6a`, `3a4189e`). Independent verifier: FAIL round 1 (4 defects, fixed with regression tests), PASS round 2.
