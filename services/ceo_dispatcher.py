@@ -288,8 +288,6 @@ class CEODispatcher:
             )
             fanout_used = True
 
-        for st in sub_tasks:
-            st.memory_owner = memory_owner or user_id
         ledger_goal = await _offload(
             self._open_ledger_goal,
             goal_id=goal_id,
@@ -301,7 +299,12 @@ class CEODispatcher:
             sub_tasks=sub_tasks,
             workspace_root=workspace_root,
             user_id=user_id,
+            memory_owner=memory_owner or user_id,
         )
+        # A supervisor re-drive passes no owner; the ledger remembers it.
+        owner = memory_owner or user_id or getattr(ledger_goal, "memory_owner", "") or None
+        for st in sub_tasks:
+            st.memory_owner = owner
 
         specialists_out = await self._run_subtasks(
             sub_tasks,
@@ -418,6 +421,7 @@ class CEODispatcher:
         sub_tasks: list[SpecialistTask],
         workspace_root: str | None = None,
         user_id: str | None = None,
+        memory_owner: str | None = None,
     ) -> Any:
         """Record the goal and its sub-tasks in the ledger before any work runs.
 
@@ -452,6 +456,7 @@ class CEODispatcher:
             # identifiers are stored — never a token.
             record.workspace_root = workspace_root or record.workspace_root
             record.user_id = user_id or record.user_id
+            record.memory_owner = memory_owner or record.memory_owner
             record.subtasks = [
                 SubtaskRecord(
                     subtask_id=st.task_id,

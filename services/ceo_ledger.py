@@ -211,6 +211,9 @@ class GoalRecord:
     #: writing secrets to disk. A re-drive therefore runs with the server's own
     #: repo access, not the original caller's; see the note in ``_redrive``.
     user_id: str = ""
+    #: Whose role memory the goal's specialists use (services/agent_memory).
+    #: Stored so a re-drive keeps a user's notes in that user's memory.
+    memory_owner: str = ""
     created_at: float = field(default_factory=_now)
     updated_at: float = field(default_factory=_now)
     #: Monotonic-ish wall clock of the last observed progress. The supervisor
@@ -249,6 +252,7 @@ class GoalRecord:
             "strategy": self.strategy,
             "workspace_root": self.workspace_root,
             "user_id": self.user_id,
+            "memory_owner": self.memory_owner,
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "last_progress_at": self.last_progress_at,
@@ -271,6 +275,7 @@ class GoalRecord:
             strategy=str(d.get("strategy") or "fallback"),
             workspace_root=str(d.get("workspace_root") or ""),
             user_id=str(d.get("user_id") or ""),
+            memory_owner=str(d.get("memory_owner") or ""),
             created_at=float(d.get("created_at") or _now()),
             updated_at=float(d.get("updated_at") or _now()),
             last_progress_at=float(d.get("last_progress_at") or _now()),

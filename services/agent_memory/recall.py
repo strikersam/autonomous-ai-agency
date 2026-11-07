@@ -75,11 +75,11 @@ def render_block(index: list[MemoryNote], relevant: list[MemoryNote]) -> str:
         )
     # Fit whole lines into the budget, keeping room for GUIDANCE: slicing the joined
     # string could drop the relevant notes and the REMEMBER convention itself.
-    # Task-relevant notes are budgeted first so a large index cannot crowd them out;
-    # they are still shown after the index.
+    # Task-relevant notes are budgeted first, capped at half, so neither layer can
+    # crowd the other out; they are still shown after the index.
     budget = MAX_BLOCK_CHARS - len(GUIDANCE) - sum(len(p) + 2 for p in parts) - 100
-    rel_lines, budget = _fit(map(_line, relevant), budget)
-    idx_lines, budget = _fit(map(_line, index), budget)
+    rel_lines, rel_left = _fit(map(_line, relevant), budget // 2)
+    idx_lines, _ = _fit(map(_line, index), budget - (budget // 2 - rel_left))
     if idx_lines:
         parts.append("Always-loaded index:\n" + "\n".join(idx_lines))
     if rel_lines:
@@ -105,9 +105,12 @@ async def build_memory_block(
     """Select, render and record access for the notes shown to this task."""
     notes = await store.list_notes(memory_key)
     index, relevant = select_notes(notes, query, index_lines=index_lines, recall_k=recall_k)
+    block = render_block(index, relevant)
     now = time.time()
     for note in (*index, *relevant):
+        if f"({note.note_id})" not in block:
+            continue  # cut by the size budget: the agent never saw it
         note.access_count += 1
         note.last_accessed_at = now
         await store.save_note(note)
-    return render_block(index, relevant)
+    return block

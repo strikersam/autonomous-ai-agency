@@ -496,3 +496,66 @@ async def test_ceo_delegate_keeps_each_users_role_notes_apart(store):
     assert len(await store.list_notes(f"role:{role}|a@x.com")) == 1
     assert await store.list_notes(f"role:{role}") == []
     assert "user A's private detail" not in fake.execute_calls[1].instruction
+
+
+def test_ledger_round_trips_memory_owner_and_old_records_load():
+    from services.ceo_ledger import GoalRecord
+
+    rec = GoalRecord(goal_id="g1", goal="g", request="r", memory_owner="a@x.com")
+    assert GoalRecord.from_dict(rec.as_dict()).memory_owner == "a@x.com"
+    old = rec.as_dict()
+    old.pop("memory_owner")
+    assert GoalRecord.from_dict(old).memory_owner == ""  # records written before this field
+
+
+async def test_supervisor_redrive_keeps_the_users_role_memory(store, monkeypatch):
+    from unittest.mock import patch
+
+    from services.ceo_dispatcher import CEODispatcher
+    from services.ceo_ledger import GoalRecord
+    from tests.test_ceo_dispatcher import _FakeRuntimeManager
+
+    stored = GoalRecord(goal_id="goal-redrive", goal="g", request="r", memory_owner="a@x.com")
+
+    class _Ledger:
+        def get(self, goal_id):
+            return stored if goal_id == "goal-redrive" else None
+
+        def __getattr__(self, _name):
+            return lambda *a, **k: None
+
+    monkeypatch.setattr("services.ceo_ledger.get_ceo_ledger", lambda: _Ledger())
+
+    class _AnyRuntime(dict):
+        def get(self, _key, _default=None):
+            return "REMEMBER: user A's re-driven detail"
+
+    fake = _FakeRuntimeManager()
+    fake._per_runtime = _AnyRuntime()
+    with patch("runtimes.manager.get_runtime_manager", return_value=fake):
+        # What CEOSupervisor._redrive sends for a workflow goal: no user, no memory_owner.
+        await CEODispatcher().delegate("Quick lint fix", complexity="low", goal_id="goal-redrive")
+
+    role = fake.execute_calls[0].task_type
+    assert len(await store.list_notes(f"role:{role}|a@x.com")) == 1
+    assert await store.list_notes(f"role:{role}") == []
+
+
+def test_render_block_keeps_both_layers_when_relevant_notes_are_many():
+    index = [_note("i" * 500, layer=NoteLayer.INDEX) for _ in range(20)]
+    relevant = [_note("r" * 500) for _ in range(20)]
+    block = render_block(index, relevant)
+    assert "Always-loaded index:" in block and "Possibly relevant to this task:" in block
+    assert len(block) <= 6000 and block.endswith(GUIDANCE)
+
+
+async def test_access_count_only_counts_notes_that_were_shown(store):
+    from services.agent_memory.recall import build_memory_block
+
+    for _ in range(20):
+        await store.save_note(_note("i" * 500, layer=NoteLayer.INDEX))
+    block = await build_memory_block(store, "agent_a", "q", index_lines=20, recall_k=0)
+    shown = [n for n in await store.list_notes("agent_a") if f"({n.note_id})" in block]
+    hidden = [n for n in await store.list_notes("agent_a") if f"({n.note_id})" not in block]
+    assert shown and hidden
+    assert all(n.access_count == 1 for n in shown) and all(n.access_count == 0 for n in hidden)
