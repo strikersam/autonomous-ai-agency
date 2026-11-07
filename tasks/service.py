@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 import asyncio
 from typing import Any
@@ -653,6 +654,33 @@ def _is_outward_facing(task: Task) -> bool:
     return False
 
 
+# Hard limits (operator decision, 2026-11-07): even in full autonomy, work that
+# spends money, touches secrets or access, or deletes data waits for a human.
+# These are gated whatever AGENCY_GATE_OUTWARD_FACING says.
+_HARD_LIMIT_TAGS = frozenset({
+    "irreversible", "risk:spend", "risk:secrets", "risk:delete", "spend", "billing",
+    "secrets", "credentials", "delete", "data-deletion",
+})
+_HARD_LIMIT_RE = re.compile(
+    r"\b(?:delete|drop|purge|wipe|truncate|destroy|remove)\b\W+(?:\w+\W+){0,3}?"
+    r"(?:database|db|collection|table|records|data|compan(?:y|ies)|users?|backups?|"
+    r"repo(?:sitory)?|branch(?:es)?|bucket|service)\b"
+    r"|\b(?:secret|secrets|credential|credentials|api[ _-]?keys?|password|passwords|rbac|"
+    r"(?:rotate|revoke)\W+(?:\w+\W+){0,2}?(?:keys?|tokens?|access|secrets?))\b"
+    r"|\b(?:billing|invoice|payment|purchase|subscribe|upgrade (?:the )?(?:plan|tier)|"
+    r"paid (?:plan|tier|model|provider)|top up)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_hard_limit(task: Task) -> bool:
+    """True when a task spends money, touches secrets or access, or deletes data."""
+    for tag in (task.tags or []):
+        if str(tag).strip().lower() in _HARD_LIMIT_TAGS:
+            return True
+    return bool(_HARD_LIMIT_RE.search(f"{task.title or ''}\n{task.description or ''}"[:4000]))
+
+
 async def _brain_is_configured() -> bool:
     """Best-effort, fail-open check that *some* usable LLM brain is configured.
 
@@ -794,11 +822,11 @@ class TaskExecutionCoordinator:
         # promote such a task to requires_approval on its first dispatch so it
         # parks at the gate and sends the Telegram Approve/Reject prompt. A task a
         # human already approved (execution_approved) is left alone.
+        hard_limit = _is_hard_limit(task)
         if (
             not task.requires_approval
             and not task.execution_approved
-            and _gate_outward_facing_enabled()
-            and _is_outward_facing(task)
+            and (hard_limit or (_gate_outward_facing_enabled() and _is_outward_facing(task)))
         ):
             task.requires_approval = True
             task.add_log(
@@ -807,7 +835,7 @@ class TaskExecutionCoordinator:
                 event_type="approval_gate_promoted",
                 actor="system:dispatcher",
                 task_status=task.status,
-                metadata={"reason": "outward_facing"},
+                metadata={"reason": "hard_limit" if hard_limit else "outward_facing"},
             )
 
         # ── Pre-execution approval gate (Autonomy Charter Gate Matrix) ──

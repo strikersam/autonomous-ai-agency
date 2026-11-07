@@ -36,7 +36,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.repository.default_branch }}
-          sparse-checkout: .github/scripts
+          sparse-checkout: |
+            .github/scripts
+            config/autonomy.yaml
+          sparse-checkout-cone-mode: false
           persist-credentials: false
 
       - name: Check verdict
@@ -45,3 +48,17 @@ jobs:
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
         run: python3 .github/scripts/verifier_verdict.py
+
+      # Full autonomy: once the verdict passes, try the merge gate. auto-merge.yml
+      # runs the same gate after CI, so the PR merges whichever lands last.
+      # The gate itself re-reads the "Verifier verdict" status and protected paths.
+      - name: Autonomy merge gate
+        if: success()
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then echo "GH_PAT unavailable (fork PR?) — skipping merge gate"; exit 0; fi
+          pip install --quiet pyyaml
+          python3 .github/scripts/autonomy_merge.py

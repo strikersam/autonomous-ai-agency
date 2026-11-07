@@ -1,0 +1,25 @@
+# config/autonomy.yaml — what the agency may merge on its own.
+#
+# Operator decision (2026-11-07): the agency runs with full autonomy and merges
+# its own PRs when CI is green AND the independent verifier's "Verifier verdict"
+# status is success on the PR head. Three hard limits always wait for a human:
+# spending money, secrets and access, and deleting data. A PR that touches any
+# path below is never auto-merged; it is labelled needs-human instead.
+protected_paths:
+  # Secrets and access (CLAUDE.md rule 15 risky modules)
+  - packages/auth/
+  - key_store.py
+  - handlers/v3_auth.py
+  - agent/tools.py
+  - proxy.py
+  # GitHub Actions permissions and deploy wiring
+  - .github/workflows/
+  - render.yaml
+  - Dockerfile
+  # Data deletion and schema
+  - migrations/
+  - db/migrations/
+  # Spending
+  - packages/ai/cost_tracker.py
+  - config/autonomy.yaml
+needs_human_label: needs-human

@@ -210,4 +210,47 @@ async def _verify(task: Any, result: Any) -> dict[str, Any] | None:
              sum(1 for s in run["ui_evidence"] if s.get("shot_id")))
     if ev.get("gap"):
         run["verifier_gap"] = ev["gap"]
+    if pr:
+        await _post_verdict(pr, run)
     return run
+
+
+_VERDICT_LINE = {"APPROVED": "PASS", "APPROVED_WITH_CONDITIONS": "PASS+NOTES"}
+
+
+def verdict_comment(run: dict[str, Any]) -> str:
+    """PR comment carrying the rule 49 verdict line the merge gate reads."""
+    judge = run.get("judge") or {}
+    verdict = _VERDICT_LINE.get(str(judge.get("verdict", "")).upper(), "FAIL")
+    if run.get("verifier_gap"):
+        # The change was never run; a reviewer's reading alone is not a pass.
+        verdict = "FAIL"
+    checks = run["steps"][0]["executed_checks"] if run.get("steps") else []
+    # The gate reads the LAST verdict line, so model-written notes are quoted
+    # ("> " lines never match) and the real verdict goes last.
+    notes = str(judge.get("notes", ""))[:1500].splitlines() or [""]
+    lines = [
+        "Independent verifier (agency, did not write this change).",
+        "",
+        f"Checks run: {'; '.join(checks) or 'none'}",
+        "Notes:",
+        *(f"> {line}" for line in notes),
+    ]
+    if run.get("verifier_gap"):
+        lines.append(f"> Gap: {run['verifier_gap']}")
+    lines += ["", f"Verdict: {verdict}"]
+    return "\n".join(lines)
+
+
+async def _post_verdict(pr: tuple[str, int], run: dict[str, Any]) -> None:
+    """Comment the verdict on the PR so the Verifier verdict gate can read it."""
+    token = _token_for(pr[0])
+    if not token:
+        return
+    try:
+        from agent.safe_agency import add_pr_comment
+
+        owner, repo = pr[0].rstrip("/").split("/")[-2:]
+        await add_pr_comment(token, owner, repo, pr[1], verdict_comment(run))
+    except Exception as exc:  # noqa: BLE001 - a missing comment only keeps the PR unmerged
+        log.warning("Could not post verifier verdict on %s#%s: %s", pr[0], pr[1], exc)
