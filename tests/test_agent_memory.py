@@ -442,11 +442,12 @@ def test_role_memory_is_per_user_for_directives_and_shared_for_agency_work():
 
 
 def test_render_block_keeps_guidance_and_whole_lines_when_index_is_huge():
-    index = [_note("x" * 490, layer=NoteLayer.INDEX) for _ in range(40)]
-    relevant = [_note("stripe webhooks need the raw body")]
+    index = [_note("x" * 500, layer=NoteLayer.INDEX) for _ in range(40)]  # max-size notes
+    relevant = [_note("stripe webhooks need the raw body " + "y" * 440)]  # too long for the index's leftovers
     block = render_block(index, relevant)
     assert block.endswith(GUIDANCE)
-    assert len(block) <= 6000 + len(GUIDANCE)
+    assert len(block) <= 6000  # MAX_BLOCK_CHARS, guidance included
+    assert "stripe webhooks need the raw body" in block  # a huge index cannot crowd it out
     assert all(line.endswith(")") for line in block.splitlines() if line.startswith("- ["))
 
 

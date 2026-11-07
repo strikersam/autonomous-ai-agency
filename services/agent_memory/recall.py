@@ -75,18 +75,28 @@ def render_block(index: list[MemoryNote], relevant: list[MemoryNote]) -> str:
         )
     # Fit whole lines into the budget, keeping room for GUIDANCE: slicing the joined
     # string could drop the relevant notes and the REMEMBER convention itself.
+    # Task-relevant notes are budgeted first so a large index cannot crowd them out;
+    # they are still shown after the index.
     budget = MAX_BLOCK_CHARS - len(GUIDANCE) - sum(len(p) + 2 for p in parts) - 100
-    for title, notes in (("Always-loaded index", index), ("Possibly relevant to this task", relevant)):
-        lines: list[str] = []
-        for line in map(_line, notes):
-            if len(line) + 1 > budget:
-                break
-            lines.append(line)
-            budget -= len(line) + 1
-        if lines:
-            parts.append(f"{title}:\n" + "\n".join(lines))
+    rel_lines, budget = _fit(map(_line, relevant), budget)
+    idx_lines, budget = _fit(map(_line, index), budget)
+    if idx_lines:
+        parts.append("Always-loaded index:\n" + "\n".join(idx_lines))
+    if rel_lines:
+        parts.append("Possibly relevant to this task:\n" + "\n".join(rel_lines))
     parts.append(GUIDANCE)
     return "\n\n".join(parts)
+
+
+def _fit(lines, budget: int) -> tuple[list[str], int]:
+    """Take whole lines while they fit; return them and the budget left."""
+    kept: list[str] = []
+    for line in lines:
+        if len(line) + 1 > budget:
+            break
+        kept.append(line)
+        budget -= len(line) + 1
+    return kept, budget
 
 
 async def build_memory_block(
