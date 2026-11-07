@@ -1,3 +1,12 @@
+# NEXT_ACTION — updated 2026-11-07 (Hallmark redesign, PR #1910)
+
+**What shipped:** landing page redesigned and dashboard tokens restyled with Hallmark's Console theme; public autonomy claims corrected to match full autonomy mode; `og.jpg` re-captured without its slop tells. PR #1910, auto-merge (squash) armed.
+
+## Open items
+
+1. `brag-output/composition/index.html` (the feature-tour video) still uses tracked-caps scene labels and a coloured headline word, and its leash scene predates full autonomy mode. Re-cut it if the video is published again.
+
+---
 # NEXT_ACTION — updated 2026-11-07 (agent memory)
 
 **What shipped:** per-agent memory with offline dreaming (`services/agent_memory/`) on branch `claude/loving-planck-s0bzrc` (`7c12f6a`, `3a4189e`). Independent verifier: FAIL round 1 (4 defects, fixed with regression tests), PASS round 2.
