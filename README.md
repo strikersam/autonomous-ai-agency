@@ -38,7 +38,7 @@ _▶ Feature tour (64 s): paste a URL → stack scan → audit → specialist fl
 | 🏢 **It staffs itself** | It provisions the specialist agents that business needs, coordinated by a CEO agent with a C-suite advisory board (CFO, CSO, COO, CMO, CPO, Counsel). |
 | 🛠 **It ships, and checks its own work** | Every change goes through plan → execute → verify. It byte-compiles and runs the tests before accepting a step. An LLM grading its own diff doesn't count. |
 | 🧯 **It fixes itself, and learns** | Errors on the dashboard become fix tasks automatically. Failures turn into lessons the planner reads next time. Every hour it mines its own sessions for failures that keep repeating and files them as improvements. The CEO stops repeating directives that keep failing. |
-| 🛡 **It stays on a leash** | Approval gates, a kill switch, per-agent daily spend caps, a canary credential, a policy engine and an audit trail. Nothing merges without green CI and an independent verifier's pass. |
+| 🛡 **It stays on a leash** | Approval gates, a kill switch, per-agent daily spend caps, a canary credential, a policy engine and an audit trail. No agent PR merges itself without green CI and an independent verifier's pass. |
 | 🤪 **It has a face** | **SAM**, a googly-eyed little creature, floats in the corner of every screen. Tell it what to do and it runs the agency. |
 
 ---
@@ -92,7 +92,7 @@ flowchart LR
     E --> V{Verifier<br/>compile + tests}
     V -->|fail| E
     V -->|pass| PR[Pull request]
-    PR -->|you merge| SHIP([Shipped])
+    PR -->|CI green + verifier pass| SHIP([Shipped])
     V -.lessons.-> P
     Q -.outward-facing.-> G{{Your approval}}
     G --> P
@@ -160,7 +160,7 @@ PYTHONPATH=. python scripts/run_seo_audit.py --website-url https://yourcompany.c
 
 ## Autonomy with a leash
 
-Nothing merges without green CI and an independent verifier's pass on the PR's latest commit, PRs touching protected paths wait for a human, deploys and external messages ask first by default, and spending, secrets, access and deletions always do. On top of that:
+No agent PR merges itself without green CI and an independent verifier's pass on its latest commit, PRs touching protected paths wait for a human, deploys and external messages ask first by default, and spending, secrets, access and deletions always do. On top of that:
 
 | Guardrail | Where |
 |---|---|

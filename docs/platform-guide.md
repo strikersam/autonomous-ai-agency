@@ -31,7 +31,7 @@ https://yourcompany.com
   running 24x7 on your server
        ↓
   Bug fixes · PRs · blog posts · CVE scans · SEO · support replies
-  — with your approval before anything ships
+  — verified work merges itself; spending, secrets, access and deletions wait for your approval
 ```
 
 No config files. No integration wiring. No per-seat pricing. No data leaving your server.
@@ -192,7 +192,7 @@ One line to remember: **Portfolio Management points the machine at the highest-v
 
 | What you say | What the agent does |
 |---|---|
-| "Fix the bug in issue #142" | Reads issue, reproduces, writes fix, opens PR, watches CI, awaits your approval |
+| "Fix the bug in issue #142" | Reads issue, reproduces, writes fix, opens PR, watches CI; merges once CI is green and the verifier passes |
 | "Audit our dependencies" | Scans for CVEs, generates an upgrade plan with test coverage, opens a safe PR |
 | "Review this PR" | Multi-perspective analysis: security, correctness, performance, maintainability — inline comments |
 | "Write tests for the auth module" | Generates unit + integration tests with realistic fixtures |
