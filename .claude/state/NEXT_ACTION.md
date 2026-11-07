@@ -1,12 +1,10 @@
-# NEXT_ACTION — updated 2026-11-07 (landing redesign)
+# NEXT_ACTION — updated 2026-11-07 (Hallmark redesign, PR #1910)
 
-**What shipped:** `frontend/public/home.html` redesigned with Hallmark (github.com/Nutlope/hallmark), Console theme, on branch `claude/agency-redesign-hallmark-ud364l`. sloplint 12 FAIL / 22 REFLEX → 0 / 0 on the served page; independent verifier PASS+NOTES (notes fixed).
+**What shipped:** landing page redesigned and dashboard tokens restyled with Hallmark's Console theme; public autonomy claims corrected to match full autonomy mode; `og.jpg` re-captured without its slop tells. PR #1910, auto-merge (squash) armed.
 
 ## Open items
 
-1. **Copy contradicts #1907:** the page says "Nothing merges or deploys without you" and the FAQ answers "No" to self-merging, but `config/autonomy.yaml` now lets agency PRs self-merge on green CI + verifier PASS. Operator must decide the wording (FAQ text is mirrored in JSON-LD; edit both).
-2. `og.jpg` has two slop tells baked into the image ("MEET SAM" eyebrow, one coloured phrase); regenerate it.
-3. The React dashboard (`frontend/src/v5`) was not redesigned; only the public landing page.
+1. `brag-output/composition/index.html` (the feature-tour video) still uses tracked-caps scene labels and a coloured headline word, and its leash scene predates full autonomy mode. Re-cut it if the video is published again.
 
 ---
 # NEXT_ACTION — updated 2026-11-07 (agent memory)
