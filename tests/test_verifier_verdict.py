@@ -61,7 +61,7 @@ def test_dependabot_and_label_exempt():
     assert vv.decide(_pr(labels=("verifier-exempt",)), [], "strikersam").ok
 
 
-def test_workflow_job_name_matches_required_check_name():
+def test_workflow_permissions_and_status_context():
     wf = yaml.safe_load((ROOT / ".github/workflows/verifier-verdict.yml").read_text())
     assert wf["permissions"] == {"contents": "read", "pull-requests": "read",
                                  "issues": "read", "statuses": "write"}

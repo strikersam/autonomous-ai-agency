@@ -196,7 +196,7 @@ def test_proposal_naming_missing_file_is_dropped(tmp_path):
 def test_new_file_is_allowed(tmp_path):
     root = _git_repo(tmp_path, {"proxy.py": "x = 1\n"})
     prop = fs.Proposal(title="Webhook retries", why="w", inspired_by="x",
-                       scope="Add a new services/webhook_retry.py helper")
+                       scope="Create services/webhook_retry.py helper")
     assert fs.grounding_problem(prop, root, fs._tracked_files(root)) is None
 
 
@@ -217,3 +217,19 @@ def test_select_proposals_applies_grounding(tmp_path):
         fs.Proposal(title="Webhook retries", why="w", inspired_by="x", scope="s"),
     ]
     assert [p.title for p in fs.select_proposals(props, [], 2, root=root)] == ["Webhook retries"]
+
+
+def test_add_or_reload_does_not_excuse_a_missing_file(tmp_path):
+    root = _git_repo(tmp_path, {"proxy.py": "x = 1\n"})
+    for scope in ("Add a retry to backend/sessions_api.py", "Reload backend/sessions_api.py"):
+        prop = fs.Proposal(title="Ghost", why="w", inspired_by="x", scope=scope)
+        assert "do not exist" in fs.grounding_problem(prop, root, []), scope
+
+
+def test_path_outside_repo_is_not_grounded(tmp_path):
+    root = tmp_path / "repo"
+    root.mkdir()
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "x.py").write_text("")
+    # The path regex never matches ".." segments; the resolve guard is a second line.
+    assert fs._missing_paths("see pkg/x.py", root) == ["pkg/x.py"]

@@ -157,7 +157,7 @@ def parse_proposals(content: str) -> list[Proposal]:
 
 
 _PATH_RE = re.compile(r"(?<![\w/.-])((?:[\w-]+/)+[\w.-]+\.(?:py|jsx?|tsx?|ya?ml|md|json))\b")
-_NEW_MARKERS = ("new ", "create ", "add ", "adds ", "added ")
+_NEW_MARKER_RE = re.compile(r"\b(?:new|create|creates|creating)\b", re.IGNORECASE)
 
 
 def _tracked_files(root: Path) -> list[str]:
@@ -175,8 +175,10 @@ def _missing_paths(text: str, root: Path) -> list[str]:
     missing = []
     for match in _PATH_RE.finditer(text):
         path = match.group(1)
-        before = text[max(0, match.start() - 20):match.start()].lower()
-        if (root / path).exists() or any(m in before for m in _NEW_MARKERS):
+        before = text[max(0, match.start() - 20):match.start()]
+        resolved = (root / path).resolve()
+        inside = root.resolve() in resolved.parents
+        if (inside and resolved.exists()) or _NEW_MARKER_RE.search(before):
             continue
         missing.append(path)
     return missing
