@@ -416,6 +416,9 @@ class CEOSupervisor:
                 domain=goal.domain,
                 workspace_root=goal.workspace_root or None,
                 user_id=goal.user_id or None,
+                # Whose role memory to use; lets the re-drive keep it even if
+                # the dispatcher cannot read the ledger back.
+                memory_owner=getattr(goal, "memory_owner", "") or None,
             )
         except asyncio.CancelledError:
             raise

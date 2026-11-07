@@ -1627,6 +1627,9 @@ class WorkflowOrchestrator:
                     workspace_root=workspace,
                     specialists=specialist.specialist_ids if specialist else [],
                     max_steps=req.max_steps,
+                    # Role memory per requesting user; does not change ledger,
+                    # push-token or runner ownership (those still see no user_id).
+                    memory_owner=req.user_id,
                 )
                 run.llm_provenance["ceo_verdict"] = ceo_result.verdict
                 if ceo_result.verdict == "OK":
