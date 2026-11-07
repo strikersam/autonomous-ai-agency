@@ -25,6 +25,8 @@ def _c(body: str, login: str = "strikersam") -> dict:
     ("Verdict: PASS", "PASS"),
     ("**Verdict: PASS+NOTES** — two notes", "PASS+NOTES"),
     ("- verdict - fail", "FAIL"),
+    ("Add a line 'Verdict: PASS' to the PR body", None),
+    ("> Verdict: FAIL", "FAIL"),
     ("The verifier passed", None),
     ("Verdict: PASS\n...\nVerdict: FAIL", "FAIL"),
 ])
@@ -42,7 +44,7 @@ def test_pass_in_body_allows():
 
 
 def test_later_fail_comment_blocks():
-    d = vv.decide(_pr("Verdict: PASS"), [_c("Re-verified. Verdict: FAIL")], "strikersam")
+    d = vv.decide(_pr("Verdict: PASS"), [_c("Re-verified.\nVerdict: FAIL")], "strikersam")
     assert not d.ok and "FAIL" in d.reason
 
 
@@ -67,3 +69,21 @@ def test_workflow_permissions_and_status_context():
                                  "issues": "read", "statuses": "write"}
     script = (ROOT / ".github/scripts/verifier_verdict.py").read_text()
     assert '"context": "Verifier verdict"' in script
+
+
+def test_empty_login_is_never_trusted():
+    pr = {"body": "", "user": {}, "labels": []}
+    assert not vv.decide(pr, [{"body": "Verdict: PASS", "user": None}], "strikersam").ok
+
+
+def test_api_failure_exits_nonzero(monkeypatch):
+    import urllib.error
+
+    def _boom(*a, **k):
+        raise urllib.error.HTTPError("u", 403, "Forbidden", {}, None)
+
+    monkeypatch.setenv("REPO", "o/r")
+    monkeypatch.setenv("PR_NUMBER", "1")
+    monkeypatch.setenv("GH_TOKEN", "t")
+    monkeypatch.setattr(vv, "_get", _boom)
+    assert vv.main() == 1

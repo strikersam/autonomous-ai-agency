@@ -18,13 +18,15 @@ import logging
 import os
 import re
 import sys
+import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
 log = logging.getLogger("qwen-proxy")
 
 VERDICT_RE = re.compile(
-    r"\bverdict\W{0,4}[:\-]\W{0,4}(PASS\+NOTES|PASS|FAIL)\b", re.IGNORECASE
+    r"^[ \t>*_\-]*verdict\W{0,4}[:\-]\W{0,4}(PASS\+NOTES|PASS|FAIL)\b",
+    re.IGNORECASE | re.MULTILINE,
 )
 EXEMPT_AUTHORS = frozenset({"dependabot[bot]"})
 EXEMPT_LABEL = "verifier-exempt"
@@ -54,7 +56,7 @@ def decide(pr: dict, comments: list[dict], owner: str) -> Decision:
     if EXEMPT_LABEL in labels:
         return Decision(True, f"exempt: labelled {EXEMPT_LABEL}")
 
-    trusted = {owner.lower(), author.lower(), *TRUSTED_BOTS}
+    trusted = {x for x in (owner.lower(), author.lower(), *TRUSTED_BOTS) if x}
     verdict = last_verdict(pr.get("body") or "")
     for comment in comments:
         login = ((comment.get("user") or {}).get("login") or "").lower()
@@ -101,6 +103,14 @@ def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     repo, number, token = os.environ["REPO"], os.environ["PR_NUMBER"], os.environ["GH_TOKEN"]
     base = f"https://api.github.com/repos/{repo}"
+    try:
+        return _run(base, number, token, repo)
+    except urllib.error.URLError as exc:
+        log.error("Verifier verdict could not read or update the PR: %s", exc)
+        return 1
+
+
+def _run(base: str, number: str, token: str, repo: str) -> int:
     pr = _get(f"{base}/pulls/{number}", token)
     comments: list[dict] = []
     page = 1

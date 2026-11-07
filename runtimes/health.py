@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from runtimes.base import RuntimeHealth
+from runtimes.quarantine import quarantined
 
 if TYPE_CHECKING:
     from runtimes.registry import RuntimeCapabilityRegistry
@@ -104,7 +105,11 @@ class RuntimeHealthService:
         return self._cache.get(runtime_id)
 
     def is_available(self, runtime_id: str) -> bool:
-        """Return True if the runtime is available (not circuit-open)."""
+        """Return True if the runtime is available (not circuit-open, not quarantined)."""
+        # A refusal quarantines a runtime between polls; the cached health
+        # would still say healthy until the next poll, so check it directly.
+        if quarantined(runtime_id):
+            return False
         circuit = self._circuits.get(runtime_id)
         if circuit and circuit.is_open:
             return False

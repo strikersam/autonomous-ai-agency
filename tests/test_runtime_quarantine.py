@@ -115,3 +115,15 @@ async def test_e2b_health_reports_quarantine(monkeypatch):
 def test_quarantine_uses_monotonic_clock():
     q.quarantine("x", "r", ttl_sec=5)
     assert q._until["x"] > time.monotonic()
+
+
+def test_health_service_rejects_quarantined_runtime_before_next_poll():
+    from runtimes.base import RuntimeHealth
+    from runtimes.health import RuntimeHealthService
+
+    svc = RuntimeHealthService.__new__(RuntimeHealthService)
+    svc._circuits = {}
+    svc._cache = {"hermes": RuntimeHealth(runtime_id="hermes", available=True)}
+    assert svc.is_available("hermes") is True
+    q.quarantine("hermes", "HTTP 401")
+    assert svc.is_available("hermes") is False
