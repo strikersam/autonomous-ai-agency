@@ -158,6 +158,22 @@ async def _find_existing_pr(
     return prs[0]
 
 
+async def get_pull_request(
+    github_token: str,
+    owner: str,
+    repo: str,
+    pr_number: int,
+) -> dict[str, Any] | None:
+    """The PR as GitHub reports it, or None when it does not exist."""
+    url = f"{_GH_API}/repos/{owner}/{repo}/pulls/{pr_number}"
+    async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+        resp = await client.get(url, headers=_headers(github_token))
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    return resp.json()
+
+
 async def add_pr_comment(
     github_token: str,
     owner: str,

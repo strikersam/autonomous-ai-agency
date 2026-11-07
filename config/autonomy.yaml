@@ -37,6 +37,8 @@ protected_paths:
   - tasks/service.py
   - tasks/independent_verifier.py
   - tasks/verification.py
+  - agent/autonomy_gate.py
+  - agent/safe_agency.py
   - packages/config/
   - agent/web_reach.py
 needs_human_label: needs-human

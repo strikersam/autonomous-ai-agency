@@ -691,7 +691,11 @@ def _is_hard_limit(task: Task) -> bool:
     for tag in (task.tags or []):
         if str(tag).strip().lower() in _HARD_LIMIT_TAGS:
             return True
-    return bool(_HARD_LIMIT_RE.search(f"{task.title or ''}\n{task.description or ''}"[:4000]))
+    # Everything the runtime is told: title, description, prompt, and the
+    # follow-up comments _compose_instruction appends. Never truncated.
+    comments = [str(getattr(c, "body", "") or "") for c in (getattr(task, "comments", None) or [])[-10:]]
+    text = "\n".join(filter(None, (task.title, task.description, task.prompt, *comments)))
+    return bool(_HARD_LIMIT_RE.search(text))
 
 
 async def _brain_is_configured() -> bool:

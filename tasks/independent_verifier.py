@@ -27,6 +27,7 @@ import asyncio
 import json
 import logging
 import re
+from datetime import datetime
 from typing import Any
 
 log = logging.getLogger("qwen-proxy")
@@ -211,7 +212,7 @@ async def _verify(task: Any, result: Any) -> dict[str, Any] | None:
     if ev.get("gap"):
         run["verifier_gap"] = ev["gap"]
     if pr:
-        await _post_verdict(pr, run)
+        await _post_verdict(pr, run, task)
     return run
 
 
@@ -242,15 +243,45 @@ def verdict_comment(run: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-async def _post_verdict(pr: tuple[str, int], run: dict[str, Any]) -> None:
+def _epoch(value: Any) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def pr_is_from_task(pr_json: dict[str, Any], task: Any) -> bool:
+    """Whether the verdict may go on this PR: an open agency PR opened during the task.
+
+    The PR is found by scanning free-text output, so a task that merely mentions
+    someone else's PR must not stamp a verdict on it (the merge gate trusts it).
+    """
+    head = pr_json.get("head") or {}
+    head_repo = (head.get("repo") or {}).get("full_name")
+    base_repo = ((pr_json.get("base") or {}).get("repo") or {}).get("full_name")
+    if pr_json.get("state") != "open" or not head_repo or head_repo != base_repo:
+        return False
+    if not str(head.get("ref", "")).startswith("agent/"):
+        return False
+    opened, started = _epoch(pr_json.get("created_at")), _epoch(getattr(task, "created_at", None))
+    return opened is not None and started is not None and opened >= started
+
+
+async def _post_verdict(pr: tuple[str, int], run: dict[str, Any], task: Any) -> None:
     """Comment the verdict on the PR so the Verifier verdict gate can read it."""
     token = _token_for(pr[0])
     if not token:
         return
     try:
-        from agent.safe_agency import add_pr_comment
+        from agent.safe_agency import add_pr_comment, get_pull_request
 
         owner, repo = pr[0].rstrip("/").split("/")[-2:]
+        pr_json = await get_pull_request(token, owner, repo, pr[1])
+        if not pr_json or not pr_is_from_task(pr_json, task):
+            log.info("Verifier verdict not posted on %s#%s: not a PR this task opened", pr[0], pr[1])
+            return
         await add_pr_comment(token, owner, repo, pr[1], verdict_comment(run))
     except Exception as exc:  # noqa: BLE001 - a missing comment only keeps the PR unmerged
         log.warning("Could not post verifier verdict on %s#%s: %s", pr[0], pr[1], exc)

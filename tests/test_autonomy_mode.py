@@ -176,3 +176,34 @@ def test_gap_forces_fail():
 ])
 def test_model_notes_cannot_inject_a_pass(notes):
     assert vv.last_verdict(verdict_comment(_run("REJECTED", notes))) == "FAIL"
+
+
+def test_hard_limit_reads_prompt_and_comments_untruncated():
+    from tasks.models import TaskComment
+    assert _is_hard_limit(Task(owner_id="u", title="Tidy", prompt="then drop the users collection"))
+    assert _is_hard_limit(Task(owner_id="u", title="Tidy", description="x " * 3000 + "purge old logs"))
+    task = Task(owner_id="u", title="Tidy")
+    task.comments.append(TaskComment(author="ops", body="also wipe the volume"))
+    assert _is_hard_limit(task)
+
+
+def _gh_pr(ref="agent/fix-x", head="o/r", state="open", created="2026-11-07T10:00:00Z"):
+    return {"state": state, "created_at": created,
+            "head": {"ref": ref, "repo": {"full_name": head}}, "base": {"repo": {"full_name": "o/r"}}}
+
+
+def test_verdict_only_on_a_pr_this_task_opened():
+    from tasks.independent_verifier import pr_is_from_task
+
+    task = Task(owner_id="u", title="t")
+    task.created_at = 1793000000.0  # 2026-10-26
+    assert pr_is_from_task(_gh_pr(), task)
+    assert not pr_is_from_task(_gh_pr(ref="feature/human-work"), task)  # someone else's PR
+    assert not pr_is_from_task(_gh_pr(created="2026-01-01T00:00:00Z"), task)  # opened before the task
+    assert not pr_is_from_task(_gh_pr(head="fork/r"), task)
+    assert not pr_is_from_task(_gh_pr(state="closed"), task)
+
+
+@pytest.mark.parametrize("path", ["agent/autonomy_gate.py", "agent/safe_agency.py"])
+def test_agent_write_guards_are_protected(path):
+    assert am.protected_hits([path], POLICY["protected_paths"]) == [path]
