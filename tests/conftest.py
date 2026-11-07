@@ -86,6 +86,9 @@ os.environ.setdefault("HARNESS_SPEC_AUTO_REFINE", "false")
 # Durable-state mirroring is off by default so unrelated tests write no rows; the
 # persistence tests opt in explicitly (rule 32).
 os.environ.setdefault("AGENCY_STATE_PERSISTENCE_ENABLED", "false")
+# Per-agent memory reads/writes the storage backend on every task; off unless a
+# test opts in (tests/test_agent_memory.py injects an in-memory store).
+os.environ.setdefault("AGENT_MEMORY_ENABLED", "false")
 
 # ── NOTE: STORAGE_BACKEND is deliberately NOT pinned here ────────────────────
 # Pinning it to sqlite looks tempting — `db/__init__.py`'s own docstring calls
