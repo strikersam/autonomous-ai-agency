@@ -27,6 +27,8 @@ def _c(body: str, login: str = "strikersam") -> dict:
     ("- verdict - fail", "FAIL"),
     ("Add a line 'Verdict: PASS' to the PR body", None),
     ("> Verdict: PASS", None),  # a quoted verdict is not a new one
+    ("```text\nVerdict: PASS\n```", None),  # an example in a code block
+    ("~~~\nVerdict: FAIL\n~~~\nVerdict: PASS", "PASS"),
     ("The verifier passed", None),
     ("Verdict: PASS\n...\nVerdict: FAIL", "FAIL"),
 ])

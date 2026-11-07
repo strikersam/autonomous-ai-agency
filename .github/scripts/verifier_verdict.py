@@ -41,9 +41,16 @@ class Decision:
     reason: str
 
 
+_FENCE_RE = re.compile(r"^[ \t]*(`{3,}|~{3,}).*?^[ \t]*\1", re.MULTILINE | re.DOTALL)
+
+
 def last_verdict(text: str) -> str | None:
-    """The last verdict named in *text*, upper-cased, or None."""
-    found = VERDICT_RE.findall(text or "")
+    """The last verdict named in *text*, upper-cased, or None.
+
+    Fenced code blocks are dropped first: an example verdict inside one is
+    documentation, not a verdict.
+    """
+    found = VERDICT_RE.findall(_FENCE_RE.sub("", text or ""))
     return found[-1].upper() if found else None
 
 
