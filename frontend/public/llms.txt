@@ -1,6 +1,6 @@
 # Autonomous AI Agency
 
-> A self-hosted, OpenAI-compatible AI proxy and multi-agent platform. Paste a website URL to get an audit; a CEO agent and a fleet of specialist agents then plan, write code, test it and open pull requests for human approval. MIT licensed, runs on your own servers and models.
+> A self-hosted, OpenAI-compatible AI proxy and multi-agent platform. Paste a website URL to get an audit; a CEO agent and a fleet of specialist agents then plan, write code, test it and open pull requests that merge once CI and an independent verifier pass them. MIT licensed, runs on your own servers and models.
 
 ## Links
 
