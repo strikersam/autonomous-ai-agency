@@ -25,7 +25,7 @@ from dataclasses import dataclass
 log = logging.getLogger("qwen-proxy")
 
 VERDICT_RE = re.compile(
-    r"^[ \t>*_\-]*verdict\W{0,4}[:\-]\W{0,4}(PASS\+NOTES|PASS|FAIL)\b",
+    r"^[ \t*_\-]*verdict\W{0,4}[:\-]\W{0,4}(PASS\+NOTES|PASS|FAIL)\b",
     re.IGNORECASE | re.MULTILINE,
 )
 EXEMPT_AUTHORS = frozenset({"dependabot[bot]"})
