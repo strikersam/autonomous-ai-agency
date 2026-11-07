@@ -102,6 +102,8 @@ class SpecialistTask:
     #: Tier this attempt runs at. Escalation rewrites it in place between
     #: attempts, so it always reflects the tier of the *current* attempt.
     tier: str = "midlevel"
+    #: Whose directive this sub-task serves; scopes its role memory per user.
+    memory_owner: str | None = None
     #: The caller's own step ceiling, when one was given. Escalation re-clamps
     #: against it, so a caller that asked for a tighter budget than the tier
     #: allows keeps that budget across retries instead of silently inheriting
@@ -638,6 +640,8 @@ class CEODispatcher:
         sem = asyncio.Semaphore(self.max_concurrent)
         results: dict[str, dict[str, Any]] = {}
         remaining = list(sub_tasks)
+        for st in remaining:
+            st.memory_owner = user_id
 
         while remaining:
             # Find tasks whose deps are all done (or have no deps).
@@ -780,7 +784,7 @@ class CEODispatcher:
                 dep_context = "\n\nUpstream specialist results:\n" + "\n".join(
                     f"[{sid}] {summary[:300]}" for sid, summary in upstream
                 )
-            memory_key = memory_key_for(role=st.role)
+            memory_key = memory_key_for(role=st.role, task_owner=st.memory_owner)
             spec = RT_TaskSpec(
                 task_id=st.task_id,
                 instruction=await with_agent_memory(st.instruction + dep_context, memory_key, st.instruction),

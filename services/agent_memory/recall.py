@@ -73,12 +73,20 @@ def render_block(index: list[MemoryNote], relevant: list[MemoryNote]) -> str:
             "unverified note before relying on it, and if this task shows a note is wrong, "
             "say which one (by id) and what is true instead."
         )
-    if index:
-        parts.append("Always-loaded index:\n" + "\n".join(_line(n) for n in index))
-    if relevant:
-        parts.append("Possibly relevant to this task:\n" + "\n".join(_line(n) for n in relevant))
+    # Fit whole lines into the budget, keeping room for GUIDANCE: slicing the joined
+    # string could drop the relevant notes and the REMEMBER convention itself.
+    budget = MAX_BLOCK_CHARS - len(GUIDANCE) - sum(len(p) + 2 for p in parts) - 100
+    for title, notes in (("Always-loaded index", index), ("Possibly relevant to this task", relevant)):
+        lines: list[str] = []
+        for line in map(_line, notes):
+            if len(line) + 1 > budget:
+                break
+            lines.append(line)
+            budget -= len(line) + 1
+        if lines:
+            parts.append(f"{title}:\n" + "\n".join(lines))
     parts.append(GUIDANCE)
-    return "\n\n".join(parts)[:MAX_BLOCK_CHARS]
+    return "\n\n".join(parts)
 
 
 async def build_memory_block(

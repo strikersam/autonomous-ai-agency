@@ -32,15 +32,20 @@ def memory_key_for(
 ) -> str | None:
     """agent_id for an agency agent; ``role:<role>`` for a CEO specialist.
 
-    When someone other than the agent's owner runs it (a public agent), their
-    runs get a separate ``<agent_id>|<task_owner>`` memory, so one user's task
-    output is never recalled into another user's prompts.
+    Memory never crosses users: a public agent run by someone other than its
+    owner gets ``<agent_id>|<task_owner>``, and a CEO specialist working a
+    user's directive gets ``role:<role>|<task_owner>``. Only the agency's own
+    (``system`` or owner-less) work shares the bare key.
     """
     if agent_id:
         if task_owner and agent_owner and task_owner not in (agent_owner, _AGENCY_OWNER):
             return f"{agent_id}{OWNER_SEP}{task_owner}"
         return agent_id
-    return f"{ROLE_PREFIX}{role}" if role else None
+    if not role:
+        return None
+    if task_owner and task_owner != _AGENCY_OWNER:
+        return f"{ROLE_PREFIX}{role}{OWNER_SEP}{task_owner}"
+    return f"{ROLE_PREFIX}{role}"
 
 
 async def with_agent_memory(instruction: str, memory_key: str | None, query: str) -> str:
@@ -89,7 +94,7 @@ async def default_llm(system: str, user: str) -> str:
 async def agent_context_for(memory_key: str) -> str:
     """Who this memory belongs to and what it is for — focuses dreaming on the agent's job."""
     if memory_key.startswith(ROLE_PREFIX):
-        return f"CEO specialist role '{memory_key[len(ROLE_PREFIX):]}'."
+        return f"CEO specialist role '{memory_key[len(ROLE_PREFIX):].split(OWNER_SEP, 1)[0]}'."
     try:
         from agents.store import get_agent_store
 

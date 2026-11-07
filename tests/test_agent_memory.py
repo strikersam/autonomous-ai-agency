@@ -281,10 +281,11 @@ def _client(user: dict) -> TestClient:
 def owned_agent(monkeypatch):
     import asyncio
 
-    from agents.store import AgentDefinition, AgentStore, set_agent_store
+    import agents.store as agents_store_mod
+    from agents.store import AgentDefinition, AgentStore
 
     agents = AgentStore()
-    set_agent_store(agents)
+    monkeypatch.setattr(agents_store_mod, "_store", agents)
     asyncio.run(agents.create(AgentDefinition(agent_id="agent_x", owner_id="owner@x.com", name="X")))
     return "agent_x"
 
@@ -365,10 +366,11 @@ def test_maybe_spawn_dream_cycle_without_a_loop_returns_false(store, monkeypatch
 def test_api_public_agent_memory_is_still_owner_only(store, monkeypatch):
     import asyncio
 
-    from agents.store import AgentDefinition, AgentStore, set_agent_store
+    import agents.store as agents_store_mod
+    from agents.store import AgentDefinition, AgentStore
 
     agents = AgentStore()
-    set_agent_store(agents)
+    monkeypatch.setattr(agents_store_mod, "_store", agents)
     asyncio.run(agents.create(AgentDefinition(agent_id="agent_pub", owner_id="owner@x.com",
                                               name="Pub", is_public=True)))
     stranger = _client({"email": "other@x.com", "role": "user"})
@@ -430,3 +432,19 @@ async def test_dream_marks_only_the_episodes_it_showed_the_model(store):
     result = await dream_agent(store, "agent_a", "ctx", llm=_fake_llm([]), index_cap=5)
     assert result["episodes"] == 30
     assert len(await store.list_episodes("agent_a", undreamed_only=True)) == 5
+
+
+def test_role_memory_is_per_user_for_directives_and_shared_for_agency_work():
+    key = mem_service.memory_key_for
+    assert key(role="coder", task_owner="a@x.com") == "role:coder|a@x.com"
+    assert key(role="coder", task_owner="system") == "role:coder"
+    assert key(role="coder") == "role:coder"
+
+
+def test_render_block_keeps_guidance_and_whole_lines_when_index_is_huge():
+    index = [_note("x" * 490, layer=NoteLayer.INDEX) for _ in range(40)]
+    relevant = [_note("stripe webhooks need the raw body")]
+    block = render_block(index, relevant)
+    assert block.endswith(GUIDANCE)
+    assert len(block) <= 6000 + len(GUIDANCE)
+    assert all(line.endswith(")") for line in block.splitlines() if line.startswith("- ["))
