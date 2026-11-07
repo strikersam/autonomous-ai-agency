@@ -30,7 +30,8 @@ jobs:
           fi
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
 
-      - name: Merge PR
+      - name: Pre-merge guards
+        id: guard
         if: steps.pr.outputs.pr_number != ''
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }}
@@ -52,35 +53,35 @@ jobs:
             echo "Draft PRs are planning docs only and must be implemented by the agent before merge."
             exit 0
           fi
-          # SAFETY: never auto-merge autonomous agency PRs (agent/* branches).
-          # PRs #842/#843 were low-value boilerplate from vague issues that the
-          # slop-gate couldn't catch because they were additive. Agency PRs need
-          # human review before merge.
-          HEAD_BRANCH=$(gh pr view "$PR_NUMBER" --json headRefName -q '.headRefName' 2>/dev/null || echo "")
-          if echo "$HEAD_BRANCH" | grep -qE '^agent/'; then
-            echo "Skipping PR #$PR_NUMBER — agency branch ($HEAD_BRANCH) requires human review before merge."
-            exit 0
-          fi
-          # Dependabot PRs belong to dependabot-auto-merge.yml, which holds
-          # major bumps for a human (rule 40).
-          if echo "$HEAD_BRANCH" | grep -qE '^dependabot/'; then
-            echo "Skipping PR #$PR_NUMBER — Dependabot PRs are merged by dependabot-auto-merge.yml."
-            exit 0
-          fi
-          if [ -z "$HEAD_BRANCH" ]; then
+          if [ -z "$(gh pr view "$PR_NUMBER" --json headRefName -q '.headRefName' 2>/dev/null)" ]; then
             echo "::warning::PR #$PR_NUMBER metadata unreadable — not merging blind."
             exit 0
           fi
-          echo "Queueing PR #$PR_NUMBER for merge once every required check is green..."
-          # --auto, never --admin. "CI succeeded" is one workflow; Security Gate,
-          # CodeQL and the rest are separate required checks that may still be
-          # pending or red. --admin skipped them: #1873 merged on 2026-11-01 with
-          # Security Gate red (+12 Bandit alerts on master), and #1863 merged with
-          # its required Python tests skipped. --auto lets GitHub merge only when
-          # branch protection is satisfied. --match-head-commit pins the commit CI
-          # passed, so a later untested push is never merged.
-          gh pr merge "$PR_NUMBER" --squash --auto \
-            --match-head-commit "${{ github.event.workflow_run.head_sha }}" || {
-            echo "::warning::Could not queue auto-merge (conflicts, stale head, or auto-merge disabled). Manual merge may be needed."
-            exit 0
-          }
+          echo "pr_ready=true" >> $GITHUB_OUTPUT
+
+      # Full autonomy (operator decision 2026-11-07): every PR, agency branches
+      # included, merges itself only when CI is green AND the independent
+      # verifier's "Verifier verdict" status passed, and never when it touches a
+      # protected path (config/autonomy.yaml: spending, secrets and access, data
+      # deletion). Those are labelled needs-human. verifier-verdict.yml runs the
+      # same gate, so the PR merges whichever of CI and the verdict lands last.
+      - uses: actions/checkout@v4
+        if: steps.guard.outputs.pr_ready == 'true'
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: |
+            .github/scripts
+            config/autonomy.yaml
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+
+      - name: Autonomy merge gate
+        if: steps.guard.outputs.pr_ready == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr.outputs.pr_number }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          pip install --quiet pyyaml
+          python3 .github/scripts/autonomy_merge.py

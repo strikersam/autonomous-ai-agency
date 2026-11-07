@@ -495,3 +495,14 @@ def hermetic_dns(monkeypatch):
 
     monkeypatch.setattr(socket, "getaddrinfo", fake_getaddrinfo)
     return fake_getaddrinfo
+
+
+@pytest.fixture(autouse=True)
+def _clear_runtime_quarantine():
+    """Runtime quarantine is process state; a refusal in one test must not
+    disable a runtime for the next (services.e2b_sandbox now records it)."""
+    from runtimes import quarantine
+
+    quarantine.clear()
+    yield
+    quarantine.clear()
