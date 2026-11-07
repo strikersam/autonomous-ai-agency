@@ -559,3 +559,60 @@ async def test_access_count_only_counts_notes_that_were_shown(store):
     hidden = [n for n in await store.list_notes("agent_a") if f"({n.note_id})" not in block]
     assert shown and hidden
     assert all(n.access_count == 1 for n in shown) and all(n.access_count == 0 for n in hidden)
+
+
+def _redrive_runtime():
+    from tests.test_ceo_dispatcher import _FakeRuntimeManager
+
+    class _AnyRuntime(dict):
+        def get(self, _key, _default=None):
+            return "REMEMBER: re-driven detail"
+
+    fake = _FakeRuntimeManager()
+    fake._per_runtime = _AnyRuntime()
+    return fake
+
+
+@pytest.mark.parametrize("ledger_state", ["record_without_owner", "ledger_unavailable"])
+async def test_redrive_with_unknown_owner_gets_no_memory(store, monkeypatch, ledger_state):
+    from unittest.mock import patch
+
+    from services.ceo_dispatcher import CEODispatcher
+    from services.ceo_ledger import GoalRecord
+
+    await store.save_note(MemoryNote(memory_key="role:dev", text="shared pool note about lint fix"))
+    old = GoalRecord(goal_id="goal-old", goal="g", request="r")  # predates memory_owner
+
+    class _Ledger:
+        def get(self, goal_id):
+            return old
+
+        def __getattr__(self, _name):
+            return lambda *a, **k: None
+
+    def _broken():
+        raise RuntimeError("ledger down")
+
+    monkeypatch.setattr("services.ceo_ledger.get_ceo_ledger",
+                        (lambda: _Ledger()) if ledger_state == "record_without_owner" else _broken)
+    fake = _redrive_runtime()
+    with patch("runtimes.manager.get_runtime_manager", return_value=fake):
+        await CEODispatcher().delegate("Quick lint fix", complexity="low", goal_id="goal-old")
+
+    assert "## Your memory" not in fake.execute_calls[0].instruction  # no recall
+    assert [n.text for n in await store.list_notes("role:dev")] == ["shared pool note about lint fix"]
+    assert await store.keys_with_undreamed() == {}  # no recording anywhere
+
+
+async def test_supervisor_passes_the_stored_memory_owner(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from services.ceo_ledger import GoalRecord
+    from services.ceo_supervisor import CEOSupervisor
+
+    fake_ceo = MagicMock()
+    fake_ceo.delegate = AsyncMock()
+    monkeypatch.setattr("services.ceo_dispatcher.get_ceo_dispatcher", lambda: fake_ceo)
+    goal = GoalRecord(goal_id="g1", goal="g", request="r", memory_owner="a@x.com")
+    await CEOSupervisor()._redrive(goal)
+    assert fake_ceo.delegate.call_args.kwargs["memory_owner"] == "a@x.com"

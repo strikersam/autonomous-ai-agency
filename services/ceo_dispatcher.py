@@ -104,6 +104,9 @@ class SpecialistTask:
     tier: str = "midlevel"
     #: Whose directive this sub-task serves; scopes its role memory per user.
     memory_owner: str | None = None
+    #: True for a supervisor re-drive whose owner could not be established: the
+    #: run gets no memory rather than falling back to the shared role pool.
+    memory_disabled: bool = False
     #: The caller's own step ceiling, when one was given. Escalation re-clamps
     #: against it, so a caller that asked for a tighter budget than the tier
     #: allows keeps that budget across retries instead of silently inheriting
@@ -301,10 +304,13 @@ class CEODispatcher:
             user_id=user_id,
             memory_owner=memory_owner or user_id,
         )
-        # A supervisor re-drive passes no owner; the ledger remembers it.
+        # A supervisor re-drive passes no owner; the ledger remembers it. A re-drive
+        # whose owner is unknown (record predates the field, or the ledger is
+        # down) gets no memory rather than the shared role pool.
         owner = memory_owner or user_id or getattr(ledger_goal, "memory_owner", "") or None
         for st in sub_tasks:
             st.memory_owner = owner
+            st.memory_disabled = goal_id is not None and owner is None
 
         specialists_out = await self._run_subtasks(
             sub_tasks,
@@ -795,7 +801,7 @@ class CEODispatcher:
                 dep_context = "\n\nUpstream specialist results:\n" + "\n".join(
                     f"[{sid}] {summary[:300]}" for sid, summary in upstream
                 )
-            memory_key = memory_key_for(role=st.role, task_owner=st.memory_owner)
+            memory_key = None if st.memory_disabled else memory_key_for(role=st.role, task_owner=st.memory_owner)
             spec = RT_TaskSpec(
                 task_id=st.task_id,
                 instruction=await with_agent_memory(st.instruction + dep_context, memory_key, st.instruction),
