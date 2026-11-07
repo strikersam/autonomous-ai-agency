@@ -134,7 +134,8 @@ def _task(title: str, description: str = "", tags: tuple[str, ...] = ()) -> Task
     "Enable paid Cerebras tier", "Cancel the subscription", "Provision a new GPU server",
     "Set GH_PAT in render", "Grant admin role to user bob", "Add token to env var",
     "rm -rf the uploads folder", "Purge old logs", "Delete files older than 30 days",
-    "Wipe the volume", "Reset all companies",
+    "Wipe the volume", "Reset all companies", "Update the billing payment method",
+    "Pay the Render invoice",
 ])
 def test_hard_limit_tasks_are_gated(title):
     assert _is_hard_limit(_task(title))
@@ -142,7 +143,8 @@ def test_hard_limit_tasks_are_gated(title):
 
 @pytest.mark.parametrize("title", [
     "Raise tokens.py coverage", "Delete dead code in router", "Track token budget per task",
-    "Remove unused import", "Fix flaky scheduler test",
+    "Remove unused import", "Fix flaky scheduler test", "Export billing report",
+    "Add a payment reminder template test",
 ])
 def test_ordinary_tasks_are_not_gated(title):
     assert not _is_hard_limit(_task(title))
