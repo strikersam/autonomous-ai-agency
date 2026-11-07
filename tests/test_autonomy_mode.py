@@ -224,6 +224,12 @@ def test_hard_limit_reads_prompt_and_comments_untruncated():
     task = Task(owner_id="u", title="Tidy")
     task.comments.append(TaskComment(author="ops", body="also wipe the volume"))
     assert _is_hard_limit(task)
+    # A risky comment buried under benign ones still reaches the runtime's
+    # conversation history (_build_spec sends the last 20), so it still gates.
+    buried = Task(owner_id="u", title="Tidy")
+    buried.comments.append(TaskComment(author="ops", body="drop the users collection"))
+    buried.comments.extend(TaskComment(author="ops", body=f"ok {i}") for i in range(15))
+    assert _is_hard_limit(buried)
 
 
 def _gh_pr(ref="agent/fix-x", head="o/r", state="open", created="2026-11-07T10:00:00Z"):
@@ -246,3 +252,28 @@ def test_verdict_only_on_a_pr_this_task_opened():
 @pytest.mark.parametrize("path", ["agent/autonomy_gate.py", "agent/safe_agency.py"])
 def test_agent_write_guards_are_protected(path):
     assert am.protected_hits([path], POLICY["protected_paths"]) == [path]
+
+
+def test_bound_verdict_ignores_a_head_inside_a_code_fence():
+    body = f"Verified-head: {SHA_B}\n```\nVerified-head: {SHA_A}\n```\nVerdict: PASS"
+    assert am.bound_verdict([{"user": {"login": "o"}, "body": body}], SHA_A, {"o"}) is None
+
+
+def test_naive_task_timestamp_is_read_as_utc(monkeypatch):
+    import os
+    import time as _time
+    from tasks.independent_verifier import pr_is_from_task
+
+    monkeypatch.setenv("TZ", "Asia/Tokyo")
+    if hasattr(_time, "tzset"):
+        _time.tzset()
+    try:
+        task = Task(owner_id="u", title="t")
+        task.created_at = "2026-11-07T10:00:00"
+        assert pr_is_from_task(_gh_pr(created="2026-11-07T10:00:01Z"), task)
+        assert not pr_is_from_task(_gh_pr(created="2026-11-07T09:59:59Z"), task)
+    finally:
+        monkeypatch.delenv("TZ", raising=False)
+        if hasattr(_time, "tzset"):
+            _time.tzset()
+        os.environ.pop("TZ", None)

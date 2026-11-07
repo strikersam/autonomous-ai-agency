@@ -691,9 +691,10 @@ def _is_hard_limit(task: Task) -> bool:
     for tag in (task.tags or []):
         if str(tag).strip().lower() in _HARD_LIMIT_TAGS:
             return True
-    # Everything the runtime is told: title, description, prompt, and the
-    # follow-up comments _compose_instruction appends. Never truncated.
-    comments = [str(getattr(c, "body", "") or "") for c in (getattr(task, "comments", None) or [])[-10:]]
+    # Everything the runtime can be told: title, description, prompt, and every
+    # comment (_compose_instruction sends the last 10, _build_spec the last 20
+    # as conversation history). Never truncated.
+    comments = [str(getattr(c, "body", "") or "") for c in (getattr(task, "comments", None) or [])]
     text = "\n".join(filter(None, (task.title, task.description, task.prompt, *comments)))
     return bool(_HARD_LIMIT_RE.search(text))
 

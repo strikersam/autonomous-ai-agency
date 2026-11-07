@@ -27,7 +27,7 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from verifier_verdict import last_verdict  # noqa: E402
+from verifier_verdict import _FENCE_RE, last_verdict  # noqa: E402
 
 log = logging.getLogger("qwen-proxy")
 
@@ -77,7 +77,7 @@ def bound_verdict(comments: list[dict], head_sha: str, trusted: set[str]) -> str
         verdict = last_verdict(body)
         if not verdict or not login or login not in trusted:
             continue
-        heads = _HEAD_RE.findall(body)
+        heads = _HEAD_RE.findall(_FENCE_RE.sub("", body))
         return verdict if heads and heads[-1] == head_sha else None
     return None
 

@@ -27,7 +27,7 @@ import asyncio
 import json
 import logging
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 log = logging.getLogger("qwen-proxy")
@@ -248,12 +248,16 @@ def verdict_comment(run: dict[str, Any]) -> str:
 
 
 def _epoch(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
     if isinstance(value, (int, float)):
         return float(value)
     try:
-        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp()
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     except ValueError:
         return None
+    # Stored timestamps are UTC; a naive one must not shift with the server's zone.
+    return (parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)).timestamp()
 
 
 def pr_is_from_task(pr_json: dict[str, Any], task: Any) -> bool:
