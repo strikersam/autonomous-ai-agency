@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import tempfile
 import time
 from typing import Any
@@ -44,13 +45,14 @@ from runtimes.quarantine import quarantine, quarantined
 
 # Markers of an account-level refusal (billing, auth) as opposed to a transient
 # sandbox failure. Production 2026-11-07: "403: team is blocked: credit_exhausted".
-_ACCOUNT_REFUSAL_MARKERS = ("credit_exhausted", "team is blocked", "401", "403")
+_ACCOUNT_REFUSAL_RE = re.compile(
+    r"credit_exhausted|team is blocked|(?<![\w.])40[13](?![\w.])", re.IGNORECASE
+)
 
 
 def _is_account_refusal(exc: BaseException) -> bool:
     """True when *exc* says the E2B account itself cannot create sandboxes."""
-    text = str(exc).lower()
-    return any(marker in text for marker in _ACCOUNT_REFUSAL_MARKERS)
+    return bool(_ACCOUNT_REFUSAL_RE.search(str(exc)))
 
 log = logging.getLogger("runtime.e2b")
 

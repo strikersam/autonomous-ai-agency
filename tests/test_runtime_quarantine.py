@@ -93,6 +93,9 @@ async def test_hermes_500_is_not_quarantined(monkeypatch):
     ("401 unauthorized", True),
     ("quota exceeded", False),
     ("timeout while starting sandbox", False),
+    ("sandbox 7f3a401b9c timeout", False),
+    ("connection reset on port 4031", False),
+    ("HTTP 403: forbidden", True),
 ])
 def test_e2b_account_refusal_detection(message, refused):
     assert _is_account_refusal(RuntimeError(message)) is refused

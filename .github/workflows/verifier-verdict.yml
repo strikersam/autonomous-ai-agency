@@ -5,8 +5,10 @@ name: Verifier Verdict
 # comment by the PR author, the repo owner or GitHub Actions). A later FAIL
 # blocks again. Dependabot and PRs labelled verifier-exempt pass.
 #
-# To make it blocking, add the check "Verifier verdict" to the required status
-# checks of master's branch protection.
+# The result is published as the commit status "Verifier verdict" on the PR's
+# head commit, so a verdict posted as a comment updates the PR (a check run from
+# an issue_comment event would attach to the default branch instead). To make
+# it blocking, add "Verifier verdict" to master's required status checks.
 
 on:
   pull_request:
@@ -18,6 +20,7 @@ permissions:
   contents: read
   pull-requests: read
   issues: read
+  statuses: write
 
 concurrency:
   group: verifier-verdict-${{ github.event.pull_request.number || github.event.issue.number }}
@@ -25,7 +28,7 @@ concurrency:
 
 jobs:
   verdict:
-    name: Verifier verdict
+    name: Verifier verdict (evaluate)
     if: github.event_name == 'pull_request' || github.event.issue.pull_request
     runs-on: ubuntu-latest
     timeout-minutes: 5

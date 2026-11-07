@@ -63,5 +63,7 @@ def test_dependabot_and_label_exempt():
 
 def test_workflow_job_name_matches_required_check_name():
     wf = yaml.safe_load((ROOT / ".github/workflows/verifier-verdict.yml").read_text())
-    assert wf["jobs"]["verdict"]["name"] == "Verifier verdict"
-    assert wf["permissions"] == {"contents": "read", "pull-requests": "read", "issues": "read"}
+    assert wf["permissions"] == {"contents": "read", "pull-requests": "read",
+                                 "issues": "read", "statuses": "write"}
+    script = (ROOT / ".github/scripts/verifier_verdict.py").read_text()
+    assert '"context": "Verifier verdict"' in script

@@ -358,6 +358,24 @@ class TestRenderMCPClient:
         assert handshakes == 2
 
     @pytest.mark.asyncio
+    async def test_write_tool_is_never_retried(self):
+        """A timeout can arrive after Render acted; retrying a write would run it twice."""
+        from packages.integrations import render_mcp as rm
+        client, inner = _client({}, allow_writes=True)
+        calls = 0
+
+        async def _timeout(name: str, arguments: dict) -> Any:
+            nonlocal calls
+            calls += 1
+            raise MCPUnavailableError("MCP server unreachable: ReadTimeout: ")
+
+        inner.call_tool_structured = _timeout  # type: ignore[assignment]
+        write_tool = sorted(rm.WRITE_TOOLS)[0]
+        with pytest.raises(MCPUnavailableError):
+            await client.call(write_tool, {})
+        assert calls == 1
+
+    @pytest.mark.asyncio
     async def test_persistent_outage_still_raises(self):
         client, inner = _client({"services": []})
 

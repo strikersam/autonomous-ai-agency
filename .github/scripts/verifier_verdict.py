@@ -82,6 +82,20 @@ def _get(url: str, token: str) -> object:
         return json.loads(resp.read())
 
 
+def _post_status(base: str, sha: str, token: str, decision: Decision) -> None:
+    """Publish the gate as the commit status "Verifier verdict" on the PR head."""
+    body = json.dumps({
+        "state": "success" if decision.ok else "failure",
+        "context": "Verifier verdict",
+        "description": decision.reason[:140],
+    }).encode()
+    req = urllib.request.Request(f"{base}/statuses/{sha}", data=body, method="POST", headers={
+        "Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json",
+    })
+    with urllib.request.urlopen(req, timeout=30):  # nosec B310 - fixed api.github.com host
+        pass
+
+
 def main() -> int:
     """Entry point for the workflow."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")
@@ -98,11 +112,12 @@ def main() -> int:
         page += 1
     decision = decide(pr, comments, repo.split("/")[0])  # type: ignore[arg-type]
     log.info("%s: %s", "PASS" if decision.ok else "BLOCKED", decision.reason)
+    _post_status(base, pr["head"]["sha"], token, decision)  # type: ignore[index]
     summary = os.environ.get("GITHUB_STEP_SUMMARY")
     if summary:
         with open(summary, "a", encoding="utf-8") as fh:
             fh.write(f"## Verifier verdict\n{decision.reason}\n")
-    return 0 if decision.ok else 1
+    return 0
 
 
 if __name__ == "__main__":
