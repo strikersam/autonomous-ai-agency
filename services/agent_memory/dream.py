@@ -174,7 +174,8 @@ async def dream_agent(
 ) -> dict[str, Any]:
     """One dreaming pass over one agent's memory. Episodes stay undreamed if the model fails."""
     notes = await store.list_notes(memory_key)
-    episodes = await store.list_episodes(memory_key, undreamed_only=True)
+    # Only the episodes the brief shows get marked dreamed; the rest wait for the next cycle.
+    episodes = (await store.list_episodes(memory_key, undreamed_only=True))[:_MAX_EPISODES_IN_BRIEF]
     if not episodes:
         return {"memory_key": memory_key, "status": "nothing_new"}
     reply = await llm(DREAM_SYSTEM.format(cap=index_cap), build_brief(agent_context, notes, episodes))

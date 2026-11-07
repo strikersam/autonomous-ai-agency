@@ -20,13 +20,25 @@ from services.agent_memory.store import AgentMemoryStore, get_agent_memory_store
 log = logging.getLogger("qwen-proxy")
 
 ROLE_PREFIX = "role:"
+OWNER_SEP = "|"
+_AGENCY_OWNER = "system"  # tasks the agency creates for itself (tasks/store.py)
 _last_cycle_at: float | None = None
 _cycle_task: asyncio.Task | None = None
 
 
-def memory_key_for(agent_id: str | None = None, role: str | None = None) -> str | None:
-    """agent_id for an agency agent; ``role:<role>`` for a CEO specialist."""
+def memory_key_for(
+    agent_id: str | None = None, role: str | None = None, *,
+    task_owner: str | None = None, agent_owner: str | None = None,
+) -> str | None:
+    """agent_id for an agency agent; ``role:<role>`` for a CEO specialist.
+
+    When someone other than the agent's owner runs it (a public agent), their
+    runs get a separate ``<agent_id>|<task_owner>`` memory, so one user's task
+    output is never recalled into another user's prompts.
+    """
     if agent_id:
+        if task_owner and agent_owner and task_owner not in (agent_owner, _AGENCY_OWNER):
+            return f"{agent_id}{OWNER_SEP}{task_owner}"
         return agent_id
     return f"{ROLE_PREFIX}{role}" if role else None
 
@@ -81,7 +93,7 @@ async def agent_context_for(memory_key: str) -> str:
     try:
         from agents.store import get_agent_store
 
-        agent = await get_agent_store().get(memory_key, owner_id=None)
+        agent = await get_agent_store().get(memory_key.split(OWNER_SEP, 1)[0], owner_id=None)
     except Exception:  # noqa: BLE001 - context is a nice-to-have
         agent = None
     if agent is None:

@@ -375,3 +375,58 @@ def test_api_public_agent_memory_is_still_owner_only(store, monkeypatch):
     assert stranger.get("/api/agents/agent_pub/memory").status_code == 404
     assert stranger.post("/api/agents/agent_pub/memory/dream").status_code == 404
     assert _client({"email": "owner@x.com", "role": "user"}).get("/api/agents/agent_pub/memory").status_code == 200
+
+
+def test_public_agent_run_by_another_user_gets_a_separate_memory():
+    key = mem_service.memory_key_for
+    assert key("agent_p", task_owner="owner@x.com", agent_owner="owner@x.com") == "agent_p"
+    assert key("agent_p", task_owner="system", agent_owner="owner@x.com") == "agent_p"
+    assert key("agent_p", task_owner="other@x.com", agent_owner="owner@x.com") == "agent_p|other@x.com"
+    assert key(role="coder") == "role:coder"
+
+
+async def test_coordinator_keeps_a_strangers_notes_out_of_the_owners_memory(store):
+    from agents.store import AgentDefinition, AgentStore
+    from runtimes.base import TaskResult
+    from tasks.models import Task, TaskStatus
+    from tasks.service import TaskExecutionCoordinator
+    from tasks.store import TaskStore
+
+    seen: list[str] = []
+
+    class _Decision:
+        selected_runtime_id, model_used, reason = "internal_agent", "stub", "test"
+        fallback_runtime_id, fallback_attempted = None, False
+
+    class _Runtime:
+        async def execute(self, spec):
+            seen.append(spec.instruction)
+            return TaskResult(runtime_id="internal_agent", task_id=spec.task_id, success=True,
+                              output="REMEMBER: injected instruction from a stranger"), _Decision()
+
+    agents, tasks = AgentStore(), TaskStore(db=None)
+    await agents.create(AgentDefinition(agent_id="agent_pub", owner_id="owner@x.com", name="P", is_public=True))
+    coord = TaskExecutionCoordinator(store=tasks, agent_store=agents, runtime_manager=_Runtime())
+    ids = {}
+    for owner in ("other@x.com", "owner@x.com"):
+        task = Task(owner_id=owner, title="Do a thing", agent_id="agent_pub", status=TaskStatus.TODO)
+        task.pending_agent_run = True
+        await tasks.create(task)
+        await coord.execute(task.task_id)
+        ids[owner] = task.task_id
+
+    # The owner's run did not see the stranger's note, and the owner's memory holds
+    # only what the owner's own run wrote.
+    assert "injected instruction from a stranger" not in seen[1]
+    owner_notes = await store.list_notes("agent_pub")
+    assert [n.source_task_ids for n in owner_notes] == [[ids["owner@x.com"]]]
+    stranger_notes = await store.list_notes("agent_pub|other@x.com")
+    assert [n.source_task_ids for n in stranger_notes] == [[ids["other@x.com"]]]
+
+
+async def test_dream_marks_only_the_episodes_it_showed_the_model(store):
+    for i in range(35):
+        await record_episode(store, "agent_a", task_id=f"t{i}", title="t", success=True, output="o")
+    result = await dream_agent(store, "agent_a", "ctx", llm=_fake_llm([]), index_cap=5)
+    assert result["episodes"] == 30
+    assert len(await store.list_episodes("agent_a", undreamed_only=True)) == 5

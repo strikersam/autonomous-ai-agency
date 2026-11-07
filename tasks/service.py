@@ -930,9 +930,10 @@ class TaskExecutionCoordinator:
             spec = self._build_spec(task, agent, may_ship=await _owner_may_ship_code(task.owner_id))
             # Per-agent memory (services/agent_memory): the agent's index notes and
             # the notes relevant to this task ride along with the instruction.
+            memory_key = memory_key_for(agent.agent_id if agent else None, task_owner=task.owner_id,
+                                        agent_owner=agent.owner_id if agent else None)
             spec.instruction = await with_agent_memory(
-                spec.instruction, memory_key_for(agent.agent_id if agent else None),
-                f"{task.title}\n{task.description or ''}",
+                spec.instruction, memory_key, f"{task.title}\n{task.description or ''}",
             )
 
             # ── Workflow phase: CLASSIFY then EXECUTE ──
@@ -993,8 +994,7 @@ class TaskExecutionCoordinator:
 
             await self._apply_result(task, agent, result)
             await record_task_outcome(
-                memory_key_for(agent.agent_id if agent else None),
-                task_id=task.task_id, title=task.title, success=result.success,
+                memory_key, task_id=task.task_id, title=task.title, success=result.success,
                 output="\n\n".join(filter(None, [result.output, (result.metadata or {}).get("agent_comment")])),
                 verdict=task.verification.verdict if task.verification else None,
             )
