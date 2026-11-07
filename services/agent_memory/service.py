@@ -49,11 +49,21 @@ def memory_key_for(
 
 
 async def _user_identities(identity: str) -> set[str]:
-    """Every id a user is known by. Tasks record owners by ``_id``, agents by email."""
-    from backend.server import _doc_id_filter, get_db
+    """Every id a user is known by. Tasks record owners by ``_id``, agents by email.
 
-    users = get_db().users
-    doc = await users.find_one(_doc_id_filter(identity)) or await users.find_one({"email": identity})
+    Uses the storage layer directly rather than ``backend.server``, whose import
+    starts schedulers — wrong in a standalone worker process.
+    """
+    from db import get_store
+
+    try:
+        from bson import ObjectId
+
+        id_filter = {"_id": ObjectId(identity)}
+    except Exception:  # noqa: BLE001 - SQLite / non-ObjectId ids are plain strings
+        id_filter = {"_id": identity}
+    users = get_store().users
+    doc = await users.find_one(id_filter) or await users.find_one({"email": identity})
     if not doc:
         return {identity}
     return {identity, str(doc.get("_id") or ""), str(doc.get("email") or "")} - {""}

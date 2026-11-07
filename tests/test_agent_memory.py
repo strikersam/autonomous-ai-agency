@@ -635,3 +635,21 @@ async def test_failed_owner_lookup_keeps_the_isolated_key(monkeypatch):
     monkeypatch.setattr(mem_service, "_user_identities", broken)
     assert await mem_service.resolve_memory_key(
         "agent_p", task_owner="64a1", agent_owner="owner@x.com") == "agent_p|64a1"
+
+
+async def test_user_identities_reads_the_store_not_backend_server(monkeypatch):
+    import sys
+
+    class _Users:
+        async def find_one(self, query):
+            if query.get("_id") == "64a1" or query.get("email") == "owner@x.com":
+                return {"_id": "64a1", "email": "owner@x.com"}
+            return None
+
+    class _Store:
+        users = _Users()
+
+    monkeypatch.setattr("db.get_store", lambda: _Store())
+    monkeypatch.delitem(sys.modules, "backend.server", raising=False)
+    assert await mem_service._user_identities("64a1") == {"64a1", "owner@x.com"}
+    assert "backend.server" not in sys.modules  # no scheduler-starting import
