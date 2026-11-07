@@ -661,14 +661,23 @@ _HARD_LIMIT_TAGS = frozenset({
     "irreversible", "risk:spend", "risk:secrets", "risk:delete", "spend", "billing",
     "secrets", "credentials", "delete", "data-deletion",
 })
+# Errs toward holding: a false positive costs one human approval, a false
+# negative lets the agency spend, grant access or delete on its own.
 _HARD_LIMIT_RE = re.compile(
-    r"\b(?:delete|drop|purge|wipe|truncate|destroy|remove)\b\W+(?:\w+\W+){0,3}?"
+    r"\b(?:delete|drop|purge|wipe|truncate|destroy|remove|reset|rm\s+-rf|erase|clear)\b"
+    r"\W+(?:\w+\W+){0,3}?"
     r"(?:database|db|collection|table|records|data|compan(?:y|ies)|users?|backups?|"
-    r"repo(?:sitory)?|branch(?:es)?|bucket|service)\b"
+    r"repo(?:sitory)?|branch(?:es)?|bucket|service|files?|folders?|uploads?|logs?|"
+    r"volumes?|disk|accounts?|history)\b"
     r"|\b(?:secret|secrets|credential|credentials|api[ _-]?keys?|password|passwords|rbac|"
+    r"gh_pat|tokens?\W+(?:\w+\W+){0,2}?(?:env|render|vault)|"
+    r"(?:grant|give|add|assign)\W+(?:\w+\W+){0,2}?(?:admin|owner|role|permissions?|access)|"
     r"(?:rotate|revoke)\W+(?:\w+\W+){0,2}?(?:keys?|tokens?|access|secrets?))\b"
-    r"|\b(?:billing|invoice|payment|purchase|subscribe|upgrade (?:the )?(?:plan|tier)|"
-    r"paid (?:plan|tier|model|provider)|top up)\b",
+    r"|\b(?:billing|invoice|payment|purchase|buy|subscribe|subscription|credits?|"
+    r"(?:increase|raise|set|double)\W+(?:\w+\W+){0,2}?(?:budget|spend|spending)|"
+    r"upgrade\W+(?:\w+\W+){0,4}?(?:plan|tier)|"
+    r"paid\W+(?:\w+\W+){0,1}?(?:plan|tier|model|provider)|top up|"
+    r"provision\W+(?:\w+\W+){0,2}?(?:gpu|server|instance|database|db))\b",
     re.IGNORECASE,
 )
 

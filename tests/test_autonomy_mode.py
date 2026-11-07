@@ -20,7 +20,9 @@ POLICY = am.load_policy()
 
 
 def _pr(head: str = "agent/fix-x", labels: tuple[str, ...] = (), **kw) -> dict:
-    pr = {"state": "open", "draft": False, "head": {"ref": head},
+    repo = {"full_name": "o/r"}
+    pr = {"state": "open", "draft": False, "head": {"ref": head, "repo": repo},
+          "base": {"repo": repo},
           "labels": [{"name": n} for n in labels]}
     pr.update(kw)
     return pr
@@ -52,6 +54,30 @@ def test_protected_path_needs_human_even_with_pass(files):
     assert not gate.merge and gate.needs_human
 
 
+@pytest.mark.parametrize("path", [
+    ".github/scripts/autonomy_merge.py", ".github/scripts/verifier_verdict.py",
+    "tasks/service.py", "tasks/independent_verifier.py", "packages/config/control_catalogue.py",
+    ".claude/hooks/pre-push", "CLAUDE.md", "Dockerfile.hermes", "config/llm/models.yaml",
+    "PACKAGES/Auth/rbac.py",
+])
+def test_gate_machinery_and_spend_config_are_protected(path):
+    assert am.protected_hits([path], POLICY["protected_paths"]) == [path]
+
+
+def test_fork_pr_never_self_merges():
+    pr = _pr()
+    pr["head"]["repo"] = {"full_name": "someone/fork"}
+    gate = am.decide(pr, ["a.py"], "success", POLICY)
+    assert not gate.merge and gate.needs_human
+
+
+def test_rename_out_of_protected_path_is_seen(monkeypatch):
+    seen = []
+    monkeypatch.setattr(am, "_gh", lambda *a: seen.append(a) or "foo.py\npackages/auth/rbac.py\n")
+    files = am._changed_files("o/r", "1")
+    assert "packages/auth/rbac.py" in files and "previous_filename" in " ".join(seen[0])
+
+
 def test_prefix_match_is_path_aware():
     # "proxy.py" protects that file only, not every file whose name starts with it.
     assert am.protected_hits(["proxy.pyc_notes.md", "packages/authx.py"], POLICY["protected_paths"]) == []
@@ -81,7 +107,8 @@ def test_run_queues_guarded_merge(monkeypatch):
     def fake_gh(*args):
         calls.append(args)
         if args[1] == "repos/o/r/pulls/7":
-            return '{"state": "open", "draft": false, "head": {"ref": "agent/x", "sha": "abc"}, "labels": []}'
+            return ('{"state": "open", "draft": false, "labels": [], "base": {"repo": {"full_name": "o/r"}},'
+                    ' "head": {"ref": "agent/x", "sha": "abc", "repo": {"full_name": "o/r"}}}')
         joined = " ".join(args)
         if "/files" in joined:
             return "agent/loop.py\n"
@@ -103,6 +130,11 @@ def _task(title: str, description: str = "", tags: tuple[str, ...] = ()) -> Task
     "Drop the users collection", "Rotate the GitHub token", "Upgrade plan to Pro",
     "Add a new API key for Groq", "Delete company acme", "Purge old task records",
     "Remove stale branches", "Switch to a paid model",
+    "Buy more credits on OpenAI", "Upgrade Render to the Pro plan", "Increase monthly budget",
+    "Enable paid Cerebras tier", "Cancel the subscription", "Provision a new GPU server",
+    "Set GH_PAT in render", "Grant admin role to user bob", "Add token to env var",
+    "rm -rf the uploads folder", "Purge old logs", "Delete files older than 30 days",
+    "Wipe the volume", "Reset all companies",
 ])
 def test_hard_limit_tasks_are_gated(title):
     assert _is_hard_limit(_task(title))

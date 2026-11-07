@@ -49,8 +49,10 @@ def protected_hits(files: list[str], protected: list[str]) -> list[str]:
     """Changed files that fall under a protected path."""
     hits = []
     for name in files:
-        for prefix in protected:
-            if name == prefix or (prefix.endswith("/") and name.startswith(prefix)):
+        low = name.lower()
+        for entry in protected:
+            prefix = entry.lower()
+            if low == prefix.rstrip("/") or (prefix.endswith(("/", ".")) and low.startswith(prefix)):
                 hits.append(name)
                 break
     return hits
@@ -64,6 +66,11 @@ def decide(pr: dict, files: list[str], verdict_state: str | None, policy: dict) 
         return Gate(False, "PR is not open")
     if pr.get("draft") or "quick-note:planning" in labels:
         return Gate(False, "draft or planning PR")
+    head_repo = ((pr.get("head") or {}).get("repo") or {}).get("full_name")
+    base_repo = ((pr.get("base") or {}).get("repo") or {}).get("full_name")
+    if head_repo != base_repo:
+        # A fork author can write their own "Verdict: PASS"; only a human merges forks.
+        return Gate(False, "PR comes from a fork", needs_human=True)
     if head.startswith("dependabot/"):
         return Gate(False, "Dependabot PRs are merged by dependabot-auto-merge.yml")
     if "verifier-exempt" in labels:
@@ -91,7 +98,8 @@ def _verdict_state(repo: str, sha: str) -> str | None:
 
 
 def _changed_files(repo: str, number: str) -> list[str]:
-    out = _gh("api", "--paginate", f"repos/{repo}/pulls/{number}/files", "--jq", ".[].filename")
+    out = _gh("api", "--paginate", f"repos/{repo}/pulls/{number}/files", "--jq",
+              ".[] | .filename, (.previous_filename // empty)")
     return [line for line in out.splitlines() if line]
 
 
