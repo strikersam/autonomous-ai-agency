@@ -98,6 +98,7 @@ def test_run_files_issues_and_skips_own_repo(monkeypatch: pytest.MonkeyPatch) ->
 
     monkeypatch.setattr(fs, "brain_candidates", lambda: [("groq", "u", "k", "m")])
     monkeypatch.setattr(fs, "call_brain_with_failover", fake_brain)
+    monkeypatch.setattr(fs, "_tracked_files", lambda root: [])
     gh = FakeGitHub([{"title": "[feature-scout] Voice cloning", "state": "closed",
                       "state_reason": "not_planned"}])
     cfg = {"seed_repos": ["crewAIInc/crewAI"], "max_issues_per_run": 2,
@@ -171,3 +172,48 @@ def test_merged_pr_closes_open_issue_and_frees_backpressure(monkeypatch: pytest.
                    REPO_ROOT, dry_run=False)
     assert gh.closed == [2]
     assert filed == ["[feature-scout] Run replay"]
+
+
+# ── grounding (both rejected scout issues of 2026-11-05) ─────────────────────
+
+def _git_repo(tmp_path: Path, files: dict[str, str]) -> Path:
+    import subprocess
+    for rel, text in files.items():
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text(text)
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
+    return tmp_path
+
+
+def test_proposal_naming_missing_file_is_dropped(tmp_path):
+    root = _git_repo(tmp_path, {"proxy.py": "x = 1\n"})
+    prop = fs.Proposal(title="Session search API", why="w", inspired_by="x",
+                       scope="Extend backend/sessions_api.py with a search route")
+    assert "do not exist" in fs.grounding_problem(prop, root, fs._tracked_files(root))
+
+
+def test_new_file_is_allowed(tmp_path):
+    root = _git_repo(tmp_path, {"proxy.py": "x = 1\n"})
+    prop = fs.Proposal(title="Webhook retries", why="w", inspired_by="x",
+                       scope="Add a new services/webhook_retry.py helper")
+    assert fs.grounding_problem(prop, root, fs._tracked_files(root)) is None
+
+
+def test_feature_already_built_is_dropped(tmp_path):
+    root = _git_repo(tmp_path, {
+        "agent/mcp_client.py": "def parse(tool):\n    annotations = tool.get('annotations')\n",
+        "tests/test_x.py": "",
+    })
+    prop = fs.Proposal(title="MCP Tool Annotations Field", why="w", inspired_by="x", scope="s")
+    assert "already built" in fs.grounding_problem(prop, root, fs._tracked_files(root))
+
+
+def test_select_proposals_applies_grounding(tmp_path):
+    root = _git_repo(tmp_path, {"proxy.py": "x = 1\n"})
+    props = [
+        fs.Proposal(title="Ghost feature", why="w", inspired_by="x",
+                    scope="Edit services/ghost.py"),
+        fs.Proposal(title="Webhook retries", why="w", inspired_by="x", scope="s"),
+    ]
+    assert [p.title for p in fs.select_proposals(props, [], 2, root=root)] == ["Webhook retries"]

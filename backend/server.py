@@ -10826,12 +10826,13 @@ async def get_public_doctor() -> _DoctorReport:
 
     # 2. Storage backend
     try:
-        from db import get_store
-        store = get_store()
-        # NOTE: don't duck-type with hasattr() — MongoStore.__getattr__ proxies
-        # any attribute to a Motor *collection*, so store.count_companies is a
-        # collection named "count_companies", not a method (TypeError at call).
-        count = await store.companies.count_documents({})
+        # Count through the company graph store: it is where companies are
+        # created and read (self-bootstrap, CompanyAgency). db.get_store() and
+        # this store fall back to different DB_NAME defaults ("llm_platform" vs
+        # "agency_core"), so when DB_NAME is unset the old count read an empty
+        # collection and the doctor reported "0 companies" while 5 were active.
+        from services.company_graph_store import get_company_graph_store
+        count = await get_company_graph_store().count_companies()
         checks.append(_DoctorCheck(
             id="storage",
             category="Storage",

@@ -332,6 +332,43 @@ class TestRenderMCPClient:
         assert calls == 2
 
     @pytest.mark.asyncio
+    async def test_expired_session_rehandshakes_and_retries_once(self):
+        """Regression (production 2026-11-06): a server-side session expiry made
+        every later call fail with "MCP server unreachable" because the cached
+        handshake was never redone."""
+        client, inner = _client({"services": []})
+        handshakes = 0
+        original_init = inner.initialize
+        original_call = inner.call_tool_structured
+        failures = [MCPUnavailableError("MCP server unreachable: ReadTimeout: ")]
+
+        async def _counting_initialize() -> dict:
+            nonlocal handshakes
+            handshakes += 1
+            return await original_init()
+
+        async def _call(name: str, arguments: dict) -> Any:
+            if failures:
+                raise failures.pop()
+            return await original_call(name, arguments)
+
+        inner.initialize = _counting_initialize  # type: ignore[assignment]
+        inner.call_tool_structured = _call  # type: ignore[assignment]
+        assert await client.list_services() == []
+        assert handshakes == 2
+
+    @pytest.mark.asyncio
+    async def test_persistent_outage_still_raises(self):
+        client, inner = _client({"services": []})
+
+        async def _down(name: str, arguments: dict) -> Any:
+            raise MCPUnavailableError("MCP server unreachable: ConnectError: ")
+
+        inner.call_tool_structured = _down  # type: ignore[assignment]
+        with pytest.raises(MCPUnavailableError):
+            await client.list_services()
+
+    @pytest.mark.asyncio
     async def test_health_reports_unconfigured_without_raising(self):
         client = RenderMCPClient(url="https://render.test/mcp", api_key="")
         health = await client.health()

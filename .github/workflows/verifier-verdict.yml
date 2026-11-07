@@ -1,0 +1,43 @@
+name: Verifier Verdict
+
+# Merge gate for CLAUDE.md rule 49: every PR needs a PASS or PASS+NOTES verdict
+# from an independent verifier (a line "Verdict: PASS" in the PR body or in a
+# comment by the PR author, the repo owner or GitHub Actions). A later FAIL
+# blocks again. Dependabot and PRs labelled verifier-exempt pass.
+#
+# To make it blocking, add the check "Verifier verdict" to the required status
+# checks of master's branch protection.
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize, labeled, unlabeled]
+  issue_comment:
+    types: [created, edited]
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+concurrency:
+  group: verifier-verdict-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  verdict:
+    name: Verifier verdict
+    if: github.event_name == 'pull_request' || github.event.issue.pull_request
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          sparse-checkout: .github/scripts
+
+      - name: Check verdict
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+        run: python3 .github/scripts/verifier_verdict.py

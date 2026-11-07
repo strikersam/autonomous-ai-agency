@@ -124,27 +124,22 @@ def test_doctor_survives_preflight_error(client):
 # ---------------------------------------------------------------------------
 
 def test_public_doctor_storage_check_uses_real_collection_count(client):
-    """MongoStore.__getattr__ proxies any name to a Motor collection, so
-    hasattr(store, 'count_companies') was always True and calling it raised
-    'MotorCollection object is not callable' in production. The check must
-    count via store.companies.count_documents({})."""
-    from unittest.mock import AsyncMock, MagicMock
+    """The check counts through the company graph store, where companies are
+    created and read. It used to count db.get_store().companies, a different
+    database when DB_NAME is unset, and reported 0 while 5 were active
+    (2026-11-07). See tests/test_doctor_company_count.py."""
+    import services.company_graph_store as cgs
 
-    import db as db_module
+    class _Store:
+        async def count_companies(self):
+            return 7
 
-    class _ProxyStore:
-        """Mimics MongoStore: every attribute access yields a collection."""
-        def __getattr__(self, name):
-            coll = MagicMock(name=f"collection:{name}")
-            coll.count_documents = AsyncMock(return_value=7)
-            return coll
-
-    old = db_module._store
-    db_module._store = _ProxyStore()
+    old = cgs._graph_store
+    cgs._graph_store = _Store()
     try:
         resp = client.get("/api/doctor/public")
     finally:
-        db_module._store = old
+        cgs._graph_store = old
 
     assert resp.status_code == 200
     storage = next(c for c in resp.json()["checks"] if c["id"] == "storage")
