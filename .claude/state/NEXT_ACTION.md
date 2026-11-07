@@ -1,3 +1,15 @@
+# NEXT_ACTION — updated 2026-11-07 (agent memory)
+
+**What shipped:** per-agent memory with offline dreaming (`services/agent_memory/`) on branch `claude/loving-planck-s0bzrc` (`7c12f6a`, `3a4189e`). Independent verifier: FAIL round 1 (4 defects, fixed with regression tests), PASS round 2.
+
+## Open items
+
+1. **Open a PR** when the operator asks; CI (with Mongo) is the authority on the full suite.
+2. Watch the first real dream cycles on Render: check the judge model returns usable JSON ops (`agent_memory: dream for … returned no usable ops` in logs means it does not).
+3. Not built: wiki-style linked memory pages and a dashboard view of agent memory (API exists: `GET /api/agents/{id}/memory`).
+4. Agents only write notes if they follow the `REMEMBER(kind):` convention; measure adoption from episode `notes_written` after a week.
+
+---
 # NEXT_ACTION — updated 2026-11-02 (daily routine)
 
 **What shipped:** `safety_event` OTel span event for blocked outbound URLs (#1892 item 1, web_reach only). Verifier verdict: PASS+NOTES.
