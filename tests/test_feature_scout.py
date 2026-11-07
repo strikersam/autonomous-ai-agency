@@ -181,8 +181,9 @@ def _git_repo(tmp_path: Path, files: dict[str, str]) -> Path:
     for rel, text in files.items():
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / rel).write_text(text)
-    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)
+    # Fixed argv on a pytest tmp dir: no shell, no external input.
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)  # nosec B603 B607
+    subprocess.run(["git", "-C", str(tmp_path), "add", "-A"], check=True)  # nosec B603 B607
     return tmp_path
 
 
