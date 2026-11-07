@@ -1,17 +1,17 @@
 # Graph Report - autonomous-ai-agency  (2026-11-07)
 
 ## Corpus Check
-- 1221 files · ~1,368,571 words
+- 1221 files · ~1,368,668 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 57 file(s) not represented in the graph (top: (none) 19, .css 5, .bat 5)
 
 ## Summary
-- 25323 nodes · 47507 edges · 1199 communities (1006 shown, 193 thin omitted)
-- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 2579 edges (avg confidence: 0.91)
+- 25323 nodes · 47504 edges · 1199 communities (1006 shown, 193 thin omitted)
+- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 2576 edges (avg confidence: 0.91)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `c072d31e`
+- Built from commit: `39ae41e1`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -5199,11 +5199,11 @@ _Questions this graph is uniquely positioned to answer:_
   _31 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `backend/server.py` be split into smaller, more focused modules?**
   _Cohesion score 0.012526480611586994 - nodes in this community are weakly interconnected._
-- **Why does `WorkspaceTools` connect `WorkspaceTools` to `1. The Rules`, `typing`, `Issue #656: Bugs`, `bounty/sandbox.py`, `AgentRunner`, `Conflicts and Stale Facts`, `ContextPruner`, `RepowiseIntelligence`, `Issue #504: EPIC: Autonomy hardening — live-verified defects 2026-06-10`, `._dispatch_tool`, `Docker AI Governance Audit — Final Report`, `WorkspaceManager`, `Deploy: FreeBuff Telegram bot (24×7)`, `AgentSessionStore`, `TOOLS.md — Available Tools for AI Agents`, `_register_builtin_tools`, `MCPClient`, `solve`?**
-  _High betweenness centrality (0.023) - this node is a cross-community bridge._
 - **Should `typing` be split into smaller, more focused modules?**
   _Cohesion score 0.01239225890388681 - nodes in this community are weakly interconnected._
-- **Why does `Completed Task Archive — October 2026` connect `ProviderRouter` to `seo_api.py`, `tasks/service.py`, `prompts.py`, `company_api.py`, `get_task_store`, `WorkspaceTools`, `._dispatch_tool`, `_process_callback`, `Completed Task Archive — October 2026`, `PortfolioManager`, `KnowledgeScreen.jsx`, `ai/router.py`, `_env_int`, `get_webhook_info`, `MCPClient`, `TaskWorkflowService`, `telegram_bot.py`, `NotificationDispatcher`?**
-  _High betweenness centrality (0.019) - this node is a cross-community bridge._
 - **Should `agency_fix.py` be split into smaller, more focused modules?**
   _Cohesion score 0.043243243243243246 - nodes in this community are weakly interconnected._
+- **Should `api.js` be split into smaller, more focused modules?**
+  _Cohesion score 0.009797220323536113 - nodes in this community are weakly interconnected._
+- **Should `runtimes/manager.py` be split into smaller, more focused modules?**
+  _Cohesion score 0.0351357037660425 - nodes in this community are weakly interconnected._
