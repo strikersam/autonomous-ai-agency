@@ -113,7 +113,11 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "gemini-2.5-pro": (1.25, 10.0),
     # Gemini 3.x family (Aug–Sep 2026). Source: ai.google.dev/pricing, 2026-09-13.
     # 3.1 Pro: frontier reasoning, $2.00/$12.00 per MTok (≤200K lower bound).
+    # OpenRouter ID: google/gemini-3.1-pro-preview (released 2026-02-19).
+    # Sources: openrouter.ai/google/gemini-3.1-pro-preview,
+    #          typingmind.com/guide/openrouter/gemini-3.1-pro-preview, 2026-11-07.
     "gemini-3.1-pro": (2.0, 12.0),
+    "google/gemini-3.1-pro-preview": (2.0, 12.0),  # OpenRouter router ID
     # 3.5 Flash Lite: cheapest tier, $0.30/$2.50 per MTok.
     "gemini-3.5-flash-lite": (0.30, 2.50),
     # 3.7 Flash / 3.8 Flash: introductory $0.75/$3.75 through 2026-12-31;
@@ -232,6 +236,17 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # openrouter/models/muse-wonder, eesel.ai/blog/meta-muse-wonder, 2026-10-24.
     "muse-wonder-1.0": (4.0, 20.0),       # Meta Model API canonical ID
     "meta/muse-wonder": (4.0, 20.0),       # OpenRouter router ID
+    # --- Tencent Hy4 (added 2026-11-07) ---
+    # Released 2026-08-28 on OpenRouter. Tencent's 770B MoE open-weight model.
+    # 1,048,576-token context. Supports function calling, streaming, JSON mode.
+    # Pricing: $0.83/$2.50 per MTok; cached input ~$0.042/MTok (≈5 % of input rate).
+    # Served exclusively via OpenRouter (tencent/hy4-preview) on 7+ providers.
+    # priority: 99 — explicit-only; unprobed on this account;
+    # lower once catalogue-probe.yml sees a 200.
+    # Sources: openrouter.ai/tencent/hy4-preview,
+    #          eesel.ai/blog/tencent-hy4-pricing,
+    #          llmreference.com/model/hy4-preview/openrouter, 2026-11-07.
+    "tencent/hy4-preview": (0.83, 2.50),  # OpenRouter router ID
     "gpt-4o": (2.5, 10.0),
     "gpt-4o-mini": (0.15, 0.6),
     "o1": (15.0, 60.0),
@@ -427,6 +442,9 @@ _CACHE_READ_FRACTIONS: tuple[tuple[str, float], ...] = (
     # Source: openrouter.ai/meta/muse-wonder, 2026-10-24.
     ("muse-wonder-1.0", 0.05),
     ("meta/muse-wonder", 0.05),
+    # Tencent Hy4: cached input ~$0.042/MTok ≈ 5 % of $0.83/MTok input rate.
+    # Source: llmreference.com/model/hy4-preview/openrouter, 2026-11-07.
+    ("tencent/hy4-preview", 0.05),
 )
 
 
