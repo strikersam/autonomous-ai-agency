@@ -272,7 +272,20 @@ class RenderMCPClient:
             args.setdefault("workspaceId", self.workspace_id)
 
         await self._ensure_handshake()
-        result = await self._client.call_tool_structured(tool, args)
+        try:
+            result = await self._client.call_tool_structured(tool, args)
+        except MCPUnavailableError:
+            # A Streamable-HTTP session can expire server side; the cached
+            # handshake then makes every later call fail ("MCP server
+            # unreachable" in production, 2026-11-06). Re-handshake once and
+            # retry before reporting Render as down. Never for a write tool:
+            # a timeout can arrive after Render acted, and a second
+            # trigger_deploy or create_* would run it twice.
+            if tool in WRITE_TOOLS:
+                raise
+            self._handshaked = False
+            await self._ensure_handshake()
+            result = await self._client.call_tool_structured(tool, args)
         return _coerce_payload(result.content)
 
     async def list_tools(self) -> list[dict[str, Any]]:

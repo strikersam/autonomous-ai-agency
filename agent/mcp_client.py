@@ -440,7 +440,9 @@ class MCPClient:
             body = self._parse_body(resp)
         except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as exc:
             self._on_failure()
-            raise MCPUnavailableError(f"MCP server unreachable: {exc}") from exc
+            raise MCPUnavailableError(
+                f"MCP server unreachable: {type(exc).__name__}: {exc}"
+            ) from exc
         except (ValueError, Exception) as exc:
             self._on_failure()
             raise MCPUnavailableError(f"MCP server returned invalid JSON: {exc}") from exc

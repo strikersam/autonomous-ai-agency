@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 import tempfile
 import time
 from typing import Any
@@ -40,6 +41,18 @@ from runtimes.base import (
 )
 from services.e2b_config import e2b_enabled, is_e2b_sdk_importable, resolve_e2b_config
 from services.e2b_sandbox import E2BSandboxSession, maybe_attach_e2b
+from runtimes.quarantine import quarantine, quarantined
+
+# Markers of an account-level refusal (billing, auth) as opposed to a transient
+# sandbox failure. Production 2026-11-07: "403: team is blocked: credit_exhausted".
+_ACCOUNT_REFUSAL_RE = re.compile(
+    r"credit_exhausted|team is blocked|(?<![\w.])40[13](?![\w.])", re.IGNORECASE
+)
+
+
+def _is_account_refusal(exc: BaseException) -> bool:
+    """True when *exc* says the E2B account itself cannot create sandboxes."""
+    return bool(_ACCOUNT_REFUSAL_RE.search(str(exc)))
 
 log = logging.getLogger("runtime.e2b")
 
@@ -86,6 +99,9 @@ class E2BAdapter(RuntimeAdapter):
         Never raises — a missing runtime reports ``available=False`` so the
         router skips it and falls back to ``internal_agent``.
         """
+        refused = quarantined(self.RUNTIME_ID)
+        if refused:
+            return RuntimeHealth(runtime_id=self.RUNTIME_ID, available=False, error=refused)
         if not e2b_enabled():
             return RuntimeHealth(
                 runtime_id=self.RUNTIME_ID,
@@ -169,6 +185,8 @@ class E2BAdapter(RuntimeAdapter):
             # the failure and the dispatcher can fall back to internal_agent.
             if session is not None:
                 await session.close()
+            if _is_account_refusal(exc):
+                quarantine(self.RUNTIME_ID, f"E2B account refused sandbox creation: {exc}")
             raise RuntimeExecutionError(
                 self.RUNTIME_ID,
                 f"E2B sandbox open failed: {exc}",

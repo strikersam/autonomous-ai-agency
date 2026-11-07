@@ -43,8 +43,14 @@ from runtimes.base import (
     TaskResult,
     TaskSpec,
 )
+from runtimes.quarantine import quarantine, quarantined
 
 log = logging.getLogger("runtime.hermes")
+
+# Hermes answers these when the request is well formed but this service may not
+# use it: a wrong HERMES_API_KEY (401/403). Retrying cannot succeed until an
+# operator fixes the key, so the runtime is quarantined instead.
+_REFUSED_STATUSES = frozenset({401, 403})
 
 
 def _env_float(name: str, default: float) -> float:
@@ -117,6 +123,9 @@ class HermesAdapter(RuntimeAdapter):
     # ── Health ────────────────────────────────────────────────────────────────
 
     async def health_check(self) -> RuntimeHealth:
+        refused = quarantined(self.RUNTIME_ID)
+        if refused:
+            return RuntimeHealth(runtime_id=self.RUNTIME_ID, available=False, error=refused)
         t0 = time.monotonic()
         try:
             # Cold-start tolerance. Hermes runs as its own Render service; on the
@@ -212,6 +221,14 @@ class HermesAdapter(RuntimeAdapter):
             raise RuntimeExecutionError(self.RUNTIME_ID, f"Timeout executing task {spec.task_id}", spec.task_id) from exc
 
         elapsed_ms = (time.monotonic() - t0) * 1000
+
+        if resp.status_code in _REFUSED_STATUSES:
+            reason = (
+                f"Hermes refused the request (HTTP {resp.status_code}): HERMES_API_KEY on "
+                "this service does not match the key the Hermes sidecar expects"
+            )
+            quarantine(self.RUNTIME_ID, reason)
+            raise RuntimeUnavailableError(self.RUNTIME_ID, reason)
 
         if resp.status_code not in (200, 201, 202):
             detail = _safe_detail(resp)
