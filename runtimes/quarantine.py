@@ -16,6 +16,7 @@ is fixed, the next probe after expiry puts the runtime back.
 from __future__ import annotations
 
 import logging
+import re
 import time
 
 log = logging.getLogger("qwen-proxy")
@@ -56,3 +57,18 @@ def clear(runtime_id: str | None = None) -> None:
         return
     _until.pop(runtime_id, None)
     _reason.pop(runtime_id, None)
+
+
+# Markers of an E2B account-level refusal (billing, auth) as opposed to a
+# transient sandbox failure. Production 2026-11-07: "403: team is blocked:
+# credit_exhausted". Shared by the E2B adapter and services.e2b_sandbox's
+# opener so every path that opens a sandbox honours the same quarantine.
+E2B_RUNTIME_ID = "e2b"
+_E2B_REFUSAL_RE = re.compile(
+    r"credit_exhausted|team is blocked|(?<![\w.])40[13](?![\w.])", re.IGNORECASE
+)
+
+
+def is_e2b_account_refusal(exc: BaseException) -> bool:
+    """True when *exc* says the E2B account itself cannot create sandboxes."""
+    return bool(_E2B_REFUSAL_RE.search(str(exc)))

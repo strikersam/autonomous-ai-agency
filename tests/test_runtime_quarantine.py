@@ -127,3 +127,54 @@ def test_health_service_rejects_quarantined_runtime_before_next_poll():
     assert svc.is_available("hermes") is True
     q.quarantine("hermes", "HTTP 401")
     assert svc.is_available("hermes") is False
+
+
+# ── shared E2B opener honours the quarantine (CodeRabbit on #1907) ──────────
+
+def _enable_e2b(monkeypatch):
+    import services.e2b_sandbox as sb
+    monkeypatch.setattr(sb, "e2b_enabled", lambda: True)
+    monkeypatch.setattr(sb, "is_e2b_sdk_importable", lambda: True)
+    monkeypatch.setattr(sb, "resolve_e2b_config", lambda: object())
+    return sb
+
+
+class _Runner:
+    _mcp = None
+
+
+@pytest.mark.asyncio
+async def test_attach_skips_e2b_while_quarantined(monkeypatch):
+    from runtimes import quarantine as q
+    sb = _enable_e2b(monkeypatch)
+    opened = []
+    monkeypatch.setattr(sb, "E2BSandboxSession", lambda config: opened.append(config))
+    q.clear()
+    q.quarantine(q.E2B_RUNTIME_ID, "credit_exhausted")
+    try:
+        assert await sb.maybe_attach_e2b(_Runner()) is None
+        assert opened == []
+    finally:
+        q.clear()
+
+
+@pytest.mark.asyncio
+async def test_attach_quarantines_on_account_refusal(monkeypatch):
+    from agent.mcp_client import MCPUnavailableError
+    from runtimes import quarantine as q
+    sb = _enable_e2b(monkeypatch)
+
+    class _Refused:
+        def __init__(self, config):
+            pass
+
+        async def open(self):
+            raise MCPUnavailableError("403: team is blocked: credit_exhausted")
+
+    monkeypatch.setattr(sb, "E2BSandboxSession", _Refused)
+    q.clear()
+    try:
+        assert await sb.maybe_attach_e2b(_Runner()) is None
+        assert q.quarantined(q.E2B_RUNTIME_ID)
+    finally:
+        q.clear()

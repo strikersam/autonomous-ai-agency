@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -25,10 +26,14 @@ from pathlib import Path
 
 import yaml
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from verifier_verdict import last_verdict  # noqa: E402
+
 log = logging.getLogger("qwen-proxy")
 
 ROOT = Path(__file__).resolve().parents[2]
 VERDICT_CONTEXT = "Verifier verdict"
+_HEAD_RE = re.compile(r"^Verified-head:\s*([0-9a-f]{40})\s*$", re.MULTILINE)
 
 
 @dataclass
@@ -58,7 +63,27 @@ def protected_hits(files: list[str], protected: list[str]) -> list[str]:
     return hits
 
 
-def decide(pr: dict, files: list[str], verdict_state: str | None, policy: dict) -> Gate:
+def bound_verdict(comments: list[dict], head_sha: str, trusted: set[str]) -> str | None:
+    """The latest trusted verdict comment's verdict, if it names *head_sha*.
+
+    Stricter than the "Verifier verdict" status, which also reads the PR body:
+    for a self-merge the verdict must come from a comment (the implementing
+    agent writes the body) and must name the exact commit it verified, so a
+    push after verification never rides an old PASS.
+    """
+    for comment in reversed(comments):
+        login = ((comment.get("user") or {}).get("login") or "").lower()
+        body = comment.get("body") or ""
+        verdict = last_verdict(body)
+        if not verdict or not login or login not in trusted:
+            continue
+        heads = _HEAD_RE.findall(body)
+        return verdict if heads and heads[-1] == head_sha else None
+    return None
+
+
+def decide(pr: dict, files: list[str], verdict_state: str | None, policy: dict,
+           bound: str | None = None) -> Gate:
     """Pure decision for a PR given its changed files and verdict status."""
     head = (pr.get("head") or {}).get("ref", "")
     labels = {lab.get("name", "") for lab in pr.get("labels") or []}
@@ -81,6 +106,8 @@ def decide(pr: dict, files: list[str], verdict_state: str | None, policy: dict) 
         return Gate(False, "touches protected paths: " + ", ".join(hits[:5]), needs_human=True)
     if verdict_state != "success":
         return Gate(False, f"verifier verdict is {verdict_state or 'missing'}")
+    if bound not in ("PASS", "PASS+NOTES"):
+        return Gate(False, "no passing verifier comment names the current head commit")
     return Gate(True, "CI and independent verifier passed; no protected paths")
 
 
@@ -112,7 +139,11 @@ def run(repo: str, number: str, sha: str | None) -> Gate:
     if sha and sha != head_sha:
         return Gate(False, "head moved since this run; the newer commit decides")
     policy = load_policy()
-    gate = decide(pr, _changed_files(repo, number), _verdict_state(repo, head_sha), policy)
+    comments = json.loads(_gh("api", "--paginate", "--slurp", f"repos/{repo}/issues/{number}/comments"))
+    comments = [c for page in comments for c in page] if comments and isinstance(comments[0], list) else comments
+    trusted = {repo.split("/")[0].lower(), "github-actions[bot]"}
+    gate = decide(pr, _changed_files(repo, number), _verdict_state(repo, head_sha), policy,
+                  bound_verdict(comments, head_sha, trusted))
     if gate.needs_human:
         label = policy.get("needs_human_label", "needs-human")
         _gh("pr", "edit", number, "--repo", repo, "--add-label", label)

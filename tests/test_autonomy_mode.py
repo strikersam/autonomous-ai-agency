@@ -1,6 +1,7 @@
 """Full-autonomy mode: self-merge gate, hard-limit tasks, verifier verdict comment."""
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -36,8 +37,44 @@ def test_policy_protects_spend_secrets_and_deletion_paths():
 
 
 def test_merges_when_verifier_passed_and_no_protected_paths():
-    gate = am.decide(_pr(), ["agent/loop.py", "tests/test_x.py"], "success", POLICY)
+    gate = am.decide(_pr(), ["agent/loop.py", "tests/test_x.py"], "success", POLICY, "PASS")
     assert gate.merge and not gate.needs_human
+
+
+def test_no_merge_without_a_head_bound_verdict_comment():
+    assert not am.decide(_pr(), ["agent/loop.py"], "success", POLICY, None).merge
+    assert not am.decide(_pr(), ["agent/loop.py"], "success", POLICY, "FAIL").merge
+
+
+SHA_A, SHA_B = "a" * 40, "b" * 40
+
+
+def _vc(verdict: str, sha: str, login: str = "o") -> dict:
+    return {"user": {"login": login}, "body": f"Notes\n\nVerified-head: {sha}\nVerdict: {verdict}"}
+
+
+def test_bound_verdict_requires_the_current_head():
+    assert am.bound_verdict([_vc("PASS", SHA_A)], SHA_A, {"o"}) == "PASS"
+    # A push after verification: the old PASS no longer counts.
+    assert am.bound_verdict([_vc("PASS", SHA_A)], SHA_B, {"o"}) is None
+
+
+def test_bound_verdict_latest_trusted_comment_wins():
+    comments = [_vc("PASS", SHA_A), _vc("FAIL", SHA_A)]
+    assert am.bound_verdict(comments, SHA_A, {"o"}) == "FAIL"
+    assert am.bound_verdict([_vc("PASS", SHA_A, "drive-by")], SHA_A, {"o"}) is None
+
+
+def test_bound_verdict_ignores_unbound_and_body_style_verdicts():
+    comment = {"user": {"login": "o"}, "body": "Verdict: PASS"}
+    assert am.bound_verdict([comment], SHA_A, {"o"}) is None
+
+
+def test_agency_verdict_comment_round_trips_through_the_gate():
+    run = _run("APPROVED")
+    run["verified_head"] = SHA_A
+    comment = {"user": {"login": "o"}, "body": verdict_comment(run)}
+    assert am.bound_verdict([comment], SHA_A, {"o"}) == "PASS"
 
 
 @pytest.mark.parametrize("state", [None, "pending", "failure", "error"])
@@ -50,7 +87,7 @@ def test_no_merge_without_passing_verdict(state):
     ["config/autonomy.yaml"], ["README.md", "packages/ai/cost_tracker.py"],
 ])
 def test_protected_path_needs_human_even_with_pass(files):
-    gate = am.decide(_pr(), files, "success", POLICY)
+    gate = am.decide(_pr(), files, "success", POLICY, "PASS")
     assert not gate.merge and gate.needs_human
 
 
@@ -67,7 +104,7 @@ def test_gate_machinery_and_spend_config_are_protected(path):
 def test_fork_pr_never_self_merges():
     pr = _pr()
     pr["head"]["repo"] = {"full_name": "someone/fork"}
-    gate = am.decide(pr, ["a.py"], "success", POLICY)
+    gate = am.decide(pr, ["a.py"], "success", POLICY, "PASS")
     assert not gate.merge and gate.needs_human
 
 
@@ -88,11 +125,11 @@ def test_prefix_match_is_path_aware():
     _pr(head="dependabot/pip/x"),
 ])
 def test_skipped_prs(pr):
-    assert not am.decide(pr, ["a.py"], "success", POLICY).merge
+    assert not am.decide(pr, ["a.py"], "success", POLICY, "PASS").merge
 
 
 def test_verifier_exempt_label_never_self_merges():
-    gate = am.decide(_pr(labels=("verifier-exempt",)), ["a.py"], "success", POLICY)
+    gate = am.decide(_pr(labels=("verifier-exempt",)), ["a.py"], "success", POLICY, "PASS")
     assert not gate.merge and gate.needs_human
 
 
@@ -108,18 +145,20 @@ def test_run_queues_guarded_merge(monkeypatch):
         calls.append(args)
         if args[1] == "repos/o/r/pulls/7":
             return ('{"state": "open", "draft": false, "labels": [], "base": {"repo": {"full_name": "o/r"}},'
-                    ' "head": {"ref": "agent/x", "sha": "abc", "repo": {"full_name": "o/r"}}}')
+                    ' "head": {"ref": "agent/x", "sha": "abcabcabcabcabcabcabcabcabcabcabcabcabca", "repo": {"full_name": "o/r"}}}')
         joined = " ".join(args)
         if "/files" in joined:
             return "agent/loop.py\n"
+        if "/comments" in joined:
+            return json.dumps([{"user": {"login": "o"}, "body": "Verified-head: " + "abc" * 13 + "a\nVerdict: PASS"}])
         if "/status" in joined:
             return '{"statuses": [{"context": "Verifier verdict", "state": "success"}]}'
         return ""
 
     monkeypatch.setattr(am, "_gh", fake_gh)
-    assert am.run("o/r", "7", "abc").merge
+    assert am.run("o/r", "7", "abc" * 13 + "a").merge
     merge = [c for c in calls if c[:2] == ("pr", "merge")]
-    assert merge and "--match-head-commit" in merge[0] and "abc" in merge[0] and "--squash" in merge[0]
+    assert merge and "--match-head-commit" in merge[0] and "abc" * 13 + "a" in merge[0] and "--squash" in merge[0]
 
 
 def _task(title: str, description: str = "", tags: tuple[str, ...] = ()) -> Task:

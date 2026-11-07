@@ -519,8 +519,9 @@ class E2BSandboxSession:
         base = f"$(git -C {w} merge-base origin/HEAD HEAD 2>/dev/null || git -C {w} rev-parse HEAD~1)"
         names = await self._shell(f"git -C {w} diff --name-only {base} HEAD", 30)
         diff = await self._shell(f"git -C {w} diff {base} HEAD | head -c 12000", 30)
+        head = await self._shell(f"git -C {w} rev-parse HEAD", 30)
         files = [f.strip() for f in names["stdout"].splitlines() if f.strip()]
-        return {"changed_files": files, "diff": diff["stdout"]}
+        return {"changed_files": files, "diff": diff["stdout"], "head_sha": head["stdout"].strip()}
 
     async def _shell(self, cmd: str, timeout: int) -> dict[str, Any]:
         """Run *cmd* and return its result whatever the exit code."""
@@ -810,10 +811,18 @@ async def maybe_attach_e2b(runner: Any, spec_or_ctx: Any = None) -> E2BSandboxSe
     config = resolve_e2b_config()
     if config is None:
         return None
+    from runtimes.quarantine import E2B_RUNTIME_ID, is_e2b_account_refusal, quarantine, quarantined
+
+    refused = quarantined(E2B_RUNTIME_ID)
+    if refused:
+        log.info("E2B quarantined (%s); using local tools", refused)
+        return None
     session = E2BSandboxSession(config=config)
     try:
         await session.open()
     except MCPUnavailableError as exc:
+        if is_e2b_account_refusal(exc):
+            quarantine(E2B_RUNTIME_ID, f"E2B account refused sandbox creation: {exc}")
         log.warning("E2B sandbox open failed; falling back to local tools: %s", exc)
         return None
     prior = runner._mcp

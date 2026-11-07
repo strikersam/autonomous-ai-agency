@@ -106,7 +106,8 @@ async def _exercise(pr: tuple[str, int]) -> dict[str, Any]:
         checks = await empirical_verify.verify_in_sandbox(session, py) if py else empirical_verify.CheckOutcome()
         steps = [{"status": "applied", "changed_files": files}]
         shots = await ui_evidence.capture(session, steps)
-        return {"files": files, "diff": change["diff"], "checks": checks, "ui": shots}
+        return {"files": files, "diff": change["diff"], "checks": checks, "ui": shots,
+                "head_sha": change.get("head_sha", "")}
     except Exception as exc:  # noqa: BLE001 - a broken sandbox is a gap, not a verdict
         log.warning("Independent verifier could not exercise %s#%s: %s", pr[0], pr[1], exc)
         return {"gap": f"the pull request could not be checked out and run ({str(exc)[:200]})"}
@@ -211,6 +212,7 @@ async def _verify(task: Any, result: Any) -> dict[str, Any] | None:
              sum(1 for s in run["ui_evidence"] if s.get("shot_id")))
     if ev.get("gap"):
         run["verifier_gap"] = ev["gap"]
+    run["verified_head"] = ev.get("head_sha", "")
     if pr:
         await _post_verdict(pr, run, task)
     return run
@@ -239,7 +241,9 @@ def verdict_comment(run: dict[str, Any]) -> str:
     ]
     if run.get("verifier_gap"):
         lines.append(f"> Gap: {run['verifier_gap']}")
-    lines += ["", f"Verdict: {verdict}"]
+    # The merge gate accepts a verdict only for the commit it names: a push
+    # after verification needs a fresh verdict. No commit (gap) means FAIL anyway.
+    lines += ["", f"Verified-head: {run.get('verified_head') or 'none'}", f"Verdict: {verdict}"]
     return "\n".join(lines)
 
 
