@@ -48,6 +48,35 @@ def memory_key_for(
     return f"{ROLE_PREFIX}{role}"
 
 
+async def _user_identities(identity: str) -> set[str]:
+    """Every id a user is known by. Tasks record owners by ``_id``, agents by email."""
+    from backend.server import _doc_id_filter, get_db
+
+    users = get_db().users
+    doc = await users.find_one(_doc_id_filter(identity)) or await users.find_one({"email": identity})
+    if not doc:
+        return {identity}
+    return {identity, str(doc.get("_id") or ""), str(doc.get("email") or "")} - {""}
+
+
+async def resolve_memory_key(
+    agent_id: str | None, *, task_owner: str | None, agent_owner: str | None,
+) -> str | None:
+    """``memory_key_for`` with the task owner matched to the agent owner across id forms.
+
+    Without this an owner whose task carries their ``_id`` while the agent carries
+    their email would be treated as a stranger. A failed lookup keeps the
+    per-user key, which never shares memory.
+    """
+    if agent_id and task_owner and agent_owner and task_owner not in (agent_owner, _AGENCY_OWNER):
+        try:
+            if agent_owner in await _user_identities(task_owner):
+                task_owner = agent_owner
+        except Exception as exc:  # noqa: BLE001 - fall back to the isolated key
+            log.debug("agent_memory: owner lookup failed for %s: %s", task_owner, exc)
+    return memory_key_for(agent_id, task_owner=task_owner, agent_owner=agent_owner)
+
+
 async def with_agent_memory(instruction: str, memory_key: str | None, query: str) -> str:
     """*instruction* followed by the agent's memory block; unchanged on any failure."""
     if not memory_key or not agent_memory_enabled():

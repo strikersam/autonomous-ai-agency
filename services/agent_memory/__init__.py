@@ -21,6 +21,7 @@ from services.agent_memory.service import (
     maybe_spawn_dream_cycle,
     memory_key_for,
     record_task_outcome,
+    resolve_memory_key,
     run_dream_cycle,
     with_agent_memory,
 )
@@ -29,6 +30,7 @@ __all__ = [
     "maybe_spawn_dream_cycle",
     "memory_key_for",
     "record_task_outcome",
+    "resolve_memory_key",
     "run_dream_cycle",
     "with_agent_memory",
 ]

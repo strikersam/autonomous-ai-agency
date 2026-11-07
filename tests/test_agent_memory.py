@@ -616,3 +616,22 @@ async def test_supervisor_passes_the_stored_memory_owner(monkeypatch):
     goal = GoalRecord(goal_id="g1", goal="g", request="r", memory_owner="a@x.com")
     await CEOSupervisor()._redrive(goal)
     assert fake_ceo.delegate.call_args.kwargs["memory_owner"] == "a@x.com"
+
+
+async def test_owner_with_id_on_task_and_email_on_agent_shares_their_own_memory(monkeypatch):
+    async def identities(identity):
+        return {"64a1", "owner@x.com"} if identity in ("64a1", "owner@x.com") else {identity}
+
+    monkeypatch.setattr(mem_service, "_user_identities", identities)
+    resolve = mem_service.resolve_memory_key
+    assert await resolve("agent_p", task_owner="64a1", agent_owner="owner@x.com") == "agent_p"
+    assert await resolve("agent_p", task_owner="99zz", agent_owner="owner@x.com") == "agent_p|99zz"
+
+
+async def test_failed_owner_lookup_keeps_the_isolated_key(monkeypatch):
+    async def broken(_identity):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(mem_service, "_user_identities", broken)
+    assert await mem_service.resolve_memory_key(
+        "agent_p", task_owner="64a1", agent_owner="owner@x.com") == "agent_p|64a1"
