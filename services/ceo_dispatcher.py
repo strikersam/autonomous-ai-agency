@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from agent.loop import AgentRunner
+from services.agent_memory import memory_key_for, record_task_outcome, with_agent_memory
 
 if TYPE_CHECKING:  # import for typing only — keeps the runtime import lazy
     from services.ceo_micromanager import SubtaskPlan
@@ -101,6 +102,11 @@ class SpecialistTask:
     #: Tier this attempt runs at. Escalation rewrites it in place between
     #: attempts, so it always reflects the tier of the *current* attempt.
     tier: str = "midlevel"
+    #: Whose directive this sub-task serves; scopes its role memory per user.
+    memory_owner: str | None = None
+    #: True for a supervisor re-drive whose owner could not be established: the
+    #: run gets no memory rather than falling back to the shared role pool.
+    memory_disabled: bool = False
     #: The caller's own step ceiling, when one was given. Escalation re-clamps
     #: against it, so a caller that asked for a tighter budget than the tier
     #: allows keeps that budget across retries instead of silently inheriting
@@ -238,8 +244,12 @@ class CEODispatcher:
         ollama_base: str | None = None,
         max_steps: int | None = None,
         goal_id: str | None = None,
+        memory_owner: str | None = None,
     ) -> CEOResult:
         """Decompose the request, wake runtimes, run sub-tasks concurrently, merge.
+
+        ``memory_owner`` scopes the specialists' role memory to that user
+        (``role:<role>|<user>``) and changes nothing else; it defaults to ``user_id``.
 
         ``goal`` and ``max_steps`` are accepted because
         ``WorkflowOrchestrator._handle_execute`` has always passed them. Until
@@ -292,7 +302,15 @@ class CEODispatcher:
             sub_tasks=sub_tasks,
             workspace_root=workspace_root,
             user_id=user_id,
+            memory_owner=memory_owner or user_id,
         )
+        # A supervisor re-drive passes no owner; the ledger remembers it. A re-drive
+        # whose owner is unknown (record predates the field, or the ledger is
+        # down) gets no memory rather than the shared role pool.
+        owner = memory_owner or user_id or getattr(ledger_goal, "memory_owner", "") or None
+        for st in sub_tasks:
+            st.memory_owner = owner
+            st.memory_disabled = goal_id is not None and owner is None
 
         specialists_out = await self._run_subtasks(
             sub_tasks,
@@ -409,6 +427,7 @@ class CEODispatcher:
         sub_tasks: list[SpecialistTask],
         workspace_root: str | None = None,
         user_id: str | None = None,
+        memory_owner: str | None = None,
     ) -> Any:
         """Record the goal and its sub-tasks in the ledger before any work runs.
 
@@ -443,6 +462,7 @@ class CEODispatcher:
             # identifiers are stored — never a token.
             record.workspace_root = workspace_root or record.workspace_root
             record.user_id = user_id or record.user_id
+            record.memory_owner = memory_owner or record.memory_owner
             record.subtasks = [
                 SubtaskRecord(
                     subtask_id=st.task_id,
@@ -637,6 +657,8 @@ class CEODispatcher:
         sem = asyncio.Semaphore(self.max_concurrent)
         results: dict[str, dict[str, Any]] = {}
         remaining = list(sub_tasks)
+        for st in remaining:
+            st.memory_owner = st.memory_owner or user_id
 
         while remaining:
             # Find tasks whose deps are all done (or have no deps).
@@ -779,9 +801,10 @@ class CEODispatcher:
                 dep_context = "\n\nUpstream specialist results:\n" + "\n".join(
                     f"[{sid}] {summary[:300]}" for sid, summary in upstream
                 )
+            memory_key = None if st.memory_disabled else memory_key_for(role=st.role, task_owner=st.memory_owner)
             spec = RT_TaskSpec(
                 task_id=st.task_id,
-                instruction=st.instruction + dep_context,
+                instruction=await with_agent_memory(st.instruction + dep_context, memory_key, st.instruction),
                 task_type=st.role,
                 provider_preference=st.runtime_id,  # ← routes to the right runtime
                 model_preference=st.model,
@@ -794,6 +817,8 @@ class CEODispatcher:
                 context={"max_steps": st.max_steps},
             )
             result, decision = await mgr.execute(spec)
+            await record_task_outcome(memory_key, task_id=st.task_id, title=st.instruction[:300],
+                                      success=result.success, output=result.output or "")
             changed_files, files_reported = _harvest_changed_files(result)
             entry: dict[str, Any] = {
                 "task_id": st.task_id,

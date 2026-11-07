@@ -51,6 +51,7 @@ from starlette.routing import Match
 
 # Feature routers — agents, runtimes, tasks
 from agents.api import agent_router
+from agents.memory_api import agent_memory_router
 from agents.store import AgentStore, set_agent_store
 from packages.scheduler.scheduler import AgentScheduler, get_scheduler, set_scheduler
 from agent.skills import SkillLibrary
@@ -11232,6 +11233,7 @@ async def get_doctor_diagnostics(
 # request.state.user but never required it, so anonymous callers could create
 # agents, stop every runtime or delete initiatives. The gate lives here (rule 10).
 app.include_router(agent_router,dependencies=[Depends(get_current_user)])
+app.include_router(agent_memory_router, dependencies=[Depends(get_current_user)])
 # Local GLM-5.2 brain cross-machine toggle (admin SPA <-> local daemon).
 # Three endpoints, all gated on SERVICE_TOKEN via require_service_token.
 # See backend/local_brain_router.py for surface + body shapes.

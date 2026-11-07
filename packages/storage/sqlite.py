@@ -97,6 +97,8 @@ _COLLECTIONS = [
     "agent_specs",
     # State mirrors: new names, so they safely take this store's (id, data) schema.
     "user_token_usage", "governance_grants", "tool_output_offload",
+    # Per-agent memory (services/agent_memory).
+    "agent_memory_notes", "agent_memory_episodes",
     # Deliberately NOT "agent_schedules": agent/schedule_store.py shares this DB
     # file and creates its own (job_id, doc, updated_at) table of that name;
     # whichever initialises first wins CREATE TABLE IF NOT EXISTS, so listing it
@@ -124,6 +126,8 @@ _INDEXED_FIELDS: dict[str, list[str]] = {
     "workflows":       ["company_id", "is_active"],
     "app_settings":    ["key"],
     "agent_specs":     ["spec_id", "status", "created_at"],
+    "agent_memory_notes":    ["memory_key"],
+    "agent_memory_episodes": ["memory_key"],
 }
 
 

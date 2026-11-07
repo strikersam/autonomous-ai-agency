@@ -950,6 +950,67 @@ _AUTONOMY: tuple[ControlSpec, ...] = (
         live=True,
     ),
     _toggle(
+        "AGENT_MEMORY_ENABLED",
+        "Agent memory",
+        "autonomy",
+        "true",
+        "Each agency agent keeps notes from its own experience: its memory is "
+        "added to every task instruction, and REMEMBER lines in its replies plus "
+        "a record of each run are saved afterwards. No LLM calls.",
+        live=True,
+    ),
+    _number(
+        "AGENT_MEMORY_INDEX_LINES",
+        "Memory index size (notes)",
+        "autonomy",
+        "40",
+        "Most notes in the always-loaded index layer. Kept small: these cost "
+        "tokens on every task; the rest are recalled only when relevant.",
+        live=True,
+        minimum=5,
+        maximum=200,
+    ),
+    _number(
+        "AGENT_MEMORY_RECALL_K",
+        "Relevant notes recalled per task",
+        "autonomy",
+        "5",
+        "How many task-relevant notes from the deeper memory store are added.",
+        live=True,
+        maximum=20,
+    ),
+    _toggle(
+        "AGENT_DREAM_ENABLED",
+        "Agent memory dreaming",
+        "autonomy",
+        "true",
+        "Offline pass that checks each agent's notes against what actually "
+        "happened in its recent runs: corrects or refutes wrong notes, merges "
+        "duplicates, adds cross-run patterns, keeps the index small. One LLM "
+        "call per agent with new runs, per cycle.",
+        live=True,
+    ),
+    _number(
+        "AGENT_DREAM_INTERVAL_MINUTES",
+        "Dreaming interval (minutes)",
+        "autonomy",
+        "360",
+        "Minimum time between dreaming cycles.",
+        live=True,
+        minimum=5,
+        maximum=10080,
+    ),
+    _number(
+        "AGENT_DREAM_MAX_AGENTS",
+        "Agents dreamed per cycle",
+        "autonomy",
+        "5",
+        "Cap on LLM calls per cycle; agents with the most new runs go first.",
+        live=True,
+        minimum=1,
+        maximum=50,
+    ),
+    _toggle(
         "TREND_HERMES_DISPATCH_ENABLED",
         "Dispatch trend findings to Hermes",
         "autonomy",
