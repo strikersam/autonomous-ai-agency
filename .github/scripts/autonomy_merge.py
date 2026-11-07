@@ -85,7 +85,9 @@ def decide(pr: dict, files: list[str], verdict_state: str | None, policy: dict) 
 
 
 def _gh(*args: str) -> str:
-    out = subprocess.run(["gh", *args], capture_output=True, text=True, check=True, timeout=60)
+    # List argv, no shell; args come from this script and GitHub's own API.
+    out = subprocess.run(["gh", *args], capture_output=True, text=True, check=True,  # nosec B603 B607
+                         timeout=60)
     return out.stdout
 
 
