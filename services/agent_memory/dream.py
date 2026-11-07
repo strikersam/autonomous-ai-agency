@@ -116,7 +116,9 @@ def _apply_one(op: dict[str, Any], by_id: dict[str, MemoryNote], memory_key: str
         added.append(note)
         return True
     if kind == "merge":
-        ids = [i for i in op.get("note_ids") or [] if i in by_id and i not in deleted]
+        raw = op.get("note_ids") if isinstance(op.get("note_ids"), list) else []
+        # dict.fromkeys de-duplicates: [A, A] must not merge A into itself and delete it.
+        ids = list(dict.fromkeys(i for i in raw if isinstance(i, str) and i in by_id and i not in deleted))
         if len(ids) < 2 or not _clip(op.get("text")):
             return False
         keep = by_id[ids[0]]

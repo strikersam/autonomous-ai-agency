@@ -339,3 +339,39 @@ def test_notes_reload_when_the_backend_rewrote_timestamps_as_iso_strings():
     note = MemoryNote(memory_key="k", text="t", updated_at="2026-11-07T06:53:53.995682+00:00",
                       created_at="2026-11-07T06:00:00+00:00")
     assert isinstance(note.updated_at, float) and note.updated_at > note.created_at
+
+
+async def test_dream_merge_with_duplicate_or_malformed_ids_keeps_the_note(store):
+    keep = _note("keep me")
+    await store.save_note(keep)
+    await record_episode(store, "agent_a", task_id="t1", title="t", success=True, output="o")
+    llm = _fake_llm([
+        {"op": "merge", "note_ids": [keep.note_id, keep.note_id], "text": "z"},
+        {"op": "merge", "note_ids": [["x"], "q"], "text": "z"},
+        {"op": "merge", "note_ids": "not-a-list", "text": "z"},
+    ])
+    result = await dream_agent(store, "agent_a", "ctx", llm=llm, index_cap=5)
+    assert result["status"] == "dreamed" and result["ops_applied"] == 0
+    assert [n.text for n in await store.list_notes("agent_a")] == ["keep me"]
+
+
+def test_maybe_spawn_dream_cycle_without_a_loop_returns_false(store, monkeypatch):
+    monkeypatch.setattr(mem_service, "_last_cycle_at", None)
+    monkeypatch.setattr(mem_service, "_cycle_task", None)
+    assert mem_service.maybe_spawn_dream_cycle() is False
+    assert mem_service._last_cycle_at is None  # not consumed, so the next poll retries
+
+
+def test_api_public_agent_memory_is_still_owner_only(store, monkeypatch):
+    import asyncio
+
+    from agents.store import AgentDefinition, AgentStore, set_agent_store
+
+    agents = AgentStore()
+    set_agent_store(agents)
+    asyncio.run(agents.create(AgentDefinition(agent_id="agent_pub", owner_id="owner@x.com",
+                                              name="Pub", is_public=True)))
+    stranger = _client({"email": "other@x.com", "role": "user"})
+    assert stranger.get("/api/agents/agent_pub/memory").status_code == 404
+    assert stranger.post("/api/agents/agent_pub/memory/dream").status_code == 404
+    assert _client({"email": "owner@x.com", "role": "user"}).get("/api/agents/agent_pub/memory").status_code == 200

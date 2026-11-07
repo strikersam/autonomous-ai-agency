@@ -58,8 +58,10 @@ async def _authorize(agent_id: str, request: Request) -> None:
         if not is_admin:
             raise HTTPException(status_code=404, detail="Agent not found.")
         return
-    agent = await get_agent_store().get(agent_id, owner_id=None if is_admin else _user_id(user))
-    if agent is None:
+    # Fetch unfiltered and compare owners: store.get() also returns *public*
+    # agents to any caller, and a public agent's memory is still its owner's.
+    agent = await get_agent_store().get(agent_id, owner_id=None)
+    if agent is None or (not is_admin and agent.owner_id != _user_id(user)):
         raise HTTPException(status_code=404, detail="Agent not found.")
 
 
@@ -86,7 +88,7 @@ async def dream_agent_memory(agent_id: str, request: Request) -> DreamResult:
         result = await dream_one(agent_id)
     except Exception:
         log.exception("agent_memory: dream failed for %s", agent_id)
-        raise HTTPException(status_code=502, detail="Dreaming failed; no model was available.")
+        raise HTTPException(status_code=502, detail="Dreaming failed.")
     audit("agent.memory.dream", _user(request), resource="agent", resource_id=agent_id)
     details = {k: v for k, v in result.items() if k not in ("memory_key", "status")}
     return DreamResult(memory_key=agent_id, status=str(result.get("status")), details=details)

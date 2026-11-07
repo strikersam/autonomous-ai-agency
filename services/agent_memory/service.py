@@ -131,6 +131,9 @@ def maybe_spawn_dream_cycle() -> bool:
         return False
     if _last_cycle_at is not None and now - _last_cycle_at < agent_dream_interval_minutes() * 60:
         return False
+    try:
+        _cycle_task = asyncio.get_running_loop().create_task(run_dream_cycle())
+    except RuntimeError:  # no running loop — never let memory break the caller
+        return False
     _last_cycle_at = now
-    _cycle_task = asyncio.get_running_loop().create_task(run_dream_cycle())
     return True
