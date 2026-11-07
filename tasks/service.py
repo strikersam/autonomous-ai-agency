@@ -29,6 +29,7 @@ from tasks.store import TaskStore, get_task_store
 from agent.workflow import WorkflowEngine, WorkflowPhase, classify_domain
 
 from tasks.run_lease import claim_task_run, release_task_run
+from services.agent_memory import record_task_outcome, resolve_memory_key, with_agent_memory
 
 log = logging.getLogger("qwen-proxy")
 
@@ -964,6 +965,13 @@ class TaskExecutionCoordinator:
             await self.store.update(task)
 
             spec = self._build_spec(task, agent, may_ship=await _owner_may_ship_code(task.owner_id))
+            # Per-agent memory (services/agent_memory): the agent's index notes and
+            # the notes relevant to this task ride along with the instruction.
+            memory_key = await resolve_memory_key(agent.agent_id if agent else None, task_owner=task.owner_id,
+                                                  agent_owner=agent.owner_id if agent else None)
+            spec.instruction = await with_agent_memory(
+                spec.instruction, memory_key, f"{task.title}\n{task.description or ''}",
+            )
 
             # ── Workflow phase: CLASSIFY then EXECUTE ──
             domain = classify_domain(f"{task.title} {task.description}")
@@ -1022,6 +1030,11 @@ class TaskExecutionCoordinator:
             )
 
             await self._apply_result(task, agent, result)
+            await record_task_outcome(
+                memory_key, task_id=task.task_id, title=task.title, success=result.success,
+                output="\n\n".join(filter(None, [result.output, (result.metadata or {}).get("agent_comment")])),
+                verdict=task.verification.verdict if task.verification else None,
+            )
             task.workflow_phase = WorkflowPhase.VERIFY.value
             task.add_log(
                 "Workflow: verifying result",

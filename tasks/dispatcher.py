@@ -201,6 +201,10 @@ class TaskDispatcher:
         await self._maybe_materialize_portfolio(settings.portfolio_auto_materialize_every_polls)
         if _RETRO_EVERY > 0 and self._poll_count % _RETRO_EVERY == 0:
             await self._run_retro()
+        # Offline memory consolidation ("dreaming") — runs in the background on its
+        # own interval (AGENT_DREAM_INTERVAL_MINUTES), never blocks the poll.
+        from services.agent_memory import maybe_spawn_dream_cycle
+        maybe_spawn_dream_cycle()
 
         free = self._free_slots(settings.task_slots_per_provider)
         if free <= 0:
