@@ -19,7 +19,7 @@
 
 ## FAQ
 
-- Does it merge or deploy on its own? No. Every change is a pull request that waits for human approval; deploys, deletes, payments and messages always ask first.
+- Does it merge or deploy on its own? Only verified work: a pull request merges itself when CI is green and an independent verifier passed its latest commit; protected paths are labelled for a human. Deploys and external messages ask first by default; spending, secrets, access and deletions always do.
 - Is it free? Yes. MIT licensed and free to self-host (Python 3.11+, Node 20+, SQLite).
 - Which models? Free NVIDIA NIM first, with failover across Cerebras, Groq and local Ollama.
 - How to run it? `git clone https://github.com/strikersam/autonomous-ai-agency.git && cd autonomous-ai-agency && ./scripts/quickstart.sh`

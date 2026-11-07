@@ -8,7 +8,7 @@
 
 **Paste a website URL and get a CTO-grade audit in minutes. Then a CEO agent and a fleet of
 specialists get to work: they plan, write code, test it, and open PRs, around the clock.
-The only thing they ask you for is the merge.**
+Verified work merges itself; spending, secrets and deletions wait for you.**
 
 Self-hosted · MIT · Your servers, your models, your data
 
@@ -38,7 +38,7 @@ _▶ Feature tour (64 s): paste a URL → stack scan → audit → specialist fl
 | 🏢 **It staffs itself** | It provisions the specialist agents that business needs, coordinated by a CEO agent with a C-suite advisory board (CFO, CSO, COO, CMO, CPO, Counsel). |
 | 🛠 **It ships, and checks its own work** | Every change goes through plan → execute → verify. It byte-compiles and runs the tests before accepting a step. An LLM grading its own diff doesn't count. |
 | 🧯 **It fixes itself, and learns** | Errors on the dashboard become fix tasks automatically. Failures turn into lessons the planner reads next time. Every hour it mines its own sessions for failures that keep repeating and files them as improvements. The CEO stops repeating directives that keep failing. |
-| 🛡 **It stays on a leash** | Approval gates, a kill switch, per-agent daily spend caps, a canary credential, a policy engine and an audit trail. Nothing merges or deploys without you. |
+| 🛡 **It stays on a leash** | Approval gates, a kill switch, per-agent daily spend caps, a canary credential, a policy engine and an audit trail. Nothing merges without green CI and an independent verifier's pass. |
 | 🤪 **It has a face** | **SAM**, a googly-eyed little creature, floats in the corner of every screen. Tell it what to do and it runs the agency. |
 
 ---
@@ -102,7 +102,7 @@ flowchart LR
 2. **The CEO decides**, grounded in live state, its own past decisions, and C-suite advice for business questions. It drops directives that keep failing.
 3. **Specialists execute** through the plan → execute → verify loop, on whichever of a dozen runtimes fits (internal agent, Hermes, goose, aider, OpenHands, OpenCode, Claude Code, E2B, Docker, and more).
 4. **Every LLM call** goes through one router with automatic failover across free and paid providers.
-5. **You merge.** Outward-facing work (deploys, auth, secrets) waits for your approval before it even runs.
+5. **Verified work merges itself.** A PR merges when CI is green and the independent verifier passed its latest commit; PRs touching protected paths (`config/autonomy.yaml`) are labelled `needs-human`. Deploys ask first by default, and work that spends money, touches secrets or access, or deletes data always waits for your approval before it runs.
 
 The full change history is in [docs/changelog.md](docs/changelog.md).
 
@@ -160,7 +160,7 @@ PYTHONPATH=. python scripts/run_seo_audit.py --website-url https://yourcompany.c
 
 ## Autonomy with a leash
 
-Nothing merges, deploys or messages externally without your approval. On top of that:
+Nothing merges without green CI and an independent verifier's pass on the PR's latest commit, PRs touching protected paths wait for a human, deploys and external messages ask first by default, and spending, secrets, access and deletions always do. On top of that:
 
 | Guardrail | Where |
 |---|---|

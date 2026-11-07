@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
   <title>Autonomous AI Agency: Self-Hosted AI Team That Ships PRs</title>
-  <meta name="description" content="Open-source, self-hosted AI agents that audit your site, then plan, build, test and open pull requests that wait for your approval. MIT licensed.">
+  <meta name="description" content="Open-source, self-hosted AI agents that audit your site, then plan, build, test and open pull requests that merge only once verified. MIT licensed.">
   <link rel="canonical" href="https://autonomous-ai-agency.strikersam.workers.dev/">
   <meta name="robots" content="index,follow,max-snippet:-1,max-image-preview:large,max-video-preview:-1">
   <link rel="alternate" type="text/plain" href="/llms.txt" title="llms.txt">
@@ -14,12 +14,12 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Autonomous AI Agency">
   <meta property="og:title" content="Autonomous AI Agency — a self-hosted AI company that runs itself">
-  <meta property="og:description" content="Specialist agents that plan, build, test and open pull requests on your own servers. Nothing merges or deploys without you. MIT licensed.">
+  <meta property="og:description" content="Specialist agents that plan, build, test and open pull requests on your own servers. Spending, secrets and deletions always wait for you. MIT licensed.">
   <meta property="og:url" content="https://autonomous-ai-agency.strikersam.workers.dev/">
   <meta property="og:image" content="https://autonomous-ai-agency.strikersam.workers.dev/og.jpg">
   <meta property="og:image:width" content="1920">
   <meta property="og:image:height" content="1080">
-  <meta property="og:image:alt" content="SAM, the agency's mascot, answering 'Brief me' with live agency status">
+  <meta property="og:image:alt" content="SAM, the agency's mascot, answering 'Brief me' with a status update">
   <meta name="twitter:card" content="summary_large_image">
   <script type="application/ld+json">
   {
@@ -73,8 +73,8 @@
       {
         "@type": "FAQPage",
         "mainEntity": [
-      { "@type": "Question", "name": "What is Autonomous AI Agency?", "acceptedAnswer": { "@type": "Answer", "text": "A self-hosted, MIT-licensed, OpenAI-compatible AI proxy and multi-agent platform. A CEO agent coordinates specialist agents that plan, build, test and open pull requests for your approval." } },
-      { "@type": "Question", "name": "Does it merge or deploy code on its own?", "acceptedAnswer": { "@type": "Answer", "text": "No. Every change goes plan, execute, verify, then waits as a pull request for your review. Deploys, deletes, payments and messages always ask first." } },
+      { "@type": "Question", "name": "What is Autonomous AI Agency?", "acceptedAnswer": { "@type": "Answer", "text": "A self-hosted, MIT-licensed, OpenAI-compatible AI proxy and multi-agent platform. A CEO agent coordinates specialist agents that plan, build, test and open pull requests, which merge only once verified." } },
+      { "@type": "Question", "name": "Does it merge or deploy code on its own?", "acceptedAnswer": { "@type": "Answer", "text": "Only verified work. A pull request merges itself when CI is green and an independent verifier passed its latest commit; changes to protected paths are labelled for a human instead. Deploys and external messages ask first by default, and spending, secrets, access and deletions always do." } },
       { "@type": "Question", "name": "What does the website audit check?", "acceptedAnswer": { "@type": "Answer", "text": "A deterministic audit across SEO, GEO, AIO and security, with a 0-100 score and every finding priced. You can paste any website URL to run it." } },
       { "@type": "Question", "name": "Which AI models does it use?", "acceptedAnswer": { "@type": "Answer", "text": "It defaults to free NVIDIA NIM models and fails over across Cerebras, Groq and local Ollama, so the agency keeps working when a provider is down." } },
       { "@type": "Question", "name": "How do I run it myself?", "acceptedAnswer": { "@type": "Answer", "text": "Clone the repository and run ./scripts/quickstart.sh. It needs Python 3.11+ and Node 20+, uses SQLite storage, and needs no cloud account or Docker." } },
@@ -297,7 +297,7 @@ footer { padding-block: var(--space-3xl) var(--space-2xl); }
       <div class="container hero-grid">
         <div>
           <h1 id="hero-title">An AI company that runs itself, on your servers</h1>
-          <p class="lead">Paste a website URL and get a scored SEO, GEO and security audit. Then a CEO agent and a team of specialist agents plan the work, write the code, test it and open pull requests. The only thing they ask you for is the merge.</p>
+          <p class="lead">Paste a website URL and get a scored SEO, GEO and security audit. Then a CEO agent and a team of specialist agents plan the work, write the code, test it and open pull requests. Verified work merges itself; spending, secrets and deletions wait for you.</p>
           <div class="cta">
             <form class="go" action="/login" method="get"><button class="btn btn--primary" type="submit">Try the live dashboard</button></form>
             <a class="btn" href="#self-host">Run it in one command</a>
@@ -323,7 +323,7 @@ footer { padding-block: var(--space-3xl) var(--space-2xl); }
     <section class="section--tight" aria-label="SAM, the agency's assistant">
       <div class="container">
         <figure class="shot">
-          <img loading="lazy" src="/og.jpg" width="1920" height="1080" alt="SAM, the agency's mascot, answering 'Brief me' with the CEO loop's live status and queuing the top roadmap item">
+          <img loading="lazy" src="/og.jpg" width="1920" height="1080" alt="SAM, the agency's mascot, answering 'Brief me' with a status update and queuing the top task when asked">
           <figcaption>SAM runs the agency from any screen. Anything risky still waits for you.</figcaption>
         </figure>
       </div>
@@ -340,7 +340,7 @@ footer { padding-block: var(--space-3xl) var(--space-2xl); }
           <div><h3>Staffs itself</h3><p>Provisions the specialist agents that business needs, coordinated by a CEO agent with a C-suite advisory board.</p></div>
           <div><h3>Checks its own work</h3><p>Every change goes plan → execute → verify. It compiles and runs the tests before accepting a step; an LLM grading its own diff doesn&rsquo;t count.</p></div>
           <div><h3>Fixes itself and learns</h3><p>Dashboard errors become fix tasks. Failures become lessons the planner reads next time, and repeated failures are filed as improvements.</p></div>
-          <div><h3>Stays on a leash</h3><p>Approval gates, a kill switch, per-agent daily spend caps, a policy engine and an audit trail. Nothing merges or deploys without you.</p></div>
+          <div><h3>Stays on a leash</h3><p>Approval gates, a kill switch, per-agent daily spend caps, a policy engine and an audit trail. Nothing merges without green CI and an independent verifier&rsquo;s pass.</p></div>
           <div><h3>Free models first</h3><p>Defaults to free NVIDIA NIM models and fails over across Cerebras, Groq and local Ollama, so the agency keeps working when a provider is down.</p></div>
         </div>
       </div>
@@ -357,7 +357,7 @@ footer { padding-block: var(--space-3xl) var(--space-2xl); }
           <li><strong>The CEO agent plans.</strong> It breaks the goal into tasks and assigns specialists, prioritised by value and urgency.</li>
           <li><strong>Specialists execute in an isolated workspace.</strong> Each change is a small step with the files it touches named up front.</li>
           <li><strong>A verifier checks every step.</strong> Code must compile and tests must pass before a step is kept; the PR carries the evidence.</li>
-          <li class="person"><strong>You approve.</strong> A pull request waits for your review. Deploys, deletes, payments and messages always ask first.</li>
+          <li class="person"><strong>It merges, or waits for you.</strong> A verified pull request merges itself. Deploys ask first by default; spending, secrets, access and deletions always do.</li>
         </ol>
       </div>
     </section>
@@ -395,8 +395,8 @@ footer { padding-block: var(--space-3xl) var(--space-2xl); }
       <div class="container beside">
         <header><h2 id="faq-title">Frequently asked questions</h2></header>
         <div class="faq">
-          <details><summary><h3>What is Autonomous AI Agency?</h3></summary><p>A self-hosted, MIT-licensed, OpenAI-compatible AI proxy and multi-agent platform. A CEO agent coordinates specialist agents that plan, build, test and open pull requests for your approval.</p></details>
-          <details><summary><h3>Does it merge or deploy code on its own?</h3></summary><p>No. Every change goes plan, execute, verify, then waits as a pull request for your review. Deploys, deletes, payments and messages always ask first.</p></details>
+          <details><summary><h3>What is Autonomous AI Agency?</h3></summary><p>A self-hosted, MIT-licensed, OpenAI-compatible AI proxy and multi-agent platform. A CEO agent coordinates specialist agents that plan, build, test and open pull requests, which merge only once verified.</p></details>
+          <details><summary><h3>Does it merge or deploy code on its own?</h3></summary><p>Only verified work. A pull request merges itself when CI is green and an independent verifier passed its latest commit; changes to protected paths are labelled for a human instead. Deploys and external messages ask first by default, and spending, secrets, access and deletions always do.</p></details>
           <details><summary><h3>What does the website audit check?</h3></summary><p>A deterministic audit across SEO, GEO, AIO and security, with a 0-100 score and every finding priced. You can paste any website URL to run it.</p></details>
           <details><summary><h3>Which AI models does it use?</h3></summary><p>It defaults to free NVIDIA NIM models and fails over across Cerebras, Groq and local Ollama, so the agency keeps working when a provider is down.</p></details>
           <details><summary><h3>How do I run it myself?</h3></summary><p>Clone the repository and run ./scripts/quickstart.sh. It needs Python 3.11+ and Node 20+, uses SQLite storage, and needs no cloud account or Docker.</p></details>
