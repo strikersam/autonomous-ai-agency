@@ -61,7 +61,8 @@ async def _authorize(agent_id: str, request: Request) -> None:
     # Fetch unfiltered and compare owners: store.get() also returns *public*
     # agents to any caller, and a public agent's memory is still its owner's.
     agent = await get_agent_store().get(agent_id, owner_id=None)
-    if agent is None or (not is_admin and agent.owner_id != _user_id(user)):
+    uid = _user_id(user)
+    if agent is None or (not is_admin and (uid == "unknown" or agent.owner_id != uid)):
         raise HTTPException(status_code=404, detail="Agent not found.")
 
 
@@ -75,7 +76,7 @@ async def get_agent_memory(agent_id: str, request: Request) -> AgentMemoryView:
         episodes = await store.list_episodes(agent_id)
     except Exception:
         log.exception("agent_memory: read failed for %s", agent_id)
-        raise HTTPException(status_code=500, detail="Could not read agent memory.")
+        raise HTTPException(status_code=500, detail="Could not read agent memory.") from None
     return AgentMemoryView(memory_key=agent_id, notes=notes, episodes=episodes[:20],
                            undreamed_episodes=sum(1 for e in episodes if not e.dreamed))
 
@@ -88,7 +89,7 @@ async def dream_agent_memory(agent_id: str, request: Request) -> DreamResult:
         result = await dream_one(agent_id)
     except Exception:
         log.exception("agent_memory: dream failed for %s", agent_id)
-        raise HTTPException(status_code=502, detail="Dreaming failed.")
+        raise HTTPException(status_code=502, detail="Dreaming failed.") from None
     audit("agent.memory.dream", _user(request), resource="agent", resource_id=agent_id)
     details = {k: v for k, v in result.items() if k not in ("memory_key", "status")}
     return DreamResult(memory_key=agent_id, status=str(result.get("status")), details=details)

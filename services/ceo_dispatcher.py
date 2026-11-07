@@ -241,8 +241,12 @@ class CEODispatcher:
         ollama_base: str | None = None,
         max_steps: int | None = None,
         goal_id: str | None = None,
+        memory_owner: str | None = None,
     ) -> CEOResult:
         """Decompose the request, wake runtimes, run sub-tasks concurrently, merge.
+
+        ``memory_owner`` scopes the specialists' role memory to that user
+        (``role:<role>|<user>``) and changes nothing else; it defaults to ``user_id``.
 
         ``goal`` and ``max_steps`` are accepted because
         ``WorkflowOrchestrator._handle_execute`` has always passed them. Until
@@ -284,6 +288,8 @@ class CEODispatcher:
             )
             fanout_used = True
 
+        for st in sub_tasks:
+            st.memory_owner = memory_owner or user_id
         ledger_goal = await _offload(
             self._open_ledger_goal,
             goal_id=goal_id,
@@ -641,7 +647,7 @@ class CEODispatcher:
         results: dict[str, dict[str, Any]] = {}
         remaining = list(sub_tasks)
         for st in remaining:
-            st.memory_owner = user_id
+            st.memory_owner = st.memory_owner or user_id
 
         while remaining:
             # Find tasks whose deps are all done (or have no deps).

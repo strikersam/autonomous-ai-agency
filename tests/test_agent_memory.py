@@ -448,3 +448,50 @@ def test_render_block_keeps_guidance_and_whole_lines_when_index_is_huge():
     assert block.endswith(GUIDANCE)
     assert len(block) <= 6000 + len(GUIDANCE)
     assert all(line.endswith(")") for line in block.splitlines() if line.startswith("- ["))
+
+
+async def test_workflow_orchestrator_scopes_ceo_role_memory_to_the_requesting_user(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from services.ceo_dispatcher import CEOResult
+    from services.workflow_orchestrator import (
+        ClassifyOutput, ExecutionRequest, PlanOutput, SpecialistSelection,
+        WorkflowOrchestrator, WorkflowRun,
+    )
+
+    fake_ceo = MagicMock()
+    fake_ceo.delegate = AsyncMock(return_value=CEOResult(
+        goal="g", specialists=[], summary="s", total_duration_s=0.1, complexity="medium",
+        fanout_used=True, runtimes_woken=[], verdict="OK"))
+    monkeypatch.setattr("services.workflow_orchestrator._get_ceo_dispatcher", lambda: fake_ceo)
+    run = WorkflowRun()
+    run.classify = ClassifyOutput(domain="dev", task_type="bug_fix", complexity="medium")
+    run.plan = PlanOutput(goal="Fix it", steps=[{"description": "fix"}])
+    run.specialist = SpecialistSelection(specialist_ids=["s1"], specialist_names=["dev"], families=["general"])
+    await WorkflowOrchestrator()._handle_execute(run, ExecutionRequest(request="Fix it", user_id="a@x.com"))
+
+    kwargs = fake_ceo.delegate.call_args.kwargs
+    assert kwargs["memory_owner"] == "a@x.com"
+    assert "user_id" not in kwargs  # ledger/push/runner ownership unchanged
+
+
+async def test_ceo_delegate_keeps_each_users_role_notes_apart(store):
+    from unittest.mock import patch
+
+    from services.ceo_dispatcher import CEODispatcher
+    from tests.test_ceo_dispatcher import _FakeRuntimeManager
+
+    class _AnyRuntime(dict):
+        def get(self, _key, _default=None):
+            return "REMEMBER: user A's private detail"
+
+    fake = _FakeRuntimeManager()
+    fake._per_runtime = _AnyRuntime()  # every runtime returns the note
+    with patch("runtimes.manager.get_runtime_manager", return_value=fake):
+        await CEODispatcher().delegate("Quick lint fix", complexity="low", memory_owner="a@x.com")
+        await CEODispatcher().delegate("Quick lint fix", complexity="low", memory_owner="b@x.com")
+
+    role = fake.execute_calls[0].task_type
+    assert len(await store.list_notes(f"role:{role}|a@x.com")) == 1
+    assert await store.list_notes(f"role:{role}") == []
+    assert "user A's private detail" not in fake.execute_calls[1].instruction
