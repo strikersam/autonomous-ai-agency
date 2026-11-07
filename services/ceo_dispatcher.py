@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from agent.loop import AgentRunner
+from services.agent_memory import memory_key_for, record_task_outcome, with_agent_memory
 
 if TYPE_CHECKING:  # import for typing only — keeps the runtime import lazy
     from services.ceo_micromanager import SubtaskPlan
@@ -779,9 +780,10 @@ class CEODispatcher:
                 dep_context = "\n\nUpstream specialist results:\n" + "\n".join(
                     f"[{sid}] {summary[:300]}" for sid, summary in upstream
                 )
+            memory_key = memory_key_for(role=st.role)
             spec = RT_TaskSpec(
                 task_id=st.task_id,
-                instruction=st.instruction + dep_context,
+                instruction=await with_agent_memory(st.instruction + dep_context, memory_key, st.instruction),
                 task_type=st.role,
                 provider_preference=st.runtime_id,  # ← routes to the right runtime
                 model_preference=st.model,
@@ -794,6 +796,8 @@ class CEODispatcher:
                 context={"max_steps": st.max_steps},
             )
             result, decision = await mgr.execute(spec)
+            await record_task_outcome(memory_key, task_id=st.task_id, title=st.instruction[:300],
+                                      success=result.success, output=result.output or "")
             changed_files, files_reported = _harvest_changed_files(result)
             entry: dict[str, Any] = {
                 "task_id": st.task_id,
