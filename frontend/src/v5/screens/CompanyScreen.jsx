@@ -71,9 +71,9 @@ function CompanyHeader({ data, isPreview }) {
               { label: `${(data.systems || []).length} systems`, color: 'var(--accent)' },
               { label: `${(data.repos || []).length} repos`, color: 'var(--violet)' },
               { label: `${(data.specialists || []).filter(s => {
-                // BUG-27: count active/running specialists AND any specialist
-                // with a last_used_at timestamp within the last 24 hours
-                // Provisioned specialists report 'available' (idle) or 'busy'.
+                // BUG-27: count specialists that can take work (provisioned ones
+                // report 'available' when idle, 'busy' when working) and any
+                // used in the last 24 hours. Idle is ready, not active.
                 if (['active', 'running', 'available', 'busy'].includes(s.status)) return true;
                 const last = s.last_used_at || s.lastRun;
                 if (last && last !== '—') {
@@ -81,7 +81,7 @@ function CompanyHeader({ data, isPreview }) {
                   if (ms > 0 && (Date.now() - ms) < 24 * 3600 * 1000) return true;
                 }
                 return false;
-              }).length} agents active`, color: 'var(--success)' },
+              }).length} specialists ready`, color: 'var(--success)' },
             ].map(b => (
               <span key={b.label} style={{
                 fontSize:13, fontVariantNumeric:'tabular-nums', padding: '3px 10px', borderRadius: 999,
