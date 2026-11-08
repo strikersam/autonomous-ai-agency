@@ -310,12 +310,13 @@ async def test_reattaching_the_repo_keeps_token_ref_and_first_merge_consent(worl
 
     import services.repo_connection as rc
     monkeypatch.setattr(rc, "attach_repo_connection", attach)
+    stored_ref = "ref-to-stored-gh-pat"  # an opaque secrets-store reference, not a credential
     guessed = RepoConnection(owner="strikersam", repo="autonomous-ai-agency", default_branch="main",
-                             token_ref="secret:gh", policy=DeliveryPolicy(
+                             token_ref=stored_ref, policy=DeliveryPolicy(
                                  default_branch="main", first_merge_consent=True,
                                  detection_note="uncertain (repo metadata unavailable) → pr_required"))
     store.companies["6a3cea2b"] = store.companies["6a3cea2b"].model_copy(update={"repo_connection": guessed})
     await sc.consolidate_self_companies(website_url=WEBSITE, repo_url=REPO_URL)
     conn = store.companies["6a3cea2b"].repo_connection
-    assert seen["token_ref"] == "secret:gh"
+    assert seen["token_ref"] == stored_ref
     assert conn.default_branch == "master" and conn.policy.first_merge_consent is True
