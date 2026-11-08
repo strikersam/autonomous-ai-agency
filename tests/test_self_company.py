@@ -351,12 +351,22 @@ async def test_a_hung_teardown_does_not_block_consolidation(world, monkeypatch):
     assert log["activated"] == ["6a3cea2b"]
 
 
-async def test_concurrent_consolidations_do_not_race(world):
+async def test_concurrent_consolidations_do_not_race(world, monkeypatch):
     """Startup, the agency cycle and the background loop each call the
     bootstrap; a second run while one is in flight is skipped."""
     import asyncio
 
     store, log = world
+
+    class _SlowGraph:  # real teardown awaits I/O; the fakes otherwise never yield
+        async def delete_company(self, cid):
+            await asyncio.sleep(0.05)
+            log["deleted"].append(cid)
+            store.companies.pop(cid, None)
+            return True
+
+    import services.company_graph as cg
+    monkeypatch.setattr(cg, "get_company_graph_service", lambda: _SlowGraph())
     first, second = await asyncio.gather(
         sc.consolidate_self_companies(website_url=WEBSITE, repo_url=REPO_URL),
         sc.consolidate_self_companies(website_url=WEBSITE, repo_url=REPO_URL),
