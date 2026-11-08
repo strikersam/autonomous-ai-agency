@@ -32,6 +32,7 @@ intentionally not ``repr``-able.
 """
 from __future__ import annotations
 
+import importlib
 import logging
 import os
 from dataclasses import dataclass
@@ -56,6 +57,48 @@ _DEFAULT_TEMPLATE = "base"
 # leaked sandbox is still reaped 11 minutes after its last use.
 _DEFAULT_TIMEOUT_SEC = 660
 
+# Sandbox providers behind E2BSandboxSession, in auto-mode order: Freestyle
+# first because its Free plan never bills, E2B as paid failover. Openers live
+# in services/sandbox_providers.py; adding a name here gives it the generic
+# env vars <NAME>_API_KEY, <NAME>_SNAPSHOT and <NAME>_API_URL.
+PROVIDER_E2B = "e2b"
+PROVIDER_FREESTYLE = "freestyle"
+SANDBOX_PROVIDERS: tuple[str, ...] = (PROVIDER_FREESTYLE, PROVIDER_E2B)
+# Module whose import proves a provider can run here (an SDK, or plain httpx).
+_SDK_MODULE = {PROVIDER_E2B: "e2b_code_interpreter", PROVIDER_FREESTYLE: "httpx"}
+
+
+def _provider_key(provider: str) -> str:
+    return (os.environ.get(f"{provider.upper()}_API_KEY") or "").strip()
+
+
+def sandbox_providers() -> list[str]:
+    """The provider chain: ``SANDBOX_PROVIDER`` as an ordered list, keyed ones only.
+
+    ``auto`` (the default) is every known provider with a key, Freestyle first
+    (free), then E2B. An install with only ``E2B_API_KEY`` still gets just E2B.
+    ``e2b,freestyle`` reverses the order. Unknown names are dropped with a warning.
+    """
+    raw = os.environ.get("SANDBOX_PROVIDER", "").strip().lower()
+    names: list[str] = []
+    for part in (raw or "auto").split(","):
+        name = part.strip()
+        if name == "auto":
+            names.extend(SANDBOX_PROVIDERS)
+        elif name in SANDBOX_PROVIDERS:
+            names.append(name)
+        elif name:
+            log.warning("SANDBOX_PROVIDER: unknown provider %r ignored (known: %s)",
+                        name, ", ".join(SANDBOX_PROVIDERS))
+    chain = list(dict.fromkeys(names))  # de-duplicate, keep order
+    return [p for p in chain if _provider_key(p)]
+
+
+def sandbox_provider() -> str:
+    """The first provider in the chain (``e2b`` when none has a key)."""
+    chain = sandbox_providers()
+    return chain[0] if chain else PROVIDER_E2B
+
 
 @dataclass(frozen=True)
 class E2BConfig:
@@ -72,10 +115,15 @@ class E2BConfig:
     template: str = _DEFAULT_TEMPLATE
     timeout_sec: int = _DEFAULT_TIMEOUT_SEC
     metadata: dict[str, Any] | None = None
+    provider: str = PROVIDER_E2B
+    api_url: str | None = None
 
     def __repr__(self) -> str:  # pragma: no cover - defensive
         # Never leak the key in reprs that might end up in logs.
-        return f"E2BConfig(template={self.template!r}, timeout_sec={self.timeout_sec}, api_key=***)"
+        return (
+            f"E2BConfig(provider={self.provider!r}, template={self.template!r}, "
+            f"timeout_sec={self.timeout_sec}, api_key=***)"
+        )
 
     def __str__(self) -> str:  # pragma: no cover - defensive
         return repr(self)
@@ -132,8 +180,7 @@ def e2b_enabled() -> bool:
     # Key presence is checked by resolve_e2b_config(); here we only return
     # True so callers know they should attempt E2B. The actual key read
     # happens in resolve_e2b_config() (the single env reader).
-    key = (os.environ.get("E2B_API_KEY") or "").strip()
-    return bool(key)
+    return bool(sandbox_providers())
 
 
 def resolve_e2b_config() -> E2BConfig | None:
@@ -149,14 +196,37 @@ def resolve_e2b_config() -> E2BConfig | None:
       * ``E2B_API_KEY`` is unset / empty.
       * ``E2B_ENABLED=false`` is explicitly set (kill-switch).
     """
+    configs = resolve_sandbox_configs()
+    return configs[0] if configs else None
+
+
+def resolve_sandbox_configs() -> list[E2BConfig]:
+    """One config per provider in the chain, in failover order ([] when off)."""
     if not e2b_enabled():
-        return None
-    key = (os.environ.get("E2B_API_KEY") or "").strip()
-    if not key:
-        return None
+        return []
+    timeout_sec, metadata = _shared_settings()
+    return [_provider_config(p, timeout_sec, metadata) for p in sandbox_providers()]
 
-    template = (os.environ.get("E2B_TEMPLATE") or "").strip() or _DEFAULT_TEMPLATE
 
+def _provider_config(provider: str, timeout_sec: int, metadata: dict[str, Any] | None) -> E2BConfig:
+    name = provider.upper()
+    if provider == PROVIDER_E2B:
+        template = (os.environ.get("E2B_TEMPLATE") or "").strip() or _DEFAULT_TEMPLATE
+    else:
+        # Empty = the provider's default image.
+        template = (os.environ.get(f"{name}_SNAPSHOT") or "").strip()
+    return E2BConfig(
+        api_key=_provider_key(provider),
+        template=template,
+        timeout_sec=timeout_sec,
+        metadata=metadata,
+        provider=provider,
+        api_url=(os.environ.get(f"{name}_API_URL") or "").strip() or None,
+    )
+
+
+def _shared_settings() -> tuple[int, dict[str, Any] | None]:
+    """Lifetime and metadata, shared by every provider."""
     # Strict int parsing — a malformed env value must not silently fall back to
     # the default and hide a misconfiguration.
     timeout_raw = (os.environ.get("E2B_TIMEOUT_SEC") or "").strip()
@@ -195,23 +265,23 @@ def resolve_e2b_config() -> E2BConfig | None:
         if not metadata:
             metadata = None
 
-    return E2BConfig(
-        api_key=key,
-        template=template,
-        timeout_sec=timeout_sec,
-        metadata=metadata,
-    )
+    return timeout_sec, metadata
 
 
 def is_e2b_sdk_importable() -> bool:
-    """Cheap probe — True when ``e2b_code_interpreter`` is importable.
+    """Cheap probe — True when any provider in the chain can run here.
+
+    E2B needs ``e2b_code_interpreter``; Freestyle needs only ``httpx``. With no
+    provider keyed, this reports on E2B as before.
 
     Used by :mod:`runtimes.adapters.e2b` and :mod:`services.e2b_sandbox` so a
     deploy without the optional dependency falls back to local tools instead
     of crashing on import.
     """
-    try:
-        import e2b_code_interpreter  # noqa: F401
-        return True
-    except ImportError:
-        return False
+    for provider in sandbox_providers() or [PROVIDER_E2B]:
+        try:
+            importlib.import_module(_SDK_MODULE.get(provider, provider))
+            return True
+        except ImportError:
+            continue
+    return False

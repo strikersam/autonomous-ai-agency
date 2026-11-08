@@ -1458,6 +1458,22 @@ _GOVERNANCE: tuple[ControlSpec, ...] = (
         requires=("E2B_API_KEY",),
     ),
     ControlSpec(
+        key="SANDBOX_PROVIDER",
+        label="Sandbox providers",
+        group="governance",
+        kind=KIND_TEXT,
+        default="auto",
+        help=(
+            "Ordered, comma-separated sandbox providers once sandboxing is on; "
+            "each sandbox opens on the first that works and fails over to the "
+            "next (e.g. freestyle,e2b). Known: e2b (needs E2B_API_KEY), freestyle "
+            "(needs FREESTYLE_API_KEY; Free plan of 200 vCPU-hours a month that "
+            "never bills). auto = every keyed provider, Freestyle first. Read when each "
+            "sandbox opens."
+        ),
+        live=True,
+    ),
+    ControlSpec(
         key="AGENT_SANDBOX_MODE",
         label="Agent sandbox mode",
         group="governance",

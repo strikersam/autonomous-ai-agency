@@ -41,6 +41,7 @@ the token is never persisted in ``.git/config``).
 from __future__ import annotations
 
 import base64
+import inspect
 import io
 import json as _json
 import logging
@@ -50,7 +51,13 @@ import time
 from typing import Any
 
 from agent.mcp_client import MCPFileNotFoundError, MCPUnavailableError
-from services.e2b_config import E2BConfig, e2b_enabled, is_e2b_sdk_importable, resolve_e2b_config
+from services.e2b_config import (
+    E2BConfig,
+    e2b_enabled,
+    is_e2b_sdk_importable,
+    resolve_e2b_config,
+    resolve_sandbox_configs,
+)
 
 log = logging.getLogger("qwen-proxy")
 
@@ -127,9 +134,11 @@ class E2BSandboxSession:
     """
 
     def __init__(self, config: E2BConfig | None = None) -> None:
-        self._config = config or resolve_e2b_config()
-        if self._config is None:
-            raise MCPUnavailableError("E2B_API_KEY not set; cannot open sandbox")
+        # An explicit config pins one provider; otherwise the configured chain.
+        self._configs = [config] if config else resolve_sandbox_configs()
+        if not self._configs:
+            raise MCPUnavailableError("no sandbox provider key set; cannot open sandbox")
+        self._config = self._configs[0]
         self._sandbox: Any = None  # e2b_code_interpreter.AsyncSandbox
         self._closed = False
         self._last_keepalive = 0.0
@@ -144,34 +153,25 @@ class E2BSandboxSession:
         return self._sandbox is not None and not self._closed
 
     async def open(self) -> "E2BSandboxSession":
-        """Create the sandbox. Raises :class:`MCPUnavailableError` on failure."""
+        """Create the sandbox. Raises :class:`MCPUnavailableError` on failure.
+
+        Tries each configured provider in order (``SANDBOX_PROVIDER``) and
+        keeps the first sandbox that opens.
+        """
         if self._sandbox is not None:
             return self
         if not is_e2b_sdk_importable():
-            raise MCPUnavailableError(
-                "e2b-code-interpreter SDK not installed; cannot use E2B sandbox"
-            )
-        try:
-            from e2b_code_interpreter import AsyncSandbox
-        except ImportError as exc:
-            raise MCPUnavailableError(
-                f"e2b-code-interpreter import failed: {exc}"
-            ) from exc
+            raise MCPUnavailableError("no sandbox provider SDK installed (e2b-code-interpreter / httpx)")
+        from services.sandbox_providers import open_first_available
 
         try:
-            self._sandbox = await AsyncSandbox.create(
-                api_key=self._config.api_key,
-                timeout=self._config.timeout_sec,
-                **({"template": self._config.template} if self._config.template else {}),
-                **({"metadata": self._config.metadata} if self._config.metadata else {}),
-            )
+            self._sandbox, self._config = await open_first_available(self._configs)
         except Exception as exc:
-            raise MCPUnavailableError(f"E2B sandbox create failed: {exc}") from exc
+            raise MCPUnavailableError(f"sandbox create failed: {exc}") from exc
+        log.info("Sandbox opened on provider %s", self._config.provider)
         # Ensure the working directory exists.
         try:
-            await self._sandbox.commands.run(
-                f"mkdir -p {SANDBOX_WORKDIR}", timeout=10
-            )
+            await self._sandbox.commands.run(f"mkdir -p {SANDBOX_WORKDIR}", timeout=10)
         except Exception:  # pragma: no cover - best-effort
             pass
         return self
@@ -271,7 +271,10 @@ class E2BSandboxSession:
                     f"for i in $(seq 1 20); do curl -s -o /dev/null http://127.0.0.1:{int(port)}/ && exit 0; sleep 0.25; done; exit 1",
                     timeout=15,
                 )
-                self._preview_hosts[port] = sb.get_host(int(port))
+                host = sb.get_host(int(port))
+                if inspect.isawaitable(host):  # e.g. the Freestyle shim creates a preview rule
+                    host = await host
+                self._preview_hosts[port] = host
             except Exception as exc:  # noqa: BLE001 - preview is best-effort
                 log.warning("E2B preview server failed to start: %s", exc)
                 return None
@@ -465,7 +468,7 @@ class E2BSandboxSession:
             result = await sb.commands.run(clone_cmd, timeout=120)
         except Exception as exc:
             raise MCPUnavailableError(f"git clone failed: {exc}") from exc
-        stderr = getattr(result, "stderr", "") or ""
+        stderr = getattr(result, "stderr", "") or getattr(result, "stdout", "") or ""
         if isinstance(stderr, bytes):
             stderr = stderr.decode(errors="replace")
         if getattr(result, "exit_code", getattr(result, "returncode", 0)) != 0:
@@ -514,7 +517,7 @@ class E2BSandboxSession:
         )
         out = await self._shell(script, 180)
         if out["exit_code"] != 0:
-            raise MCPUnavailableError(f"PR checkout failed: {_scrub_token(out['stderr'], token).strip()[:400]}")
+            raise MCPUnavailableError(f"PR checkout failed: {_scrub_token(out['stderr'] or out['stdout'], token).strip()[:400]}")
         self._seeded = True
         base = f"$(git -C {w} merge-base origin/HEAD HEAD 2>/dev/null || git -C {w} rev-parse HEAD~1)"
         names = await self._shell(f"git -C {w} diff --name-only {base} HEAD", 30)
@@ -557,7 +560,7 @@ class E2BSandboxSession:
         except Exception as exc:
             raise MCPUnavailableError(f"git commit failed: {exc}") from exc
         if getattr(result, "exit_code", getattr(result, "returncode", 0)) != 0:
-            stderr = getattr(result, "stderr", "") or ""
+            stderr = getattr(result, "stderr", "") or getattr(result, "stdout", "") or ""
             if isinstance(stderr, bytes):
                 stderr = stderr.decode(errors="replace")
             raise MCPUnavailableError(f"git commit failed: {stderr.strip()}")
@@ -609,7 +612,7 @@ class E2BSandboxSession:
                 except Exception:  # pragma: no cover - best-effort
                     pass
         rc = getattr(result, "exit_code", getattr(result, "returncode", 0))
-        stderr = getattr(result, "stderr", "") or ""
+        stderr = getattr(result, "stderr", "") or getattr(result, "stdout", "") or ""
         if isinstance(stderr, bytes):
             stderr = stderr.decode(errors="replace")
         if rc != 0:

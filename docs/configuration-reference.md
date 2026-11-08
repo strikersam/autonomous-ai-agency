@@ -574,6 +574,22 @@ enabled (`services/e2b_config.py` is the only reader of these variables).
 | `E2B_TIMEOUT_SEC` | `660` | Idle lifetime in seconds, clamped to 30–1800. Refreshed on every tool call (at most once a minute), so a busy run never loses its sandbox; keep it above `TASK_EXECUTION_TIMEOUT_SEC` (600). At the old 300s default the sandbox died mid-task and the task was re-queued in a loop. |
 | `E2B_SANDBOX_METADATA` | unset | Optional `key=value,key=value` metadata passed to the sandbox. |
 
+### Sandbox providers
+
+Sandboxes open through a provider registry (`services/sandbox_providers.py`).
+The `E2B_ENABLED` opt-in, `E2B_TIMEOUT_SEC` and `E2B_SANDBOX_METADATA` apply to every provider.
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `SANDBOX_PROVIDER` | `auto` | Ordered, comma-separated providers: each sandbox opens on the first that works and fails over to the next (e.g. `freestyle,e2b`). Known: `e2b`, `freestyle`. `auto` (default) = every provider with a key, Freestyle first (free), then E2B. Providers without a key are skipped. Live control (Settings → Platform controls → Governance). |
+| `FREESTYLE_API_KEY` | unset | Secret, env-only. [Freestyle](https://freestyle.sh) VMs; the Free plan gives 200 vCPU-hours and 400 GiB-hours of memory a month, never bills, and pauses VMs when the allowance runs out. |
+| `FREESTYLE_SNAPSHOT` | unset | Snapshot to boot from (the default is Freestyle's Ubuntu image with Python; `git` is installed at boot if missing). A snapshot with the target repo's dependencies preinstalled saves the per-task install. |
+| `FREESTYLE_API_URL` | `https://api.freestyle.sh` | Deploy wiring; override only for a proxy. |
+
+A new provider reads `<NAME>_API_KEY`, `<NAME>_SNAPSHOT` and `<NAME>_API_URL` the same way.
+Freestyle limits: one command runs for at most 5 minutes (longer timeouts are clamped), and
+previews are served on a free `agency-<vm>-<port>.style.dev` host.
+
 ## Workspace Isolation
 
 | Variable | Default | Description |
