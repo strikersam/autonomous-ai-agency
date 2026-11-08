@@ -374,3 +374,13 @@ async def test_duplicate_specialists_of_one_family_are_retired(world):
     assert sorted(result["removed"]) == ["qa", "security"]
     assert sorted(log["deprovisioned"]) == ["dup-qa", "dup-security"]
     assert sorted(s.family for s in store.specialists["6a3cea2b"]) == sorted(sc.TECH_FAMILIES)
+
+
+async def test_dedupe_keeps_the_healthy_specialist(world):
+    store, log = world
+    broken = SimpleNamespace(id="broken-qa", family="qa", is_provisioned=False, status="disabled")
+    good = SimpleNamespace(id="good-qa", family="qa", is_provisioned=True, status="active")
+    store.specialists["6a3cea2b"] = [SimpleNamespace(id=f"k-{f}", family=f) for f in sc.TECH_FAMILIES
+                                     if f != "qa"] + [broken, good]
+    await sc.reconcile_specialists(store, "6a3cea2b")
+    assert log["deprovisioned"] == ["broken-qa"]

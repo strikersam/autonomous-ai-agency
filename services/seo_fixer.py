@@ -153,9 +153,14 @@ class SeoFixer:
         """
         if any((self.repo / name).is_file() for name in _SITE_FILES):
             return self.repo
-        for rel in _WEB_ROOT_CANDIDATES:
-            candidate = self.repo / rel
-            if candidate.is_dir() and any((candidate / n).is_file() for n in _SITE_FILES):
+        dirs = [self.repo / rel for rel in _WEB_ROOT_CANDIDATES if (self.repo / rel).is_dir()]
+        for candidate in dirs:
+            if any((candidate / n).is_file() for n in _SITE_FILES):
+                return candidate
+        # A fresh JS app (Vite, Next...) serves public/ next to its package.json
+        # even before it holds any site file.
+        for candidate in dirs:
+            if (candidate.parent / "package.json").is_file() or (candidate / "index.html").is_file():
                 return candidate
         return self.repo
 

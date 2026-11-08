@@ -264,7 +264,10 @@ async def reconcile_specialists(store: Any, company_id: str) -> dict[str, list[s
         if getattr(result, "status", "") == "success":
             added.append(family)
     seen: set[str] = set()
-    for spec in existing:
+    # Healthy specialists first, so a duplicate retires the broken copy.
+    healthy_first = sorted(existing, key=lambda sp: (
+        getattr(sp, "is_provisioned", True) is False, getattr(sp, "status", "") == "disabled"))
+    for spec in healthy_first:
         # Two concurrent runs once staffed the same family twice: keep one.
         duplicate = spec.family in seen
         seen.add(spec.family)

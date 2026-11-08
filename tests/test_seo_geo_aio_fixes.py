@@ -144,3 +144,14 @@ async def test_activation_adds_seo_schedule_and_refreshes_priorities(tmp_path, m
         assert all("1. Cut churn" in j.instruction and "Win AI" not in j.instruction for j in after)
     finally:
         sched.shutdown()
+
+
+def test_fresh_js_app_uses_public_even_without_site_files(tmp_path):
+    """Verifier note: a new Vite app has public/ but no robots.txt yet."""
+    (tmp_path / "package.json").write_text("{}")
+    (tmp_path / "public").mkdir()
+    (tmp_path / "index.html").write_text(PAGE.format(t="App"))
+    run_fixes(SeoFixRequest(repo_path=str(tmp_path), base_url=BASE, apply=True,
+                            include_checks=["geo_missing_robots_txt", "geo_missing_llms_txt"]))
+    assert (tmp_path / "public" / "robots.txt").is_file()
+    assert not (tmp_path / "robots.txt").exists()
