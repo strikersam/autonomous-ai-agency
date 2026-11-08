@@ -149,6 +149,7 @@ async def detect_delivery_policy(
     *,
     probe: RepoPolicyProbe | None = None,
     allow_direct_push: bool = ALLOW_DIRECT_PUSH,
+    fallback_branch: str = "main",
 ) -> DeliveryPolicy:
     """Detect a repo's :class:`DeliveryPolicy` (GitHub-only).
 
@@ -157,10 +158,12 @@ async def detect_delivery_policy(
     - Anything uncertain (API error, missing data) ⇒ ``pr_required`` (safe default).
     """
     probe = probe or GitHubPolicyProbe()
-    default_branch = "main"
+    # Used only when GitHub can't be asked; a wrong guess here becomes the
+    # branch every task clones, so callers that know the branch pass it.
+    default_branch = fallback_branch or "main"
     try:
         meta = await probe.get_repo(owner, repo)
-        default_branch = str((meta or {}).get("default_branch") or "main")
+        default_branch = str((meta or {}).get("default_branch") or default_branch)
     except Exception as exc:  # noqa: BLE001 — uncertainty ⇒ safe PR default
         log.warning("repo-connection: get_repo failed for %s/%s: %s", owner, repo, exc)
         return DeliveryPolicy(
@@ -305,6 +308,7 @@ async def attach_repo_connection(
     store: Any,
     token_ref: str | None = None,
     probe: RepoPolicyProbe | None = None,
+    fallback_branch: str = "main",
 ) -> RepoConnection | None:
     """Detect + persist a :class:`RepoConnection` onto a Company (best-effort).
 
@@ -320,7 +324,7 @@ async def attach_repo_connection(
         return None
     owner, repo = parsed
 
-    policy = await detect_delivery_policy(owner, repo, probe=probe)
+    policy = await detect_delivery_policy(owner, repo, probe=probe, fallback_branch=fallback_branch)
     connection = build_repo_connection(repo_url, token_ref=token_ref, policy=policy)
 
     try:
