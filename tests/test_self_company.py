@@ -79,6 +79,9 @@ class _Store:
         self.companies[company.id] = company
         return company
 
+    async def list_repos(self, cid):
+        return list(getattr(self, "repos", {}).get(cid, []))
+
     async def delete_company(self, cid):
         return self.companies.pop(cid, None) is not None
 
@@ -153,8 +156,9 @@ def world(monkeypatch):
     monkeypatch.setattr(rc, "attach_repo_connection", fake_attach)
 
     class _Onboarding:
-        async def _scan_repo(self, cid, url):
+        async def _scan_repo(self, cid, url):  # a successful scan records the repo
             log["scanned"].append((cid, url))
+            store.repos = {**getattr(store, "repos", {}), cid: [SimpleNamespace(url=url)]}
 
     import services.onboarding as ob
     monkeypatch.setattr(ob, "get_onboarding_service", lambda: _Onboarding())
@@ -394,3 +398,38 @@ async def test_dedupe_keeps_the_healthy_specialist(world):
                                      if f != "qa"] + [broken, good]
     await sc.reconcile_specialists(store, "6a3cea2b")
     assert log["deprovisioned"] == ["broken-qa"]
+
+
+async def test_repair_rescans_when_the_graph_has_no_repo(world):
+    """Production 2026-11-08: the repo was connected, but every scan had run
+    unauthenticated and failed, so the Company page showed 0 repos/systems.
+    An already-connected company with no scanned repo is rescanned."""
+    store, log = world
+    await sc.consolidate_self_companies(website_url=WEBSITE, repo_url=REPO_URL)
+    store.repos = {}  # connected, but no scan ever succeeded
+    log["scanned"].clear()
+    log["activated"].clear()
+
+    result = await sc.consolidate_self_companies(website_url=WEBSITE, repo_url=REPO_URL)
+    assert log["scanned"] == [("6a3cea2b", REPO_URL)]
+    assert result["repo_rescanned"] is True and log["activated"] == ["6a3cea2b"]
+
+    log["scanned"].clear()
+    await sc.consolidate_self_companies(website_url=WEBSITE, repo_url=REPO_URL)
+    assert log["scanned"] == []  # scanned repo on record: nothing to do
+
+
+def test_repo_scanner_uses_the_platform_github_token(monkeypatch):
+    """Onboarding built RepoScanner(company_id) with no token: GitHub's
+    unauthenticated limit (60/h per IP) answered 403 to every scan."""
+    from packages.config.settings import settings
+    from services.scanner import RepoScanner
+
+    import uuid
+
+    configured, explicit = uuid.uuid4().hex, uuid.uuid4().hex  # opaque, not secrets
+    monkeypatch.setattr(settings, "gh_pat", configured)
+    assert RepoScanner("c1").github_token == configured
+    assert RepoScanner("c1", github_token=explicit).github_token == explicit
+    monkeypatch.setattr(settings, "gh_pat", "")
+    assert RepoScanner("c1").github_token is None
