@@ -319,6 +319,7 @@ class CompanyGraphService:
         include_detected_systems: bool = True,
         include_specialists: bool = True,
         include_workflows: bool = True,
+        allow_missing: bool = False,
     ) -> CompanyGraph | None:
         """
         Get the company graph for a company.
@@ -333,7 +334,7 @@ class CompanyGraphService:
         Returns:
             CompanyGraph instance or None if not found
         """
-        return await self.store.get_company_graph(company_id)
+        return await self.store.get_company_graph(company_id, allow_missing=allow_missing)
 
     async def calculate_graph_completeness(self, company_id: str) -> float:
         """Compute the completeness score (0.0–1.0) for a company's graph.

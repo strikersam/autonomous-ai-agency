@@ -159,10 +159,14 @@ class CompanyGraphStore:
         else:
             return await self._sqlite_store.create_company_graph(graph)
 
-    async def get_company_graph(self, company_id: str) -> CompanyGraph | None:
-        """Get the complete company graph for a company."""
+    async def get_company_graph(self, company_id: str, *, allow_missing: bool = False) -> CompanyGraph | None:
+        """Get the complete company graph for a company.
+
+        ``allow_missing`` assembles the graph from the company's records even
+        when no graph document was ever stored (a read-only view; nothing is written).
+        """
         if self.backend == "mongodb":
-            return await self._mongodb_store.get_company_graph(company_id)
+            return await self._mongodb_store.get_company_graph(company_id, allow_missing=allow_missing)
         else:
             return await self._sqlite_store.get_company_graph(company_id)
 
@@ -570,14 +574,17 @@ class MongoDBStore:
         log.debug(f"Created company graph: {graph.id}")
         return graph
 
-    async def get_company_graph(self, company_id: str) -> CompanyGraph | None:
+    async def get_company_graph(self, company_id: str, *, allow_missing: bool = False) -> CompanyGraph | None:
         """Get the complete company graph for a company from MongoDB."""
         db = self._get_db()
         # Get the graph document
         graph_doc = await db.company_graphs.find_one({"company_id": company_id})
-        if not graph_doc:
+        if not graph_doc and not allow_missing:
             return None
-        graph_doc["id"] = self._to_str(graph_doc["_id"])
+        if graph_doc:
+            graph_doc["id"] = self._to_str(graph_doc["_id"])
+        else:  # no stored graph: a view over the company's records, nothing written
+            graph_doc = {"company_id": company_id}
         # All related entities at once: run one after another, these ten reads
         # cost ten round trips to the database on every Company page load.
         parts = {
@@ -597,6 +604,8 @@ class MongoDBStore:
             *(_load(coll, model) for coll, model in parts.values()), self.get_company(company_id))
         graph_doc.update(zip(parts, results[:-1]))
         company = results[-1]
+        if company is None:
+            return None
         graph_doc.pop("_id", None)
         graph_doc["company"] = company
         return CompanyGraph.model_validate(self._strip_unknown(graph_doc, CompanyGraph))
@@ -1643,7 +1652,7 @@ class SQLiteStore:
         return items
 
     # Company Graph Operations (Simplified for SQLite)
-    async def get_company_graph(self, company_id: str) -> CompanyGraph | None:
+    async def get_company_graph(self, company_id: str, *, allow_missing: bool = False) -> CompanyGraph | None:
         """Get the complete company graph for a company from SQLite."""
         company = await self.get_company(company_id)
         if not company:

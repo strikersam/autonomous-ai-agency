@@ -152,14 +152,15 @@ async def _adopt_priorities(store: Any, keep: Any, duplicates: list[Any]) -> Any
     Priorities are the operator's own input (onboarding, the Priorities tab);
     deleting a duplicate used to delete them with it.
     """
-    merged = list(getattr(keep, "priorities", None) or [])
-    for company in duplicates:
-        merged += [p for p in (getattr(company, "priorities", None) or []) if p not in merged]
-    if merged == list(getattr(keep, "priorities", None) or []):
+    from services.onboarding_questions import clean_priorities
+
+    current = list(getattr(keep, "priorities", None) or [])
+    merged = clean_priorities(current + [p for c in duplicates for p in (getattr(c, "priorities", None) or [])])
+    if merged == current:
         return keep
-    keep = keep.model_copy(update={"priorities": merged[:10]})
+    keep = keep.model_copy(update={"priorities": merged})
     await store.update_company(keep)
-    log.info("self-company: kept %d priorities on %s from duplicates", len(merged[:10]), keep.id)
+    log.info("self-company: kept %d priorities on %s from duplicates", len(merged), keep.id)
     return keep
 
 
