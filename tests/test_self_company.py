@@ -425,8 +425,11 @@ def test_repo_scanner_uses_the_platform_github_token(monkeypatch):
     from packages.config.settings import settings
     from services.scanner import RepoScanner
 
-    monkeypatch.setattr(settings, "gh_pat", "configured-token-ref")
-    assert RepoScanner("c1").github_token == "configured-token-ref"
-    assert RepoScanner("c1", github_token="explicit").github_token == "explicit"
+    import uuid
+
+    configured, explicit = uuid.uuid4().hex, uuid.uuid4().hex  # opaque, not secrets
+    monkeypatch.setattr(settings, "gh_pat", configured)
+    assert RepoScanner("c1").github_token == configured
+    assert RepoScanner("c1", github_token=explicit).github_token == explicit
     monkeypatch.setattr(settings, "gh_pat", "")
     assert RepoScanner("c1").github_token is None
