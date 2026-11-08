@@ -79,6 +79,9 @@ class _Store:
         self.companies[company.id] = company
         return company
 
+    async def delete_company(self, cid):
+        return self.companies.pop(cid, None) is not None
+
     async def list_specialists(self, cid):
         return list(self.specialists.get(cid, []))
 
@@ -177,13 +180,13 @@ async def test_consolidation_keeps_one_platform_company_and_staffs_it(world):
 
     company = store.companies[keep]
     assert company.name == sc.COMPANY_NAME
-    assert company.domain == "local-llm-server.onrender.com"
+    assert company.domain == "autonomous-ai-agency.strikersam.workers.dev"  # the public site, not the API host
     assert company.repo_connection.default_branch == "master"
     assert log["attached"] == [(keep, "master")] and log["scanned"] == [(keep, REPO_URL)]
 
     families = {s.family for s in store.specialists[keep]}
-    assert families == {"backend", "frontend", "devops", "security", "qa", "data"}
-    assert sorted(log["agents_removed"]) == ["b-analytics", "b-seo"]
+    assert families == {"backend", "frontend", "devops", "security", "qa", "data", "seo"}
+    assert sorted(log["agents_removed"]) == ["b-analytics"]  # seo stays: the public site needs it
     assert log["activated"] == [keep]
 
 
@@ -320,3 +323,54 @@ async def test_reattaching_the_repo_keeps_token_ref_and_first_merge_consent(worl
     conn = store.companies["6a3cea2b"].repo_connection
     assert seen["token_ref"] == stored_ref
     assert conn.default_branch == "master" and conn.policy.first_merge_consent is True
+
+
+# ── production stall 2026-11-08: one hung teardown blocked the repair ────────
+
+async def test_a_hung_teardown_does_not_block_consolidation(world, monkeypatch):
+    """Production: delete_company of the second duplicate never returned, so
+    the repair never ran and two companies stayed. The row is deleted on
+    timeout (the orphan reaper finishes the teardown) and the repair runs."""
+    import asyncio
+
+    store, log = world
+
+    class _HungGraph:
+        async def delete_company(self, cid):
+            await asyncio.sleep(3600)
+
+    import services.company_graph as cg
+    monkeypatch.setattr(cg, "get_company_graph_service", lambda: _HungGraph())
+    monkeypatch.setattr(sc, "_DELETE_TIMEOUT_S", 0.05)
+
+    result = await sc.consolidate_self_companies(website_url=WEBSITE, repo_url=REPO_URL)
+
+    assert result["status"] == "consolidated"
+    assert sorted(result["removed"]) == ["6a3ce9f9", "6a9e9456"]
+    assert "6a9e9456" not in store.companies and "6a3ce9f9" not in store.companies
+    assert log["activated"] == ["6a3cea2b"]
+
+
+async def test_concurrent_consolidations_do_not_race(world):
+    """Startup, the agency cycle and the background loop each call the
+    bootstrap; a second run while one is in flight is skipped."""
+    import asyncio
+
+    store, log = world
+    first, second = await asyncio.gather(
+        sc.consolidate_self_companies(website_url=WEBSITE, repo_url=REPO_URL),
+        sc.consolidate_self_companies(website_url=WEBSITE, repo_url=REPO_URL),
+    )
+    assert {first["status"], second["status"]} == {"consolidated", "in_progress"}
+    assert sorted(log["deleted"]) == ["6a3ce9f9", "6a9e9456"]
+
+
+async def test_duplicate_specialists_of_one_family_are_retired(world):
+    """Production 2026-11-08: two racing runs each added security and qa."""
+    store, log = world
+    store.specialists["6a3cea2b"] = [SimpleNamespace(id=f"k-{f}", family=f) for f in sc.TECH_FAMILIES] + [
+        SimpleNamespace(id="dup-security", family="security"), SimpleNamespace(id="dup-qa", family="qa")]
+    result = await sc.reconcile_specialists(store, "6a3cea2b")
+    assert sorted(result["removed"]) == ["qa", "security"]
+    assert sorted(log["deprovisioned"]) == ["dup-qa", "dup-security"]
+    assert sorted(s.family for s in store.specialists["6a3cea2b"]) == sorted(sc.TECH_FAMILIES)

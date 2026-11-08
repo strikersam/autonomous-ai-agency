@@ -31,7 +31,8 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urlparse
 
-from packages.config.self_company import admin_email, self_company_consolidate_enabled
+from packages.config.self_company import (
+    admin_email, public_site_url, self_company_consolidate_enabled)
 
 log = logging.getLogger("qwen-proxy")
 
@@ -40,6 +41,7 @@ REPO_FULL_NAMES = frozenset({"strikersam/autonomous-ai-agency", "strikersam/loca
 # Every surface the platform has been served from. workers.dev is the live
 # frontend (the Worker proxies /api to Render), not a stale copy.
 KNOWN_DOMAINS = frozenset({
+    "autonomous-ai-agency.strikersam.workers.dev",
     "local-llm-server.strikersam.workers.dev",
     "local-llm-server.onrender.com",
     "autonomous-ai-agency.onrender.com",
@@ -49,14 +51,20 @@ KNOWN_NAMES = frozenset({
     "local-llm-server", "local llm server", "agency core platform",
 })
 # The platform is a Python/FastAPI + React codebase on Render, Cloudflare and
-# GitHub Actions; these are the specialists that can actually work on it.
-TECH_FAMILIES = ("backend", "frontend", "devops", "security", "qa", "data")
+# GitHub Actions; these are the specialists that can actually work on it. SEO
+# stays: the public site has to rank and be cited (SEO, GEO, AEO, AIO), and
+# the fixes are code in this repo (frontend/public, index.html).
+TECH_FAMILIES = ("backend", "frontend", "devops", "security", "qa", "data", "seo")
 NON_TECH_FAMILIES = frozenset({
-    "seo", "analytics", "marketing", "content", "merchandising", "pim", "oms",
+    "analytics", "marketing", "content", "merchandising", "pim", "oms",
     "dam", "crm", "support", "trading", "ecommerce",
 })
 REPO_DEFAULT_BRANCH = "master"  # used only if GitHub can't be asked
 _SCAN_TIMEOUT_S = 90.0
+_DELETE_TIMEOUT_S = 60.0
+# Startup, the agency cycle and the background loop all call the bootstrap;
+# concurrent runs raced each other deleting the same duplicates.
+_LOCK = asyncio.Lock()
 
 
 def _domain_of(url: str) -> str:
@@ -65,8 +73,8 @@ def _domain_of(url: str) -> str:
 
 def self_domains(current_url: str) -> frozenset[str]:
     """Known platform domains plus the one this process is configured with."""
-    current = _domain_of(current_url)
-    return KNOWN_DOMAINS | ({current} if current else set())
+    found = {_domain_of(current_url), _domain_of(public_site_url())} - {""}
+    return KNOWN_DOMAINS | found
 
 
 def _repo_full_name(company: Any) -> str:
@@ -138,14 +146,27 @@ async def _platform_companies(store: Any, domains: frozenset[str]) -> list[Any]:
     return found
 
 
-async def _delete_duplicates(duplicates: list[Any]) -> list[str]:
+async def _delete_one(graph: Any, store: Any, company: Any) -> bool:
+    """Full teardown, bounded. On timeout delete the row itself: the company is
+    already recorded as deleted, so the orphan reaper finishes its schedules,
+    tasks and agents, and one slow teardown no longer stalls the repair."""
+    try:
+        return bool(await asyncio.wait_for(graph.delete_company(company.id),
+                                           timeout=_DELETE_TIMEOUT_S))
+    except asyncio.TimeoutError:
+        log.warning("self-company: teardown of %s timed out after %.0fs; deleting the row, "
+                    "the orphan reaper finishes the rest", company.id, _DELETE_TIMEOUT_S)
+        return bool(await store.delete_company(company.id))
+
+
+async def _delete_duplicates(store: Any, duplicates: list[Any]) -> list[str]:
     from services.company_graph import get_company_graph_service
 
     graph = get_company_graph_service()
     removed = []
     for company in duplicates:
         try:
-            if await graph.delete_company(company.id):
+            if await _delete_one(graph, store, company):
                 removed.append(company.id)
                 log.info("self-company: removed duplicate %s (%s, %s)",
                          company.id, company.name, company.domain)
@@ -242,8 +263,12 @@ async def reconcile_specialists(store: Any, company_id: str) -> dict[str, list[s
             company_id=company_id, specialist_family=family, auto_provision=True))
         if getattr(result, "status", "") == "success":
             added.append(family)
+    seen: set[str] = set()
     for spec in existing:
-        if spec.family in NON_TECH_FAMILIES and await svc.deprovision_specialist(spec.id):
+        # Two concurrent runs once staffed the same family twice: keep one.
+        duplicate = spec.family in seen
+        seen.add(spec.family)
+        if (spec.family in NON_TECH_FAMILIES or duplicate) and await svc.deprovision_specialist(spec.id):
             await _remove_agent(spec.id)
             removed.append(spec.family)
     return {"added": added, "removed": removed}
@@ -282,6 +307,13 @@ async def consolidate_self_companies(*, website_url: str, repo_url: str) -> dict
     """Leave exactly one platform company, repaired. Returns a status dict; never raises."""
     if not self_company_consolidate_enabled():
         return {"status": "disabled"}
+    if _LOCK.locked():
+        return {"status": "in_progress"}
+    async with _LOCK:
+        return await _consolidate(website_url=website_url, repo_url=repo_url)
+
+
+async def _consolidate(*, website_url: str, repo_url: str) -> dict[str, Any]:
     try:
         from services.company_graph_store import get_company_graph_store
 
@@ -292,8 +324,13 @@ async def consolidate_self_companies(*, website_url: str, repo_url: str) -> dict
             return {"status": "none"}
         counts = {c.id: len(await store.list_specialists(c.id)) for c in companies}
         keep = pick_canonical(companies, counts)
-        removed = await _delete_duplicates([c for c in companies if c.id != keep.id])
-        repair = await repair_company(store, keep, domain=_domain_of(website_url), repo_url=repo_url,
+        duplicates = [c for c in companies if c.id != keep.id]
+        log.info("self-company: keeping %s (%s); removing %d duplicate(s): %s",
+                 keep.id, keep.name, len(duplicates), [c.id for c in duplicates])
+        removed = await _delete_duplicates(store, duplicates)
+        # The company's domain is its public site, not the API host behind it:
+        # health and SEO schedules target the domain.
+        repair = await repair_company(store, keep, domain=_domain_of(public_site_url()), repo_url=repo_url,
                                       duplicates_removed=bool(removed))
         log.info("self-company: kept %s, removed %d duplicate(s): %s",
                  keep.id, len(removed), repair)
