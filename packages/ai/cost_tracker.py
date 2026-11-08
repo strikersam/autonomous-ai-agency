@@ -266,6 +266,12 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # Off-peak is half; cache-hit is 1/50th. Using peak as the conservative floor.
     # Source: api-docs.deepseek.com/quick_start/pricing, 2026-09-18.
     "deepseek-flash": (0.30, 1.20),
+    # --- DeepSeek V4 Flash 0731 on OpenRouter (added 2026-11-08) ---
+    # Released 2026-07-31; appeared on OpenRouter in early November 2026.
+    # 1,048,576-token context. Priced under "deepseek" namespace on OpenRouter.
+    # Pricing: $0.090/$0.180 per MTok. Source: openrouter.ai/deepseek/deepseek-v4-flash-0731,
+    # pi.dev/models/openrouter/deepseek-deepseek-v4-flash-0731, 2026-11-08.
+    "deepseek/deepseek-v4-flash-0731": (0.090, 0.180),  # OpenRouter router ID
     # --- Groq: Llama 4 Scout 17B 16E (added 2026-10-04) ---
     # Distinct from NVIDIA NIM's free "meta/llama-4-scout-17b-16e-instruct" ($0/$0).
     # Groq serves this as "meta-llama/llama-4-scout-17b-16e-instruct" (different prefix).
@@ -292,6 +298,10 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # Preview list price: $1.36/$4.18 per MTok. Source: openrouter.ai/mistralai/
     # mistral-large-4-0, techcrunch.com/2026/10/06, 2026-10-06.
     "mistral-large-4-0": (1.36, 4.18),      # Mistral Large 4 — $1.36/$4.18 per MTok
+    # OpenRouter alias for Mistral Large 4 (added 2026-11-08).
+    # Same pricing as the direct Mistral API ID above.
+    # Source: openrouter.ai/mistralai/mistral-large-4-0, 2026-11-08.
+    "mistralai/mistral-large-4-0": (1.36, 4.18),  # OpenRouter router ID
     "mistral-large-latest": (3.00, 9.00),   # Mistral Large 2 — $3/$9 per MTok
     "mistral-small-latest": (0.10, 0.30),   # Mistral Small 3 — $0.10/$0.30 per MTok
     "codestral-latest": (0.30, 0.90),       # Codestral — $0.30/$0.90 per MTok
@@ -351,6 +361,12 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # --- Google Gemini Omni 1.1 Flash (added 2026-09-22) ---
     # Video generation / editing model — pricing not yet published; tracked at $0.
     "gemini-omni-1.1-flash": (0.0, 0.0),
+    # --- Google Gemini Omni 1.2 Flash on OpenRouter (added 2026-11-08) ---
+    # Released 2026-11-05. Multimodal video model (text+image+video input, text+video output).
+    # 131,072-token context. No tool/function calling support.
+    # Pricing: $1.50/$9.00 per MTok. Source: openrouter.ai/google/gemini-omni-1.2-flash,
+    # letsdatascience.com/news/google-launches-gemini-omni-12-flash*, 2026-11-08.
+    "google/gemini-omni-1.2-flash": (1.50, 9.00),  # OpenRouter router ID
     # --- NVIDIA NIM: DeepSeek V4.1-Flash (added 2026-09-22) ---
     # Same model as deepseek-flash on the DeepSeek API, served via NIM for free.
     "deepseek-ai/deepseek-v4.1-flash": (0.0, 0.0),
@@ -445,6 +461,9 @@ _CACHE_READ_FRACTIONS: tuple[tuple[str, float], ...] = (
     # Tencent Hy4: cached input ~$0.042/MTok ≈ 5 % of $0.83/MTok input rate.
     # Source: llmreference.com/model/hy4-preview/openrouter, 2026-11-07.
     ("tencent/hy4-preview", 0.05),
+    # Gemini Omni 1.2 Flash (OpenRouter ID): same 25 % Gemini cache rate as the
+    # bare "gemini-" prefix, but the OpenRouter "google/" prefix doesn't match it.
+    ("google/gemini-omni-1.2-flash", 0.25),
 )
 
 
