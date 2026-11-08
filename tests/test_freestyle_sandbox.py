@@ -256,8 +256,8 @@ async def test_files_round_trip_missing_file_and_chunked_upload(fake, monkeypatc
     monkeypatch.setattr(freestyle_sandbox, "_SINGLE_PUT_MAX", 10)
     monkeypatch.setattr(freestyle_sandbox, "_CHUNK", 7)
     blob = bytes(range(25))
-    await shim.files.write("/tmp/seed.tar.gz", blob)
-    assert fake.files["/tmp/seed.tar.gz"] == blob
+    await shim.files.write("/home/user/seed.tar.gz", blob)
+    assert fake.files["/home/user/seed.tar.gz"] == blob
 
 
 async def test_preview_rule_and_kill(fake):
