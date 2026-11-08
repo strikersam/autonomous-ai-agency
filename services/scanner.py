@@ -1540,6 +1540,11 @@ class RepoScanner:
                     
                     # Detect systems
                     detected_systems = self._detect_systems_from_github_data(repo_data)
+                    # Topics rarely name a stack; the repo's manifests do.
+                    from services.repo_systems import fetch_repo_systems
+                    known = {s.name for s in detected_systems}
+                    detected_systems += [s for s in await fetch_repo_systems(client, github_api_url)
+                                         if s.name not in known]
                     
                     completed_at = datetime.now(timezone.utc)
                     
