@@ -761,6 +761,34 @@ def _is_brain_connection_error(exc: BaseException) -> bool:
     ))
 
 
+_TRANSIENT_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
+_TRANSIENT_MARKERS = (
+    "rate limit", "rate-limit", "too many requests", "429",
+    "overloaded", "service unavailable", "bad gateway", "gateway timeout",
+    "temporarily unavailable", "sandbox provider", "failed to open",
+)
+
+
+def _is_transient_error(exc: BaseException) -> bool:
+    """True if *exc* is a retryable provider/sandbox failure, not a task defect.
+
+    Covers brain connectivity errors plus rate limits, upstream 5xx and sandbox
+    API errors (``status`` attribute on the exception, e.g. FreestyleApiError or
+    httpx.HTTPStatusError). Re-queueing stays capped by ``_DISPATCH_RETRY_LIMIT``,
+    so a persistent outage still ends in BLOCKED rather than looping forever.
+    """
+    if _is_brain_connection_error(exc):
+        return True
+    status = getattr(exc, "status", None)
+    if status is None:
+        response = getattr(exc, "response", None)
+        status = getattr(response, "status_code", None)
+    if isinstance(status, int) and status in _TRANSIENT_STATUS_CODES:
+        return True
+    s = str(exc).lower()
+    return any(marker in s for marker in _TRANSIENT_MARKERS)
+
+
 class TaskExecutionCoordinator:
     """Executes tasks through the runtime layer using agent definitions."""
 
@@ -1106,8 +1134,8 @@ class TaskExecutionCoordinator:
             # (the configured brain is momentarily unreachable), NOT a task defect —
             # re-queue it like RuntimeUnavailableError instead of marking it
             # permanently FAILED. Everything else is a genuine failure.
-            if _is_brain_connection_error(exc):
-                self._requeue_or_block_unavailable(task, exc, what="Brain/LLM endpoint unreachable")
+            if _is_transient_error(exc):
+                self._requeue_or_block_unavailable(task, exc, what="Transient provider/sandbox error")
             else:
                 log.error("Error executing task %s: %s", task.task_id, exc, exc_info=True)
                 task.error_message = str(exc)
