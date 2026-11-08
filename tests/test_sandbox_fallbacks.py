@@ -303,3 +303,72 @@ async def test_daytona_generic_download_error_on_missing_file_is_not_found():
     sb.files["/home/user/repo/there.py"] = b"x"
     with pytest.raises(Exception, match="download failed"):
         await s.files.read("/home/user/repo/there.py")
+
+
+# ── Production callers walk the whole chain (regression) ──────────────────
+# maybe_attach_e2b() and E2BAdapter used to pin the session to the first
+# provider's config, so a refusing Freestyle never failed over (seen live:
+# "sandbox create failed: freestyle: ... 403 ... card on file").
+
+
+@pytest.fixture
+def first_refuses(monkeypatch):
+    from runtimes import quarantine as q
+
+    monkeypatch.setattr(q, "_until", {})
+    monkeypatch.setattr(q, "_reason", {})
+    for k, v in _KEYS.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setenv("E2B_ENABLED", "true")
+    tried: list[str] = []
+
+    class _Sb:
+        commands = types.SimpleNamespace(run=None)
+
+        def __init__(self) -> None:
+            async def _run(cmd, timeout=60, background=False):
+                return types.SimpleNamespace(stdout="", stderr="", exit_code=0)
+            self.commands = types.SimpleNamespace(run=_run)
+
+        async def kill(self):
+            return None
+
+    async def _refuse(config):
+        tried.append(config.provider)
+        raise RuntimeError("403 FORBIDDEN: this account needs a card on file")
+
+    async def _ok(config):
+        tried.append(config.provider)
+        return _Sb()
+
+    monkeypatch.setattr(reg, "_openers", {"freestyle": _refuse, "daytona": _ok,
+                                          "instabox": _ok, "e2b": _ok})
+    return tried
+
+
+async def test_maybe_attach_fails_over_past_a_refusing_first_provider(first_refuses):
+    runner = types.SimpleNamespace(_mcp=None)
+    session = await e2b_sandbox.maybe_attach_e2b(runner)
+    assert session is not None and runner._mcp is session
+    assert first_refuses == ["freestyle", "daytona"]
+    assert session._config.provider == PROVIDER_DAYTONA
+    await session.close()
+
+
+async def test_e2b_adapter_session_fails_over_too(first_refuses, monkeypatch):
+    from runtimes.adapters import e2b as adapter_mod
+
+    opened: list[Any] = []
+    real_session = adapter_mod.E2BSandboxSession
+
+    class _Spy(real_session):  # type: ignore[misc, valid-type]
+        async def open(self):
+            await super().open()
+            opened.append(self._config.provider)
+            raise RuntimeError("stop after open")  # only the open is under test
+
+    monkeypatch.setattr(adapter_mod, "E2BSandboxSession", _Spy)
+    spec = types.SimpleNamespace(task_id="t1", context={}, instruction="x")
+    with pytest.raises(Exception):
+        await adapter_mod.E2BAdapter().execute(spec)
+    assert opened == [PROVIDER_DAYTONA]

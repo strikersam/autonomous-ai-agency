@@ -820,7 +820,9 @@ async def maybe_attach_e2b(runner: Any, spec_or_ctx: Any = None) -> E2BSandboxSe
     if refused:
         log.info("E2B quarantined (%s); using local tools", refused)
         return None
-    session = E2BSandboxSession(config=config)
+    # No explicit config: the session walks the whole provider chain, so one
+    # refusing provider fails over to the next instead of ending the attach.
+    session = E2BSandboxSession()
     try:
         await session.open()
     except MCPUnavailableError as exc:
@@ -831,6 +833,7 @@ async def maybe_attach_e2b(runner: Any, spec_or_ctx: Any = None) -> E2BSandboxSe
     prior = runner._mcp
     runner._mcp = session
     session._prior_mcp = prior  # type: ignore[attr-defined]
-    log.info("E2B sandbox attached to runner (template=%s, timeout=%ds)",
-             config.template, config.timeout_sec)
+    used = session._config
+    log.info("Sandbox attached to runner (provider=%s, template=%s, timeout=%ds)",
+             used.provider, used.template, used.timeout_sec)
     return session

@@ -182,3 +182,30 @@ def test_tracer_initialises_with_sdk_sampler(monkeypatch):
     monkeypatch.setattr(otel_trace, "set_tracer_provider", lambda provider: None)
     tracer = ot.TracerFactory()._init_tracer("test")
     assert tracer is not None and tracer is not ot._NOOP_TRACER
+
+
+def test_verifier_rejection_emits_event_without_model_text(tmp_path, monkeypatch):
+    from tests.test_write_gate import FAIL, _drive, _runner
+
+    events = _fake_otel(monkeypatch)
+    monkeypatch.setattr(ot, "_OTEL_ENABLED", True)
+    runner, root = _runner(tmp_path)
+    _drive(runner, "edit_file", {"path": "app.py", "old_string": "x = 1", "new_string": "x = 2"},
+           [FAIL], monkeypatch)
+    assert (root / "app.py").read_text() == "x = 1\n"
+    assert len(events) == 1
+    attrs = events[0][1]
+    assert attrs["kind"] == "verifier_reject"
+    assert attrs["subject"] == "edit_file:app.py"
+    assert "changes behaviour" not in str(attrs)  # the verifier's free-text issues stay out
+
+
+def test_verifier_rejection_silent_when_otel_disabled(tmp_path, monkeypatch):
+    from tests.test_write_gate import FAIL, _drive, _runner
+
+    events = _fake_otel(monkeypatch)
+    monkeypatch.setattr(ot, "_OTEL_ENABLED", False)
+    runner, root = _runner(tmp_path)
+    _drive(runner, "edit_file", {"path": "app.py", "old_string": "x = 1", "new_string": "x = 2"},
+           [FAIL], monkeypatch)
+    assert events == [] and (root / "app.py").read_text() == "x = 1\n"
