@@ -23,6 +23,8 @@ import logging
 import os
 from urllib.parse import urlparse
 
+from services.framework_families import system_type_for_framework
+
 log = logging.getLogger("qwen-proxy")
 
 # ── Stale domains / repos from the pre-rebrand era ───────────────────────────
@@ -157,11 +159,22 @@ async def _list_companies_safe():
 
 
 async def _find_self_company():
-    """Return the existing self company (matched by domain), or None."""
+    """Return the existing self company, or None.
+
+    Matched on the current domain first, then on any platform domain, repo or
+    name (``services.self_company.looks_like_self``), so a copy created under
+    another surface's domain is found instead of duplicated.
+    """
+    from services.self_company import looks_like_self, self_domains
+
     companies = await _list_companies_safe()
     domain = _self_domain()
     for company in companies:
         if (company.domain or "").lower() == domain:
+            return company
+    domains = self_domains(SELF_WEBSITE_URL)
+    for company in companies:
+        if looks_like_self(company, domains):
             return company
     return None
 
@@ -175,18 +188,11 @@ async def _find_stale_self_companies():
     Only 'local-llm-server.strikersam.workers.dev' (the pre-Render Cloudflare
     Workers URL) is stale.
     """
-    stale = []
-    current_domain = _self_domain()
-    companies = await _list_companies_safe()
-    for company in companies:
-        domain = (company.domain or "").lower()
-        # Only the workers.dev URL is stale. The onrender.com URL is the
-        # current Render service (it hasn't been renamed) so we must NOT
-        # archive companies with that domain — otherwise the self-bootstrap
-        # archives the company it just created.
-        if domain == "local-llm-server.strikersam.workers.dev" and domain != current_domain:
-            stale.append(company)
-    return stale
+    # workers.dev is the live Cloudflare Worker frontend, not a stale copy:
+    # archiving it split the frontend and backend into separate companies.
+    # services.self_company.consolidate_self_companies now merges every copy
+    # into one company instead, so nothing is archived here.
+    return []
 
 
 async def _count_specialists(company_id: str) -> int:
@@ -270,19 +276,17 @@ async def _reprovision_specialists(company_id: str, owner_id: str) -> int:
                     detected_system_types.add("analytics")
                 if stack.frameworks:
                     for fw in stack.frameworks:
-                        if fw.lower() in ["react", "vue", "angular", "svelte"]:
-                            detected_system_types.add("frontend")
-                        elif fw.lower() in ["django", "flask", "rails", "laravel", "express"]:
-                            detected_system_types.add("backend")
+                        _kind = system_type_for_framework(fw)
+                        if _kind:
+                            detected_system_types.add(_kind)
         for repo in repos:
             if repo.inferred_stack:
                 stack = repo.inferred_stack
                 if stack.frameworks:
                     for fw in stack.frameworks:
-                        if fw.lower() in ["django", "flask", "rails", "laravel", "express"]:
-                            detected_system_types.add("backend")
-                        elif fw.lower() in ["react", "vue", "angular", "svelte"]:
-                            detected_system_types.add("frontend")
+                        _kind = system_type_for_framework(fw)
+                        if _kind:
+                            detected_system_types.add(_kind)
                 if stack.databases:
                     detected_system_types.add("database")
 
@@ -358,6 +362,16 @@ async def ensure_self_company(*, owner_id: str | None = None) -> dict:
 
     try:
         owner_id = owner_id or os.environ.get("ADMIN_EMAIL") or "admin@llmrelay.local"
+
+        # One platform company: merge the copies made under different surfaces
+        # (frontend Worker, backend Render, worker processes) before anything
+        # else looks for "the" self company.
+        from services.self_company import consolidate_self_companies
+
+        consolidation = await consolidate_self_companies(
+            website_url=SELF_WEBSITE_URL, repo_url=SELF_REPO_URL)
+        if consolidation.get("status") == "consolidated":
+            log.info("Self-bootstrap: consolidation %s", consolidation)
 
         # Deactivate stale self-bootstrap companies (wrong domain from a previous
         # deploy with old defaults) so the fresh run creates a new company with

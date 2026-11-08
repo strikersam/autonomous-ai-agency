@@ -50,6 +50,8 @@ from services.company_graph import get_company_graph_service, CompanyGraphServic
 from services.scanner import WebsiteScanner, RepoScanner
 from services.specialist import get_specialist_service, SpecialistService
 
+from services.framework_families import system_type_for_framework
+
 log = logging.getLogger("company_graph.onboarding")
 
 
@@ -261,10 +263,9 @@ class OnboardingService:
                             detected_system_types.add("analytics")
                         if stack.frameworks:
                             for fw in stack.frameworks:
-                                if fw.lower() in ["react", "vue", "angular", "svelte"]:
-                                    detected_system_types.add("frontend")
-                                elif fw.lower() in ["django", "flask", "rails", "laravel", "express"]:
-                                    detected_system_types.add("backend")
+                                _kind = system_type_for_framework(fw)
+                                if _kind:
+                                    detected_system_types.add(_kind)
                 
                 # Detect from repos
                 for repo in repos:
@@ -272,10 +273,9 @@ class OnboardingService:
                         stack = repo.inferred_stack
                         if stack.frameworks:
                             for fw in stack.frameworks:
-                                if fw.lower() in ["django", "flask", "rails", "laravel", "express"]:
-                                    detected_system_types.add("backend")
-                                elif fw.lower() in ["react", "vue", "angular", "svelte"]:
-                                    detected_system_types.add("frontend")
+                                _kind = system_type_for_framework(fw)
+                                if _kind:
+                                    detected_system_types.add(_kind)
                         if stack.databases:
                             detected_system_types.add("database")
                 

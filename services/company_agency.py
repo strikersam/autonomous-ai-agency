@@ -425,12 +425,21 @@ class CompanyAgencyService:
                     _co_label = (company.name or company_id).replace(" ", "-").lower()
                     schedule_name = f"company:{_co_label}:{schedule_def['name_suffix']}"
 
-                    # Idempotency: check if this schedule already exists.
-                    # If it does, skip creation and record it (don't error).
+                    # Idempotency: this company's schedule for this suffix already
+                    # exists → skip. Matched by the company tag, not the name: two
+                    # companies with the same name share a name, and matching on
+                    # it handed one company the other's jobs.
+                    all_jobs = self.scheduler.list()
                     existing_jobs = [
-                        j for j in self.scheduler.list()
-                        if j.name == schedule_name
+                        j for j in all_jobs
+                        if f"company:{company_id}" in (j.tags or [])
+                        and schedule_def["name_suffix"] in (j.tags or [])
                     ]
+                    if not existing_jobs and any(
+                        j.name == schedule_name for j in all_jobs
+                    ):
+                        # Name taken by another company: keep ours distinct.
+                        schedule_name = f"company:{_co_label}-{company_id[-6:]}:{schedule_def['name_suffix']}"
                     if existing_jobs:
                         existing_job = existing_jobs[0]
                         log.info(

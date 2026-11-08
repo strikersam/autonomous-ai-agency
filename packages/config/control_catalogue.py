@@ -950,6 +950,20 @@ _AUTONOMY: tuple[ControlSpec, ...] = (
         live=True,
     ),
     _toggle(
+        "SELF_COMPANY_CONSOLIDATE_ENABLED",
+        "Keep one platform company",
+        "autonomy",
+        "true",
+        "At startup, merge every copy of the platform's own company (made under "
+        "the frontend, backend or a worker's domain) into one: keep the best, "
+        "delete the rest with their agents and schedules, connect the repo, "
+        "rescan it and staff it with backend, frontend, devops, security, QA "
+        "and data specialists. Only operator- or system-owned companies are "
+        "touched.",
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    _toggle(
         "AGENT_MEMORY_ENABLED",
         "Agent memory",
         "autonomy",
