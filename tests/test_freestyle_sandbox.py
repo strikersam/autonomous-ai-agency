@@ -29,7 +29,8 @@ from services.freestyle_sandbox import FreestyleApi, open_freestyle_sandbox
 
 _ENV = ("E2B_API_KEY", "E2B_ENABLED", "RUNTIME_E2B_ENABLED", "AGENT_SANDBOX_MODE",
         "SANDBOX_PROVIDER", "FREESTYLE_API_KEY", "FREESTYLE_API_URL", "FREESTYLE_SNAPSHOT",
-        "E2B_TEMPLATE", "E2B_TIMEOUT_SEC", "E2B_SANDBOX_METADATA")
+        "E2B_TEMPLATE", "E2B_TIMEOUT_SEC", "E2B_SANDBOX_METADATA",
+        "DAYTONA_API_KEY", "INSTABOX_API_KEY")
 
 
 @pytest.fixture(autouse=True)

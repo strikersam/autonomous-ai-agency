@@ -58,14 +58,24 @@ _DEFAULT_TEMPLATE = "base"
 _DEFAULT_TIMEOUT_SEC = 660
 
 # Sandbox providers behind E2BSandboxSession, in auto-mode order: Freestyle
-# first because its Free plan never bills, E2B as paid failover. Openers live
+# first because its Free plan never bills, then Daytona, InstaBox and E2B as
+# fallbacks. Openers live
 # in services/sandbox_providers.py; adding a name here gives it the generic
 # env vars <NAME>_API_KEY, <NAME>_SNAPSHOT and <NAME>_API_URL.
 PROVIDER_E2B = "e2b"
 PROVIDER_FREESTYLE = "freestyle"
-SANDBOX_PROVIDERS: tuple[str, ...] = (PROVIDER_FREESTYLE, PROVIDER_E2B)
+PROVIDER_DAYTONA = "daytona"
+PROVIDER_INSTABOX = "instabox"
+SANDBOX_PROVIDERS: tuple[str, ...] = (
+    PROVIDER_FREESTYLE, PROVIDER_DAYTONA, PROVIDER_INSTABOX, PROVIDER_E2B,
+)
 # Module whose import proves a provider can run here (an SDK, or plain httpx).
-_SDK_MODULE = {PROVIDER_E2B: "e2b_code_interpreter", PROVIDER_FREESTYLE: "httpx"}
+_SDK_MODULE = {
+    PROVIDER_E2B: "e2b_code_interpreter",
+    PROVIDER_FREESTYLE: "httpx",
+    PROVIDER_DAYTONA: "daytona",
+    PROVIDER_INSTABOX: "instabox",  # PyPI package instabox-sdk
+}
 
 
 _warned_unkeyed: set[str] = set()
@@ -78,9 +88,9 @@ def _provider_key(provider: str) -> str:
 def sandbox_providers() -> list[str]:
     """The provider chain: ``SANDBOX_PROVIDER`` as an ordered list, keyed ones only.
 
-    ``auto`` (the default) is every known provider with a key, Freestyle first
-    (free), then E2B. An install with only ``E2B_API_KEY`` still gets just E2B.
-    ``e2b,freestyle`` reverses the order. Unknown names are dropped with a warning.
+    ``auto`` (the default) is every known provider with a key in the order of
+    ``SANDBOX_PROVIDERS``: Freestyle (free) first, then Daytona, InstaBox, E2B.
+    An install with only ``E2B_API_KEY`` still gets just E2B. Unknown names are dropped with a warning.
     """
     raw = os.environ.get("SANDBOX_PROVIDER", "").strip().lower()
     names: list[str] = []
@@ -280,8 +290,8 @@ def _shared_settings() -> tuple[int, dict[str, Any] | None]:
 def is_e2b_sdk_importable() -> bool:
     """Cheap probe — True when any provider in the chain can run here.
 
-    E2B needs ``e2b_code_interpreter``; Freestyle needs only ``httpx``. With no
-    provider keyed, this reports on E2B as before.
+    Each provider's module is in ``_SDK_MODULE``. With no provider keyed, this
+    reports on E2B as before.
 
     Used by :mod:`runtimes.adapters.e2b` and :mod:`services.e2b_sandbox` so a
     deploy without the optional dependency falls back to local tools instead

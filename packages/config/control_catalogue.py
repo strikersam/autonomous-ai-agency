@@ -1466,10 +1466,11 @@ _GOVERNANCE: tuple[ControlSpec, ...] = (
         help=(
             "Ordered, comma-separated sandbox providers once sandboxing is on; "
             "each sandbox opens on the first that works and fails over to the "
-            "next (e.g. freestyle,e2b). Known: e2b (needs E2B_API_KEY), freestyle "
-            "(needs FREESTYLE_API_KEY; Free plan of 200 vCPU-hours a month that "
-            "never bills). auto = every keyed provider, Freestyle first. Read when each "
-            "sandbox opens."
+            "next. Known, in auto order: freestyle (FREESTYLE_API_KEY; free plan, "
+            "200 vCPU-hours a month, never bills), daytona (DAYTONA_API_KEY; "
+            "one-time $200 credit), instabox (INSTABOX_API_KEY; one free machine "
+            "at a time), e2b (E2B_API_KEY). auto = every keyed provider in that "
+            "order. Read when each sandbox opens."
         ),
         live=True,
     ),

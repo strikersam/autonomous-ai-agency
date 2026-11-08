@@ -20,7 +20,7 @@ with that surface. To add one:
    (it then reads ``<NAME>_API_KEY``, ``<NAME>_SNAPSHOT``, ``<NAME>_API_URL``),
 3. register the opener in ``_BUILTIN`` below.
 
-``SANDBOX_PROVIDER`` takes an ordered list (``freestyle,e2b``):
+``SANDBOX_PROVIDER`` takes an ordered list (``freestyle,daytona,instabox,e2b``):
 :func:`open_first_available` tries each provider in turn and returns the
 first sandbox that opens, so a provider out of quota fails over to the next.
 """
@@ -29,7 +29,13 @@ from __future__ import annotations
 import logging
 from typing import Any, Awaitable, Callable
 
-from services.e2b_config import PROVIDER_E2B, PROVIDER_FREESTYLE, E2BConfig
+from services.e2b_config import (
+    PROVIDER_DAYTONA,
+    PROVIDER_E2B,
+    PROVIDER_FREESTYLE,
+    PROVIDER_INSTABOX,
+    E2BConfig,
+)
 
 log = logging.getLogger("qwen-proxy")
 
@@ -54,7 +60,24 @@ async def _open_freestyle(config: E2BConfig) -> Any:
     return await freestyle_sandbox.open_freestyle_sandbox(config)
 
 
-_BUILTIN: dict[str, Opener] = {PROVIDER_E2B: _open_e2b, PROVIDER_FREESTYLE: _open_freestyle}
+async def _open_daytona(config: E2BConfig) -> Any:
+    from services import daytona_sandbox
+
+    return await daytona_sandbox.open_daytona_sandbox(config)
+
+
+async def _open_instabox(config: E2BConfig) -> Any:
+    from services import instabox_sandbox
+
+    return await instabox_sandbox.open_instabox_sandbox(config)
+
+
+_BUILTIN: dict[str, Opener] = {
+    PROVIDER_E2B: _open_e2b,
+    PROVIDER_FREESTYLE: _open_freestyle,
+    PROVIDER_DAYTONA: _open_daytona,
+    PROVIDER_INSTABOX: _open_instabox,
+}
 _openers: dict[str, Opener] = dict(_BUILTIN)
 
 

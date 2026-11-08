@@ -125,6 +125,11 @@ services:
       # SANDBOX_PROVIDER (Platform controls) picks the order, e.g. freestyle,e2b.
       - key: FREESTYLE_API_KEY
         sync: false
+      # Fallback sandbox providers, tried after Freestyle in this order.
+      - key: DAYTONA_API_KEY
+        sync: false
+      - key: INSTABOX_API_KEY
+        sync: false
 
       # ── Task execution tuning ──────────────────────────────────────────
       # Tasks were timing out at 600s with 30 steps × 4 LLM calls per step
