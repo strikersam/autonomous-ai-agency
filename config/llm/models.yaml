@@ -1826,3 +1826,29 @@ models:
     priority: 99
     speed_tier: fast
 
+  # ---------------------------------------------------------------------------
+  # Tencent Hy4 (added 2026-11-07)
+  # Released 2026-08-28 on OpenRouter. Tencent's 770B MoE open-weight model.
+  # 1,048,576-token context. Supports function calling, streaming, JSON mode.
+  # Pricing: $0.83/$2.50 per MTok; cached input ~$0.042/MTok (≈5 % of input).
+  # Served via OpenRouter on 7+ backend providers.
+  # priority: 99 — explicit-only; unprobed on this account;
+  # lower once catalogue-probe.yml sees a 200.
+  # Sources: openrouter.ai/tencent/hy4-preview,
+  #          eesel.ai/blog/tencent-hy4-pricing,
+  #          llmreference.com/model/hy4-preview/openrouter, 2026-11-07.
+  # ---------------------------------------------------------------------------
+  tencent/hy4-preview:
+    provider: openrouter
+    display_name: Hy4 (Tencent via OpenRouter)
+    context_window: 1048576
+    max_output_tokens: 65536
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_streaming: true
+    input_cost_per_1m: 0.83
+    output_cost_per_1m: 2.50
+    priority: 99
+    speed_tier: medium
+

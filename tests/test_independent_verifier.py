@@ -210,7 +210,7 @@ def test_checkout_pull_request_scrubs_the_token():
     s = E2BSandboxSession(E2BConfig(api_key="e2b_x"))
     s._sandbox = _Sb()
     out = asyncio.run(s.checkout_pull_request("https://github.com/acme/shop", 42, "ghp_secret"))
-    assert out == {"changed_files": ["cart.py", "index.html"], "diff": "diff --git a/cart.py"}
+    assert out == {"changed_files": ["cart.py", "index.html"], "diff": "diff --git a/cart.py", "head_sha": ""}
     clone = s._sandbox.cmds[0]
     assert "pull/42/head" in clone and "remote set-url origin https://github.com/acme/shop 2>/dev/null; exit $rc" in clone
     assert all("ghp_secret" not in c for c in s._sandbox.cmds[1:])

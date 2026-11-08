@@ -27,6 +27,7 @@ import asyncio
 import json
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 log = logging.getLogger("qwen-proxy")
@@ -105,7 +106,8 @@ async def _exercise(pr: tuple[str, int]) -> dict[str, Any]:
         checks = await empirical_verify.verify_in_sandbox(session, py) if py else empirical_verify.CheckOutcome()
         steps = [{"status": "applied", "changed_files": files}]
         shots = await ui_evidence.capture(session, steps)
-        return {"files": files, "diff": change["diff"], "checks": checks, "ui": shots}
+        return {"files": files, "diff": change["diff"], "checks": checks, "ui": shots,
+                "head_sha": change.get("head_sha", "")}
     except Exception as exc:  # noqa: BLE001 - a broken sandbox is a gap, not a verdict
         log.warning("Independent verifier could not exercise %s#%s: %s", pr[0], pr[1], exc)
         return {"gap": f"the pull request could not be checked out and run ({str(exc)[:200]})"}
@@ -210,4 +212,84 @@ async def _verify(task: Any, result: Any) -> dict[str, Any] | None:
              sum(1 for s in run["ui_evidence"] if s.get("shot_id")))
     if ev.get("gap"):
         run["verifier_gap"] = ev["gap"]
+    run["verified_head"] = ev.get("head_sha", "")
+    if pr:
+        await _post_verdict(pr, run, task)
     return run
+
+
+_VERDICT_LINE = {"APPROVED": "PASS", "APPROVED_WITH_CONDITIONS": "PASS+NOTES"}
+
+
+def verdict_comment(run: dict[str, Any]) -> str:
+    """PR comment carrying the rule 49 verdict line the merge gate reads."""
+    judge = run.get("judge") or {}
+    verdict = _VERDICT_LINE.get(str(judge.get("verdict", "")).upper(), "FAIL")
+    if run.get("verifier_gap"):
+        # The change was never run; a reviewer's reading alone is not a pass.
+        verdict = "FAIL"
+    checks = run["steps"][0]["executed_checks"] if run.get("steps") else []
+    # The gate reads the LAST verdict line, so model-written notes are quoted
+    # ("> " lines never match) and the real verdict goes last.
+    notes = str(judge.get("notes", ""))[:1500].splitlines() or [""]
+    lines = [
+        "Independent verifier (agency, did not write this change).",
+        "",
+        f"Checks run: {'; '.join(checks) or 'none'}",
+        "Notes:",
+        *(f"> {line}" for line in notes),
+    ]
+    if run.get("verifier_gap"):
+        lines.append(f"> Gap: {run['verifier_gap']}")
+    # The merge gate accepts a verdict only for the commit it names: a push
+    # after verification needs a fresh verdict. No commit (gap) means FAIL anyway.
+    lines += ["", f"Verified-head: {run.get('verified_head') or 'none'}", f"Verdict: {verdict}"]
+    return "\n".join(lines)
+
+
+def _epoch(value: Any) -> float | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    # Stored timestamps are UTC; a naive one must not shift with the server's zone.
+    return (parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)).timestamp()
+
+
+def pr_is_from_task(pr_json: dict[str, Any], task: Any) -> bool:
+    """Whether the verdict may go on this PR: an open agency PR opened during the task.
+
+    The PR is found by scanning free-text output, so a task that merely mentions
+    someone else's PR must not stamp a verdict on it (the merge gate trusts it).
+    """
+    head = pr_json.get("head") or {}
+    head_repo = (head.get("repo") or {}).get("full_name")
+    base_repo = ((pr_json.get("base") or {}).get("repo") or {}).get("full_name")
+    if pr_json.get("state") != "open" or not head_repo or head_repo != base_repo:
+        return False
+    if not str(head.get("ref", "")).startswith("agent/"):
+        return False
+    opened, started = _epoch(pr_json.get("created_at")), _epoch(getattr(task, "created_at", None))
+    return opened is not None and started is not None and opened >= started
+
+
+async def _post_verdict(pr: tuple[str, int], run: dict[str, Any], task: Any) -> None:
+    """Comment the verdict on the PR so the Verifier verdict gate can read it."""
+    token = _token_for(pr[0])
+    if not token:
+        return
+    try:
+        from agent.safe_agency import add_pr_comment, get_pull_request
+
+        owner, repo = pr[0].rstrip("/").split("/")[-2:]
+        pr_json = await get_pull_request(token, owner, repo, pr[1])
+        if not pr_json or not pr_is_from_task(pr_json, task):
+            log.info("Verifier verdict not posted on %s#%s: not a PR this task opened", pr[0], pr[1])
+            return
+        await add_pr_comment(token, owner, repo, pr[1], verdict_comment(run))
+    except Exception as exc:  # noqa: BLE001 - a missing comment only keeps the PR unmerged
+        log.warning("Could not post verifier verdict on %s#%s: %s", pr[0], pr[1], exc)

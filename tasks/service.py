@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 import asyncio
 from typing import Any
@@ -28,6 +29,7 @@ from tasks.store import TaskStore, get_task_store
 from agent.workflow import WorkflowEngine, WorkflowPhase, classify_domain
 
 from tasks.run_lease import claim_task_run, release_task_run
+from services.agent_memory import record_task_outcome, resolve_memory_key, with_agent_memory
 
 log = logging.getLogger("qwen-proxy")
 
@@ -653,6 +655,50 @@ def _is_outward_facing(task: Task) -> bool:
     return False
 
 
+# Hard limits (operator decision, 2026-11-07): even in full autonomy, work that
+# spends money, touches secrets or access, or deletes data waits for a human.
+# These are gated whatever AGENCY_GATE_OUTWARD_FACING says.
+_HARD_LIMIT_TAGS = frozenset({
+    "irreversible", "risk:spend", "risk:secrets", "risk:delete", "spend", "billing",
+    "secrets", "credentials", "delete", "data-deletion",
+})
+# Errs toward holding: a false positive costs one human approval, a false
+# negative lets the agency spend, grant access or delete on its own.
+_HARD_LIMIT_RE = re.compile(
+    r"\b(?:delete|drop|purge|wipe|truncate|destroy|remove|reset|rm\s+-rf|erase|clear)\b"
+    r"\W+(?:\w+\W+){0,3}?"
+    r"(?:database|db|collection|table|records|data|compan(?:y|ies)|users?|backups?|"
+    r"repo(?:sitory)?|branch(?:es)?|bucket|service|files?|folders?|uploads?|logs?|"
+    r"volumes?|disk|accounts?|history)\b"
+    r"|\b(?:secret|secrets|credential|credentials|api[ _-]?keys?|password|passwords|rbac|"
+    r"gh_pat|tokens?\W+(?:\w+\W+){0,2}?(?:env|render|vault)|"
+    r"(?:grant|give|add|assign)\W+(?:\w+\W+){0,2}?(?:admin|owner|role|permissions?|access)|"
+    r"(?:rotate|revoke)\W+(?:\w+\W+){0,2}?(?:keys?|tokens?|access|secrets?))\b"
+    r"|\b(?:pay|pay for|purchase|buy|subscribe|top up|"
+    r"(?:change|update|add|set up|enable)\W+(?:\w+\W+){0,2}?(?:billing|payment)\W+(?:plan|method|account|details|card)|"
+    r"(?:cancel|start|renew)\W+(?:\w+\W+){0,2}?subscription|"
+    r"(?:add|buy|top up)\W+(?:\w+\W+){0,2}?credits?|"
+    r"(?:increase|raise|set|double)\W+(?:\w+\W+){0,2}?(?:budget|spend|spending)|"
+    r"upgrade\W+(?:\w+\W+){0,4}?(?:plan|tier)|"
+    r"paid\W+(?:\w+\W+){0,1}?(?:plan|tier|model|provider)|top up|"
+    r"provision\W+(?:\w+\W+){0,2}?(?:gpu|server|instance|database|db))\b",
+    re.IGNORECASE,
+)
+
+
+def _is_hard_limit(task: Task) -> bool:
+    """True when a task spends money, touches secrets or access, or deletes data."""
+    for tag in (task.tags or []):
+        if str(tag).strip().lower() in _HARD_LIMIT_TAGS:
+            return True
+    # Everything the runtime can be told: title, description, prompt, and every
+    # comment (_compose_instruction sends the last 10, _build_spec the last 20
+    # as conversation history). Never truncated.
+    comments = [str(getattr(c, "body", "") or "") for c in (getattr(task, "comments", None) or [])]
+    text = "\n".join(filter(None, (task.title, task.description, task.prompt, *comments)))
+    return bool(_HARD_LIMIT_RE.search(text))
+
+
 async def _brain_is_configured() -> bool:
     """Best-effort, fail-open check that *some* usable LLM brain is configured.
 
@@ -794,11 +840,11 @@ class TaskExecutionCoordinator:
         # promote such a task to requires_approval on its first dispatch so it
         # parks at the gate and sends the Telegram Approve/Reject prompt. A task a
         # human already approved (execution_approved) is left alone.
+        hard_limit = _is_hard_limit(task)
         if (
             not task.requires_approval
             and not task.execution_approved
-            and _gate_outward_facing_enabled()
-            and _is_outward_facing(task)
+            and (hard_limit or (_gate_outward_facing_enabled() and _is_outward_facing(task)))
         ):
             task.requires_approval = True
             task.add_log(
@@ -807,7 +853,7 @@ class TaskExecutionCoordinator:
                 event_type="approval_gate_promoted",
                 actor="system:dispatcher",
                 task_status=task.status,
-                metadata={"reason": "outward_facing"},
+                metadata={"reason": "hard_limit" if hard_limit else "outward_facing"},
             )
 
         # ── Pre-execution approval gate (Autonomy Charter Gate Matrix) ──
@@ -927,6 +973,13 @@ class TaskExecutionCoordinator:
             await self.store.update(task)
 
             spec = self._build_spec(task, agent, may_ship=await _owner_may_ship_code(task.owner_id))
+            # Per-agent memory (services/agent_memory): the agent's index notes and
+            # the notes relevant to this task ride along with the instruction.
+            memory_key = await resolve_memory_key(agent.agent_id if agent else None, task_owner=task.owner_id,
+                                                  agent_owner=agent.owner_id if agent else None)
+            spec.instruction = await with_agent_memory(
+                spec.instruction, memory_key, f"{task.title}\n{task.description or ''}",
+            )
 
             # ── Workflow phase: CLASSIFY then EXECUTE ──
             domain = classify_domain(f"{task.title} {task.description}")
@@ -985,6 +1038,11 @@ class TaskExecutionCoordinator:
             )
 
             await self._apply_result(task, agent, result)
+            await record_task_outcome(
+                memory_key, task_id=task.task_id, title=task.title, success=result.success,
+                output="\n\n".join(filter(None, [result.output, (result.metadata or {}).get("agent_comment")])),
+                verdict=task.verification.verdict if task.verification else None,
+            )
             task.workflow_phase = WorkflowPhase.VERIFY.value
             task.add_log(
                 "Workflow: verifying result",

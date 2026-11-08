@@ -51,6 +51,7 @@ from starlette.routing import Match
 
 # Feature routers — agents, runtimes, tasks
 from agents.api import agent_router
+from agents.memory_api import agent_memory_router
 from agents.store import AgentStore, set_agent_store
 from packages.scheduler.scheduler import AgentScheduler, get_scheduler, set_scheduler
 from agent.skills import SkillLibrary
@@ -10826,12 +10827,13 @@ async def get_public_doctor() -> _DoctorReport:
 
     # 2. Storage backend
     try:
-        from db import get_store
-        store = get_store()
-        # NOTE: don't duck-type with hasattr() — MongoStore.__getattr__ proxies
-        # any attribute to a Motor *collection*, so store.count_companies is a
-        # collection named "count_companies", not a method (TypeError at call).
-        count = await store.companies.count_documents({})
+        # Count through the company graph store: it is where companies are
+        # created and read (self-bootstrap, CompanyAgency). db.get_store() and
+        # this store fall back to different DB_NAME defaults ("llm_platform" vs
+        # "agency_core"), so when DB_NAME is unset the old count read an empty
+        # collection and the doctor reported "0 companies" while 5 were active.
+        from services.company_graph_store import get_company_graph_store
+        count = await get_company_graph_store().count_companies()
         checks.append(_DoctorCheck(
             id="storage",
             category="Storage",
@@ -11232,6 +11234,7 @@ async def get_doctor_diagnostics(
 # request.state.user but never required it, so anonymous callers could create
 # agents, stop every runtime or delete initiatives. The gate lives here (rule 10).
 app.include_router(agent_router,dependencies=[Depends(get_current_user)])
+app.include_router(agent_memory_router, dependencies=[Depends(get_current_user)])
 # Local GLM-5.2 brain cross-machine toggle (admin SPA <-> local daemon).
 # Three endpoints, all gated on SERVICE_TOKEN via require_service_token.
 # See backend/local_brain_router.py for surface + body shapes.

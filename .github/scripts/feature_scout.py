@@ -22,6 +22,7 @@ import json
 import logging
 import os
 import re
+import subprocess
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -155,15 +156,84 @@ def parse_proposals(content: str) -> list[Proposal]:
     return proposals
 
 
+_PATH_RE = re.compile(r"(?<![\w/.-])((?:[\w-]+/)+[\w.-]+\.(?:py|jsx?|tsx?|ya?ml|md|json))\b")
+_NEW_MARKER_RE = re.compile(r"\b(?:new|create|creates|creating)\b", re.IGNORECASE)
+
+
+def _tracked_files(root: Path) -> list[str]:
+    """Files git tracks under *root*; empty when git is unavailable."""
+    try:
+        out = subprocess.run(["git", "-C", str(root), "ls-files"], capture_output=True,
+                             text=True, timeout=30, check=True)  # nosec B603 B607 - fixed argv
+    except (OSError, subprocess.SubprocessError):
+        return []
+    return out.stdout.splitlines()
+
+
+def _missing_paths(text: str, root: Path) -> list[str]:
+    """Paths *text* names as existing that are not in the repo."""
+    missing = []
+    for match in _PATH_RE.finditer(text):
+        path = match.group(1)
+        before = text[max(0, match.start() - 20):match.start()]
+        resolved = (root / path).resolve()
+        inside = root.resolve() in resolved.parents
+        if (inside and resolved.exists()) or _NEW_MARKER_RE.search(before):
+            continue
+        missing.append(path)
+    return missing
+
+
+def _already_built(title: str, root: Path, files: list[str]) -> str | None:
+    """A non-test source file that mentions every distinctive word of *title*."""
+    words = [w for w in _words(title) if len(w) >= 4]
+    if len(words) < 2:
+        return None
+    # A title word or two is usually framing ("field", "endpoint"); allow one miss
+    # once there are three or more distinctive words.
+    need = len(words) - 1 if len(words) >= 3 else len(words)
+    for rel in files:
+        if not rel.endswith(".py") or rel.startswith(("tests/", "docs/")) or "/tests/" in rel:
+            continue
+        try:
+            text = (root / rel).read_text(encoding="utf-8", errors="ignore").lower()
+        except OSError:
+            continue
+        if sum(bool(re.search(rf"\b{re.escape(w)}", text)) for w in words) >= need:
+            return rel
+    return None
+
+
+def grounding_problem(prop: Proposal, root: Path, files: list[str]) -> str | None:
+    """Why *prop* does not fit this codebase, or None when it does.
+
+    Both rejected scout issues of 2026-11-05 failed here: one named code that
+    does not exist, the other proposed a feature the repo already had.
+    """
+    missing = _missing_paths(" ".join([prop.scope, prop.why, *prop.acceptance]), root)
+    if missing:
+        return f"names files that do not exist: {', '.join(missing[:3])}"
+    existing = _already_built(prop.title, root, files)
+    if existing:
+        return f"looks already built (see {existing})"
+    return None
+
+
 def select_proposals(
     proposals: list[Proposal], known_titles: list[str], limit: int,
+    root: Path | None = None,
 ) -> list[Proposal]:
-    """Drop risky and duplicate proposals, keep the first *limit*."""
+    """Drop risky, duplicate and ungrounded proposals, keep the first *limit*."""
     chosen: list[Proposal] = []
+    files = _tracked_files(root) if root else []
     for prop in proposals:
         blob = " ".join([prop.title, prop.why, prop.inspired_by, prop.scope, *prop.acceptance])
         if is_risky(blob):
             log.info("Dropped risky proposal: %s", prop.title)
+            continue
+        problem = grounding_problem(prop, root, files) if root else None
+        if problem:
+            log.info("Dropped ungrounded proposal %s: %s", prop.title, problem)
             continue
         if is_duplicate(prop.title, known_titles + [p.title for p in chosen]):
             log.info("Dropped duplicate proposal: %s", prop.title)
@@ -324,6 +394,11 @@ def capability_summary(root: Path) -> str:
     readme = root / "README.md"
     if readme.is_file():
         parts.append(readme.read_text(encoding="utf-8", errors="replace")[:1500])
+    modules = sorted({f.rsplit("/", 1)[0] for f in _tracked_files(root)
+                      if f.endswith(".py") and "/" in f and not f.startswith("tests/")})
+    if modules:
+        parts.append("Python packages in this repo (name only real paths):\n"
+                     + ", ".join(modules)[:2500])
     return "\n\n".join(parts)
 
 
@@ -365,7 +440,7 @@ def run(gh: GitHub, cfg: dict[str, Any], root: Path, dry_run: bool) -> list[str]
     _, _, content = call_brain_with_failover(candidates, messages,
                                              max_tokens=3000, temperature=0.4)
     known = lessons["accepted"] + lessons["rejected"] + lessons["open"]
-    chosen = select_proposals(parse_proposals(content), known, limit)
+    chosen = select_proposals(parse_proposals(content), known, limit, root=root)
     filed = []
     for prop in chosen:
         title = f"[feature-scout] {prop.title}"

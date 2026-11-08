@@ -9,400 +9,67 @@
 3. **Mistral Large 4 API context window** — currently 524 288; monitor Mistral's docs for an increase to the full 1 M. Raise priority from 62 once confirmed probed and not "public preview".
 4. **November model releases check** — no confirmed new text LLMs beyond what's in the catalogue as of 2026-11-06. Re-check on next run (Qwen 4, any OpenAI Nov release).
 5. **Render quota** — quota reset 2026-11-01; quiet-hours in keepalive/worker prevent repeat exhaustion. Monitor Render logs.
+# NEXT_ACTION — updated 2026-11-08 (free sandbox: Freestyle + provider chain)
+
+**Update:** chain is now freestyle → daytona → instabox → e2b (`SANDBOX_PROVIDERS`). Set `DAYTONA_API_KEY` / `INSTABOX_API_KEY` in Render to enable the fallbacks; none was exercised live (hosts blocked from the build container).
+
+**What shipped:** sandbox provider registry (`services/sandbox_providers.py`) with ordered failover (`SANDBOX_PROVIDER`, default `auto` = Freestyle first, then E2B); Freestyle VMs via REST (`services/freestyle_sandbox.py`). Branch `claude/optimistic-hawking-yrb1qe`.
+
+## Open items
+
+1. **Operator:** create a Freestyle account (Free plan, $1 refundable card check), put `FREESTYLE_API_KEY` in Render, keep `E2B_ENABLED=true`.
+2. First live run on Render: Freestyle's API was unreachable from the build container, so request shapes are verified only against the official TS SDK source (`freestyle@0.2.21`). Watch logs for `Sandbox opened on provider freestyle` / `Sandbox provider freestyle failed to open`.
+3. Freestyle caps one exec at 5 minutes; `AGENT_SANDBOX_INSTALL_DEPS` installs can hit it on big repos — a `FREESTYLE_SNAPSHOT` with deps baked in avoids that.
+
+---
+# NEXT_ACTION — updated 2026-11-07 (Hallmark redesign, PR #1910)
+
+**What shipped:** landing page redesigned and dashboard tokens restyled with Hallmark's Console theme; public autonomy claims corrected to match full autonomy mode; `og.jpg` re-captured without its slop tells. PR #1910, auto-merge (squash) armed.
+
+## Open items
+
+1. `brag-output/composition/index.html` (the feature-tour video) still uses tracked-caps scene labels and a coloured headline word, and its leash scene predates full autonomy mode. Re-cut it if the video is published again.
+
+---
+# NEXT_ACTION — updated 2026-11-07 (agent memory)
+
+**What shipped:** per-agent memory with offline dreaming (`services/agent_memory/`) on branch `claude/loving-planck-s0bzrc` (`7c12f6a`, `3a4189e`). Independent verifier: FAIL round 1 (4 defects, fixed with regression tests), PASS round 2.
+
+## Open items
+
+1. **Open a PR** when the operator asks; CI (with Mongo) is the authority on the full suite.
+2. Watch the first real dream cycles on Render: check the judge model returns usable JSON ops (`agent_memory: dream for … returned no usable ops` in logs means it does not).
+3. Not built: wiki-style linked memory pages and a dashboard view of agent memory (API exists: `GET /api/agents/{id}/memory`).
+4. Agents only write notes if they follow the `REMEMBER(kind):` convention; measure adoption from episode `notes_written` after a week.
 
 ---
 # NEXT_ACTION — updated 2026-11-02 (daily routine)
+# NEXT_ACTION
 
-**What shipped:** `safety_event` OTel span event for blocked outbound URLs (#1892 item 1, web_reach only). Verifier verdict: PASS+NOTES.
+> Updated: 2026-11-07 (daily automation session)
 
-## Open items
+## Just completed
 
-1. **Merge the daily-routine PR** once CI is green.
-2. #1892 remaining: item 1 extension to verifier rejections (`agent/loop.py`) and workspace refusals (`agent/tools.py`, risky module, needs human); items 2 and 3 untouched; item 4 audit-only, needs `risky-module-review` and a human.
-3. Local sandbox has no MongoDB, so `tests/test_auth_me_regression.py` errors locally on master too; CI is the source of truth.
+**Daily automation 2026-11-07** — PR #1903 open, auto-merge armed (squash):
+- `tencent/hy4-preview` added to cost_tracker.py + models.yaml ($0.83/$2.50, 5% cache, 1,048,576 ctx, priority 99)
+- `google/gemini-3.1-pro-preview` OpenRouter alias added to cost_tracker.py ($2.00/$12.00)
+- 25 tests pass; compileall clean; PARITY OK; CATALOGUE OK (104 ids)
 
----
-# NEXT_ACTION — updated 2026-11-01 (drill: board cleared)
+## For the next daily automation run
 
-**What shipped:** #1876 (proof numbers), #1871 (Sonnet 5.5 cache-read fraction 5 %, checked against the pricing page), #1877 (Anthropic cache reads were costed near zero; `LLMProvider.cost` now prices cached tokens at the cache-read rate), #1875 (auto-merge uses `--auto`, never `--admin`; Security Gate reruns on `ready_for_review`). Inventory: 0 open PRs/issues, master green, Render live on 6cc0e0f.
+Candidates deferred — verify before next run:
+1. **`gemini-omni-flash-preview`** (Vertex AI `$1.50/$9.00`): No OpenRouter listing as of 2026-11-07; check openrouter.ai/models for `google/gemini-omni*` slug before adding.
+2. **GPT-6 Astra Ultrafast tier**: Mentioned at DevDay Sept 2026; listed in cost_tracker as `gpt-6-astra` at $10/$50 — verify if a separate `ultrafast` variant has a different API ID or pricing.
+3. **Gemini 3.1 Pro cache fraction**: May be 10% (not 25% generic) per OpenRouter page $0.20/MTok cache read; needs confirmation from ai.google.dev/pricing directly before adding an override.
 
-## Open items
+## Open tasks requiring human action
 
-1. **Operator decision: enforce branch protection for admins on master.** Until it is on, a manual `--admin` merge can still skip required checks.
-2. **Operator decision: Render capacity.** The first `get_overview` in a task workspace takes 3–7 min on the 0.15-CPU instance (see #1872). Fix: add the `local-llm-server-worker` service from `render.yaml`, or a larger plan.
-3. **Tour video count is stale.** `brag-output/brag.mp4` (README-linked) still says "446 of 1109" agent PRs; `proof/agent-built.md` now says 536 of 1281. Needs a re-render, not a text edit.
-4. Carried over unchanged from the earlier 2026-11-01 entry, not re-verified this session: November model-release check, Gemini 4 Argon pricing change on 2026-12-01, Mistral Large 4 GA status.
+- Row 50 (provider source of truth): P1-P4 require full pytest suite — needs backend deps.
+- Row 34 (TokenIn): blocked on Render billing.
+- Bug 16/17 (gate bypass, orchestrator): architecturally significant, needs human decision.
 
----
-# NEXT_ACTION — updated 2026-11-01 (daily automation, PR #1871)
+## 2026-11-08 daily routine
 
-**What shipped:** Fixed `claude-sonnet-5-5` cache-read fraction (10 % → 5 %). Anthropic halved Sonnet 5.5 cache-read prices on 2026-10-07 when Haiku 5.5 launched; the per-model override was missing from `_CACHE_READ_FRACTIONS`. 16 new tests; all gates green. PR #1871 open, awaiting CI and merge.
-
-## Open items for next daily run
-
-1. **Merge PR #1871** — if CI is green, merge to master.
-2. **Check for November model releases** — no confirmed new models as of 2026-11-01 (GPT-6.1 Astra was cancelled; Qwen 4 has no API yet). Re-check on next run.
-3. **Gemini 4 Argon pricing note** — introductory price ($2/$10/MTok) ends 2026-11-30; standard $4/$20 starts 2026-12-01. Remind operator before December.
-4. **Mistral Large 4 GA status** — open weights promised end of October; verify whether released and update catalogue note from "Preview" to "GA" if confirmed.
-
----
-# NEXT_ACTION — updated 2026-10-31 (daily automation, branch `claude/intelligent-gates-ibfi0w`)
-
-**What shipped:** Retired `nvidia/nemotron-3-super-120b-a12b` (HTTP 404 since issue #1813); promoted `nvidia/nemotron-3-ultra-550b-a55b` as the platform default across all 19 files. Added `gemini-4-carbon` to `config/llm/models.yaml` (Google Oct 28 flagship; priority 99/explicit-only until a live probe). 201 targeted tests pass; all pre-commit checks green.
-
-## Open items for next daily run
-
-1. **Gemini 4 Carbon live probe** — priority 99 (explicit-only). Once the PR merges and the Google AI Studio account is probed, lower priority and add to routing presets.
-2. **Nemotron 3 Ultra tool-call confirmation** — `supports_tools: true` was set in registry and models.yaml based on probe run 33220369591 (2026-08-28). Monitor the first production call to confirm.
-3. **Security audit follow-ups from 2026-10-29** — JWT revocation, Google login `verified_email`, GitHub callback state, and other open items still pending (see row below).
-# NEXT_ACTION — updated 2026-10-30 (daily automation, branch `claude/intelligent-gates-hfu9ql`)
-
-Daily automation complete. PR #1861 open. CI green → auto-merge to master.
-
-Three models added: GPT-6.1 Terra ($1/$5), Kimi K3.1 Pro ($2/$10), Inception Mercury 3 ($0.10/$0.35).
-
-## Next daily run suggestions (2026-10-31)
-- Check PR #1861 merged; if not, investigate CI failure.
-- Look for any new model releases: GPT-6.1 Terra Pro if it surfaces, Kimi K3.1 Pro Highspeed (mentioned in search results but pricing unconfirmed), any new Anthropic or Google releases.
-- Monitor Inception Mercury 3 for a standalone API ID (currently only OpenRouter confirmed).
-
----
-# Previous NEXT_ACTION — 2026-10-29 (security audit, branch `security/cloudflare-audit-fixes`)
-# NEXT_ACTION — updated 2026-10-31 (security audit remaining findings, branch `security/audit-remaining`)
-
-All leads left open by #1858/#1860 are fixed in one PR: DNS-pinned fetches (`agent/web_reach.py` `pinned_transport`), SEO browser SSRF guard, logout revocation (`tokens_valid_after`), login-CSRF nonce on `/auth/callback`, GitHub repo-connect claim code, Google `verified_email`, self-repo shipping limited to system/admin tasks, anonymous heartbeat redaction, E2B write-back containment, literal company search, quick-note CI author gate + credential isolation, diag/seed hardening.
-
-## Open items
-
-1. **Operator check** — bare `/api/auth/<provider>/login` links (no login-page nonce) now end on the callback error screen; use the login page.
-2. **Product check** — regular users' tasks now run report-only (no platform GitHub token / auto-commit); quick notes and portfolio board changes are admin-only. Reverse in `tasks/service.py::_owner_may_ship_code` if users should ship code.
-3. ~~Unaudited surfaces~~ — reviewed 2026-10-31 (branch `security/bandit-tmp-fix`): Hermes `/tasks` fails closed with a render-generated `HERMES_API_KEY`; spec approve/reject and sprint changes admin-only; `direct_chat` no longer falls back to the host GitHub token; ceo and code-mode routers already admin-gate their mutations. Operator: confirm `agency-hermes` picked up the generated `HERMES_API_KEY` after the blueprint sync.
-
----
-
-# NEXT_ACTION — updated 2026-10-29 (security audit, branch `security/cloudflare-audit-fixes`)
-
-Ran the cloudflare/security-audit-skill workflow (standard profile, sandboxed source-and-local only). The run is **incomplete**: coverage critics, a second hunter wave, 7 Phase-3 validations and Phase-5 record verification were not run (user asked to finish; agent limit hit). Fixed 9 independently confirmed findings plus 2 parent-verified ones (task purge scope, cron issue-intake label gate), each with a regression test. Audit artifacts live outside the repo (`~/security-audit-skill/autonomous-ai-agency/run-1/`).
-
-## Open items
-
-1. **JWT revocation** (confirmed, low) — logout/password rotation do not revoke access or refresh tokens; needs a per-user `token_version` claim checked in `get_optional_user`, `JWTUserStateMiddleware` and `/api/auth/refresh`.
-2. **Needs validation, then fix** — Google login links by email without `verified_email` (`packages/auth/oauth.py`, risky module: rule 15 review first); GitHub repo-connect callback state not bound to the browser (check registered callback URL); `/auth/callback` accepts any URL token (login CSRF); quick-note CI pipeline has no author trust gate and gives an unrestricted shell with persisted `GH_PAT` (check repo issue visibility); Mongo `$regex` search unescaped.
-3. **Unvalidated candidates** — anonymous `/api/autonomy/tick` and `/status` echo other users' task titles; DNS-rebinding gap in `unsafe_target_reason`; E2B `extract_changes_to_worktree` writes sandbox-reported paths without containment; SEO browser fetch has no SSRF route guard; self-registered users can queue self-repo-ship agent work.
-4. **Unaudited surfaces** — agile/ceo/spec/code-mode routers, `services/hermes_server.py`, `direct_chat.py` host GH token fallback.
-
----
-
-# NEXT_ACTION — updated 2026-10-25 (daily automation, branch `claude/intelligent-gates-xd0rsk`)
-
-Gemini 4 Argon (`gemini-4-argon` / `google/gemini-4-argon`, GA 2026-10-13) declared at priority 99. $2/$10 intro pricing with 5% cache read override. PR #1830 open; 31 tests pass; catalogue 100 ids; PARITY OK.
-
-## Open items for next daily run
-
-1. **Gemini 4 Argon live probe** — declared priority 99 (explicit-only). Once PR merges and account is probed, lower priority and set as candidate.
-
-2. **Anthropic API version 2026-10-21** — New API version with breaking changes (document blocks in assistant messages → 400; citations on text blocks → 400). Multiple files currently hardcode `"2023-06-01"`. Needs explicit human decision (rule 40 — breaking API change) before update. Not skipped for capability reasons; needs authorization.
-
-3. **Gemini 4 Argon pricing update** — introductory $2/$10 ends 2026-11-30; standard $4/$20 from 2026-12-01. Update `_DEFAULT_COST_TABLE` entries before that date.
-
-4. **Kimi K3.1 Pro** — search found mention but no confirmed API model ID or pricing. Re-check when official Moonshot docs publish it.
-
----
-
-# NEXT_ACTION — updated 2026-10-23 (daily automation, branch `claude/intelligent-gates-pc2vqv`)
-
-Qwen3.6 27B (`qwen/qwen3.6-27b`, Groq, $0.60/$3.00/MTok) and MiniMax M3.1 Flash cost entry (`MiniMax-M3.1-Flash`, $0.15/$0.60/MTok) added. 23 tests pass; compileall clean; changelog parity OK; catalogue 98 ids no drift.
-
-## Open items for next daily run
-
-1. **Qwen3.6 27B live probe** — declared at priority 99 (explicit-only). Once the PR merges and the Groq account is probed, lower priority and add to routing candidates.
-
-2. **MiniMax M3.1 Flash TokenIn ID** — confirm `myt/MiniMax-M3.1-Flash-free` is a real TokenIn candidate ID. Add to the `myt/` free section of cost_tracker when confirmed.
-
-3. **DeepSeek V4 Pro tool-call probe** — declared `supports_tools: false` conservatively. Once the NIM account proves the model answers completions, raise a follow-up to set `supports_tools: true` and lower priority from 99.
-
-4. **Groq Llama 4 Scout probe** (`meta-llama/llama-4-scout-17b-16e-instruct`, priority 99) — still pending.
-
-5. **Qwen3.6 27B non-reasoning variant** — research suggests a `qwen/qwen3.6-27b-non-reasoning` variant; confirm model ID format from Groq console before adding.
-
----
-
-# NEXT_ACTION — updated 2026-10-20 (daily automation, branch `claude/intelligent-gates-x2astt`)
-
-DeepSeek V4 Pro (`deepseek-ai/deepseek-v4-pro`, NVIDIA NIM, free tier) formally declared in `config/llm/models.yaml`. PR [#1812](https://github.com/strikersam/autonomous-ai-agency/pull/1812) open. 14 tests verified; compileall clean; changelog parity OK; catalog consistency: 97 ids, no drift.
-
-Note: The Claude GitHub App is not installed on this repo, so PR events will not automatically wake this session — check CI status manually.
-
-## Open items for next daily run
-
-1. **Check CI on PR #1812** — if green, merge (squash). If red, investigate.
-
-2. **DeepSeek V4 Pro tool-call probe** — declared `supports_tools: false` conservatively. Once the PR merges and the NIM account proves the model answers completions, raise a follow-up to set `supports_tools: true`, `supports_function_calling: true`, and lower `priority` from 99.
-
-3. **GPT model deprecations (Oct 23, 2026)**: `gpt-3.5-turbo-0125`, `gpt-4-0613`, `gpt-4-1106-preview` retire on 2026-10-23 — three days away. Confirm these IDs are NOT in routing candidates (they are not as of today). Re-verify on Oct 23.
-
-4. **MiniMax M3 and Mimo v2.5 formal declarations** — `myt/MiniMax-M3-free` and `myt/mimo-v2.5-free` are in TokenIn's candidate list and cost_tracker but have no `config/llm/models.yaml` entries. Declare them when canonical IDs (not `myt/` prefixes) can be confirmed from a provider API response.
-
-5. **Groq Llama 4 Scout probe** (`meta-llama/llama-4-scout-17b-16e-instruct`, priority 99) — still pending.
-
----
-
-# NEXT_ACTION — updated 2026-10-19 (branch `claude/onboarding-details-priorities`)
-
-Onboarding company intel shipped in #1809 (tracker row 51 archived). Follow-up PR sends the Details-step goals as `priorities`. REA still deferred (row 52).
-
-1. After deploy, onboard a non-commerce site (e.g. a clinic or law firm): the Tailor step should show "What we understood …" and Priority chips; Render logs should show "Generated N ai onboarding questions".
-2. Row 52 (REA): revisit only when a worker with Node + headless Chrome exists.
-
----
-
-# NEXT_ACTION — updated 2026-10-18 (daily automation, branch `claude/intelligent-gates-6bf3ev`)
-
-NVIDIA Nemotron 3.5 Super VL (`nvidia/nemotron-3.5-super-vl:free`) added to model catalogue via OpenRouter free tier. PR [#1780](https://github.com/strikersam/autonomous-ai-agency/pull/1780) open. 13 tests verified; compileall clean; changelog parity OK.
-
-## Open items for next daily run
-
-1. **Check CI on PR #1780** — if green, merge. If red, investigate.
-
-2. **Nemotron 3.5 Super VL tool-call probe** — declared `false` conservatively. Once PR merges, the router's health check cycle will test it. If it returns a valid `tool_calls` response, raise a PR to set `supports_tools: true` and `supports_function_calling: true`.
-
-3. **Muse Spark Open live probe** (`meta-models/muse-spark-open`, priority 99) — still at priority 99. Once its PR is merged and deployed, check if the Groq account now has access (otherwise keep explicit-only).
-
-4. **GPT model deprecations (Oct 23, 2026)**: `gpt-3.5-turbo-0125`, `gpt-4-0613`, `gpt-4-1106-preview` retire on 2026-10-23. Confirmed not in routing candidates as of today — re-verify after Oct 23.
-
-5. **Groq Llama 4 Scout probe** (`meta-llama/llama-4-scout-17b-16e-instruct`, priority 99) — still pending a live probe.
-
----
-
-# NEXT_ACTION — updated 2026-10-17 (daily automation, branch `claude/intelligent-gates-n8443c`)
-
-Meta Muse Spark Open (`meta-models/muse-spark-open`) added to model catalogue. PR [#1777](https://github.com/strikersam/autonomous-ai-agency/pull/1777) open, auto-merge armed (squash). 18 tests pass; compileall clean; changelog parity OK.
-
-## Open items for next daily run
-
-1. **Check CI on PR #1777** — if green, should have auto-merged. If red, investigate.
-
-2. **Muse Spark Open live probe** — priority 99 (explicit-only). Once the PR merges, the router's health check will test it. If a "contact sales" 403/401 comes back, add a note to the YAML and keep priority 99. Lower priority only after a live HTTP 200 completion.
-
-3. **Groq Llama 4 Scout probe** (`meta-llama/llama-4-scout-17b-16e-instruct`) — still at priority 99 from 2026-10-04. Check if the Groq account now has this model and lower priority if it answers.
-
-4. **GPT model deprecations (Oct 23, 2026)**: `gpt-3.5-turbo-0125`, `gpt-4-0613`, `gpt-4-1106-preview` retire on 2026-10-23. Confirmed not in routing candidates or cost tracker as of today — no action needed; re-verify after Oct 23.
-
----
-
-# NEXT_ACTION — updated 2026-10-15 (review lane + judge evidence)
-
-Shipped: #1761/#1762/#1763 (failed verification goes to FAILED, never Review; review autopilot moved 136 stuck tasks out at 10:49 UTC). Branch `claude/judge-diff-and-stubs`: the judge gets a real working-tree diff on host runs, and stubs named after a task id are rejected.
-
-1. Root cause of the empty diff (found after #1768 shipped): `/app` has no `.git`, so task copies had no baseline and the E2B seed failed. Branch `claude/workspace-git-baseline` gives the copy a baseline commit. After deploy, Render logs should show "E2B sandbox seeded from /tmp/llm-task-copy-…" and "Judge brief: … git diff N chars" with N > 0 for host runs that changed tracked or new files (ignored files such as logs are still shown as content).
-2. Many runs change nothing (0 changed files) and fail honestly; Failed will grow rather than Done. If that persists, the next lever is the planner/executor, not the verifier.
-3. Operator: rotate the Browserbase key that was shared in chat on 2026-10-15.
-
-# NEXT_ACTION — updated 2026-10-15 (evidence-driven verification)
-
-#1765 merged 2026-10-15. Follow-up PR from the same branch carries the CodeRabbit fixes and restores the Bandit baseline (303).
-
-1. After deploy, watch for tasks held with review reason "High-risk change verified; a person must approve it" (tag `risk:high-change`): verified agent changes to auth, secrets, governance, deploy, CI or migration paths no longer complete on their own. `VERIFICATION_POLICY_ENFORCED=false` restores the old verdicts while keeping the reports.
-2. Follow-ups: produce an `EvidenceReport` from `tasks/independent_verifier.py` (non-loop runtimes) and from `_maybe_run_parallel`; record per-run token cost in the report.
-3. Local runs without MongoDB: use `SKIP_DB_TESTS=1` (the pre-push hook sets it automatically).
-
-# NEXT_ACTION — updated 2026-10-11 (durable state on SQLite)
-
-Merged: #1719 (durable token ledger, sticky grants, tool-output offload on MongoDB), #1722 (docs), #1724 (same three stores on `STORAGE_BACKEND=sqlite`: numeric `expires_at_ts`, atomic single-statement increment, purge on write, `_id` primary-key lookups). This closes the "ledgers are in-memory per process" item in the 2026-10-10 Octop entry below. Follow-up branch `fix/sqlite-atomic-bandit-nosec` restores the Bandit count to 303 (the Security Gate is not a required check, so #1724 merged with 305).
-
-## Open items
-
-1. Consider making "Security Gate — No New Alerts" a required check in branch protection; auto-merge skipped it on #1724 (and on #1535 earlier, for Playwright).
-2. `AGENT_DELEGATION_ENABLED=true` and `AGENT_USER_TOKENS_PER_DAY=2000000` are set on Render (`srv-d7cb43beo5us73e1leug`).
-
-# NEXT_ACTION — updated 2026-10-11 (UI revamp + rule 49 in code)
-
-Branch `claude/ui-revamp` → PR to master. Merge when CI is green (squash).
-
-1. Rule 49 is now enforced for agency tasks (`TASK_VERIFICATION_REQUIRED`, default on). Watch "Needs you" on Home after deploy: tasks whose run has no judge verdict (analysis-only tasks, non-internal runtimes) now wait for a person. Follow-up worth doing: have the agency run its verifier role automatically on those so a person is not the only fallback.
-2. Apper MCP connector is connected but has no projects; it cannot audit this repo or the live site.
-# NEXT_ACTION — updated 2026-10-10 (Octop-inspired features)
-
-Shipped from the Octop (TencentCloud/Octop) review, all merged: #1710 pre-push hook no longer leaks GIT_DIR into tests; #1711 per-user daily agent token cap (`AGENT_USER_TOKENS_PER_DAY`, off by default); #1712 lossless tool-output offload (`read_tool_output`); #1713 async specialist delegation (`AGENT_DELEGATION_ENABLED`, off by default); #1714 sticky session approval grants + runner identity. Follow-up branch `chore/finish-octop-followups` wires owner into the remaining runners.
-
-## Open items
-
-1. Token cap and offload ledgers are in-memory per process: on a multi-worker deploy, caps can overshoot by ~worker count. Persist if that matters.
-2. Delegation and the token cap are off by default — turn on under Settings → Platform controls when wanted.
-3. Local `pytest -x` cannot pass in cloud sessions without DNS (`tests/test_web_reach.py`); CI is the gate there.
-
----
-
-# NEXT_ACTION — updated 2026-10-10 (daily automation, GPT-6.1 Sol)
-
-**Updated:** 2026-10-10 (daily automation, branch `claude/intelligent-gates-5hxtio`)
-
-GPT-6.1 Sol (`gpt-6.1-sol`, OpenAI, released 2026-09-29) added to the model catalogue. PR [#1715](https://github.com/strikersam/autonomous-ai-agency/pull/1715) open, CI pending. 18 tests pass; compileall clean; changelog parity OK. The Claude GitHub App is not installed on this repo so PR events won't wake this session — check CI status manually.
-
-## Open items for next daily run
-
-1. **Check CI on PR #1715** — if green, merge. If red, investigate.
-2. **GPT model deprecations (Oct 23, 2026)**: `gpt-3.5-turbo-0125`, `gpt-4-0613`, `gpt-4-1106-preview` retiring on 2026-10-23. Check if these IDs are in routing candidates and add deprecation notes.
-3. **Groq Llama 4 Scout probe** (`meta-llama/llama-4-scout-17b-16e-instruct`) — move to active routing if probe passes (currently explicit-only, priority 99).
-4. **Mistral Large 4 live probe** — not yet probed; router health checks will test once PR #1707 is merged.
-5. **GPT-6.1 Sol live probe** — priority 99 (explicit-only); lower after confirming the model answers on OpenRouter.
-
----
-
-# NEXT_ACTION — updated 2026-10-08 (screen audit fixes)
-
-Branch `claude/project-thread-21yb6b`: fixes for the v5 screen vs backend audit (admin API gaps, QuickNotes, provider policy surfaces, Logs/Skills/GitHub shapes, voice STT containers, workflow route order, scheduler fail_count). Open PR, merge when CI is green. Not fixed on purpose: AgentsScreen per-agent counts (backend has no per-agent weekly stats, screen already falls back), Skills enable/disable still localStorage-only, MCP rows inert, no sprint start/complete UI, `/api/activation/settings` left readable by any signed-in user (documented design).
-# NEXT_ACTION — updated 2026-10-09
-
-**Updated:** 2026-10-09 (daily automation, branch `claude/intelligent-gates-rfkpo8`)
-
-Mistral Large 4 ("Le Chonk", `mistral-large-4-0`) added to model catalogue. PR [#1707](https://github.com/strikersam/autonomous-ai-agency/pull/1707) open, auto-merge armed (squash). 17 tests, all green; compileall clean; changelog parity OK; loop registry no drift.
-
-## Open items for next daily run
-
-1. **Check CI on PR #1707** — if green, should have auto-merged. If red, investigate.
-
-2. **Mistral Large 4 context window** — currently set to 131072 (conservative). Mistral docs may clarify whether 524K or 1M is the actual API limit; update `config/llm/models.yaml` when confirmed.
-
-3. **GPT model deprecations (Oct 23, 2026)**: `gpt-3.5-turbo-0125`, `gpt-4-0613`, `gpt-4-1106-preview` retiring on 2026-10-23. Check if these IDs are in routing candidates and add deprecation notes.
-
-4. **Groq Llama 4 Scout probe** (`meta-llama/llama-4-scout-17b-16e-instruct`) — move to active routing if probe passes (currently priority 99, explicit-only).
-
-5. **Mistral Large 4 live probe** — model not yet probed on this account. Once the PR merges, the router's health check cycle will test it. If the probe fails, it enters the dead-model list until next health-check cycle.
-
----
-
-# NEXT_ACTION — updated 2026-10-07
-
-## Last session (2026-10-07, daily automation)
-
-**What ran:** Daily 9 AM automation. Researched AI ecosystem developments since 2026-10-06.
-
-**What shipped:** PR [#1697](https://github.com/strikersam/autonomous-ai-agency/pull/1697) — `feat(models): Groq prompt-caching cost fractions` (the proposed Nemotron 49B addition was dropped in review: the id is on RETIRED)
-- `packages/ai/cost_tracker.py`: `qwen/` and `meta-llama/` added to `_CACHE_READ_FRACTIONS` (50 % Groq cache discount)
-- `tests/test_daily_automation_2026_10_07.py`: 9 tests, all green
-- Auto-merge armed (squash)
-
-## Open items for next daily run
-
-1. **Do not re-add retired ids.** Before proposing any model, check `RETIRED` in `tests/test_nvidia_default_model.py` and the retired comments in `config/models.yaml`; `nvidia/llama-3.3-nemotron-super-49b-v1.5` (2026-10-07) and `nvidia/nemotron-3.5-lightning-30b-a3b` (2026-10-06) were both proposed and rejected for this.
-
-2. **GPT model deprecations (Oct 23, 2026)**: `gpt-3.5-turbo-0125`, `gpt-4-0613`, `gpt-4-1106-preview` are being retired by OpenAI on 2026-10-23. Check if these IDs are in the repo's routing candidates and add a deprecation note if so.
-
-3. **Groq Llama 4 Scout probe** (`meta-llama/llama-4-scout-17b-16e-instruct`) — move to active routing if probe passes (currently explicit-only, priority 99).
-
-4. **Cerebras `qwen3-235b` preview** — Cerebras account currently returns 402; add as a conservative candidate once the model answers HTTP 200.
-# NEXT_ACTION — updated 2026-10-08
-
-**Updated:** 2026-10-08 (daily automation, branch `claude/intelligent-gates-5vo4pc`)
-
-Claude Haiku 5.5 (`claude-haiku-5-5`) released 2026-10-07 — added to cost tracker and models.yaml. PR #1698 opened, awaiting CI and merge. Priority 68 (candidate only; add to routing presets after a live probe on this account confirms it answers correctly). Next daily run: check CI on #1698, then scan for further new model releases (Claude Haiku 5.5 also available on Amazon Bedrock and Google Cloud — if new model IDs are announced for those platforms, add them as aliases).
-
-# NEXT_ACTION — updated 2026-10-05
-
-**Updated:** 2026-10-05 (daily routine, branch `routine/daily-2026-10-05`)
-
-Sonnet 5.5 cost table corrected to $2/$10 (was $1.6/$8). Backlog issue #1688 items 2-4 remain: agent web-access master switch (S), "n of m" approval counter (XS-S), and a read-only compound-shell audit of `agent/tools.py` (risky module, needs human sign-off).
-
-
-**Updated:** 2026-10-04 (bounty hunter, branch `claude/bounty-hunter`)
-
-Bounty hunter shipped behind repo variable `BOUNTY_HUNTER_ENABLED`. After merge: owner sets the
-variable, then runs the workflow once by hand (Actions → Bounty Hunter → Run) and checks the
-run's job summary (the P&L table) and any `bounty:awaiting-review` issues. First real run is the
-first time the Docker sandbox and fork push execute — watch that job's log.
-
-**Updated:** 2026-10-04 (gpt-oss reasoning + reconciler loop, branch `fix/agent-loop-gpt-oss`)
-
-Prod 12:05–12:38: Bedrock answers every call but steps fail (inline <reasoning>, 20b invents
-tool results) and the reconciler loops 2 FAILED tasks at "retry 0/5". Fixed on this branch.
-After deploy: watch for the first agent PR that passes agent/pr_gate.py.
-
-**Updated:** 2026-10-04 (agent PR quality gate, branch `fix/agent-pr-quality-gate`)
-
-First agent PRs exist (#1656, #1658–#1660) but none was mergeable: test for a missing module,
-three async_queue.py copies with no tests/changelog. Now gated by `agent/pr_gate.py`; one PR per
-initiative; DEFERRED work closed WONT_DO. After deploy: next agent PRs should carry tests +
-changelog and go green; close the four bad PRs (done in this session with a comment).
-
----
-
-**Updated:** 2026-10-04 (Bedrock model → Qwen3 Coder Next)
-
-## Bedrock model switch 2026-10-04 — branch `fix/bedrock-qwen3-coder`
-#1662 merged (gpt-oss reasoning strip, reconciler retry count). This branch moves the `bedrock`
-provider to the Mantle endpoint (`bedrock-mantle.<region>.api.aws/v1`) with
-`qwen.qwen3-coder-next` as its only model. After deploy check Render logs for
-`attempt bedrock/qwen.qwen3-coder-next ok`; a 401/404 there means the Bedrock key is not
-accepted on Mantle → revert providers.yaml base_url. Then watch step-error rate and the first
-agent PR that passes `agent/pr_gate.py`. Groq gpt-oss "Tool choice is none" 400 still open.
-
----
-
-**Updated:** 2026-10-04 (Bedrock live; tool-call aliases)
-
-## Bedrock live 2026-10-04
-#1654 and #1655 are on master and deployed (`4ea8b8a`). Render has AWS_BEARER_TOKEN_BEDROCK +
-BEDROCK_BRAIN_ENABLED=true. Logs 08:26: `9 provider(s) ready: ... bedrock ...` and
-`attempt bedrock/openai.gpt-oss-20b-1:0 ok`. Intake now picks fresh initiatives (no DEFERRED repeats).
-Branch `fix/tool-call-aliases`: executor accepts `command`/`action`/`operation`/... as the tool name.
-Next: watch for the first `Auto-PR opened` / `agent/task-*` PR, and Bedrock spend in the cost tracker.
-
----
-
-**Updated:** 2026-10-04 (portfolio duplicate loop, row 97)
-
-## Portfolio duplicate loop 2026-10-04 — branch `fix/portfolio-duplicate-loop`
-
-#1654 is live (`ff58848`): prod tasks now run in a fresh clone + E2B sandbox. After this merges,
-check Render logs: no new `portfolio_intake: created task` for the same initiative within an hour.
-Biggest remaining blocker is LLM capacity: google 429 quota, groq 429/413, nvidia 429 within
-~60 s; ~9 tasks sit BLOCKED on "All brain providers exhausted" and auto-retry burns more quota.
-The open Bug Log rows marked DEFERRED / risky-module-review need a human decision; agents no
-longer pick them up.
-Bedrock (row 98): after merge set `AWS_BEARER_TOKEN_BEDROCK` (secret) and turn on
-`BEDROCK_BRAIN_ENABLED`, then check logs for `llm.router: ... ready: ... bedrock` and
-`attempt bedrock/openai.gpt-oss-120b-1:0 ok`. Spend shows in the cost tracker at $0.15/$0.60 per 1M.
-Not fixed: Groq gpt-oss 400 "Tool choice is none, but model called a tool" (fails fast, ~0.3 s).
-
----
-
-
-## Agent code work ships 2026-10-04 — branch `fix/agent-work-ships`
-
-After merge and deploy, verify on prod: the next portfolio or issue task that changes files
-opens an `agent/task-*` PR on GitHub. Tasks whose changes did not reach a PR now show FAILED
-with a `Not delivered:` reason; check the Render logs for the clone/push error if they recur.
-A portfolio or issue task that changed nothing now waits In Review. Clear those by hand or retry them.
-E2B is on in prod (`E2B_ENABLED=true`): sandbox edits are now synced to the host before each step
-commit. Follow-up: a custom `E2B_TEMPLATE` with the repo's deps so scoped pytest can run in the sandbox.
-Bedrock: works (Opus 4.6 only; 4.7 denied). It is paid (AWS credit), agent brain stays off unless
-`ALLOW_PAID_BRAIN=true`; proxy lists it last after free providers. Live test marked `integration`.
-Known stale test: `tests/test_internal_agent_did_work.py` re-implements the gate (ratio 0.5,
-the code uses 1.0) instead of calling the adapter, so it cannot catch regressions.
-
----
-**Updated:** 2026-10-03 (portfolio drain + idle agents, row 94)
-## Last session (2026-10-04, daily automation)
-
-**What ran:** Daily 9 AM automation. Researched AI ecosystem developments since 2026-10-03.
-
-**What shipped:** PR [#1653](https://github.com/strikersam/autonomous-ai-agency/pull/1653) — `feat(models): add GPT-5.5, GPT-Realtime-2.1, and Groq Llama 4 Scout to cost catalogue`
-- `packages/ai/cost_tracker.py`: 5 new cost entries (gpt-5.5, gpt-5.5-pro, gpt-realtime-2.1, gpt-realtime-2.1-mini, meta-llama/llama-4-scout-17b-16e-instruct)
-- `config/llm/models.yaml`: Groq Llama 4 Scout declared (priority 99, explicit-only, unprobed)
-- `tests/test_daily_automation_2026_10_04.py`: 29 tests, all green
-- Auto-merge armed (squash)
-
-## Open items for next daily run
-
-1. **Probe Groq Llama 4 Scout** (`meta-llama/llama-4-scout-17b-16e-instruct`) — if the Groq account has this model live, lower priority from 99 and add to routing candidates.
-
-2. **Row 92** (`ci-failure-autofix` red) — `IN_PROGRESS` on `claude/cleanup-open-prs-issues-kdzv7g`. Check if PR was raised and merged.
-
-3. **Row 94** (portfolio drain / idle agents) — `IN_PROGRESS` on `fix/portfolio-drain-idle-agents`. Check if merged.
-
-4. **Row 95** (SAM NL actions) — `IN_PROGRESS` on `feat/sam-natural-language-actions`. Verify final status; should be merged by the time this runs.
-
-5. **GPT model deprecations (Oct 23, 2026)**: `gpt-3.5-turbo-0125`, `gpt-4-0613`, `gpt-4-1106-preview` are being retired by OpenAI on 2026-10-23. Check if these IDs are in the repo's routing candidates and add a deprecation comment if so.
-
-6. **Claude Code 2.1.287 "You Should Know" plugin** — A built-in side-agent plugin that flags things the user might miss. Consider whether there's a repo-applicable analogy (e.g., a pre-commit check that flags common mistakes). Low priority; assess against next run's candidate list.
+- Shipped: `verifier_reject` safety_event from `agent/write_gate.py::gated_write` (backlog #1892 item 1, second half; web_reach half was #1894). 2 tests in `tests/test_safety_events.py`.
+- Still open from #1892: item 1 workspace-boundary events (needs `agent/tools.py` = risky, rule 15), item 3 doctor `--network-only`, item 2 per-role effort, item 4 symlink audit (audit only, human gate).
+- Sandbox note: no MongoDB, so `tests/test_auth_me_regression.py` errors (pymongo connection refused) on master too. Use a venv (`python -m venv`) since Debian packages block pip.

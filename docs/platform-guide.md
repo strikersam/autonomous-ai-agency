@@ -31,7 +31,7 @@ https://yourcompany.com
   running 24x7 on your server
        ↓
   Bug fixes · PRs · blog posts · CVE scans · SEO · support replies
-  — with your approval before anything ships
+  — verified work merges itself; spending, secrets, access and deletions wait for your approval
 ```
 
 No config files. No integration wiring. No per-seat pricing. No data leaving your server.
@@ -107,7 +107,7 @@ With Autonomous AI Agency:
 4. **Specialists are auto-provisioned.** A fleet of agents is assembled from 35 specialist families — exactly the ones your business needs, with the right runtimes and skills bound.
 5. **Schedules activate.** Health scans, security audits, code quality checks, SEO monitoring, graph sync — all running on their own cadence without manual setup.
 6. **You talk to the CEO in plain English.** "Fix the memory leak in issue #142." "Write the Q3 launch post." "Plan next sprint." The CEO decomposes the job, delegates to the right specialist, and returns a result with evidence — PR link, test output, diff, reasoning trace.
-7. **You approve what matters.** Agents never merge code, deploy, or send external messages without your explicit sign-off. Low-risk tasks (formatting docs) can be auto-approved. High-stakes decisions (production deployments) always pause for you.
+7. **You approve what matters.** Agent pull requests merge themselves only when CI is green and an independent verifier passed their latest commit; PRs touching protected paths (`config/autonomy.yaml`) wait for you. Deploys and external messages ask first by default, and spending, secrets, access and deletions always do. Low-risk tasks (formatting docs) can be auto-approved. High-stakes decisions (production deployments) pause for you by default.
 
 ---
 
@@ -192,7 +192,7 @@ One line to remember: **Portfolio Management points the machine at the highest-v
 
 | What you say | What the agent does |
 |---|---|
-| "Fix the bug in issue #142" | Reads issue, reproduces, writes fix, opens PR, watches CI, awaits your approval |
+| "Fix the bug in issue #142" | Reads issue, reproduces, writes fix, opens PR, watches CI; merges once CI is green and the verifier passes |
 | "Audit our dependencies" | Scans for CVEs, generates an upgrade plan with test coverage, opens a safe PR |
 | "Review this PR" | Multi-perspective analysis: security, correctness, performance, maintainability — inline comments |
 | "Write tests for the auth module" | Generates unit + integration tests with realistic fixtures |
@@ -261,7 +261,7 @@ The **Skill Registry** discovers new skills automatically from GitHub repositori
 
 ## HITL approval gates — you stay in control
 
-Autonomous AI Agency never merges code, deploys, or sends external messages without your explicit sign-off.
+Verified pull requests merge themselves (green CI plus an independent verifier's pass on the latest commit). Everything else below waits for your explicit sign-off: PRs touching protected paths, deploys and external messages (by default), and anything that spends money, touches secrets or access, or deletes data (always).
 
 1. **Agent reaches a decision gate** → pauses, surfaces exactly what will happen (the diff, the deploy command, the email body)
 2. **You choose**: Approve · Deny · Redirect (send back with comments)

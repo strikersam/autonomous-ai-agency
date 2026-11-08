@@ -135,6 +135,34 @@ COMPANY_SCHEDULES = [
         "priority": 4,
     },
     {
+        "name_suffix": "seo-geo-aeo-aio-audit",
+        "cron": "0 4 * * *",                   # Daily at 4 AM UTC
+        "instruction": (
+            "Audit and fix how the company's public website ranks in search and is "
+            "read, quoted and cited by AI systems.\n\n"
+            "Steps:\n"
+            "1. Run POST /api/company/{company_id}/seo/audit on the company domain. It "
+            "covers SEO (titles, descriptions, canonicals, links, speed), GEO (robots.txt, "
+            "AI crawlers allowed, sitemap.xml, llms.txt, semantic landmarks), AEO "
+            "(answer-first passages, FAQ/Question content marked up) and AIO "
+            "(valid JSON-LD: Organization, WebSite, WebPage, BreadcrumbList, FAQPage).\n"
+            "2. Compare with the previous audit (GET /api/company/{company_id}/seo/audits); "
+            "act only on findings that are new or still open.\n"
+            "3. If the company has a connected repo, fix the findings in code: the "
+            "mechanical ones with services/seo_fixer.py (it writes robots.txt, "
+            "sitemap.xml and llms.txt to the served web root, e.g. frontend/public/), "
+            "the rest by hand. Open one pull request with the fixes and the audit "
+            "scores before and after; never push to the default branch.\n"
+            "4. Without a repo, delegate the findings (POST "
+            "/api/company/{company_id}/seo/audits/{audit_id}/delegate).\n\n"
+            "Signal-driven: no pull request or issue when nothing changed since the last run."
+        ),
+        "specialist_family": "seo",
+        # Only for companies staffed with an SEO specialist.
+        "requires_family": "seo",
+        "priority": 3,
+    },
+    {
         "name_suffix": "security-audit",
         "cron": "0 9 * * *",                   # Daily at 9 AM UTC
         "instruction": (
@@ -241,6 +269,27 @@ RUNTIME_IDS: dict[str, str] = {
     "task_harness":    "task_harness",
     "internal_agent":  "internal_agent",
 }
+
+
+def schedule_instruction(company: Any, schedule_def: dict[str, Any]) -> str:
+    """The instruction a company schedule runs: company context, its ranked
+    priorities, then the task.
+
+    Priorities captured at onboarding used to shape only the onboarding tasks;
+    the 24x7 schedules never saw them. Every run now weighs its work by them.
+    """
+    lines = [
+        f"Company: {company.name} (ID: {company.id})",
+        f"Domain: {company.domain}",
+    ]
+    priorities = [p for p in (getattr(company, "priorities", None) or []) if str(p).strip()]
+    if priorities:
+        lines.append("Company priorities, most important first:")
+        lines.extend(f"{i}. {p}" for i, p in enumerate(priorities, 1))
+        lines.append("Put work that advances a higher-ranked priority first, and say "
+                     "which priority each finding, issue or pull request serves.")
+    lines.append(f"Task: {schedule_def['instruction']}")
+    return "\n".join(lines)
 
 
 class CompanyAgencyService:
@@ -416,7 +465,12 @@ class CompanyAgencyService:
 
         # ── Step 3: Create 24x7 schedules ────────────────────────────────────
         if create_schedules:
+            staffed = {sp.family for sp in specialists
+                       if sp.is_provisioned and sp.status != "disabled"}
             for schedule_def in COMPANY_SCHEDULES:
+                required = schedule_def.get("requires_family")
+                if required and required not in staffed:
+                    continue
                 try:
                     family = schedule_def["specialist_family"]
                     runtime_id = self.resolve_runtime_for_family(family)
@@ -425,12 +479,29 @@ class CompanyAgencyService:
                     _co_label = (company.name or company_id).replace(" ", "-").lower()
                     schedule_name = f"company:{_co_label}:{schedule_def['name_suffix']}"
 
-                    # Idempotency: check if this schedule already exists.
-                    # If it does, skip creation and record it (don't error).
+                    # Idempotency: this company's schedule for this suffix already
+                    # exists → skip. Matched by the company tag, not the name: two
+                    # companies with the same name share a name, and matching on
+                    # it handed one company the other's jobs.
+                    all_jobs = self.scheduler.list()
                     existing_jobs = [
-                        j for j in self.scheduler.list()
-                        if j.name == schedule_name
+                        j for j in all_jobs
+                        if f"company:{company_id}" in (j.tags or [])
+                        and schedule_def["name_suffix"] in (j.tags or [])
                     ]
+                    if not existing_jobs and any(
+                        j.name == schedule_name for j in all_jobs
+                    ):
+                        # Name taken by another company: keep ours distinct.
+                        schedule_name = f"company:{_co_label}-{company_id[-6:]}:{schedule_def['name_suffix']}"
+                    instruction = schedule_instruction(company, schedule_def)
+                    if existing_jobs and existing_jobs[0].instruction != instruction:
+                        # Priorities or the task text changed: replace the job
+                        # under its own name so runs use what the company wants now.
+                        schedule_name = existing_jobs[0].name
+                        for stale in existing_jobs:
+                            self.scheduler.delete(stale.job_id)
+                        existing_jobs = []
                     if existing_jobs:
                         existing_job = existing_jobs[0]
                         log.info(
@@ -450,13 +521,6 @@ class CompanyAgencyService:
                             "note": "already_exists",
                         })
                         continue
-
-                    # Build instruction with company context
-                    instruction = (
-                        f"Company: {company.name} (ID: {company_id})\n"
-                        f"Domain: {company.domain}\n"
-                        f"Task: {schedule_def['instruction']}"
-                    )
 
                     job = self.scheduler.create(
                         name=schedule_name,

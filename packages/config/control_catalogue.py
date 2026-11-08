@@ -950,6 +950,81 @@ _AUTONOMY: tuple[ControlSpec, ...] = (
         live=True,
     ),
     _toggle(
+        "SELF_COMPANY_CONSOLIDATE_ENABLED",
+        "Keep one platform company",
+        "autonomy",
+        "true",
+        "At startup, merge every copy of the platform's own company (made under "
+        "the frontend, backend or a worker's domain) into one: keep the best, "
+        "delete the rest with their agents and schedules, connect the repo, "
+        "rescan it and staff it with backend, frontend, devops, security, QA "
+        "and data specialists. Only operator- or system-owned companies are "
+        "touched.",
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    _toggle(
+        "AGENT_MEMORY_ENABLED",
+        "Agent memory",
+        "autonomy",
+        "true",
+        "Each agency agent keeps notes from its own experience: its memory is "
+        "added to every task instruction, and REMEMBER lines in its replies plus "
+        "a record of each run are saved afterwards. No LLM calls.",
+        live=True,
+    ),
+    _number(
+        "AGENT_MEMORY_INDEX_LINES",
+        "Memory index size (notes)",
+        "autonomy",
+        "40",
+        "Most notes in the always-loaded index layer. Kept small: these cost "
+        "tokens on every task; the rest are recalled only when relevant.",
+        live=True,
+        minimum=5,
+        maximum=200,
+    ),
+    _number(
+        "AGENT_MEMORY_RECALL_K",
+        "Relevant notes recalled per task",
+        "autonomy",
+        "5",
+        "How many task-relevant notes from the deeper memory store are added.",
+        live=True,
+        maximum=20,
+    ),
+    _toggle(
+        "AGENT_DREAM_ENABLED",
+        "Agent memory dreaming",
+        "autonomy",
+        "true",
+        "Offline pass that checks each agent's notes against what actually "
+        "happened in its recent runs: corrects or refutes wrong notes, merges "
+        "duplicates, adds cross-run patterns, keeps the index small. One LLM "
+        "call per agent with new runs, per cycle.",
+        live=True,
+    ),
+    _number(
+        "AGENT_DREAM_INTERVAL_MINUTES",
+        "Dreaming interval (minutes)",
+        "autonomy",
+        "360",
+        "Minimum time between dreaming cycles.",
+        live=True,
+        minimum=5,
+        maximum=10080,
+    ),
+    _number(
+        "AGENT_DREAM_MAX_AGENTS",
+        "Agents dreamed per cycle",
+        "autonomy",
+        "5",
+        "Cap on LLM calls per cycle; agents with the most new runs go first.",
+        live=True,
+        minimum=1,
+        maximum=50,
+    ),
+    _toggle(
         "TREND_HERMES_DISPATCH_ENABLED",
         "Dispatch trend findings to Hermes",
         "autonomy",
@@ -1381,6 +1456,23 @@ _GOVERNANCE: tuple[ControlSpec, ...] = (
         "activates them, because the host↔sandbox↔repo data flow is still "
         "experimental. Also requires E2B_API_KEY.",
         requires=("E2B_API_KEY",),
+    ),
+    ControlSpec(
+        key="SANDBOX_PROVIDER",
+        label="Sandbox providers",
+        group="governance",
+        kind=KIND_TEXT,
+        default="auto",
+        help=(
+            "Ordered, comma-separated sandbox providers once sandboxing is on; "
+            "each sandbox opens on the first that works and fails over to the "
+            "next. Known, in auto order: freestyle (FREESTYLE_API_KEY; free plan, "
+            "200 vCPU-hours a month, never bills), daytona (DAYTONA_API_KEY; "
+            "one-time $200 credit), instabox (INSTABOX_API_KEY; one free machine "
+            "at a time), e2b (E2B_API_KEY). auto = every keyed provider in that "
+            "order. Read when each sandbox opens."
+        ),
+        live=True,
     ),
     ControlSpec(
         key="AGENT_SANDBOX_MODE",
