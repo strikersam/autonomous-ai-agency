@@ -81,6 +81,8 @@ class _FakeDaytona:
 
     async def exec(self, command, timeout=None):
         self.execs.append((command, timeout))
+        if command.startswith("test -e "):
+            return _Resp("", 0 if shlex.split(command)[2] in self.files else 1)
         failing = "false" in command
         return _Resp("boom" if failing else "ok", 1 if failing else 0)
 
@@ -286,3 +288,18 @@ async def test_all_four_down_reports_each(monkeypatch):
     with pytest.raises(e2b_sandbox.MCPUnavailableError) as exc:
         await e2b_sandbox.E2BSandboxSession().open()
     assert all(f"{p}: down" in str(exc.value) for p in SANDBOX_PROVIDERS)
+
+
+async def test_daytona_generic_download_error_on_missing_file_is_not_found():
+    sb, client = _FakeDaytona(), _FakeAsyncClient()
+
+    async def _generic(path):
+        raise type("DaytonaError", (Exception,), {})("download failed")
+
+    sb.download_file = _generic  # type: ignore[method-assign]
+    s = DaytonaSandboxShim(client, sb, idle_minutes=11)
+    with pytest.raises(FileNotFoundError):
+        await s.files.read("/home/user/repo/missing.py")
+    sb.files["/home/user/repo/there.py"] = b"x"
+    with pytest.raises(Exception, match="download failed"):
+        await s.files.read("/home/user/repo/there.py")

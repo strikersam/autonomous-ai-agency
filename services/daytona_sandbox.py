@@ -68,6 +68,10 @@ class _Files:
         except Exception as exc:
             if type(exc).__name__ in {"DaytonaNotFoundError", "DaytonaFileNotFoundError"}:
                 raise FileNotFoundError(path) from exc
+            # The SDK may report a missing file as a generic error: ask the sandbox.
+            probe = await self._sb.process.exec(f"test -e {shlex.quote(path)}", timeout=10)
+            if probe.exit_code not in (0, None):
+                raise FileNotFoundError(path) from exc
             raise
         if raw is None:
             raise FileNotFoundError(path)
