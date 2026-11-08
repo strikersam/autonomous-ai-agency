@@ -56,3 +56,9 @@ Candidates deferred — verify before next run:
 - Row 50 (provider source of truth): P1-P4 require full pytest suite — needs backend deps.
 - Row 34 (TokenIn): blocked on Render billing.
 - Bug 16/17 (gate bypass, orchestrator): architecturally significant, needs human decision.
+
+## 2026-11-08 daily routine
+
+- Shipped: `verifier_reject` safety_event from `agent/write_gate.py::gated_write` (backlog #1892 item 1, second half; web_reach half was #1894). 2 tests in `tests/test_safety_events.py`.
+- Still open from #1892: item 1 workspace-boundary events (needs `agent/tools.py` = risky, rule 15), item 3 doctor `--network-only`, item 2 per-role effort, item 4 symlink audit (audit only, human gate).
+- Sandbox note: no MongoDB, so `tests/test_auth_me_regression.py` errors (pymongo connection refused) on master too. Use a venv (`python -m venv`) since Debian packages block pip.
