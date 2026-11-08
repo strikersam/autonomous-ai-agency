@@ -466,6 +466,25 @@ _LONG_CONTEXT_TIERS: dict[str, tuple[int, float, float]] = {
 }
 
 
+def cached_prompt_tokens(usage: dict) -> int:
+    """Prompt tokens served from cache, whichever usage shape the provider sent.
+
+    Anthropic reports ``cache_read_input_tokens``; OpenAI-shaped APIs (OpenAI,
+    Mistral and the other OpenAI-compatible providers) report
+    ``prompt_tokens_details.cached_tokens``, and the Responses API
+    ``input_tokens_details.cached_tokens``. Reading only the Anthropic field left
+    every other provider's cache-read discount unused.
+    """
+    anthropic = int(usage.get("cache_read_input_tokens") or 0)
+    if anthropic:
+        return anthropic
+    for key in ("prompt_tokens_details", "input_tokens_details"):
+        details = usage.get(key)
+        if isinstance(details, dict) and details.get("cached_tokens"):
+            return int(details["cached_tokens"] or 0)
+    return 0
+
+
 def anthropic_prompt_tokens(usage: dict) -> int:
     """Total prompt tokens for an Anthropic ``usage`` block.
 
