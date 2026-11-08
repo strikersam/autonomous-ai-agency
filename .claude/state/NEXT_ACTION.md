@@ -1,3 +1,13 @@
+# NEXT_ACTION — updated 2026-11-08 (daily automation, PR #1913)
+
+**What shipped:** 3 new cost-catalogue entries (deepseek/deepseek-v4-flash-0731, mistralai/mistral-large-4-0, google/gemini-omni-1.2-flash). PR #1913 on `claude/intelligent-gates-luu41k`, auto-merge armed.
+
+## Open items
+
+1. Watch CI on PR #1913 — if green it should self-merge.
+2. Next daily run: check for newly-released models on openrouter.ai/models and verify any candidate against cost + API ID before adding.
+
+---
 # NEXT_ACTION — updated 2026-11-07 (Hallmark redesign, PR #1910)
 
 **What shipped:** landing page redesigned and dashboard tokens restyled with Hallmark's Console theme; public autonomy claims corrected to match full autonomy mode; `og.jpg` re-captured without its slop tells. PR #1910, auto-merge (squash) armed.
