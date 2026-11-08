@@ -9,7 +9,10 @@ auto-fixable findings from a SEO audit directly in the repo checkout:
 - Image fixes: alt attributes (humanized from the filename), width/height
   size attributes (measured with Pillow when the image file exists locally)
 - Link hygiene: rel="noopener" on target="_blank", protocol-relative -> https
-- GEO files: robots.txt, sitemap.xml, llms.txt generation
+- GEO files: robots.txt, sitemap.xml, llms.txt generation, written to the
+  site's web root (``public/``, ``frontend/public/``...) when the repo has one
+- AIO/AEO: JSON-LD for pages with none (WebPage, plus Organization and
+  WebSite on the homepage when the site has no entity markup)
 - Security headers: ready-to-apply config suggestions for the platform
   detected in the repo (netlify.toml / vercel.json / generic)
 
@@ -25,6 +28,7 @@ to write changes to disk. The caller is responsible for restricting
 from __future__ import annotations
 
 import difflib
+import json
 import logging
 import os
 import re
@@ -51,6 +55,11 @@ _HEAD_CLOSE_RE = re.compile(r"</head>", re.IGNORECASE)
 _HTML_TAG_RE = re.compile(r"<html(?P<attrs>[^>]*)>", re.IGNORECASE)
 _IMG_TAG_RE = re.compile(r"<img\b[^>]*?/?>", re.IGNORECASE | re.DOTALL)
 _A_BLANK_RE = re.compile(r"<a\b[^>]*target\s*=\s*([\"'])_blank\1[^>]*>", re.IGNORECASE | re.DOTALL)
+# Where static sites keep the files served at "/" (robots.txt, sitemap.xml...).
+_WEB_ROOT_CANDIDATES = ("public", "frontend/public", "static", "site", "web/public")
+_SITE_FILES = ("robots.txt", "sitemap.xml", "llms.txt")
+_JSON_LD_RE = re.compile(r"application/ld\+json", re.IGNORECASE)
+_ENTITY_TYPE_RE = re.compile(r'"@type"\s*:\s*"(?:Organization|WebSite)"', re.IGNORECASE)
 _PROTOCOL_RELATIVE_RE = re.compile(r"(\b(?:src|href)\s*=\s*)([\"'])//", re.IGNORECASE)
 
 
@@ -80,6 +89,8 @@ class SeoFixer:
         self.base_url = request.base_url.rstrip("/")
         self.actions: List[SeoFixAction] = []
         self._wanted = set(request.include_checks)
+        self.web_root = self._detect_web_root()
+        self._site_has_entity = False
 
     # ------------------------------------------------------------------
     # public entry point
@@ -95,6 +106,8 @@ class SeoFixer:
             )
 
         html_files = self._find_html_files()
+        self._site_has_entity = any(_ENTITY_TYPE_RE.search(
+            f.read_text(encoding="utf-8", errors="replace")) for f in html_files)
         for path in html_files:
             try:
                 self._fix_html_file(path)
@@ -130,6 +143,26 @@ class SeoFixer:
 
     def _enabled(self, check_code: str) -> bool:
         return not self._wanted or check_code in self._wanted
+
+    def _detect_web_root(self) -> Path:
+        """The directory served at "/": the repo root unless a known static
+        directory already holds a site file (robots.txt, sitemap.xml, llms.txt).
+
+        Writing robots.txt to the repo root of a Vite or Next app does nothing:
+        only ``public/`` is served, so the fix has to land there.
+        """
+        if any((self.repo / name).is_file() for name in _SITE_FILES):
+            return self.repo
+        dirs = [self.repo / rel for rel in _WEB_ROOT_CANDIDATES if (self.repo / rel).is_dir()]
+        for candidate in dirs:
+            if any((candidate / n).is_file() for n in _SITE_FILES):
+                return candidate
+        # A fresh JS app (Vite, Next...) serves public/ next to its package.json
+        # even before it holds any site file.
+        for candidate in dirs:
+            if (candidate.parent / "package.json").is_file() or (candidate / "index.html").is_file():
+                return candidate
+        return self.repo
 
     def _find_html_files(self) -> List[Path]:
         files: List[Path] = []
@@ -239,7 +272,7 @@ class SeoFixer:
         # canonical (requires base_url to build an absolute URL)
         if (self._enabled("canonical_missing") and has_head and self.base_url
                 and not soup.find("link", rel=lambda v: v and "canonical" in v)):
-            canonical_url = self._canonical_url_for(rel)
+            canonical_url = self._canonical_url_for(self._url_rel(path))
             if insert_in_head(f'\n    <link rel="canonical" href="{canonical_url}">'):
                 fired.append("canonical_missing")
                 descriptions.append(f"added canonical link {canonical_url}")
@@ -255,7 +288,7 @@ class SeoFixer:
             if og_desc:
                 snippet += f'\n    <meta property="og:description" content="{og_desc.replace(chr(34), "&quot;")}">'
             if self.base_url:
-                snippet += f'\n    <meta property="og:url" content="{self._canonical_url_for(rel)}">'
+                snippet += f'\n    <meta property="og:url" content="{self._canonical_url_for(self._url_rel(path))}">'
             if insert_in_head(snippet):
                 fired.append("social_missing_open_graph")
                 descriptions.append("added Open Graph tags")
@@ -266,6 +299,12 @@ class SeoFixer:
             if insert_in_head('\n    <meta name="twitter:card" content="summary_large_image">'):
                 fired.append("social_missing_twitter_card")
                 descriptions.append("added twitter:card meta tag")
+
+        # JSON-LD for AI Overviews / answer engines
+        snippet, code = self._structured_data_snippet(original, path, rel, title, description_text)
+        if snippet and has_head and insert_in_head(snippet):
+            fired.append(code)
+            descriptions.append("added JSON-LD structured data")
 
         # rel="noopener" on target="_blank"
         if self._enabled("security_unsafe_cross_origin_links"):
@@ -303,6 +342,39 @@ class SeoFixer:
                 path, "modified", "; ".join(descriptions), diff, new_content=content,
             )
 
+    def _is_homepage(self, path: Path) -> bool:
+        return path.parent == self.web_root and path.name.lower() in ("index.html", "home.html")
+
+    def _structured_data_snippet(self, html: str, path: Path, rel: str, title: str,
+                                 description: str) -> Tuple[str, str]:
+        """A JSON-LD block for a page that has none, with the check it fixes.
+
+        Pages that already carry JSON-LD are left alone: rewriting hand-written
+        structured data is a judgement call, not a mechanical fix.
+        """
+        if _JSON_LD_RE.search(html):
+            return "", ""
+        add_entity = (self._enabled("aio_missing_organization_schema")
+                      and not self._site_has_entity and self._is_homepage(path))
+        if not (self._enabled("aio_no_structured_data") or add_entity):
+            return "", ""
+        url = self._canonical_url_for(self._url_rel(path)) if self.base_url else ""
+        page: Dict[str, str] = {"@type": "WebPage", "name": title}
+        if url:
+            page["url"] = url
+        if description:
+            page["description"] = description
+        graph: List[Dict[str, str]] = [page]
+        if add_entity:
+            name = self.request.site_name or title
+            graph.append({"@type": "Organization", "name": name, **({"url": self.base_url} if self.base_url else {})})
+            graph.append({"@type": "WebSite", "name": name, **({"url": self.base_url} if self.base_url else {})})
+            self._site_has_entity = True
+        body = json.dumps({"@context": "https://schema.org", "@graph": graph}, indent=2)
+        body = body.replace("</", "<\\/")  # never close the script tag from inside the data
+        code = "aio_missing_organization_schema" if add_entity else "aio_no_structured_data"
+        return f'\n    <script type="application/ld+json">\n{body}\n    </script>', code
+
     def _derive_description(self, soup: BeautifulSoup) -> str:
         for p in soup.find_all("p"):
             text = " ".join(p.get_text(" ").split())
@@ -311,6 +383,19 @@ class SeoFixer:
                     text = text[:152].rsplit(" ", 1)[0] + "..."
                 return text
         return ""
+
+    def _url_rel(self, path: Path) -> str:
+        """*path* as served: relative to the web root when it lives there."""
+        try:
+            return str(path.relative_to(self.web_root)).replace("\\", "/")
+        except ValueError:
+            return str(path.relative_to(self.repo)).replace("\\", "/")
+
+    def _served(self, html_files: List[Path]) -> List[Path]:
+        """Pages the site serves: all of them, or only the web root's."""
+        if self.web_root == self.repo:
+            return html_files
+        return [f for f in html_files if self.web_root in f.parents]
 
     def _canonical_url_for(self, rel_path: str) -> str:
         slug = rel_path.replace("\\", "/")
@@ -413,7 +498,7 @@ class SeoFixer:
         site_name = self.request.site_name or (self.base_url or str(self.repo.name))
 
         # robots.txt
-        robots_path = self.repo / "robots.txt"
+        robots_path = self.web_root / "robots.txt"
         if self._enabled("geo_missing_robots_txt") and not robots_path.exists():
             sitemap_line = f"Sitemap: {self.base_url}/sitemap.xml\n" if self.base_url else ""
             body = "User-agent: *\nAllow: /\n\n" + sitemap_line
@@ -430,13 +515,13 @@ class SeoFixer:
                              new_content=updated)
 
         # sitemap.xml from the repo's HTML pages
-        sitemap_path = self.repo / "sitemap.xml"
+        sitemap_path = self.web_root / "sitemap.xml"
         if (self._enabled("geo_missing_sitemap") and not sitemap_path.exists()
                 and self.base_url and html_files):
             today = datetime.now(timezone.utc).date().isoformat()
             urls = []
-            for f in html_files:
-                rel = str(f.relative_to(self.repo)).replace("\\", "/")
+            for f in self._served(html_files):
+                rel = self._url_rel(f)
                 if rel.endswith("index.html"):
                     rel = rel[: -len("index.html")]
                 loc = f"{self.base_url}/{rel}".rstrip("/") or self.base_url
@@ -453,11 +538,11 @@ class SeoFixer:
                          new_content=body)
 
         # llms.txt (GEO discoverability for AI agents)
-        llms_path = self.repo / "llms.txt"
+        llms_path = self.web_root / "llms.txt"
         if self._enabled("geo_missing_llms_txt") and not llms_path.exists():
             links = []
-            for f in html_files[:20]:
-                rel = str(f.relative_to(self.repo)).replace("\\", "/")
+            for f in self._served(html_files)[:20]:
+                rel = self._url_rel(f)
                 label = _humanize_filename(rel)
                 loc = f"{self.base_url}/{rel}" if self.base_url else f"/{rel}"
                 links.append(f"- [{label}]({loc})")
