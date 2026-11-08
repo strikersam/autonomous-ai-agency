@@ -146,6 +146,24 @@ async def _platform_companies(store: Any, domains: frozenset[str]) -> list[Any]:
     return found
 
 
+async def _adopt_priorities(store: Any, keep: Any, duplicates: list[Any]) -> Any:
+    """Carry the duplicates' recorded priorities onto the kept company first.
+
+    Priorities are the operator's own input (onboarding, the Priorities tab);
+    deleting a duplicate used to delete them with it.
+    """
+    from services.onboarding_questions import clean_priorities
+
+    current = list(getattr(keep, "priorities", None) or [])
+    merged = clean_priorities(current + [p for c in duplicates for p in (getattr(c, "priorities", None) or [])])
+    if merged == current:
+        return keep
+    keep = keep.model_copy(update={"priorities": merged})
+    await store.update_company(keep)
+    log.info("self-company: kept %d priorities on %s from duplicates", len(merged), keep.id)
+    return keep
+
+
 async def _delete_one(graph: Any, store: Any, company: Any) -> bool:
     """Full teardown, bounded. On timeout delete the row itself: the company is
     already recorded as deleted, so the orphan reaper finishes its schedules,
@@ -298,9 +316,14 @@ async def repair_company(store: Any, company: Any, *, domain: str, repo_url: str
     """
     company = await _normalise_company(store, company, domain)
     repo_changed = await _connect_repo(store, company, repo_url)
-    rescanned = await _rescan_repo(company.id, repo_url) if repo_changed else False
+    # The connection alone is not the graph: the Company page counts scanned
+    # repos and detected systems, which earlier unauthenticated scans never wrote.
+    needs_scan = (repo_changed or not await store.list_repos(company.id)
+                  or not await store.list_detected_systems(company_id=company.id))
+    rescanned = await _rescan_repo(company.id, repo_url) if needs_scan else False
     staffing = await reconcile_specialists(store, company.id)
-    changed = duplicates_removed or repo_changed or staffing["added"] or staffing["removed"]
+    changed = (duplicates_removed or repo_changed or rescanned
+               or staffing["added"] or staffing["removed"])
     activation = await _activate(company.id) if changed else "unchanged"
     return {"repo_connected": repo_changed, "repo_rescanned": rescanned,
             "specialists": staffing, "activation": activation}
@@ -330,6 +353,7 @@ async def _consolidate(*, website_url: str, repo_url: str) -> dict[str, Any]:
         duplicates = [c for c in companies if c.id != keep.id]
         log.info("self-company: keeping %s (%s); removing %d duplicate(s): %s",
                  keep.id, keep.name, len(duplicates), [c.id for c in duplicates])
+        keep = await _adopt_priorities(store, keep, duplicates)
         removed = await _delete_duplicates(store, duplicates)
         # The company's domain is its public site, not the API host behind it:
         # health and SEO schedules target the domain.

@@ -2035,6 +2035,10 @@ class CompanyUpdateRequest(BaseModel):
     """Request to update a company."""
     model_config = {"frozen": True, "extra": "forbid"}
     
+    priorities: list[str] | None = Field(
+        default=None,
+        description="Strategic priorities, most important first (replaces the list; max 10)"
+    )
     name: str | None = Field(
         default=None,
         description="Company name"
