@@ -215,7 +215,7 @@ async def test_open_boots_vm_with_firewall_lifecycle_and_workdir(fake):
     assert shim.sandbox_id == "vm123abc"
     create = fake.calls[0][2]
     assert create["firewall"]["rules"][0]["destination"] == {"public": True}
-    assert (create["idleTimeoutSeconds"], create["ttlSeconds"], create["autoDeleteSeconds"]) == (660, 3600, 0)
+    assert (create["idleTimeoutSeconds"], create["ttlSeconds"], create["autoDeleteSeconds"]) == (660, 6 * 3600, 0)
     assert (create["snapshotId"], create["metadata"]) == ("snap1", {"task": "t1"})
     setup = fake.calls[1][2]
     assert setup["linuxUser"] == "root" and "mkdir -p /home/user/repo" in setup["command"]
@@ -388,3 +388,33 @@ async def test_session_fails_over_from_e2b_to_freestyle(monkeypatch, fake):
     await session.call_tool("write_file", {"path": "y.txt", "content": "ok"})
     assert fake.files["/home/user/repo/y.txt"] == b"ok"
     await session.close()
+
+
+def test_naming_only_unkeyed_providers_warns(monkeypatch, caplog):
+    from services import e2b_config
+
+    monkeypatch.setattr(e2b_config, "_warned_unkeyed", set())
+    monkeypatch.setenv("E2B_API_KEY", "e2b_x")
+    monkeypatch.setenv("E2B_ENABLED", "true")
+    monkeypatch.setenv("SANDBOX_PROVIDER", "freestyle")
+    with caplog.at_level("WARNING", logger="qwen-proxy"):
+        assert e2b_enabled() is False
+    assert "FREESTYLE_API_KEY" in caplog.text and "sandboxing is off" in caplog.text
+
+
+async def test_background_poll_survives_a_transient_failure(fake):
+    api = _api(fake)
+    shim = await open_freestyle_sandbox(_config(), api=api)
+    real = fake.handler
+    hits = {"n": 0}
+
+    def flaky(req):
+        if req.url.path == "/v5/background-requests/bg1" and hits["n"] == 0:
+            hits["n"] += 1
+            return httpx.Response(503)
+        return real(req)
+
+    api._http._transport = httpx.MockTransport(flaky)
+    fake.defer_next_exec = True
+    res = await shim.commands.run("sleep 30", timeout=120)
+    assert (res.stdout, hits["n"]) == ("late", 1)

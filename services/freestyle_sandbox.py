@@ -38,6 +38,8 @@ _BG_AFTER_HEADER = "x-freestyle-background-after-secs"
 _BG_ID_HEADER = "x-freestyle-background-request-id"
 _BG_POLL_S = 2.0
 _BG_MAX_POLLS = 300  # 10 minutes
+_BG_TRANSIENT = {408, 429, 500, 502, 503, 504}
+_TTL_SECONDS = 6 * 3600  # leak backstop; far above any task attempt
 _MAX_EXEC_MS = 300_000
 _SINGLE_PUT_MAX = 8 * 1024 * 1024
 _CHUNK = 16 * 1024 * 1024
@@ -92,9 +94,15 @@ class FreestyleApi:
             raise FreestyleApiError(202, "BACKGROUND_PROTOCOL_ERROR", "no background request id")
         for _ in range(_BG_MAX_POLLS):
             await asyncio.sleep(_BG_POLL_S)
-            resp = await self._http.get(result_path)
-            if resp.status_code != 202:
-                return resp
+            try:
+                resp = await self._http.get(result_path)
+            except httpx.TransportError as exc:  # a dropped poll is retried, as the SDK does
+                log.debug("Freestyle poll transport error (retrying): %s", exc)
+                continue
+            if resp.status_code == 202 or (resp.status_code in _BG_TRANSIENT
+                                            and _BG_ID_HEADER not in resp.headers):
+                continue
+            return resp
         raise FreestyleApiError(408, "BACKGROUND_TIMEOUT", "background request did not finish")
 
     @staticmethod
@@ -227,7 +235,7 @@ async def open_freestyle_sandbox(config: Any, api: FreestyleApi | None = None) -
         "firewall": {"rules": [{"action": "allow", "source": {}, "destination": {"public": True}}]},
         "idleTimeoutSeconds": int(config.timeout_sec),
         # A leaked VM is deleted at this deadline even if something keeps it busy.
-        "ttlSeconds": max(4 * int(config.timeout_sec), 3600),
+        "ttlSeconds": _TTL_SECONDS,
         "autoDeleteSeconds": 0,
     }
     if config.template:

@@ -68,6 +68,9 @@ SANDBOX_PROVIDERS: tuple[str, ...] = (PROVIDER_FREESTYLE, PROVIDER_E2B)
 _SDK_MODULE = {PROVIDER_E2B: "e2b_code_interpreter", PROVIDER_FREESTYLE: "httpx"}
 
 
+_warned_unkeyed: set[str] = set()
+
+
 def _provider_key(provider: str) -> str:
     return (os.environ.get(f"{provider.upper()}_API_KEY") or "").strip()
 
@@ -91,7 +94,13 @@ def sandbox_providers() -> list[str]:
             log.warning("SANDBOX_PROVIDER: unknown provider %r ignored (known: %s)",
                         name, ", ".join(SANDBOX_PROVIDERS))
     chain = list(dict.fromkeys(names))  # de-duplicate, keep order
-    return [p for p in chain if _provider_key(p)]
+    keyed = [p for p in chain if _provider_key(p)]
+    if chain and not keyed and raw not in ("", "auto") and raw not in _warned_unkeyed:
+        # Naming only providers without a key turns sandboxing off; say so once.
+        _warned_unkeyed.add(raw)
+        log.warning("SANDBOX_PROVIDER=%r: none of these providers has an API key; sandboxing is off "
+                    "(set %s)", raw, ", ".join(f"{p.upper()}_API_KEY" for p in chain))
+    return keyed
 
 
 def sandbox_provider() -> str:
