@@ -165,7 +165,7 @@ async def test_attach_quarantines_on_account_refusal(monkeypatch):
     sb = _enable_e2b(monkeypatch)
 
     class _Refused:
-        def __init__(self, config):
+        def __init__(self, config=None):  # attach now opens the whole provider chain
             pass
 
         async def open(self):
