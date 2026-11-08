@@ -172,7 +172,8 @@ class E2BAdapter(RuntimeAdapter):
         started = time.perf_counter()
         session: E2BSandboxSession | None = None
         try:
-            session = E2BSandboxSession(config=config)
+            # The whole provider chain, not just its first provider (failover).
+            session = E2BSandboxSession()
             await session.open()
         except Exception as exc:
             # Re-raise as RuntimeExecutionError so the coordinator can record
@@ -342,9 +343,11 @@ class E2BAdapter(RuntimeAdapter):
 
         metadata = dict(spec.context or {})
         metadata["raw_result"] = result
+        used = session._config if session is not None else config
         metadata["e2b"] = {
-            "template": config.template,
-            "timeout_sec": config.timeout_sec,
+            "provider": used.provider,
+            "template": used.template,
+            "timeout_sec": used.timeout_sec,
             "test_passed": test_passed,
             "test_output_excerpt": test_output[:2000] if test_output else "",
             "diff_excerpt": diff[:2000] if diff else "",
