@@ -289,8 +289,9 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # --- Mistral API (added 2026-09-19) ---
     # Pricing approximate; verify at mistral.ai/pricing before billing-sensitive use.
     # Mistral Large 4 ("Le Chonk", added 2026-10-09) — 1.05T MoE, 49B active.
-    # Preview list price: $1.36/$4.18 per MTok. Source: openrouter.ai/mistralai/
-    # mistral-large-4-0, techcrunch.com/2026/10/06, 2026-10-06.
+    # Standard price $1.36/$4.18 per MTok; launch 50 % sale ended ~2026-10-22.
+    # Open weights released 2026-10-29. Source: mistral.ai pricing capture 2026-10-22,
+    # openrouter.ai/mistralai/mistral-large-4-0, 2026-11-06.
     "mistral-large-4-0": (1.36, 4.18),      # Mistral Large 4 — $1.36/$4.18 per MTok
     "mistral-large-latest": (3.00, 9.00),   # Mistral Large 2 — $3/$9 per MTok
     "mistral-small-latest": (0.10, 0.30),   # Mistral Small 3 — $0.10/$0.30 per MTok
@@ -427,6 +428,10 @@ _CACHE_READ_FRACTIONS: tuple[tuple[str, float], ...] = (
     # Groq: qwen/ and meta-llama/ are paid models with 50 % implicit cache discount.
     ("qwen/", 0.50),
     ("meta-llama/", 0.50),
+    # Mistral Large 4: cache reads at $0.14/MTok ≈ 10 % of $1.36/MTok input rate.
+    # Source: mistral.ai pricing page capture 2026-10-22; gradually.ai/en/ai-models/
+    # mistral-large-4, 2026-11-06.
+    ("mistral-large-4-0", 0.10),
     # OpenAI GPT-6.1 Sol: cache reads at $0.10/MTok = 5 % of $2.00/MTok input rate.
     # Source: openrouter.ai/openai/gpt-6.1-sol, 2026-10-10.
     ("gpt-6.1-sol", 0.05),
