@@ -138,8 +138,9 @@ class TestMistralLarge4ModelsYaml:
         )
 
     def test_context_window(self, llm_models):
-        assert llm_models[MODEL_ID]["context_window"] == 131_072, (
-            f"{MODEL_ID} context window must be 131072"
+        # Raised from 131 072 to the API-exposed 524 288 on 2026-11-06 (#1902).
+        assert llm_models[MODEL_ID]["context_window"] == 524_288, (
+            f"{MODEL_ID} context window must be 524288"
         )
 
     def test_supports_tools(self, llm_models):
