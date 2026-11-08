@@ -1344,6 +1344,8 @@ class WebsiteScanner:
         except Exception:
             pass
         return list(set(sitemap_urls))
+
+
 def _default_github_token() -> Optional[str]:
     """The platform's GitHub token (GH_PAT), or None when unset."""
     try:
