@@ -597,7 +597,9 @@ async def get_company(
     company = await get_company_access(company_id, user)
 
     service = get_company_graph_service()
-    graph = await service.get_company_graph(company.id)
+    # A company without a graph document used to come back with graph=None,
+    # hiding the systems and repos that scans had saved for it.
+    graph = await service.get_or_create_company_graph(company.id)
 
     # PR #962: Set no-store cache headers so the browser/CDN never caches a
     # stale company response. Without this, a company that was deleted or a
@@ -631,6 +633,9 @@ async def update_company(
 
     store = get_company_graph_store()
     update_data = request.model_dump(exclude_unset=True, exclude_none=True)
+    if "priorities" in update_data:
+        from services.onboarding_questions import clean_priorities
+        update_data["priorities"] = clean_priorities(update_data["priorities"])
 
     if update_data:
         updated_company = company.model_copy(update=update_data)

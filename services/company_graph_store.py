@@ -14,6 +14,7 @@ Usage:
 """
 
 from __future__ import annotations
+import asyncio
 from typing import Any, List, Optional, Dict
 from datetime import datetime
 import logging
@@ -577,46 +578,25 @@ class MongoDBStore:
         if not graph_doc:
             return None
         graph_doc["id"] = self._to_str(graph_doc["_id"])
-        # Get all related entities
-        websites = []
-        async for doc in db.websites.find({"company_id": company_id}):
-            websites.append(self._prepare_result(doc, Website))
-        repos = []
-        async for doc in db.repos.find({"company_id": company_id}):
-            repos.append(self._prepare_result(doc, Repo))
-        systems = []
-        async for doc in db.business_systems.find({"company_id": company_id}):
-            systems.append(self._prepare_result(doc, BusinessSystem))
-        specialists = []
-        async for doc in db.specialists.find({"company_id": company_id}):
-            specialists.append(self._prepare_result(doc, Specialist))
-        workflows = []
-        async for doc in db.workflows.find({"company_id": company_id}):
-            workflows.append(self._prepare_result(doc, Workflow))
-        knowledge = []
-        async for doc in db.knowledge_items.find({"company_id": company_id}):
-            knowledge.append(self._prepare_result(doc, KnowledgeItem))
-        connectors = []
-        async for doc in db.connectors.find({"company_id": company_id}):
-            connectors.append(self._prepare_result(doc, Connector))
-        approval_policies = []
-        async for doc in db.approval_policies.find({"company_id": company_id}):
-            approval_policies.append(self._prepare_result(doc, ApprovalPolicy))
-        detected_systems = []
-        async for doc in db.detected_systems.find({"company_id": company_id}):
-            detected_systems.append(self._prepare_result(doc, DetectedSystem))
-        # Build the complete graph
-        graph_doc["websites"] = websites
-        graph_doc["repos"] = repos
-        graph_doc["systems"] = systems
-        graph_doc["specialists"] = specialists
-        graph_doc["workflows"] = workflows
-        graph_doc["knowledge"] = knowledge
-        graph_doc["connectors"] = connectors
-        graph_doc["approval_policies"] = approval_policies
-        graph_doc["detected_systems"] = detected_systems
-        # Get the company
-        company = await self.get_company(company_id)
+        # All related entities at once: run one after another, these ten reads
+        # cost ten round trips to the database on every Company page load.
+        parts = {
+            "websites": (db.websites, Website), "repos": (db.repos, Repo),
+            "systems": (db.business_systems, BusinessSystem),
+            "specialists": (db.specialists, Specialist), "workflows": (db.workflows, Workflow),
+            "knowledge": (db.knowledge_items, KnowledgeItem), "connectors": (db.connectors, Connector),
+            "approval_policies": (db.approval_policies, ApprovalPolicy),
+            "detected_systems": (db.detected_systems, DetectedSystem),
+        }
+
+        async def _load(collection: Any, model: Any) -> list:
+            return [self._prepare_result(doc, model)
+                    async for doc in collection.find({"company_id": company_id})]
+
+        results = await asyncio.gather(
+            *(_load(coll, model) for coll, model in parts.values()), self.get_company(company_id))
+        graph_doc.update(zip(parts, results[:-1]))
+        company = results[-1]
         graph_doc.pop("_id", None)
         graph_doc["company"] = company
         return CompanyGraph.model_validate(self._strip_unknown(graph_doc, CompanyGraph))
