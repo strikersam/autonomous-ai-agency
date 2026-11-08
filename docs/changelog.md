@@ -4,6 +4,7 @@
 
 ## [Unreleased]
 ### Fixed
+- **Portfolio board no longer freezes the whole backend** (2026-11-08). `GET /api/portfolio/board` (and refresh/materialize) rebuilt a stale board (30-minute cache) synchronously inside the async request: blocking GitHub calls (8 s timeout each) and a trend fetch (up to 15 s) ran on the event loop, so every other request stalled with it. Render's 5 s health check failed repeatedly (11:08–12:56 UTC on 2026-11-08) and Cloudflare served "The origin web server returned an invalid or incomplete response" for the portfolio, company, activity and task pages. The rebuild now runs in a worker thread (`asyncio.to_thread`) behind a lock, so concurrent stale requests build once. Files: `agents/portfolio_api.py`, `tests/test_portfolio_board_nonblocking.py`.
 - **Sandbox failover now works in production** (2026-11-08). `maybe_attach_e2b()` and the E2B runtime adapter built the session from `resolve_e2b_config()`, which returns only the first provider, so a refusing Freestyle (seen live: `403 ... needs a card on file`) ended the attach instead of failing over to Daytona, InstaBox and E2B. Both now open the whole provider chain, and logs and task metadata name the provider that actually served. Files: `services/e2b_sandbox.py`, `runtimes/adapters/e2b.py`, `tests/test_sandbox_fallbacks.py`, `tests/test_runtime_quarantine.py`.
 
 ### Added
