@@ -1,3 +1,16 @@
+# NEXT_ACTION — updated 2026-11-08 (free sandbox: Freestyle + provider chain)
+
+**Update:** chain is now freestyle → daytona → instabox → e2b (`SANDBOX_PROVIDERS`). Set `DAYTONA_API_KEY` / `INSTABOX_API_KEY` in Render to enable the fallbacks; none was exercised live (hosts blocked from the build container).
+
+**What shipped:** sandbox provider registry (`services/sandbox_providers.py`) with ordered failover (`SANDBOX_PROVIDER`, default `auto` = Freestyle first, then E2B); Freestyle VMs via REST (`services/freestyle_sandbox.py`). Branch `claude/optimistic-hawking-yrb1qe`.
+
+## Open items
+
+1. **Operator:** create a Freestyle account (Free plan, $1 refundable card check), put `FREESTYLE_API_KEY` in Render, keep `E2B_ENABLED=true`.
+2. First live run on Render: Freestyle's API was unreachable from the build container, so request shapes are verified only against the official TS SDK source (`freestyle@0.2.21`). Watch logs for `Sandbox opened on provider freestyle` / `Sandbox provider freestyle failed to open`.
+3. Freestyle caps one exec at 5 minutes; `AGENT_SANDBOX_INSTALL_DEPS` installs can hit it on big repos — a `FREESTYLE_SNAPSHOT` with deps baked in avoids that.
+
+---
 # NEXT_ACTION — updated 2026-11-07 (Hallmark redesign, PR #1910)
 
 **What shipped:** landing page redesigned and dashboard tokens restyled with Hallmark's Console theme; public autonomy claims corrected to match full autonomy mode; `og.jpg` re-captured without its slop tells. PR #1910, auto-merge (squash) armed.

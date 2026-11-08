@@ -38,7 +38,11 @@ from runtimes.base import (
     TaskResult,
     TaskSpec,
 )
-from services.e2b_config import e2b_enabled, is_e2b_sdk_importable, resolve_e2b_config
+from services.e2b_config import (
+    e2b_enabled,
+    is_e2b_sdk_importable,
+    resolve_e2b_config,
+)
 from services.e2b_sandbox import E2BSandboxSession, maybe_attach_e2b
 from runtimes.quarantine import is_e2b_account_refusal as _is_account_refusal
 from runtimes.quarantine import quarantine, quarantined
@@ -95,7 +99,7 @@ class E2BAdapter(RuntimeAdapter):
             return RuntimeHealth(
                 runtime_id=self.RUNTIME_ID,
                 available=False,
-                error="E2B_API_KEY not set or E2B_ENABLED=false",
+                error="sandbox API key (E2B_API_KEY / FREESTYLE_API_KEY) not set or E2B_ENABLED=false",
             )
         if not is_e2b_sdk_importable():
             return RuntimeHealth(
@@ -114,6 +118,7 @@ class E2BAdapter(RuntimeAdapter):
             runtime_id=self.RUNTIME_ID,
             available=True,
             details={
+                "provider": config.provider,
                 "template": config.template,
                 "timeout_sec": config.timeout_sec,
             },

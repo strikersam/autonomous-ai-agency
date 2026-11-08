@@ -64,6 +64,9 @@ anthropic>=2.3.0
 # Without it the Providers screen reports "e2b OFFLINE / SDK not installed"
 # no matter how E2B_API_KEY is configured.
 e2b-code-interpreter>=2.11.6,<3.0.0
+# Fallback sandbox providers (services/sandbox_providers.py); optional at runtime.
+daytona>=0.231.0,<1.0.0
+instabox-sdk>=0.4.0,<1.0.0
 
 # config/models.yaml catalog loader (packages/ai/brain_config.py and 4 other
 # call sites). Present transitively via uvicorn[standard] today; pinned here so
