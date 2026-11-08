@@ -123,6 +123,7 @@ def pick_canonical(companies: list[Any], specialist_counts: dict[str, int]) -> A
             c.onboarding_status == "complete",
             specialist_counts.get(c.id, 0),
             -_created_ts(c),
+            c.id,  # last resort, so every process picks the same company
         ),
     )
 
@@ -188,8 +189,18 @@ async def _connect_repo(store: Any, company: Any, repo_url: str) -> bool:
     if conn is not None and _repo_full_name(company) == wanted and not (
             branch_guessed and conn.default_branch != REPO_DEFAULT_BRANCH):
         return False
+    # Keep what the old connection carried: the token reference and any
+    # first-merge consent the operator already gave.
     await attach_repo_connection(company.id, repo_url, store=store,
+                                 token_ref=conn.token_ref if conn else None,
                                  fallback_branch=REPO_DEFAULT_BRANCH)
+    if conn is not None and conn.policy is not None and conn.policy.first_merge_consent:
+        from services.repo_connection import record_first_merge_consent
+
+        fresh = await store.get_company(company.id)
+        if fresh is not None and fresh.repo_connection is not None:
+            await store.update_company(fresh.model_copy(update={
+                "repo_connection": record_first_merge_consent(fresh.repo_connection)}))
     return True
 
 
@@ -250,13 +261,18 @@ async def _activate(company_id: str) -> str:
         return "activation_failed"
 
 
-async def repair_company(store: Any, company: Any, *, domain: str, repo_url: str) -> dict[str, Any]:
-    """Bring the surviving company to the canonical, staffed, connected state."""
+async def repair_company(store: Any, company: Any, *, domain: str, repo_url: str,
+                         duplicates_removed: bool = False) -> dict[str, Any]:
+    """Bring the surviving company to the canonical, staffed, connected state.
+
+    Re-activates whenever anything changed, including duplicates removed: a
+    same-named duplicate may have owned the schedules this company was using.
+    """
     company = await _normalise_company(store, company, domain)
     repo_changed = await _connect_repo(store, company, repo_url)
     rescanned = await _rescan_repo(company.id, repo_url) if repo_changed else False
     staffing = await reconcile_specialists(store, company.id)
-    changed = repo_changed or staffing["added"] or staffing["removed"]
+    changed = duplicates_removed or repo_changed or staffing["added"] or staffing["removed"]
     activation = await _activate(company.id) if changed else "unchanged"
     return {"repo_connected": repo_changed, "repo_rescanned": rescanned,
             "specialists": staffing, "activation": activation}
@@ -277,7 +293,8 @@ async def consolidate_self_companies(*, website_url: str, repo_url: str) -> dict
         counts = {c.id: len(await store.list_specialists(c.id)) for c in companies}
         keep = pick_canonical(companies, counts)
         removed = await _delete_duplicates([c for c in companies if c.id != keep.id])
-        repair = await repair_company(store, keep, domain=_domain_of(website_url), repo_url=repo_url)
+        repair = await repair_company(store, keep, domain=_domain_of(website_url), repo_url=repo_url,
+                                      duplicates_removed=bool(removed))
         log.info("self-company: kept %s, removed %d duplicate(s): %s",
                  keep.id, len(removed), repair)
         return {"status": "consolidated", "company_id": keep.id, "removed": removed, **repair}

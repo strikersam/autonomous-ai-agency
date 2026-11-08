@@ -14,7 +14,7 @@ _FRONTEND = frozenset({
 })
 _BACKEND = frozenset({
     "django", "flask", "fastapi", "starlette", "rails", "laravel", "express",
-    "nestjs", "nest", "spring", "aiohttp", "tornado", "sanic", "koa", "hapi",
+    "nestjs", "nest", "spring", "springboot", "aiohttp", "tornado", "sanic", "koa", "hapi",
     "phoenix", "gin", "fiber", "aspnet", "symfony",
 })
 

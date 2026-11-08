@@ -20,7 +20,7 @@ ADMIN = "admin@example.com"
 @pytest.mark.parametrize("name,kind", [
     ("FastAPI", "backend"), ("Django", "backend"), ("Express", "backend"),
     ("React", "frontend"), ("Vue.js", "frontend"), ("Next.js", "frontend"),
-    ("Nuxt.js", "frontend"), ("Vite", "frontend"),
+    ("Nuxt.js", "frontend"), ("Vite", "frontend"), ("Spring Boot", "backend"),
     ("Tailwind CSS", None), ("OpenAI-compatible API", None), ("", None),
 ])
 def test_scanner_framework_names_map_to_the_right_system_type(name, kind):
@@ -277,3 +277,45 @@ async def test_same_named_companies_get_their_own_schedules(monkeypatch, tmp_pat
         assert len(owned) == 6, (cid, len(owned))
     names = [j.name for j in sched.list()]
     assert len(names) == len(set(names)) == 12
+
+
+def test_canonical_tie_breaks_on_id_so_every_process_agrees():
+    a, b = _company("aaa", age_days=0), _company("bbb", age_days=0)
+    assert sc.pick_canonical([a, b], {}).id == sc.pick_canonical([b, a], {}).id == "bbb"
+
+
+async def test_survivor_is_reactivated_when_only_duplicates_were_removed(world):
+    store, log = world
+    # Survivor already connected and correctly staffed: only the duplicate removal changes things.
+    keep = store.companies["6a3cea2b"]
+    store.companies["6a3cea2b"] = keep.model_copy(update={"repo_connection": _repo()})
+    store.specialists["6a3cea2b"] = [SimpleNamespace(id=f"k-{f}", family=f) for f in sc.TECH_FAMILIES]
+    result = await sc.consolidate_self_companies(website_url=WEBSITE, repo_url=REPO_URL)
+    assert result["removed"] and result["specialists"] == {"added": [], "removed": []}
+    assert log["activated"] == ["6a3cea2b"]
+
+
+async def test_reattaching_the_repo_keeps_token_ref_and_first_merge_consent(world, monkeypatch):
+    from models.company_graph import DeliveryPolicy
+
+    store, log = world
+    seen = {}
+
+    async def attach(company_id, url, *, store, token_ref=None, fallback_branch="main", **kw):
+        seen["token_ref"] = token_ref
+        company = await store.get_company(company_id)
+        await store.update_company(company.model_copy(update={"repo_connection": RepoConnection(
+            owner="strikersam", repo="autonomous-ai-agency", default_branch=fallback_branch,
+            token_ref=token_ref, policy=DeliveryPolicy(default_branch=fallback_branch))}))
+
+    import services.repo_connection as rc
+    monkeypatch.setattr(rc, "attach_repo_connection", attach)
+    guessed = RepoConnection(owner="strikersam", repo="autonomous-ai-agency", default_branch="main",
+                             token_ref="secret:gh", policy=DeliveryPolicy(
+                                 default_branch="main", first_merge_consent=True,
+                                 detection_note="uncertain (repo metadata unavailable) → pr_required"))
+    store.companies["6a3cea2b"] = store.companies["6a3cea2b"].model_copy(update={"repo_connection": guessed})
+    await sc.consolidate_self_companies(website_url=WEBSITE, repo_url=REPO_URL)
+    conn = store.companies["6a3cea2b"].repo_connection
+    assert seen["token_ref"] == "secret:gh"
+    assert conn.default_branch == "master" and conn.policy.first_merge_consent is True
