@@ -867,12 +867,15 @@ class OnboardingService:
             last_scanned=datetime.now(timezone.utc)
         )
         
-        created = await self.graph_service.add_repo(
+        existing = [r for r in await self.store.list_repos(company_id)
+                    if r.url.rstrip("/").lower() == url.rstrip("/").lower()]
+        created = existing[0] if existing else await self.graph_service.add_repo(
             company_id=company_id,
             url=url,
             provider=provider
         )
-        
+        await self._save_detected_systems(company_id, scan_result.detected_systems)
+
         # Update with scan results
         created = created.model_copy(update={
             "inferred_stack": scan_result.inferred_stack,
@@ -882,6 +885,18 @@ class OnboardingService:
         await self.store.update_repo(created)
         
         return created
+
+    async def _save_detected_systems(self, company_id: str, systems: list) -> None:
+        """Record the scan's detected systems once each (the Company page's
+        systems list reads them); best-effort, a failure keeps the repo."""
+        try:
+            for system in systems or []:
+                known = await self.store.list_detected_systems(
+                    company_id=company_id, system_type=system.system_type)
+                if not any(ds.name == system.name for ds in known):
+                    await self.store.create_detected_system(system, company_id)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Onboarding: could not save detected systems for %s: %s", company_id, exc)
 
     async def _create_initial_workflows(
         self,

@@ -298,9 +298,13 @@ async def repair_company(store: Any, company: Any, *, domain: str, repo_url: str
     """
     company = await _normalise_company(store, company, domain)
     repo_changed = await _connect_repo(store, company, repo_url)
-    rescanned = await _rescan_repo(company.id, repo_url) if repo_changed else False
+    # The connection alone is not the graph: the Company page counts scanned
+    # repos and detected systems, which earlier unauthenticated scans never wrote.
+    needs_scan = repo_changed or not await store.list_repos(company.id)
+    rescanned = await _rescan_repo(company.id, repo_url) if needs_scan else False
     staffing = await reconcile_specialists(store, company.id)
-    changed = duplicates_removed or repo_changed or staffing["added"] or staffing["removed"]
+    changed = (duplicates_removed or repo_changed or rescanned
+               or staffing["added"] or staffing["removed"])
     activation = await _activate(company.id) if changed else "unchanged"
     return {"repo_connected": repo_changed, "repo_rescanned": rescanned,
             "specialists": staffing, "activation": activation}
