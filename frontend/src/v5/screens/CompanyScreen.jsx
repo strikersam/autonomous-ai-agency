@@ -73,7 +73,8 @@ function CompanyHeader({ data, isPreview }) {
               { label: `${(data.specialists || []).filter(s => {
                 // BUG-27: count active/running specialists AND any specialist
                 // with a last_used_at timestamp within the last 24 hours
-                if (s.status === 'active' || s.status === 'running') return true;
+                // Provisioned specialists report 'available' (idle) or 'busy'.
+                if (['active', 'running', 'available', 'busy'].includes(s.status)) return true;
                 const last = s.last_used_at || s.lastRun;
                 if (last && last !== '—') {
                   const ms = new Date(last).getTime();
