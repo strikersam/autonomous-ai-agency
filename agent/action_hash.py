@@ -19,6 +19,10 @@ def action_hash(tool: str, args: Any) -> str:
 
     ``args`` must be JSON-serializable (as checkpointed history is); anything else raises
     ``TypeError`` rather than being coerced into a value that could collide with a string.
+
+    Values that a JSON round trip changes are equivalent on purpose: a tuple equals a list
+    and an int dict key equals its string, because checkpoints are stored as JSON and a
+    resumed call must match the call that was recorded.
     """
     canonical = json.dumps(
         {"tool": tool, "args": args}, sort_keys=True, separators=(",", ":")

@@ -1,7 +1,7 @@
 # Graph Report - autonomous-ai-agency  (2026-11-09)
 
 ## Corpus Check
-- 1236 files · ~1,380,099 words
+- 1236 files · ~1,380,140 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 57 file(s) not represented in the graph (top: (none) 19, .css 5, .bat 5)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `c4d1601f`
+- Built from commit: `fae64a04`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -1157,12 +1157,12 @@
 10. `LLMRouter` - 64 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `1. `LLMRouter` is the only gateway` --references--> `LLMRouter`  [INFERRED]
-  docs/adr/008-llm-router-multi-provider.md → packages/llm/router.py
-- `Environment variables` --references--> `LLMRouter`  [INFERRED]
-  docs/llm-router/configuration.md → packages/llm/router.py
+- `Prime Agent runtime — opt-in external executor` --references--> `RuntimeManager`  [INFERRED]
+  docs/configuration-reference.md → runtimes/manager.py
 - `Files that change` --references--> `GateReport`  [INFERRED]
   docs/plans/2026-10-08-agent-pr-quality-plan.md → agent/pr_gate.py
+- `HTTP API` --references--> `FreeBuffRunRequest`  [INFERRED]
+  docs/agents.md → proxy.py
 - `A0. Fix live scanner crashes on real-world sites (`services/scanner.py`) — do first` --references--> `DetectedSystem`  [INFERRED]
   docs/architecture/onboarding-flow-fixes-plan-2026-06-13.md → models/company_graph.py
 - `Phase 6 — Green the tests + housekeeping` --references--> `DetectedSystem`  [INFERRED]
@@ -5226,16 +5226,16 @@ Nodes (4): _backend_get(), cmd_autonomy(), cmd_loops(), _grade_icon()
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `AgentRunner` connect `AgentRunner` to `backend/server.py`, `TaskSpec`, `CEODispatcher`, `proxy.py`, `MCPUnavailableError`, `workflow_orchestrator.py`, `WorkspaceTools`, `EvidenceReport`, `Issue #504: EPIC: Autonomy hardening — live-verified defects 2026-06-10`, `failover_chat_completion`, `loop.py`, `LocalWorkspace`, `judge_brief.py`, `GitHubTools`, `RepoConnection`, `.__init__`, `enabled`, `AgentSessionStore`, `de`, `agent/code_mode_connectors.py`, `policy.py`, `FreeBuffAgent`, `Competitor Analysis — Autonomous AI Agency`, `Agency Core — Progress & Resume Log`, `Issue #656: Bugs`, `pydantic`, `direct_chat.py`, `prompts.py`, `._dispatch_tool`, `pr_gate.py`, `SECTION A — Agent Efficiency (Hermes / AOS / MYT)`, `TokenBudget`, `UserMemoryStore`, `_resolve_brain_provider`, `ReactScratchpad`, `.delegate`, `ContextManager`?**
-  _High betweenness centrality (0.037) - this node is a cross-community bridge._
+  _High betweenness centrality (0.034) - this node is a cross-community bridge._
 - **What connects `OPENAI_API_BASE`, `OPENAI_API_KEY`, `react-app` to the rest of the system?**
   _29 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `typing` be split into smaller, more focused modules?**
   _Cohesion score 0.013552171906927691 - nodes in this community are weakly interconnected._
-- **Why does `AgentScheduler` connect `.force_cleanup` to `runtimes/manager.py`, `backend/server.py`, `worker_main.py`, `.delete_by_tag`, `services/background.py`, `proxy.py`, `._ensure_store`, `ScheduleStore`, `scheduler.py`, `AgentScheduler`?**
-  _High betweenness centrality (0.019) - this node is a cross-community bridge._
+- **Why does `Roadmap` connect `pydantic` to `AgentsScreen.jsx`, `Platform Guide — the full tour`?**
+  _High betweenness centrality (0.021) - this node is a cross-community bridge._
 - **Should `runtimes/manager.py` be split into smaller, more focused modules?**
   _Cohesion score 0.03185328185328185 - nodes in this community are weakly interconnected._
-- **Why does `listCompanies()` connect `probe_catalogues.py` to `WorkspaceTools`, `api.js`?**
-  _High betweenness centrality (0.015) - this node is a cross-community bridge._
+- **Why does `useSafeData()` connect `AgentsScreen.jsx` to `DashboardScreen.jsx`, `ProvidersScreen.jsx`, `AdminScreen.jsx`, `KnowledgeScreen.jsx`, `TaskDetailPanel.jsx`, `pydantic`?**
+  _High betweenness centrality (0.021) - this node is a cross-community bridge._
 - **Should `backend/server.py` be split into smaller, more focused modules?**
   _Cohesion score 0.020364669666114138 - nodes in this community are weakly interconnected._

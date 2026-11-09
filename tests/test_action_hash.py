@@ -35,3 +35,8 @@ def test_non_json_values_are_rejected_not_coerced() -> None:
 
     with pytest.raises(TypeError):
         action_hash("w", {"p": Path("a")})
+
+
+def test_json_round_trip_equivalents_hash_alike() -> None:
+    assert action_hash("w", {"p": ("a",)}) == action_hash("w", {"p": ["a"]})
+    assert action_hash("w", {"p": {1: "v"}}) == action_hash("w", {"p": {"1": "v"}})
