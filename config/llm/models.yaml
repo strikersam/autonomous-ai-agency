@@ -570,6 +570,31 @@ models:
     priority: 99
     speed_tier: fast
 
+  # Gemini Omni 1.2 Flash: successor to Omni 1.1, released on OpenRouter
+  # 2026-11-05.  30 % lower per-second video pricing than 1.1; text at
+  # $1.50/$9.00 per MTok (confirmed on openrouter.ai/google/gemini-omni-1.2-flash).
+  # Context 131 072 tokens; max output 65 536 tokens (OpenRouter listing).
+  # Accepts text, images and video; outputs text and video.
+  # NOT a chat/tool-call routing candidate — video generation only.
+  # ``supports_tools: false`` is correct: OpenRouter confirms no function calling.
+  # OpenRouter id: google/gemini-omni-1.2-flash.
+  # Sources: openrouter.ai/google/gemini-omni-1.2-flash,
+  #          blog.google/innovation-and-ai/technology/developers-tools/
+  #            introducing-gemini-omni-1-2-flash/, 2026-11-05.
+  gemini-omni-1.2-flash:
+    provider: openrouter
+    display_name: Gemini Omni 1.2 Flash (video generation)
+    context_window: 131072
+    max_output_tokens: 65536
+    supports_tools: false           # video generation model — no function calling
+    supports_function_calling: false
+    supports_images: true
+    supports_streaming: true
+    input_cost_per_1m: 1.5
+    output_cost_per_1m: 9.0
+    priority: 99                    # explicit-only; not for chat routing
+    speed_tier: fast
+
   # ── Local ──────────────────────────────────────────────────────────────
 
   qwen3-coder:30b:
