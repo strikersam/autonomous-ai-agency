@@ -14,15 +14,14 @@ from typing import Any
 from agent.checkpoint import side_effecting_calls
 
 
-def _typed(value: Any) -> str:
-    """Encode a non-JSON value with its type, so ``Path("a")`` differs from ``"a"``."""
-    return f"{type(value).__module__}.{type(value).__qualname__}:{value!r}"
-
-
 def action_hash(tool: str, args: Any) -> str:
-    """Return a hex digest of ``tool`` plus ``args``, stable across dict key order."""
+    """Return a hex digest of ``tool`` plus ``args``, stable across dict key order.
+
+    ``args`` must be JSON-serializable (as checkpointed history is); anything else raises
+    ``TypeError`` rather than being coerced into a value that could collide with a string.
+    """
     canonical = json.dumps(
-        {"tool": tool, "args": args}, sort_keys=True, separators=(",", ":"), default=_typed
+        {"tool": tool, "args": args}, sort_keys=True, separators=(",", ":")
     )
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 

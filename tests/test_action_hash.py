@@ -28,8 +28,10 @@ def test_different_args_or_read_only_or_control_not_detected() -> None:
     assert not already_executed([], "write_file", {}, READ_ONLY)
 
 
-def test_non_json_values_keep_their_type() -> None:
+def test_non_json_values_are_rejected_not_coerced() -> None:
     from pathlib import Path
 
-    assert action_hash("w", {"p": Path("a")}) != action_hash("w", {"p": "a"})
-    assert action_hash("w", {"p": Path("a")}) == action_hash("w", {"p": Path("a")})
+    import pytest
+
+    with pytest.raises(TypeError):
+        action_hash("w", {"p": Path("a")})
