@@ -26,3 +26,10 @@ def test_different_args_or_read_only_or_control_not_detected() -> None:
     assert not already_executed(history, "read_file", {"path": "b.py"}, READ_ONLY)
     assert not already_executed(history, "finish", {"path": "c.py"}, READ_ONLY)
     assert not already_executed([], "write_file", {}, READ_ONLY)
+
+
+def test_non_json_values_keep_their_type() -> None:
+    from pathlib import Path
+
+    assert action_hash("w", {"p": Path("a")}) != action_hash("w", {"p": "a"})
+    assert action_hash("w", {"p": Path("a")}) == action_hash("w", {"p": Path("a")})
