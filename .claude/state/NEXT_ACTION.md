@@ -1,4 +1,4 @@
-# NEXT_ACTION — updated 2026-11-06 (daily automation, branch `claude/intelligent-gates-x7y1ze`)
+# NEXT_ACTION — updated 2026-11-09 (daily automation, branch `claude/intelligent-gates-c6i9wm`)
 
 **What shipped:** Mistral Large 4 (`mistral-large-4-0`) catalogue update — context window corrected to 524 288 (was 131 072), cache-read fraction added at 10 % (was missing, so cached tokens had 0 % discount). Open weights released 2026-10-29 noted in comments. 14 tests pass; all gates green. PR #1902 open, auto-merge armed (SQUASH).
 
