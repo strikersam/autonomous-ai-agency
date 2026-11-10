@@ -320,3 +320,55 @@ def test_corrupt_website_blob_returns_none_not_scalar_fallback():
     row_legacy = dict(row); row_legacy["data"] = None
     ws = SQLiteStore._website_from_row(row_legacy)
     assert ws is not None and ws.url == "https://x.example"
+
+
+@pytest.mark.asyncio
+async def test_onboarding_writes_the_declared_granular_states(wired):
+    """A real run must write in_progress -> scanning -> detected -> configured
+    -> complete, not sit on in_progress until the end."""
+    graph_service, _, onboarding = wired
+    host = "shop.example-store.com"
+    company = await graph_service.create_company(name="shop", domain=host, owner_id="u1")
+
+    seen: list[str] = []
+    original = onboarding.store.update_company
+
+    async def recording_update(updated):
+        if getattr(updated, "id", None) == company.id and hasattr(updated, "onboarding_status"):
+            seen.append(updated.onboarding_status)
+        return await original(updated)
+
+    onboarding.store.update_company = recording_update
+    try:
+        progress = await onboarding.start_onboarding(
+            company_id=company.id, website_urls=[f"https://{host}"],
+        )
+    finally:
+        onboarding.store.update_company = original
+
+    assert progress.status == "completed", progress.errors
+    order = [s for i, s in enumerate(seen) if i == 0 or s != seen[i - 1]]
+    assert order == ["in_progress", "scanning", "detected", "configured", "complete"], seen
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "step"),
+    [("scanning", "scan_websites"), ("detected", "provision_specialists"),
+     ("configured", "complete")],
+)
+async def test_granular_states_read_as_in_progress(status, step, wired):
+    """A company left mid-flight must report its phase, not 'failed'."""
+    graph_service, _, onboarding = wired
+    company = await graph_service.create_company(
+        name="mid", domain="mid.example.com", owner_id="u1",
+    )
+    await graph_service.store.update_company(company.model_copy(
+        update={"onboarding_status": status, "onboarding_progress": 0.5},
+    ))
+
+    progress = await onboarding.get_onboarding_progress(company.id)
+
+    assert progress.status == "in_progress", progress.status
+    assert progress.current_step == step
+    assert progress.progress_percent > 0

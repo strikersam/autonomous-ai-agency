@@ -42,6 +42,11 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from workspace.manifest import (
+    ACTIVE_STATES as CANONICAL_ACTIVE_STATES,
+    RESUMABLE_STATES as CANONICAL_RESUMABLE_STATES,
+)
+
 log = logging.getLogger("qwen-proxy")
 
 # ---------------------------------------------------------------------------
@@ -188,7 +193,10 @@ class WorkspaceStatus(str, Enum):
     CLEANED = "cleaned"
 
 
-_RESUMABLE_STATES = frozenset({WorkspaceStatus.READY, WorkspaceStatus.PAUSED})
+# Lifecycle groupings are declared once, in workspace/manifest.py, and
+# imported here so both managers agree.  RESUMABLE includes ACTIVE:
+# resuming an already-active workspace is an idempotent heartbeat.
+_RESUMABLE_STATES = frozenset(WorkspaceStatus(s) for s in CANONICAL_RESUMABLE_STATES)
 _TERMINAL_STATES = frozenset(
     {
         WorkspaceStatus.COMPLETED,
@@ -198,7 +206,7 @@ _TERMINAL_STATES = frozenset(
         WorkspaceStatus.CLEANED,
     }
 )
-_ACTIVE_STATES = frozenset({WorkspaceStatus.CREATING, WorkspaceStatus.ACTIVE})
+_ACTIVE_STATES = frozenset(WorkspaceStatus(s) for s in CANONICAL_ACTIVE_STATES)
 
 
 # ---------------------------------------------------------------------------
@@ -421,7 +429,9 @@ class WorkspaceManager:
     async def resume(self, session_id: str, job_id: str) -> Workspace:
         """Open a workspace for resumption.
 
-        Only READY or PAUSED workspaces may be resumed.
+        Only READY, ACTIVE or PAUSED workspaces may be resumed — the states
+        workspace/manifest.py declares resumable.  Resuming an ACTIVE
+        workspace only refreshes its heartbeat.
         The session_id must match the workspace's recorded session_id.
         """
         ws = await self.open(session_id, job_id)

@@ -27,6 +27,7 @@ from tasks.verification import (
 from tasks.models import Task, TaskComment, TaskStatus, goal_ancestry_block
 from tasks.store import TaskStore, get_task_store
 from agent.workflow import WorkflowEngine, WorkflowPhase, classify_domain
+from packages.lifecycle.catalogue import TASK_LIFECYCLE
 
 from tasks.run_lease import claim_task_run, release_task_run
 from services.agent_memory import record_task_outcome, resolve_memory_key, with_agent_memory
@@ -35,7 +36,15 @@ log = logging.getLogger("qwen-proxy")
 
 
 class TaskRuleError(ValueError):
-    """A request broke a task workflow rule; the message is safe to show users."""
+    """A request broke a task workflow rule; the message is safe to show users.
+
+    ``allowed`` answers "what could I have asked for?" without changing the
+    message existing clients and tests rely on.
+    """
+
+    def __init__(self, message: str, *, allowed: tuple[str, ...] | list[str] = ()) -> None:
+        super().__init__(message)
+        self.allowed = tuple(sorted(allowed))
 
     @property
     def user_message(self) -> str:
@@ -77,29 +86,17 @@ def _get_workflow_engine() -> WorkflowEngine:
     return _get_workflow_engine._instance
 
 
-# WONT_DO is a terminal "human declined this work" state (a rejected task must
+# The lifecycle is declared once in packages/lifecycle/catalogue.py and shared
+# with the generated map, the CLI and agents. This typed view is kept because
+# callers already import it; deriving it removes the hand-maintained duplicate.
+# WONT_DO is a resting "human declined this work" state (a rejected task must
 # NOT read as failed/blocked, which imply the system tried and couldn't). It is
-# reachable from any state a human can decline from, and — like DONE/FAILED — is
-# reopenable via Retry.
+# reachable from any state a human can decline from and, like DONE, reopenable
+# via Retry. NEEDS_CLARIFICATION is re-openable or terminable for the same
+# reason: without its key, Retry on a clarified task was a 400.
 ALLOWED_TRANSITIONS: dict[TaskStatus, set[TaskStatus]] = {
-    TaskStatus.TODO: {TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED, TaskStatus.FAILED, TaskStatus.WONT_DO},
-    TaskStatus.IN_PROGRESS: {TaskStatus.IN_REVIEW, TaskStatus.BLOCKED, TaskStatus.DONE, TaskStatus.FAILED, TaskStatus.WONT_DO},
-    TaskStatus.IN_REVIEW: {TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED, TaskStatus.DONE, TaskStatus.FAILED, TaskStatus.WONT_DO},
-    TaskStatus.BLOCKED: {TaskStatus.IN_PROGRESS, TaskStatus.FAILED, TaskStatus.WONT_DO},
-    TaskStatus.FAILED: {TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED, TaskStatus.WONT_DO},
-    TaskStatus.DONE: {TaskStatus.IN_PROGRESS},
-    TaskStatus.WONT_DO: {TaskStatus.TODO, TaskStatus.IN_PROGRESS},
-    # A task awaiting human input can be re-opened, re-queued, or terminated.
-    # Without this key, any transition from NEEDS_CLARIFICATION raised
-    # "Cannot transition…" → a 400 on the Retry button.
-    TaskStatus.NEEDS_CLARIFICATION: {
-        TaskStatus.TODO,
-        TaskStatus.IN_PROGRESS,
-        TaskStatus.BLOCKED,
-        TaskStatus.FAILED,
-        TaskStatus.DONE,
-        TaskStatus.WONT_DO,
-    },
+    TaskStatus(source): {TaskStatus(target) for target in targets}
+    for source, targets in TASK_LIFECYCLE.transitions.items()
 }
 
 
@@ -165,10 +162,11 @@ class TaskWorkflowService:
         message: str | None = None,
         pending_agent_run: bool | None = None,
     ) -> Task:
-        if status != task.status:
-            allowed = ALLOWED_TRANSITIONS.get(task.status, set())
-            if status not in allowed:
-                raise TaskRuleError(f"Cannot transition task from {task.status.value} to {status.value}")
+        if status != task.status and not TASK_LIFECYCLE.can(task.status.value, status.value):
+            raise TaskRuleError(
+                f"Cannot transition task from {task.status.value} to {status.value}",
+                allowed=TASK_LIFECYCLE.allowed(task.status.value),
+            )
 
         if status is TaskStatus.DONE:
             status, review_reason, message = self._verification_gate(task, actor, review_reason, message)
