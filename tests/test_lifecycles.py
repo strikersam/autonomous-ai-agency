@@ -9,8 +9,6 @@ from __future__ import annotations
 import importlib
 
 import json
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -23,6 +21,7 @@ from packages.lifecycle.status_types import inspect as inspect_status_type
 from packages.lifecycle.status_types import reports as status_type_reports
 from packages.lifecycle.status_types import values_of
 from tasks.models import Task, TaskStatus
+import scripts.lifecycles as lifecycles_cli
 from tasks.service import ALLOWED_TRANSITIONS, TaskRuleError, TaskWorkflowService
 from tasks.store import TaskStore
 
@@ -147,29 +146,15 @@ def test_generated_document_is_current() -> None:
     assert DOC_PATH.read_text(encoding="utf-8") == render_markdown(all_machines(), CATALOGUE_FINDINGS)
 
 
-def test_cli_serves_an_agent_with_json() -> None:
-    result = subprocess.run(
-        [sys.executable, "scripts/lifecycles.py", "show", "task", "--json"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert result.returncode == 0, result.stderr
-    payload = json.loads(result.stdout)
+def test_cli_serves_an_agent_with_json(capsys) -> None:
+    assert lifecycles_cli.main(["show", "task", "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
     assert payload["name"] == "task"
     assert "wont_do" in payload["terminal"]
     assert "done" in payload["transitions"]["in_progress"]
 
-    before_subcommand = subprocess.run(
-        [sys.executable, "scripts/lifecycles.py", "--json", "list"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
-    assert before_subcommand.returncode == 0, before_subcommand.stderr
-    assert len(json.loads(before_subcommand.stdout)) >= 20
+    assert lifecycles_cli.main(["--json", "list"]) == 0
+    assert len(json.loads(capsys.readouterr().out)) >= 20
 
 
 def test_task_status_enums_are_distinct():
@@ -267,13 +252,6 @@ def test_literal_status_aliases_are_supported() -> None:
     )
 
 
-def test_cli_check_validates_status_types() -> None:
-    result = subprocess.run(
-        [sys.executable, "scripts/lifecycles.py", "check"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-    assert result.returncode == 0, result.stderr
-    assert "status types match" in result.stdout
+def test_cli_check_validates_status_types(capsys) -> None:
+    assert lifecycles_cli.main(["check"]) == 0
+    assert "status types match" in capsys.readouterr().out
