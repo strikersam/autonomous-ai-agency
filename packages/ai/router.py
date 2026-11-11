@@ -1398,7 +1398,8 @@ class ProviderRouter:
                                 _tag = classify_task(messages=payload.get("messages") or [])
                             except Exception:
                                 pass
-                            _cached = int(_usage.get("cache_read_input_tokens") or 0)
+                            from packages.ai.cost_tracker import cached_prompt_tokens
+                            _cached = cached_prompt_tokens(_usage)
                             _prompt = int(_usage.get("prompt_tokens") or 0)
                             if provider.type == "anthropic":
                                 from packages.ai.cost_tracker import anthropic_prompt_tokens

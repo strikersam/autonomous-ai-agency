@@ -477,6 +477,42 @@ _LONG_CONTEXT_TIERS: dict[str, tuple[int, float, float]] = {
 }
 
 
+def _usage_int(value) -> int:
+    """Read a provider usage count as a non-negative int, never raising.
+
+    A provider that sends a non-numeric count must not break cost accounting: the
+    router's cost hook calls this inside a block whose ``except Exception`` would
+    skip the response's cost, user-token and agent-spend recording, leaving later
+    budget checks with understated totals. An unreadable count reads as 0, which
+    estimates the tokens at the full input rate instead of dropping the charge.
+    """
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def cached_prompt_tokens(usage: dict) -> int:
+    """Prompt tokens served from cache, whichever usage shape the provider sent.
+
+    Anthropic reports ``cache_read_input_tokens``; OpenAI-shaped APIs (OpenAI,
+    Mistral and the other OpenAI-compatible providers) report
+    ``prompt_tokens_details.cached_tokens``, and the Responses API
+    ``input_tokens_details.cached_tokens``. Reading only the Anthropic field left
+    every other provider's cache-read discount unused.
+    """
+    anthropic = _usage_int(usage.get("cache_read_input_tokens"))
+    if anthropic:
+        return anthropic
+    for key in ("prompt_tokens_details", "input_tokens_details"):
+        details = usage.get(key)
+        if isinstance(details, dict):
+            nested = _usage_int(details.get("cached_tokens"))
+            if nested:
+                return nested
+    return 0
+
+
 def anthropic_prompt_tokens(usage: dict) -> int:
     """Total prompt tokens for an Anthropic ``usage`` block.
 
