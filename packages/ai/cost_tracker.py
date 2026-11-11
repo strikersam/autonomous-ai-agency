@@ -269,9 +269,15 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # --- DeepSeek V4 Flash 0731 on OpenRouter (added 2026-11-08) ---
     # Released 2026-07-31; appeared on OpenRouter in early November 2026.
     # 1,048,576-token context. Priced under "deepseek" namespace on OpenRouter.
-    # Pricing: $0.090/$0.180 per MTok. Source: openrouter.ai/deepseek/deepseek-v4-flash-0731,
-    # pi.dev/models/openrouter/deepseek-deepseek-v4-flash-0731, 2026-11-08.
-    "deepseek/deepseek-v4-flash-0731": (0.090, 0.180),  # OpenRouter router ID
+    # This is a router id, not one endpoint: OpenRouter serves it from ~29 active
+    # endpoints whose standard rates run from $0.043/$0.140 (Relace) to
+    # $0.130/$0.300 (Baseten fp8, Wafer fast). Priced at the top of that mainstream
+    # band so an estimate never understates spend when the router lands on a
+    # costlier endpoint: DeepInfra is the cheapest ($0.060/$0.180) and DigitalOcean
+    # lists $0.119/$0.238.
+    # Sources: openrouter.ai/deepseek/deepseek-v4-flash-0731 (per-provider table),
+    # afit.ai/prices/models/deepseek/deepseek-v4-flash-0731, 2026-11-11.
+    "deepseek/deepseek-v4-flash-0731": (0.130, 0.300),  # OpenRouter router ID
     # --- Groq: Llama 4 Scout 17B 16E (added 2026-10-04) ---
     # Distinct from NVIDIA NIM's free "meta/llama-4-scout-17b-16e-instruct" ($0/$0).
     # Groq serves this as "meta-llama/llama-4-scout-17b-16e-instruct" (different prefix).

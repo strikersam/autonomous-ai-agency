@@ -3,7 +3,8 @@
 Changes shipped today:
 - **DeepSeek V4 Flash 0731 on OpenRouter** (``deepseek/deepseek-v4-flash-0731``,
   released 2026-07-31; appeared on OpenRouter early November 2026).
-  1,048,576-token context. Pricing: $0.090/$0.180 per MTok.
+  1,048,576-token context. Pricing: $0.130/$0.300 per MTok — top of the
+  mainstream endpoint band for this OpenRouter router id ($0.043-$0.300 output).
   Sources: openrouter.ai/deepseek/deepseek-v4-flash-0731,
            pi.dev/models/openrouter/deepseek-deepseek-v4-flash-0731, 2026-11-08.
 
@@ -35,8 +36,8 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # DeepSeek V4 Flash 0731 (OpenRouter)
 DEEPSEEK_V4_FLASH_ID = "deepseek/deepseek-v4-flash-0731"
-DEEPSEEK_V4_FLASH_INPUT_COST = 0.090
-DEEPSEEK_V4_FLASH_OUTPUT_COST = 0.180
+DEEPSEEK_V4_FLASH_INPUT_COST = 0.130
+DEEPSEEK_V4_FLASH_OUTPUT_COST = 0.300
 
 # Mistral Large 4 (OpenRouter alias)
 MISTRAL_LARGE_4_DIRECT_ID = "mistral-large-4-0"
