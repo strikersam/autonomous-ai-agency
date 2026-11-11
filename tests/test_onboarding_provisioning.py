@@ -372,3 +372,38 @@ async def test_granular_states_read_as_in_progress(status, step, wired):
     assert progress.status == "in_progress", progress.status
     assert progress.current_step == step
     assert progress.progress_percent > 0
+
+
+@pytest.mark.asyncio
+async def test_resume_after_site_scan_provisions_instead_of_completing(wired):
+    """A run that stopped during scanning must not be marked complete.
+
+    Regression: resume_onboarding() fell through to "mark as complete" when no
+    website row was pending, skipping the repository scan, system detection,
+    specialist provisioning and workflow creation.
+    """
+    graph_service, _, onboarding = wired
+    company = await graph_service.create_company(
+        name="resume", domain="resume.example.com", owner_id="u1",
+    )
+    await graph_service.store.update_company(company.model_copy(
+        update={"onboarding_status": "scanning", "onboarding_progress": 0.2},
+    ))
+
+    calls: list[dict] = []
+
+    async def fake_start(**kwargs):
+        calls.append(kwargs)
+        return "resumed"
+
+    onboarding.start_onboarding = fake_start
+
+    assert await onboarding.resume_onboarding(company.id) == "resumed"
+
+    # It continued into detection + provisioning instead of declaring success...
+    assert calls, "resume marked the run complete instead of continuing"
+    assert calls[0]["skip_website_scan"] is True
+    assert calls[0]["auto_provision_specialists"] is True
+    # ...and left the company mid-flight rather than complete.
+    updated = await graph_service.store.get_company(company.id)
+    assert updated.onboarding_status != "complete"

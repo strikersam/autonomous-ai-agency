@@ -665,7 +665,10 @@ class OnboardingService:
         
         next_step = self.ONBOARDING_STEPS[next_step_index]["name"]
         
-        # Resume based on next step
+        # Resume based on next step. A phase with no work left falls through to
+        # the next one instead of ending the run: returning "complete" here used
+        # to skip detection, provisioning and workflow creation whenever a run
+        # stopped after the site scan (or before any website row existed).
         if next_step == "scan_websites":
             # Find websites that haven't been scanned
             websites = await self.store.list_websites(company_id)
@@ -680,7 +683,7 @@ class OnboardingService:
                     create_workflows=False
                 )
         
-        elif next_step == "scan_repositories":
+        if next_step in ("scan_websites", "scan_repositories"):
             # Find repos that haven't been scanned
             repos = await self.store.list_repos(company_id)
             unscreened = [r for r in repos if not r.last_scanned]
@@ -695,7 +698,7 @@ class OnboardingService:
                     create_workflows=False
                 )
         
-        elif next_step == "detect_systems":
+        if next_step in ("scan_websites", "scan_repositories", "detect_systems"):
             # Systems should be detected during scanning, so just move to next
             return await self.start_onboarding(
                 company_id=company_id,
@@ -707,7 +710,7 @@ class OnboardingService:
                 create_workflows=False
             )
         
-        elif next_step == "provision_specialists":
+        if next_step == "provision_specialists":
             return await self.start_onboarding(
                 company_id=company_id,
                 website_urls=[],
