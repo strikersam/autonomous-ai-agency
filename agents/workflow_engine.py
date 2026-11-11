@@ -11,7 +11,7 @@ from enum import Enum
 from typing import Callable, Dict, List, Optional, Set
 
 
-class TaskStatus(Enum):
+class WorkflowTaskStatus(Enum):
     """Execution status of a task within a workflow."""
 
     PENDING = "pending"
@@ -29,7 +29,7 @@ class Task:
     name: str
     action: Optional[Callable[[], str]] = None
     depends_on: List[str] = field(default_factory=list)
-    status: TaskStatus = TaskStatus.PENDING
+    status: WorkflowTaskStatus = WorkflowTaskStatus.PENDING
     result: Optional[str] = None
     retries: int = 0
     max_retries: int = 0
@@ -42,7 +42,7 @@ class Task:
 
     def reset(self) -> None:
         """Reset the task to pending state."""
-        self.status = TaskStatus.PENDING
+        self.status = WorkflowTaskStatus.PENDING
         self.result = None
 
 
@@ -101,11 +101,11 @@ class Workflow:
         """Return tasks whose dependencies are all satisfied."""
         completed_ids = {
             tid for tid, t in self._tasks.items()
-            if t.status == TaskStatus.COMPLETED
+            if t.status == WorkflowTaskStatus.COMPLETED
         }
         return [
             t for t in self._tasks.values()
-            if t.status == TaskStatus.PENDING
+            if t.status == WorkflowTaskStatus.PENDING
             and all(d in completed_ids for d in t.depends_on)
         ]
 
@@ -117,12 +117,12 @@ class Workflow:
     @property
     def completed_count(self) -> int:
         """Number of completed tasks."""
-        return sum(1 for t in self._tasks.values() if t.status == TaskStatus.COMPLETED)
+        return sum(1 for t in self._tasks.values() if t.status == WorkflowTaskStatus.COMPLETED)
 
     @property
     def failed_count(self) -> int:
         """Number of failed tasks."""
-        return sum(1 for t in self._tasks.values() if t.status == TaskStatus.FAILED)
+        return sum(1 for t in self._tasks.values() if t.status == WorkflowTaskStatus.FAILED)
 
 
 @dataclass
@@ -164,12 +164,12 @@ class WorkflowEngine:
             if not ready:
                 break
             for task in ready:
-                task.status = TaskStatus.RUNNING
+                task.status = WorkflowTaskStatus.RUNNING
                 try:
                     task.result = task.execute()
-                    task.status = TaskStatus.COMPLETED
+                    task.status = WorkflowTaskStatus.COMPLETED
                 except Exception:
-                    task.status = TaskStatus.FAILED
+                    task.status = WorkflowTaskStatus.FAILED
                     task.result = "Execution failed"
                 completed.append(task)
 
