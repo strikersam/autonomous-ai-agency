@@ -12,6 +12,7 @@ Canonical project docs now live under `docs/`.
 
 ## Architecture and operations
 
+- [lifecycles.md](lifecycles.md) — every status field, its states and legal moves (generated; `python scripts/lifecycles.py check`)
 - [architecture/overview.md](architecture/overview.md)
 - [model-routing.md](model-routing.md)
 - [runbooks/](runbooks/)

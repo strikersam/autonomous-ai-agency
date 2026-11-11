@@ -7,7 +7,7 @@ python-dotenv>=1.2.4
 httpx>=0.28.1
 bcrypt>=5.0.0
 PyJWT>=2.15.1
-python-multipart>=0.0.30
+python-multipart>=0.0.33
 itsdangerous>=2.2.0
 jinja2>=3.1.6
 cryptography>=50.0.2
@@ -26,7 +26,7 @@ lxml>=6.1.3           # HTML parser for BeautifulSoup (seo_audit.py uses bs4 "lx
 #   - dnspython: the MX/NS/TXT/CNAME analysis (_analyze_dns) that yields the
 #     ~11 "no-browser-needed" systems (Akamai, Microsoft 365, Salesforce, …).
 curl_cffi>=0.17.0
-dnspython>=2.9.1
+dnspython>=2.9.2
 
 # Headless-browser rendering for the website scanner (JS-rendered / bot-protected
 # sites). The Chromium binary is installed in the Docker image (see Dockerfile.backend);
@@ -58,7 +58,7 @@ langfuse>=5.0.4,<6
 # Anthropic SDK — agent/loop.py imports it for the native Messages API path.
 # Without it the import raises, the loop silently falls through to the
 # OpenAI-compatible failover, and paid Claude calls degrade.
-anthropic>=2.3.0
+anthropic>=2.6.0
 
 # E2B Firecracker micro-VM sandbox — services/e2b_config.is_e2b_sdk_importable().
 # Without it the Providers screen reports "e2b OFFLINE / SDK not installed"

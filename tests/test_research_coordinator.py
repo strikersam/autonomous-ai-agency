@@ -19,7 +19,7 @@ AgentRole = _rc.AgentRole
 ResearchAgent = _rc.ResearchAgent
 ResearchOrchestrator = _rc.ResearchOrchestrator
 ResearchTask = _rc.ResearchTask
-TaskStatus = _rc.TaskStatus
+ResearchTaskStatus = _rc.ResearchTaskStatus
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -49,7 +49,7 @@ def orchestrator() -> ResearchOrchestrator:
 
 def test_task_initial_state_is_pending():
     t = ResearchTask("t1", "q?", AgentRole.WEB_SEARCHER)
-    assert t.status == TaskStatus.PENDING
+    assert t.status == ResearchTaskStatus.PENDING
     assert t.result is None
     assert t.started_at is None
 
@@ -75,7 +75,7 @@ def test_task_mark_completed_records_result_and_time():
     t = ResearchTask("t1", "q?", AgentRole.WEB_SEARCHER)
     t.mark_running()
     t.mark_completed("done")
-    assert t.status == TaskStatus.COMPLETED
+    assert t.status == ResearchTaskStatus.COMPLETED
     assert t.result == "done"
     assert t.completed_at is not None
 
@@ -84,7 +84,7 @@ def test_task_mark_failed_records_error():
     t = ResearchTask("t1", "q?", AgentRole.WEB_SEARCHER)
     t.mark_running()
     t.mark_failed("oops")
-    assert t.status == TaskStatus.FAILED
+    assert t.status == ResearchTaskStatus.FAILED
     assert t.error == "oops"
 
 
@@ -121,7 +121,7 @@ def test_agent_execute_success_increments_counter():
     a = ResearchAgent("web", AgentRole.WEB_SEARCHER, _echo_handler)
     t = ResearchTask("t1", "What is X?", AgentRole.WEB_SEARCHER)
     a.execute(t, context={})
-    assert t.status == TaskStatus.COMPLETED
+    assert t.status == ResearchTaskStatus.COMPLETED
     assert "answered:What is X?" in t.result
     assert a.tasks_completed == 1
     assert a.tasks_failed == 0
@@ -131,7 +131,7 @@ def test_agent_execute_handler_failure_marks_failed():
     a = ResearchAgent("web", AgentRole.WEB_SEARCHER, _failing_handler)
     t = ResearchTask("t1", "q?", AgentRole.WEB_SEARCHER)
     a.execute(t, context={})
-    assert t.status == TaskStatus.FAILED
+    assert t.status == ResearchTaskStatus.FAILED
     assert "boom" in (t.error or "")
     assert a.tasks_failed == 1
 
@@ -140,7 +140,7 @@ def test_agent_execute_wrong_role_marks_failed():
     a = ResearchAgent("web", AgentRole.WEB_SEARCHER, _echo_handler)
     t = ResearchTask("t1", "q?", AgentRole.DOC_READER)
     a.execute(t, context={})
-    assert t.status == TaskStatus.FAILED
+    assert t.status == ResearchTaskStatus.FAILED
     assert a.tasks_failed == 1
 
 
@@ -174,7 +174,7 @@ def test_orchestrator_run_completes_full_dag(orchestrator):
     orchestrator.plan("question?")
     orchestrator.run()
     statuses = {t.status for t in orchestrator.tasks.values()}
-    assert statuses == {TaskStatus.COMPLETED}
+    assert statuses == {ResearchTaskStatus.COMPLETED}
 
 
 def test_orchestrator_run_respects_dependency_order(orchestrator):
@@ -193,10 +193,10 @@ def test_orchestrator_run_marks_blocked_when_no_agent_for_role():
     o.plan("q?")
     o.run()
     # web_search completes; others can't all proceed
-    assert o.tasks["web_search"].status == TaskStatus.COMPLETED
+    assert o.tasks["web_search"].status == ResearchTaskStatus.COMPLETED
     blocked_or_pending = [
         t for t in o.tasks.values()
-        if t.status in {TaskStatus.BLOCKED, TaskStatus.PENDING}
+        if t.status in {ResearchTaskStatus.BLOCKED, ResearchTaskStatus.PENDING}
     ]
     assert len(blocked_or_pending) >= 1
 
