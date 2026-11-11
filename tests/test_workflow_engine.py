@@ -21,7 +21,7 @@ def _load_module():
 
 mod = _load_module()
 Task = mod.Task
-TaskStatus = mod.TaskStatus
+WorkflowTaskStatus = mod.WorkflowTaskStatus
 Workflow = mod.Workflow
 WorkflowEngine = mod.WorkflowEngine
 
@@ -32,7 +32,7 @@ class TestTask:
     def test_create(self):
         t = Task(task_id="t1", name="Task 1")
         assert t.task_id == "t1"
-        assert t.status == TaskStatus.PENDING
+        assert t.status == WorkflowTaskStatus.PENDING
 
     def test_execute_no_action(self):
         t = Task(task_id="t1", name="Task 1")
@@ -48,9 +48,9 @@ class TestTask:
         t = Task(task_id="t1", name="Task 1",
                  action=lambda: "done")
         t.execute()
-        t.status = TaskStatus.COMPLETED
+        t.status = WorkflowTaskStatus.COMPLETED
         t.reset()
-        assert t.status == TaskStatus.PENDING
+        assert t.status == WorkflowTaskStatus.PENDING
         assert t.result is None
 
     def test_default_depends_on(self):
@@ -107,7 +107,7 @@ class TestWorkflow:
         t1 = Task(task_id="t1", name="T1", action=lambda: "ok")
         wf.add_task(t1)
         wf.add_task(Task(task_id="t2", name="T2", depends_on=["t1"]))
-        t1.status = TaskStatus.COMPLETED
+        t1.status = WorkflowTaskStatus.COMPLETED
         ready = wf.ready_tasks()
         assert len(ready) == 1
         assert ready[0].task_id == "t2"
@@ -115,7 +115,7 @@ class TestWorkflow:
     def test_completed_count(self):
         wf = Workflow(workflow_id="w1", name="Test")
         t1 = Task(task_id="t1", name="T1")
-        t1.status = TaskStatus.COMPLETED
+        t1.status = WorkflowTaskStatus.COMPLETED
         wf.add_task(t1)
         wf.add_task(Task(task_id="t2", name="T2"))
         assert wf.completed_count == 1

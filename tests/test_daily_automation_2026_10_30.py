@@ -406,12 +406,12 @@ class TestMercury3Yaml:
 # ---------------------------------------------------------------------------
 
 class TestCatalogueSize:
-    def test_catalogue_has_89_models(self, llm_models):
+    def test_catalogue_has_90_models(self, llm_models):
         """models.yaml declares 89 model entries: 88 after this run's 3 additions, plus
         tencent/hy4-preview from the 2026-11-07 run (#1903)."""
         models = llm_models.get("models", {})
-        assert len(models) == 89, (
-            f"Expected 89 model IDs in models.yaml, got {len(models)}. "
+        assert len(models) == 90, (
+            f"Expected 90 model IDs in models.yaml, got {len(models)}. "
             "If you added or removed other models, update this count."
         )
 
