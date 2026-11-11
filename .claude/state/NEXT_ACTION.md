@@ -1,3 +1,13 @@
+# NEXT_ACTION — updated 2026-11-10 (lifecycle status types validated)
+
+**What shipped:** `packages/lifecycle/` declares 21 app lifecycles as validated data, with a registry, a guard and a generated map (`docs/lifecycles.md`); the task lifecycle and the workflow run's status now follow their declarations (slice stages `executing -> reviewing -> verifying -> executing`, no undeclared `report`, phase-driven status writes guarded). The two workspace managers now share one lifecycle declaration: `RESUMABLE_STATES` and `ACTIVE_STATES` live in `workspace/manifest.py` and `agent/workspace.py` imports them, so resuming an active workspace is an idempotent heartbeat in both. Company onboarding now writes the granular states it declares (scanning/detected/configured) and the progress view reports them. Findings: 6 -> 2. Ten lifecycles now also bind the enum or `Literal` that types their field, and `scripts/lifecycles.py check` fails when either side drifts.
+
+## Open items
+
+1. Consider driving `clarify_task` through `TaskWorkflowService.transition` once needs_clarification has an incoming edge.
+2. Eleven lifecycles are still typed by plain strings (agent job, CEO goal/subtask/attempt, approval gate, onboarding, onboarding progress, scan, spec, specialist, task queue); declare a `status_type` when one gains an enum.
+
+---
 # NEXT_ACTION — updated 2026-11-06 (daily automation, branch `claude/intelligent-gates-x7y1ze`)
 
 **What shipped:** Mistral Large 4 (`mistral-large-4-0`) catalogue update — context window corrected to 524 288 (was 131 072), cache-read fraction added at 10 % (was missing, so cached tokens had 0 % discount). Open weights released 2026-10-29 noted in comments. 14 tests pass; all gates green. PR #1902 open, auto-merge armed (SQUASH).

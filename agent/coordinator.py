@@ -53,7 +53,7 @@ class TaskSpec:
     retry_limit: int = 1
 
 
-class TaskStatus(str, Enum):
+class CoordinatorTaskStatus(str, Enum):
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -194,7 +194,7 @@ class MultiAgentSwarm:
         started = time.monotonic()
         if not agents:
             agents = [AgentSpec(agent_id="default-worker", capabilities=["general", "code", "research", "writing"])]
-        statuses = {task.task_id: TaskStatus.PENDING for task in tasks}
+        statuses = {task.task_id: CoordinatorTaskStatus.PENDING for task in tasks}
         results: dict[str, dict[str, Any]] = {}
         attempts: dict[str, int] = {task.task_id: 0 for task in tasks}
         tasks_by_id = {task.task_id: task for task in tasks}
@@ -250,12 +250,12 @@ class MultiAgentSwarm:
 
         while True:
             for task in sorted(tasks, key=lambda t: t.priority, reverse=True):
-                if statuses[task.task_id] != TaskStatus.PENDING or task.task_id in running:
+                if statuses[task.task_id] != CoordinatorTaskStatus.PENDING or task.task_id in running:
                     continue
                 missing = [dep for dep in task.dependencies if dep not in tasks_by_id]
-                failed = [dep for dep in task.dependencies if statuses.get(dep) in {TaskStatus.FAILED, TaskStatus.BLOCKED}]
+                failed = [dep for dep in task.dependencies if statuses.get(dep) in {CoordinatorTaskStatus.FAILED, CoordinatorTaskStatus.BLOCKED}]
                 if missing or failed:
-                    statuses[task.task_id] = TaskStatus.BLOCKED
+                    statuses[task.task_id] = CoordinatorTaskStatus.BLOCKED
                     results[task.task_id] = {
                         "task_id": task.task_id,
                         "status": "blocked",
@@ -263,20 +263,20 @@ class MultiAgentSwarm:
                         "error": f"Unmet dependencies: {missing or failed}",
                     }
                     continue
-                if any(statuses.get(dep) != TaskStatus.COMPLETED for dep in task.dependencies):
+                if any(statuses.get(dep) != CoordinatorTaskStatus.COMPLETED for dep in task.dependencies):
                     continue
                 agent = self._select_agent(agents, task)
                 if not agent:
                     continue
-                statuses[task.task_id] = TaskStatus.RUNNING
+                statuses[task.task_id] = CoordinatorTaskStatus.RUNNING
                 attempts[task.task_id] += 1
                 running[task.task_id] = asyncio.create_task(execute(task, agent))
 
             if not running:
-                pending = [tid for tid, status in statuses.items() if status == TaskStatus.PENDING]
+                pending = [tid for tid, status in statuses.items() if status == CoordinatorTaskStatus.PENDING]
                 if pending:
                     for tid in pending:
-                        statuses[tid] = TaskStatus.BLOCKED
+                        statuses[tid] = CoordinatorTaskStatus.BLOCKED
                         results[tid] = {"task_id": tid, "status": "blocked", "error": "No capable agent available"}
                 break
 
@@ -286,15 +286,15 @@ class MultiAgentSwarm:
                 running.pop(task_id, None)
                 task = tasks_by_id[task_id]
                 if payload.get("status") == "ok":
-                    statuses[task_id] = TaskStatus.COMPLETED
+                    statuses[task_id] = CoordinatorTaskStatus.COMPLETED
                     results[task_id] = payload
                 elif attempts[task_id] <= task.retry_limit:
-                    statuses[task_id] = TaskStatus.PENDING
+                    statuses[task_id] = CoordinatorTaskStatus.PENDING
                 else:
-                    statuses[task_id] = TaskStatus.FAILED
+                    statuses[task_id] = CoordinatorTaskStatus.FAILED
                     results[task_id] = payload
 
-            if all(status in {TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.BLOCKED} for status in statuses.values()):
+            if all(status in {CoordinatorTaskStatus.COMPLETED, CoordinatorTaskStatus.FAILED, CoordinatorTaskStatus.BLOCKED} for status in statuses.values()):
                 break
 
         ordered_results = [results.get(task.task_id, {"task_id": task.task_id, "status": statuses[task.task_id]}) for task in tasks]
