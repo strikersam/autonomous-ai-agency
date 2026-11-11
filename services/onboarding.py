@@ -160,11 +160,7 @@ class OnboardingService:
             )
             
             # Update company onboarding status
-            company = company.model_copy(update={
-                "onboarding_status": "in_progress",
-                "onboarding_progress": progress.progress_percent / 100
-            })
-            await self.store.update_company(company)
+            company = await self._mark_status(company, progress, "in_progress")
             
             # Step 1: Create company (already done)
             progress.steps.append({
@@ -173,7 +169,14 @@ class OnboardingService:
                 "completed_at": datetime.now(timezone.utc).isoformat(),
                 "message": f"Company {company.name} created"
             })
-            
+
+            # The declared lifecycle is not_started -> in_progress -> scanning ->
+            # detected -> configured -> complete.  Write each state as the run
+            # reaches it so the stored status and the progress view stay truthful
+            # while onboarding is in flight, instead of collapsing to in_progress.
+            if (not skip_website_scan and website_urls) or (not skip_repo_scan and repo_urls):
+                company = await self._mark_status(company, progress, "scanning")
+
             try:
                 # Step 2: Scan websites
                 if not skip_website_scan and website_urls:
@@ -297,6 +300,7 @@ class OnboardingService:
                     "message": f"Detected {len(detected_system_types)} system types",
                     "details": {"system_types": list(detected_system_types)}
                 })
+                company = await self._mark_status(company, progress, "detected")
 
                 # Step 5: Provision specialists
                 if auto_provision_specialists:
@@ -335,6 +339,8 @@ class OnboardingService:
                         "details": {"workflows": [w.name for w in workflows]}
                     })
                 
+                company = await self._mark_status(company, progress, "configured")
+
                 # Step 7: Complete
                 progress.current_step = "complete"
                 progress.completed_steps = len(self.ONBOARDING_STEPS)
@@ -343,11 +349,7 @@ class OnboardingService:
                 progress.completed_at = datetime.now(timezone.utc)
                 
                 # Update company onboarding status
-                company = company.model_copy(update={
-                    "onboarding_status": "complete",
-                    "onboarding_progress": 1.0
-                })
-                await self.store.update_company(company)
+                company = await self._mark_status(company, progress, "complete")
                 
                 progress.steps.append({
                     "name": "complete",
@@ -394,15 +396,29 @@ class OnboardingService:
                 progress.completed_at = datetime.now(timezone.utc)
                 
                 # Update company onboarding status
-                company = company.model_copy(update={
-                    "onboarding_status": "failed",
-                    "onboarding_progress": progress.progress_percent / 100
-                })
-                await self.store.update_company(company)
+                company = await self._mark_status(company, progress, "failed")
                 
                 log.error(f"Onboarding failed for company {company_id}: {e}")
             
             return progress
+
+    async def _mark_status(
+        self, company: Company, progress: OnboardingProgress, status: str
+    ) -> Company:
+        """Persist a company onboarding state and the matching progress.
+
+        `Company.onboarding_status` is a declared lifecycle, so the run writes
+        `scanning`/`detected`/`configured` as it advances rather than leaving
+        those states declared-but-unused.
+        """
+        company = company.model_copy(
+            update={
+                "onboarding_status": status,
+                "onboarding_progress": progress.progress_percent / 100,
+            }
+        )
+        await self.store.update_company(company)
+        return company
 
     def _spawn_background(self, coro) -> "asyncio.Task":
         """Schedule a fire-and-forget background task, keeping a strong reference.
@@ -534,10 +550,30 @@ class OnboardingService:
                 completed_at=datetime.now(timezone.utc)
             )
         
+        # Granular mid-flight states say which phase is running; report them as
+        # in_progress at that phase instead of letting them fall through to the
+        # failure branch below.
+        # (current step, steps completed).  completed_steps is what
+        # resume_onboarding() uses to pick its next step, so these match what
+        # is actually finished rather than counting the running phase as done.
+        granular = {
+            "scanning": ("scan_websites", 1),
+            "detected": ("provision_specialists", 4),
+            "configured": ("complete", 6),
+        }
+        if company.onboarding_status in granular:
+            step_name, completed_steps = granular[company.onboarding_status]
+            return OnboardingProgress(
+                company_id=company_id,
+                current_step=step_name,
+                total_steps=len(self.ONBOARDING_STEPS),
+                completed_steps=completed_steps,
+                progress_percent=(completed_steps / len(self.ONBOARDING_STEPS)) * 100,
+                status="in_progress",
+                started_at=datetime.now(timezone.utc),
+            )
+
         # For in_progress or failed, try to get actual progress
-        # In a real implementation, this would be stored in the database
-        # For now, we'll return a basic progress based on company status
-        
         if company.onboarding_status == "in_progress":
             # Estimate progress based on what we have
             websites = await self.store.list_websites(company_id)
@@ -629,7 +665,10 @@ class OnboardingService:
         
         next_step = self.ONBOARDING_STEPS[next_step_index]["name"]
         
-        # Resume based on next step
+        # Resume based on next step. A phase with no work left falls through to
+        # the next one instead of ending the run: returning "complete" here used
+        # to skip detection, provisioning and workflow creation whenever a run
+        # stopped after the site scan (or before any website row existed).
         if next_step == "scan_websites":
             # Find websites that haven't been scanned
             websites = await self.store.list_websites(company_id)
@@ -644,7 +683,7 @@ class OnboardingService:
                     create_workflows=False
                 )
         
-        elif next_step == "scan_repositories":
+        if next_step in ("scan_websites", "scan_repositories"):
             # Find repos that haven't been scanned
             repos = await self.store.list_repos(company_id)
             unscreened = [r for r in repos if not r.last_scanned]
@@ -659,7 +698,7 @@ class OnboardingService:
                     create_workflows=False
                 )
         
-        elif next_step == "detect_systems":
+        if next_step in ("scan_websites", "scan_repositories", "detect_systems"):
             # Systems should be detected during scanning, so just move to next
             return await self.start_onboarding(
                 company_id=company_id,
@@ -671,7 +710,7 @@ class OnboardingService:
                 create_workflows=False
             )
         
-        elif next_step == "provision_specialists":
+        if next_step == "provision_specialists":
             return await self.start_onboarding(
                 company_id=company_id,
                 website_urls=[],
