@@ -1,3 +1,11 @@
+# NEXT_ACTION — updated 2026-11-08 (daily automation, PR #1913)
+
+**What shipped:** 3 new cost-catalogue entries (deepseek/deepseek-v4-flash-0731, mistralai/mistral-large-4-0, google/gemini-omni-1.2-flash). PR #1913 on `claude/intelligent-gates-luu41k`, auto-merge armed.
+
+## Open items
+
+1. Watch CI on PR #1913 — if green it should self-merge.
+2. Next daily run: check for newly-released models on openrouter.ai/models and verify any candidate against cost + API ID before adding.
 # NEXT_ACTION — updated 2026-11-11 (PR #1939: Gemini Omni 1.2 Flash)
 
 **What shipped on this branch:** `gemini-omni-1.2-flash` / `google/gemini-omni-1.2-flash` declared in `config/llm/models.yaml` and `packages/ai/cost_tracker.py` — a video-generation model ($1.50/$9.00 per MTok, 131 072-token context, 65 536 max output, priority 99, `supports_tools: false`, explicit-only and not a chat/tool routing candidate). The catalogue-size guard in `tests/test_daily_automation_2026_10_30.py` now expects 90 ids. Open items for the next run: get #1939 merged, then re-check OpenRouter for the first published text pricing for Omni 1.2.
