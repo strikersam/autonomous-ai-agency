@@ -1,4 +1,8 @@
-# NEXT_ACTION — updated 2026-11-10 (lifecycle status types validated)
+# NEXT_ACTION — updated 2026-11-11 (PR #1939: Gemini Omni 1.2 Flash)
+
+**What shipped on this branch:** `gemini-omni-1.2-flash` / `google/gemini-omni-1.2-flash` declared in `config/llm/models.yaml` and `packages/ai/cost_tracker.py` — a video-generation model ($1.50/$9.00 per MTok, 131 072-token context, 65 536 max output, priority 99, `supports_tools: false`, explicit-only and not a chat/tool routing candidate). The catalogue-size guard in `tests/test_daily_automation_2026_10_30.py` now expects 90 ids. Open items for the next run: get #1939 merged, then re-check OpenRouter for the first published text pricing for Omni 1.2.
+
+**Also on master (kept for continuity, not from this branch):** the lifecycle status-type work.
 
 **What shipped:** `packages/lifecycle/` declares 21 app lifecycles as validated data, with a registry, a guard and a generated map (`docs/lifecycles.md`); the task lifecycle and the workflow run's status now follow their declarations (slice stages `executing -> reviewing -> verifying -> executing`, no undeclared `report`, phase-driven status writes guarded). The two workspace managers now share one lifecycle declaration: `RESUMABLE_STATES` and `ACTIVE_STATES` live in `workspace/manifest.py` and `agent/workspace.py` imports them, so resuming an active workspace is an idempotent heartbeat in both. Company onboarding now writes the granular states it declares (scanning/detected/configured) and the progress view reports them. Findings: 6 -> 2. Ten lifecycles now also bind the enum or `Literal` that types their field, and `scripts/lifecycles.py check` fails when either side drifts.
 

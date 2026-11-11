@@ -352,6 +352,12 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # --- Google Gemini Omni 1.1 Flash (added 2026-09-22) ---
     # Video generation / editing model — pricing not yet published; tracked at $0.
     "gemini-omni-1.1-flash": (0.0, 0.0),
+    # --- Google Gemini Omni 1.2 Flash (added 2026-11-09) ---
+    # Successor to Omni 1.1; released on OpenRouter 2026-11-05.
+    # Text pricing: $1.50/$9.00 per MTok (confirmed openrouter.ai/google/gemini-omni-1.2-flash).
+    # Sources: openrouter.ai/google/gemini-omni-1.2-flash, 2026-11-05.
+    "gemini-omni-1.2-flash": (1.5, 9.0),
+    "google/gemini-omni-1.2-flash": (1.5, 9.0),  # OpenRouter id
     # --- NVIDIA NIM: DeepSeek V4.1-Flash (added 2026-09-22) ---
     # Same model as deepseek-flash on the DeepSeek API, served via NIM for free.
     "deepseek-ai/deepseek-v4.1-flash": (0.0, 0.0),
