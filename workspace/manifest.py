@@ -28,6 +28,12 @@ WorkspaceStatusLiteral = Literal[
     "cleaned",
 ]
 
+# Canonical lifecycle groupings.  These are the only definitions in the
+# codebase: agent/workspace.py imports them, so both managers answer
+# "can this be resumed?" and "is this still in use?" identically.
+# RESUMABLE includes "active" so resuming a running workspace is an
+# idempotent heartbeat rather than an error; ACTIVE is every state before
+# a terminal one, which cleanup must never touch.
 RESUMABLE_STATES: frozenset[WorkspaceStatusLiteral] = frozenset(
     {"ready", "active", "paused"}
 )

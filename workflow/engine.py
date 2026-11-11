@@ -47,8 +47,9 @@ import sqlite3
 import threading
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
+from packages.lifecycle import get_machine
 from workflow.artifact_store import ArtifactStore
 from workflow.models import (
     ApprovalGate,
@@ -83,6 +84,15 @@ _PRE_GATE_PHASES: list[PhaseType] = [
 
 # Phases executed after approval
 _POST_GATE_PHASES: list[PhaseType] = ["report"]
+
+#: The statuses a run may actually hold, read from its own type declaration so
+#: a new phase name can never silently become an undeclared status.
+_RUN_STATUSES: frozenset[str] = frozenset(get_args(WorkflowStatus))
+#: Statuses whose slice work reports its stage as the run's status.
+_ACTIVE_RUN_STATUSES: frozenset[str] = frozenset(
+    {"executing", "reviewing", "verifying", "failed"}
+)
+_RUN_LIFECYCLE = get_machine("workflow_run")
 
 # Mapping each phase to the correct agent role (mirrors phases.py)
 _PHASE_ROLE = {
@@ -684,13 +694,36 @@ class WorkflowEngine:
         run = self.get(run_id)
         if run and run.status not in ("cancelled", "failed"):
             await self._run_single_phase(run_id, "report")
-            with self._lock:
-                r = self._runs.get(run_id)
-                if r:
-                    r.status = "done"
-                    self._save(r)
-            self._log_event(run_id, "workflow_done", {})
-            log.info("WorkflowRun %s completed successfully", run_id)
+            # Guarded: a report phase that failed set the run to FAILED, and a
+            # blind assignment here used to overwrite that failure with DONE.
+            if self._set_run_status(run_id, "done"):
+                self._log_event(run_id, "workflow_done", {})
+                log.info("WorkflowRun %s completed successfully", run_id)
+
+    def _set_run_status(self, run_id: str, status: WorkflowStatus) -> bool:
+        """Persist a run status, refusing a move the declared lifecycle forbids.
+
+        A run status is a progress badge, so an undeclared move is logged and
+        skipped rather than raised: a status write must never abort work that
+        is already in flight. Returns True when the status changed.
+        """
+        with self._lock:
+            run = self._runs.get(run_id)
+            if run is None or run.status == status:
+                return False
+            previous = run.status
+            if not _RUN_LIFECYCLE.can(previous, status):
+                log.warning(
+                    "WorkflowRun %s: refusing undeclared status move %s -> %s "
+                    "(allowed: %s)",
+                    run_id, previous, status,
+                    ", ".join(_RUN_LIFECYCLE.allowed(previous)) or "none",
+                )
+                return False
+            run.status = status
+            self._save(run)
+        self._log_event(run_id, "status_changed", {"from": previous, "to": status})
+        return True
 
     def _check_phase_sequence(self, run: WorkflowRun, phase_type: PhaseType) -> None:
         """Raise PhaseSequenceError if a predecessor phase hasn't completed."""
@@ -719,7 +752,11 @@ class WorkflowEngine:
                 return
             phase.status = "running"
             phase.started_at = _now()
-            run.status = phase_type  # type: ignore[assignment]
+            # Only a phase that IS a run status may become one. The post-gate
+            # "report" phase used to be written here, persisting "report" — a
+            # value WorkflowStatus does not declare, so the API served it.
+            if phase_type in _RUN_STATUSES:
+                run.status = phase_type  # type: ignore[assignment]
             self._save(run)
 
         self._log_event(run_id, "phase_started", {"phase": phase_type})
@@ -820,8 +857,16 @@ class WorkflowEngine:
             sl.status = "running"
             sl.started_at = _now()
             self._save(run)
-
         self._log_event(run_id, "slice_started", {"slice_id": slice_id})
+        current = self.get(run_id)
+        # A done/cancelled run re-driven with force, or a pre-gate run driven
+        # manually, keeps its own status; only a live (or resumed) pipeline
+        # reports the slice's stage as the run status.
+        track_status = (
+            current is not None and current.status in _ACTIVE_RUN_STATUSES
+        )
+        if track_status:
+            self._set_run_status(run_id, "executing")
 
         try:
             run_snap = self.get(run_id)
@@ -830,21 +875,14 @@ class WorkflowEngine:
             sl_snap = run_snap.slice_by_id(slice_id)
             if sl_snap is None:
                 return
-            # Use AgentSwarm (enforces coder≠reviewer model invariant)
+            # Use AgentSwarm (enforces coder≠reviewer model invariant). The run
+            # status follows the stage so REVIEWING/VERIFYING are observable in
+            # the API and the dashboard instead of being declared-but-unused.
             if self._swarm is not None:
                 slice_art = await self._swarm.run_slice_execute(
                     run_id=run_id, sl=sl_snap,
                     routing=run_snap.model_routing,
                     prior_artifacts=run_snap.artifacts,
-                )
-                review_art = await self._swarm.run_slice_review(
-                    run_id=run_id, sl=sl_snap,
-                    routing=run_snap.model_routing,
-                    slice_artifact=slice_art,
-                )
-                check_run = await self._swarm.run_slice_verify(
-                    run_id=run_id, sl=sl_snap,
-                    routing=run_snap.model_routing,
                 )
             else:
                 slice_art = await self._phase_runner.run_slice_execute(
@@ -852,11 +890,30 @@ class WorkflowEngine:
                     routing=run_snap.model_routing,
                     prior_artifacts=run_snap.artifacts,
                 )
+
+            if track_status:
+                self._set_run_status(run_id, "reviewing")
+            if self._swarm is not None:
+                review_art = await self._swarm.run_slice_review(
+                    run_id=run_id, sl=sl_snap,
+                    routing=run_snap.model_routing,
+                    slice_artifact=slice_art,
+                )
+            else:
                 review_art = await self._phase_runner.run_slice_review(
                     run_id=run_id, sl=sl_snap,
                     routing=run_snap.model_routing,
                     slice_artifact=slice_art,
                 )
+
+            if track_status:
+                self._set_run_status(run_id, "verifying")
+            if self._swarm is not None:
+                check_run = await self._swarm.run_slice_verify(
+                    run_id=run_id, sl=sl_snap,
+                    routing=run_snap.model_routing,
+                )
+            else:
                 ws = Path(run_snap.workspace_root or str(self._workspace))
                 check_run = await self._phase_runner.run_slice_verify(
                     run_id=run_id, sl=sl_snap,
@@ -890,6 +947,10 @@ class WorkflowEngine:
             log.info(
                 "Slice complete: run=%s slice=%s status=%s", run_id, slice_id, status
             )
+            # Back to EXECUTING for the next slice (or the report phase). A run
+            # resting in REVIEWING/VERIFYING would misreport its progress.
+            if track_status:
+                self._set_run_status(run_id, "executing")
 
         except Exception as exc:
             log.exception(
@@ -907,6 +968,8 @@ class WorkflowEngine:
             self._log_event(
                 run_id, "slice_failed", {"slice_id": slice_id, "error": str(exc)}
             )
+            if track_status:
+                self._set_run_status(run_id, "executing")
 
     async def _verify_slice(self, run_id: str, slice_id: str) -> CheckRun | None:
         """Verify a single slice (no execute/review, just verify)."""

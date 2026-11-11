@@ -30,7 +30,7 @@ GET    /workflow/{run_id}/events               Get event log (queryable)
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, get_args
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -106,12 +106,9 @@ def list_runs(
     engine: WorkflowEngine = Depends(_engine),
 ) -> dict[str, Any]:
     """List all workflow runs, newest first."""
-    # Validate status if provided
-    valid_statuses = {
-        "pending", "context", "research", "investigate", "structure", "plan",
-        "awaiting_approval", "executing", "reviewing", "verifying",
-        "done", "failed", "cancelled",
-    }
+    # Validate against the declared type, so the filter cannot drift from the
+    # statuses the engine actually writes ("report" used to slip through here).
+    valid_statuses = frozenset(get_args(WorkflowStatus))
     if status and status not in valid_statuses:
         raise HTTPException(
             status_code=422,
