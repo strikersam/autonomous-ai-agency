@@ -17,6 +17,25 @@ def client() -> TestClient:
     return TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def _mock_brain_config(monkeypatch):
+    """Mock get_brain_config to return a default config (no persisted UI config).
+
+    This ensures tests are isolated from any brain config persisted in the
+    database from previous test runs or CI state. The resolver only honours
+    the DB config when `updated_at` is non-empty (i.e. an operator has
+    explicitly saved a config via the UI). A default config has empty
+    `updated_at`, so the resolver falls through to provider records / env.
+    """
+    from packages.ai.brain_config import BrainConfig, default_brain_config
+
+    async def _mock_get_brain_config():
+        return default_brain_config()
+
+    monkeypatch.setattr("packages.ai.brain_config.get_brain_config", _mock_get_brain_config)
+    monkeypatch.setattr("backend.server.get_brain_config", _mock_get_brain_config)
+
+
 def test_status_is_public_and_well_shaped(client):
     """No auth required; response carries the readiness contract keys."""
     resp = client.get("/api/autonomy/status")

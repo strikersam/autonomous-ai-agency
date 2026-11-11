@@ -3,6 +3,8 @@
      move the gate to root. -->
 
 ## [Unreleased]
+### Fixed
+- `tests/test_autonomy_status.py` — Fixed `test_no_brain_when_nvidia_key_absent` by mocking `get_brain_config()` to return a default config (with empty `updated_at`). The test was failing because a persisted brain config in the SQLite database from previous CI runs was being used by the resolver, causing `brain["configured"]` to be `True` even when NVIDIA API key and Ollama were both unset. The mock ensures test isolation by returning a default `BrainConfig` that the resolver correctly ignores (since `updated_at` is empty), allowing the test to verify the "no brain" contract.
 ### Changed
 - **Mistral Large 4 context window corrected to 524 288 and cache-read fraction added** (2026-11-06). Two fixes to the `mistral-large-4-0` catalogue entry. (1) `context_window` was set to 131 072 (a conservative initial value); OpenRouter and TypingMind both expose the model at 524 288 tokens — the API preview limit — while the model itself supports 1 M tokens. (2) No `_CACHE_READ_FRACTIONS` entry existed for `mistral-large-4-0`, so cached tokens fell through to no discount. Mistral bills cache reads at $0.14/MTok on a $1.36/MTok input rate (≈ 10 %); the fix adds `("mistral-large-4-0", 0.10)`. Open weights were released 2026-10-29 on Hugging Face under the Mistral Ecosystem Open-Weight License; the API is still labelled "public preview". Sources: mistral.ai pricing page capture 2026-10-22, openrouter.ai/mistralai/mistral-large-4-0, gradually.ai/en/ai-models/mistral-large-4, 2026-11-06. Files: `config/llm/models.yaml`, `packages/ai/cost_tracker.py`, `tests/test_daily_automation_2026_11_06.py`.
 ### Fixed
