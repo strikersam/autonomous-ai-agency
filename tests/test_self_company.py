@@ -79,6 +79,15 @@ class _Store:
         self.companies[company.id] = company
         return company
 
+    async def list_repos(self, cid):
+        return list(getattr(self, "repos", {}).get(cid, []))
+
+    async def list_detected_systems(self, company_id, system_type=None):
+        return list(getattr(self, "systems", {}).get(company_id, []))
+
+    async def delete_company(self, cid):
+        return self.companies.pop(cid, None) is not None
+
     async def list_specialists(self, cid):
         return list(self.specialists.get(cid, []))
 
@@ -150,8 +159,10 @@ def world(monkeypatch):
     monkeypatch.setattr(rc, "attach_repo_connection", fake_attach)
 
     class _Onboarding:
-        async def _scan_repo(self, cid, url):
+        async def _scan_repo(self, cid, url):  # a successful scan records the repo
             log["scanned"].append((cid, url))
+            store.repos = {**getattr(store, "repos", {}), cid: [SimpleNamespace(url=url)]}
+            store.systems = {**getattr(store, "systems", {}), cid: [SimpleNamespace(name="FastAPI")]}
 
     import services.onboarding as ob
     monkeypatch.setattr(ob, "get_onboarding_service", lambda: _Onboarding())
@@ -177,13 +188,13 @@ async def test_consolidation_keeps_one_platform_company_and_staffs_it(world):
 
     company = store.companies[keep]
     assert company.name == sc.COMPANY_NAME
-    assert company.domain == "local-llm-server.onrender.com"
+    assert company.domain == "autonomous-ai-agency.strikersam.workers.dev"  # the public site, not the API host
     assert company.repo_connection.default_branch == "master"
     assert log["attached"] == [(keep, "master")] and log["scanned"] == [(keep, REPO_URL)]
 
     families = {s.family for s in store.specialists[keep]}
-    assert families == {"backend", "frontend", "devops", "security", "qa", "data"}
-    assert sorted(log["agents_removed"]) == ["b-analytics", "b-seo"]
+    assert families == {"backend", "frontend", "devops", "security", "qa", "data", "seo"}
+    assert sorted(log["agents_removed"]) == ["b-analytics"]  # seo stays: the public site needs it
     assert log["activated"] == [keep]
 
 
@@ -320,3 +331,136 @@ async def test_reattaching_the_repo_keeps_token_ref_and_first_merge_consent(worl
     conn = store.companies["6a3cea2b"].repo_connection
     assert seen["token_ref"] == stored_ref
     assert conn.default_branch == "master" and conn.policy.first_merge_consent is True
+
+
+# ── production stall 2026-11-08: one hung teardown blocked the repair ────────
+
+async def test_a_hung_teardown_does_not_block_consolidation(world, monkeypatch):
+    """Production: delete_company of the second duplicate never returned, so
+    the repair never ran and two companies stayed. The row is deleted on
+    timeout (the orphan reaper finishes the teardown) and the repair runs."""
+    import asyncio
+
+    store, log = world
+
+    class _HungGraph:
+        async def delete_company(self, cid):
+            await asyncio.sleep(3600)
+
+    import services.company_graph as cg
+    monkeypatch.setattr(cg, "get_company_graph_service", lambda: _HungGraph())
+    monkeypatch.setattr(sc, "_DELETE_TIMEOUT_S", 0.05)
+
+    result = await sc.consolidate_self_companies(website_url=WEBSITE, repo_url=REPO_URL)
+
+    assert result["status"] == "consolidated"
+    assert sorted(result["removed"]) == ["6a3ce9f9", "6a9e9456"]
+    assert "6a9e9456" not in store.companies and "6a3ce9f9" not in store.companies
+    assert log["activated"] == ["6a3cea2b"]
+
+
+async def test_concurrent_consolidations_do_not_race(world, monkeypatch):
+    """Startup, the agency cycle and the background loop each call the
+    bootstrap; a second run while one is in flight is skipped."""
+    import asyncio
+
+    store, log = world
+
+    class _SlowGraph:  # real teardown awaits I/O; the fakes otherwise never yield
+        async def delete_company(self, cid):
+            await asyncio.sleep(0.05)
+            log["deleted"].append(cid)
+            store.companies.pop(cid, None)
+            return True
+
+    import services.company_graph as cg
+    monkeypatch.setattr(cg, "get_company_graph_service", lambda: _SlowGraph())
+    first, second = await asyncio.gather(
+        sc.consolidate_self_companies(website_url=WEBSITE, repo_url=REPO_URL),
+        sc.consolidate_self_companies(website_url=WEBSITE, repo_url=REPO_URL),
+    )
+    assert {first["status"], second["status"]} == {"consolidated", "in_progress"}
+    assert sorted(log["deleted"]) == ["6a3ce9f9", "6a9e9456"]
+
+
+async def test_duplicate_specialists_of_one_family_are_retired(world):
+    """Production 2026-11-08: two racing runs each added security and qa."""
+    store, log = world
+    store.specialists["6a3cea2b"] = [SimpleNamespace(id=f"k-{f}", family=f) for f in sc.TECH_FAMILIES] + [
+        SimpleNamespace(id="dup-security", family="security"), SimpleNamespace(id="dup-qa", family="qa")]
+    result = await sc.reconcile_specialists(store, "6a3cea2b")
+    assert sorted(result["removed"]) == ["qa", "security"]
+    assert sorted(log["deprovisioned"]) == ["dup-qa", "dup-security"]
+    assert sorted(s.family for s in store.specialists["6a3cea2b"]) == sorted(sc.TECH_FAMILIES)
+
+
+async def test_dedupe_keeps_the_healthy_specialist(world):
+    store, log = world
+    broken = SimpleNamespace(id="broken-qa", family="qa", is_provisioned=False, status="disabled")
+    good = SimpleNamespace(id="good-qa", family="qa", is_provisioned=True, status="active")
+    store.specialists["6a3cea2b"] = [SimpleNamespace(id=f"k-{f}", family=f) for f in sc.TECH_FAMILIES
+                                     if f != "qa"] + [broken, good]
+    await sc.reconcile_specialists(store, "6a3cea2b")
+    assert log["deprovisioned"] == ["broken-qa"]
+
+
+async def test_repair_rescans_when_the_graph_has_no_repo(world):
+    """Production 2026-11-08: the repo was connected, but every scan had run
+    unauthenticated and failed, so the Company page showed 0 repos/systems.
+    An already-connected company with no scanned repo is rescanned."""
+    store, log = world
+    await sc.consolidate_self_companies(website_url=WEBSITE, repo_url=REPO_URL)
+    store.repos = {}  # connected, but no scan ever succeeded
+    log["scanned"].clear()
+    log["activated"].clear()
+
+    result = await sc.consolidate_self_companies(website_url=WEBSITE, repo_url=REPO_URL)
+    assert log["scanned"] == [("6a3cea2b", REPO_URL)]
+    assert result["repo_rescanned"] is True and log["activated"] == ["6a3cea2b"]
+
+    log["scanned"].clear()
+    await sc.consolidate_self_companies(website_url=WEBSITE, repo_url=REPO_URL)
+    assert log["scanned"] == []  # scanned repo on record: nothing to do
+
+
+def test_repo_scanner_uses_the_platform_github_token(monkeypatch):
+    """Onboarding built RepoScanner(company_id) with no token: GitHub's
+    unauthenticated limit (60/h per IP) answered 403 to every scan."""
+    from packages.config.settings import settings
+    from services.scanner import RepoScanner
+
+    import uuid
+
+    configured, explicit = uuid.uuid4().hex, uuid.uuid4().hex  # opaque, not secrets
+    monkeypatch.setattr(settings, "gh_pat", configured)
+    assert RepoScanner("c1").github_token == configured
+    assert RepoScanner("c1", github_token=explicit).github_token == explicit
+    monkeypatch.setattr(settings, "gh_pat", "")
+    assert RepoScanner("c1").github_token is None
+
+
+async def test_duplicates_priorities_survive_consolidation(world):
+    """Production 2026-11-08: the operator's priorities were on a duplicate the
+    consolidation deleted. They are moved onto the kept company first."""
+    store, log = world
+    dup = store.companies["6a3ce9f9"]
+    store.companies["6a3ce9f9"] = dup.model_copy(update={"priorities": ["Rank in AI answers", "Ship weekly"]})
+    keep = store.companies["6a3cea2b"]
+    store.companies["6a3cea2b"] = keep.model_copy(update={"priorities": ["Ship weekly"]})
+
+    await sc.consolidate_self_companies(website_url=WEBSITE, repo_url=REPO_URL)
+
+    assert "6a3ce9f9" not in store.companies
+    assert store.companies["6a3cea2b"].priorities == ["Ship weekly", "Rank in AI answers"]
+
+
+async def test_repair_rescans_while_no_systems_are_recorded(world):
+    """A scanned repo with no detected systems (the old topic-only detection)
+    is rescanned, so the new file-based detection fills the systems list."""
+    store, log = world
+    await sc.consolidate_self_companies(website_url=WEBSITE, repo_url=REPO_URL)
+    store.systems = {}
+    log["scanned"].clear()
+
+    await sc.consolidate_self_companies(website_url=WEBSITE, repo_url=REPO_URL)
+    assert log["scanned"] == [("6a3cea2b", REPO_URL)]

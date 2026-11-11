@@ -6,6 +6,42 @@
 
 1. Watch CI on PR #1913 — if green it should self-merge.
 2. Next daily run: check for newly-released models on openrouter.ai/models and verify any candidate against cost + API ID before adding.
+# NEXT_ACTION — updated 2026-11-11 (PR #1939: Gemini Omni 1.2 Flash)
+
+**What shipped on this branch:** `gemini-omni-1.2-flash` / `google/gemini-omni-1.2-flash` declared in `config/llm/models.yaml` and `packages/ai/cost_tracker.py` — a video-generation model ($1.50/$9.00 per MTok, 131 072-token context, 65 536 max output, priority 99, `supports_tools: false`, explicit-only and not a chat/tool routing candidate). The catalogue-size guard in `tests/test_daily_automation_2026_10_30.py` now expects 90 ids. Open items for the next run: get #1939 merged, then re-check OpenRouter for the first published text pricing for Omni 1.2.
+
+**Also on master (kept for continuity, not from this branch):** the lifecycle status-type work.
+
+**What shipped:** `packages/lifecycle/` declares 21 app lifecycles as validated data, with a registry, a guard and a generated map (`docs/lifecycles.md`); the task lifecycle and the workflow run's status now follow their declarations (slice stages `executing -> reviewing -> verifying -> executing`, no undeclared `report`, phase-driven status writes guarded). The two workspace managers now share one lifecycle declaration: `RESUMABLE_STATES` and `ACTIVE_STATES` live in `workspace/manifest.py` and `agent/workspace.py` imports them, so resuming an active workspace is an idempotent heartbeat in both. Company onboarding now writes the granular states it declares (scanning/detected/configured) and the progress view reports them. Findings: 6 -> 2. Ten lifecycles now also bind the enum or `Literal` that types their field, and `scripts/lifecycles.py check` fails when either side drifts.
+
+## Open items
+
+1. Consider driving `clarify_task` through `TaskWorkflowService.transition` once needs_clarification has an incoming edge.
+2. Eleven lifecycles are still typed by plain strings (agent job, CEO goal/subtask/attempt, approval gate, onboarding, onboarding progress, scan, spec, specialist, task queue); declare a `status_type` when one gains an enum.
+
+---
+# NEXT_ACTION — updated 2026-11-06 (daily automation, branch `claude/intelligent-gates-x7y1ze`)
+
+**What shipped:** Mistral Large 4 (`mistral-large-4-0`) catalogue update — context window corrected to 524 288 (was 131 072), cache-read fraction added at 10 % (was missing, so cached tokens had 0 % discount). Open weights released 2026-10-29 noted in comments. 14 tests pass; all gates green. PR #1902 open, auto-merge armed (SQUASH).
+
+## Open items for next daily run
+
+1. **Confirm PR #1902 merged** — if CI is green it auto-merges. If red, investigate.
+2. **Gemini 4 Argon pricing** — introductory $2/$10/MTok ends 2026-11-30; standard $4/$20 starts 2026-12-01. Update `packages/ai/cost_tracker.py` before December.
+3. **Mistral Large 4 API context window** — currently 524 288; monitor Mistral's docs for an increase to the full 1 M. Raise priority from 62 once confirmed probed and not "public preview".
+4. **November model releases check** — no confirmed new text LLMs beyond what's in the catalogue as of 2026-11-06. Re-check on next run (Qwen 4, any OpenAI Nov release).
+5. **Render quota** — quota reset 2026-11-01; quiet-hours in keepalive/worker prevent repeat exhaustion. Monitor Render logs.
+# NEXT_ACTION — updated 2026-11-08 (free sandbox: Freestyle + provider chain)
+
+**Update:** chain is now freestyle → daytona → instabox → e2b (`SANDBOX_PROVIDERS`). Set `DAYTONA_API_KEY` / `INSTABOX_API_KEY` in Render to enable the fallbacks; none was exercised live (hosts blocked from the build container).
+
+**What shipped:** sandbox provider registry (`services/sandbox_providers.py`) with ordered failover (`SANDBOX_PROVIDER`, default `auto` = Freestyle first, then E2B); Freestyle VMs via REST (`services/freestyle_sandbox.py`). Branch `claude/optimistic-hawking-yrb1qe`.
+
+## Open items
+
+1. **Operator:** create a Freestyle account (Free plan, $1 refundable card check), put `FREESTYLE_API_KEY` in Render, keep `E2B_ENABLED=true`.
+2. First live run on Render: Freestyle's API was unreachable from the build container, so request shapes are verified only against the official TS SDK source (`freestyle@0.2.21`). Watch logs for `Sandbox opened on provider freestyle` / `Sandbox provider freestyle failed to open`.
+3. Freestyle caps one exec at 5 minutes; `AGENT_SANDBOX_INSTALL_DEPS` installs can hit it on big repos — a `FREESTYLE_SNAPSHOT` with deps baked in avoids that.
 
 ---
 # NEXT_ACTION — updated 2026-11-07 (Hallmark redesign, PR #1910)
@@ -53,3 +89,9 @@ Candidates deferred — verify before next run:
 - Row 50 (provider source of truth): P1-P4 require full pytest suite — needs backend deps.
 - Row 34 (TokenIn): blocked on Render billing.
 - Bug 16/17 (gate bypass, orchestrator): architecturally significant, needs human decision.
+
+## 2026-11-08 daily routine
+
+- Shipped: `verifier_reject` safety_event from `agent/write_gate.py::gated_write` (backlog #1892 item 1, second half; web_reach half was #1894). 2 tests in `tests/test_safety_events.py`.
+- Still open from #1892: item 1 workspace-boundary events (needs `agent/tools.py` = risky, rule 15), item 3 doctor `--network-only`, item 2 per-role effort, item 4 symlink audit (audit only, human gate).
+- Sandbox note: no MongoDB, so `tests/test_auth_me_regression.py` errors (pymongo connection refused) on master too. Use a venv (`python -m venv`) since Debian packages block pip.

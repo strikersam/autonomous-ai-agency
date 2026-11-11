@@ -1344,6 +1344,18 @@ class WebsiteScanner:
         except Exception:
             pass
         return list(set(sitemap_urls))
+
+
+def _default_github_token() -> Optional[str]:
+    """The platform's GitHub token (GH_PAT), or None when unset."""
+    try:
+        from packages.config.settings import settings
+
+        return settings.gh_pat or None
+    except Exception:  # noqa: BLE001 - scanning still works unauthenticated
+        return None
+
+
 class RepoScanner:
     """
     Scanner for detecting technology stack from Git repositories.
@@ -1364,7 +1376,10 @@ class RepoScanner:
             github_token: Optional GitHub personal access token for authenticated API calls
         """
         self.company_id = company_id
-        self.github_token = github_token
+        # Unauthenticated GitHub allows 60 requests/hour per IP, shared by every
+        # tenant on the host: onboarding scans failed with 403 because only the
+        # API endpoints passed a token. Fall back to the configured GH_PAT.
+        self.github_token = github_token or _default_github_token()
         self.user_agent = "AgencyCore/1.0 (Company Graph Repo Scanner)"
         self.timeout = 30.0
 
@@ -1525,6 +1540,11 @@ class RepoScanner:
                     
                     # Detect systems
                     detected_systems = self._detect_systems_from_github_data(repo_data)
+                    # Topics rarely name a stack; the repo's manifests do.
+                    from services.repo_systems import fetch_repo_systems
+                    known = {s.name for s in detected_systems}
+                    detected_systems += [s for s in await fetch_repo_systems(client, github_api_url)
+                                         if s.name not in known]
                     
                     completed_at = datetime.now(timezone.utc)
                     

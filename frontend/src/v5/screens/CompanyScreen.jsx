@@ -71,16 +71,17 @@ function CompanyHeader({ data, isPreview }) {
               { label: `${(data.systems || []).length} systems`, color: 'var(--accent)' },
               { label: `${(data.repos || []).length} repos`, color: 'var(--violet)' },
               { label: `${(data.specialists || []).filter(s => {
-                // BUG-27: count active/running specialists AND any specialist
-                // with a last_used_at timestamp within the last 24 hours
-                if (s.status === 'active' || s.status === 'running') return true;
+                // BUG-27: count specialists that can take work (provisioned ones
+                // report 'available' when idle, 'busy' when working) and any
+                // used in the last 24 hours. Idle is ready, not active.
+                if (['active', 'running', 'available', 'busy'].includes(s.status)) return true;
                 const last = s.last_used_at || s.lastRun;
                 if (last && last !== '—') {
                   const ms = new Date(last).getTime();
                   if (ms > 0 && (Date.now() - ms) < 24 * 3600 * 1000) return true;
                 }
                 return false;
-              }).length} agents active`, color: 'var(--success)' },
+              }).length} specialists ready`, color: 'var(--success)' },
             ].map(b => (
               <span key={b.label} style={{
                 fontSize:13, fontVariantNumeric:'tabular-nums', padding: '3px 10px', borderRadius: 999,
@@ -103,6 +104,62 @@ const PRIORITY_COLOR = { high: 'var(--danger)', medium: 'var(--warning)', low: '
 // SEO / GEO / AIO audit panel — runs a real crawl, shows the health score,
 // pillar scores, revenue-at-risk (model estimate, clearly labelled), the full
 // findings table, downloadable exports, and a one-click delegate-to-task-board.
+function PrioritiesEditor({ companyId, priorities, onSaved }) {
+  // One priority per line, most important first. Saved to the company; every
+  // 24x7 schedule reads them in rank order.
+  const [editing, setEditing] = React.useState(false);
+  const [text, setText] = React.useState('');
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState(null);
+  const start = () => { setText((priorities || []).join('\n')); setError(null); setEditing(true); };
+  const save = async () => {
+    setSaving(true); setError(null);
+    try {
+      const list = text.split('\n').map(l => l.trim()).filter(Boolean);
+      const { data } = await api.updateCompany(companyId, { priorities: list });
+      onSaved(data.company || data);
+      setEditing(false);
+    } catch (e) {
+      const detail = e?.response?.data?.detail;
+      setError(detail ? api.fmtErr(detail) : 'Could not save priorities.');
+    } finally { setSaving(false); }
+  };
+  const btn = {
+    padding: '6px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+    background: 'color-mix(in oklab, var(--accent) 10%, transparent)',
+    border: '1px solid color-mix(in oklab, var(--accent) 22%, transparent)', color: 'var(--accent)',
+  };
+  if (!editing) {
+    return (
+      <div style={{ marginTop: 12 }}>
+        {(priorities || []).length === 0 && (
+          <div style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 10 }}>
+            No priorities recorded. Add them so the agency's scheduled work follows them.
+          </div>
+        )}
+        <button type="button" style={btn} onClick={start}>
+          {(priorities || []).length ? 'Edit priorities' : 'Add priorities'}
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <label htmlFor="priorities-input" style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
+        One per line, most important first (up to 10)
+      </label>
+      <textarea id="priorities-input" rows={6} value={text} onChange={e => setText(e.target.value)}
+        style={{ padding: 10, borderRadius: 10, fontSize: 14, background: 'var(--bg-surface)',
+          color: 'var(--text-primary)', border: '1px solid color-mix(in oklab, var(--ink) 15%, transparent)' }}/>
+      {error && <div role="alert" style={{ fontSize: 13, color: 'var(--danger, #c0392b)' }}>{error}</div>}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button type="button" style={btn} onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</button>
+        <button type="button" style={{ ...btn, background: 'transparent' }} onClick={() => setEditing(false)} disabled={saving}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 function SeoAuditPanel({ companyId, defaultUrl }) {
   const [url, setUrl] = React.useState(defaultUrl || '');
   const [fetchMode, setFetchMode] = React.useState('auto');
@@ -457,16 +514,16 @@ function CompanyScreen() {
     (async () => {
       setLoadingCompany(true); setError(null);
       try {
+        // Specialists load alongside the company, not after it: one wait, not two.
+        const specialistsReq = api.listSpecialists(selectedCompanyId).catch(() => null);
         const { data } = await api.getCompany(selectedCompanyId);
         if (!mounted.current) return;
         setCompany(data.company || data);
         setGraph(data.graph || null);
         // Persist selection
         try { localStorage.setItem(COMPANY_ID_KEY, selectedCompanyId); } catch {}
-        try {
-          const sp = await api.listSpecialists(selectedCompanyId);
-          if (mounted.current) setSpecialists(sp.data?.specialists || (Array.isArray(sp.data) ? sp.data : []));
-        } catch { /* specialists are optional */ }
+        const sp = await specialistsReq; // specialists are optional
+        if (sp && mounted.current) setSpecialists(sp.data?.specialists || (Array.isArray(sp.data) ? sp.data : []));
       } catch (e) {
         if (!mounted.current) return;
         // PR #962: If the company 404s (e.g. DB was reset, company was deleted,
@@ -891,6 +948,8 @@ function CompanyScreen() {
               </div>
             ))}
           </div>
+          <PrioritiesEditor companyId={selectedCompanyId} priorities={d.priorities}
+            onSaved={updated => setCompany(updated)}/>
         </div>
       )}
 

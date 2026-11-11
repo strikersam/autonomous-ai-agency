@@ -295,8 +295,9 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # --- Mistral API (added 2026-09-19) ---
     # Pricing approximate; verify at mistral.ai/pricing before billing-sensitive use.
     # Mistral Large 4 ("Le Chonk", added 2026-10-09) — 1.05T MoE, 49B active.
-    # Preview list price: $1.36/$4.18 per MTok. Source: openrouter.ai/mistralai/
-    # mistral-large-4-0, techcrunch.com/2026/10/06, 2026-10-06.
+    # Standard price $1.36/$4.18 per MTok; launch 50 % sale ended ~2026-10-22.
+    # Open weights released 2026-10-29. Source: mistral.ai pricing capture 2026-10-22,
+    # openrouter.ai/mistralai/mistral-large-4-0, 2026-11-06.
     "mistral-large-4-0": (1.36, 4.18),      # Mistral Large 4 — $1.36/$4.18 per MTok
     # OpenRouter alias for Mistral Large 4 (added 2026-11-08).
     # Same pricing as the direct Mistral API ID above.
@@ -361,12 +362,12 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # --- Google Gemini Omni 1.1 Flash (added 2026-09-22) ---
     # Video generation / editing model — pricing not yet published; tracked at $0.
     "gemini-omni-1.1-flash": (0.0, 0.0),
-    # --- Google Gemini Omni 1.2 Flash on OpenRouter (added 2026-11-08) ---
-    # Released 2026-11-05. Multimodal video model (text+image+video input, text+video output).
-    # 131,072-token context. No tool/function calling support.
-    # Pricing: $1.50/$9.00 per MTok. Source: openrouter.ai/google/gemini-omni-1.2-flash,
-    # letsdatascience.com/news/google-launches-gemini-omni-12-flash*, 2026-11-08.
-    "google/gemini-omni-1.2-flash": (1.50, 9.00),  # OpenRouter router ID
+    # --- Google Gemini Omni 1.2 Flash (added 2026-11-09) ---
+    # Successor to Omni 1.1; released on OpenRouter 2026-11-05.
+    # Text pricing: $1.50/$9.00 per MTok (confirmed openrouter.ai/google/gemini-omni-1.2-flash).
+    # Sources: openrouter.ai/google/gemini-omni-1.2-flash, 2026-11-05.
+    "gemini-omni-1.2-flash": (1.5, 9.0),
+    "google/gemini-omni-1.2-flash": (1.5, 9.0),  # OpenRouter id
     # --- NVIDIA NIM: DeepSeek V4.1-Flash (added 2026-09-22) ---
     # Same model as deepseek-flash on the DeepSeek API, served via NIM for free.
     "deepseek-ai/deepseek-v4.1-flash": (0.0, 0.0),
@@ -443,6 +444,10 @@ _CACHE_READ_FRACTIONS: tuple[tuple[str, float], ...] = (
     # Groq: qwen/ and meta-llama/ are paid models with 50 % implicit cache discount.
     ("qwen/", 0.50),
     ("meta-llama/", 0.50),
+    # Mistral Large 4: cache reads at $0.14/MTok ≈ 10 % of $1.36/MTok input rate.
+    # Source: mistral.ai pricing page capture 2026-10-22; gradually.ai/en/ai-models/
+    # mistral-large-4, 2026-11-06.
+    ("mistral-large-4-0", 0.10),
     # OpenAI GPT-6.1 Sol: cache reads at $0.10/MTok = 5 % of $2.00/MTok input rate.
     # Source: openrouter.ai/openai/gpt-6.1-sol, 2026-10-10.
     ("gpt-6.1-sol", 0.05),

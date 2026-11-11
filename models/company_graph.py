@@ -1236,10 +1236,11 @@ class Company(BaseModel):
         description="Whether this company is active"
     )
     onboarding_status: Literal[
-        # Granular scan states
-        "not_started", "scanning", "detected", "configured",
-        # Lifecycle states written by OnboardingService.start_onboarding
-        "in_progress", "paused", "failed", "cancelled",
+        # Lifecycle states written by OnboardingService.start_onboarding, in
+        # the order the run reaches them (scanning/detected/configured are the
+        # granular phases; paused/failed can interrupt any of them)
+        "not_started", "in_progress", "scanning", "detected", "configured",
+        "paused", "failed", "cancelled",
         "complete",
         # Legacy state written by a previous deploy (PR #780) before #781
         # fixed the write to 'cancelled'. Accepted here so list_companies()
@@ -2035,6 +2036,10 @@ class CompanyUpdateRequest(BaseModel):
     """Request to update a company."""
     model_config = {"frozen": True, "extra": "forbid"}
     
+    priorities: list[str] | None = Field(
+        default=None,
+        description="Strategic priorities, most important first (replaces the list; max 10)"
+    )
     name: str | None = Field(
         default=None,
         description="Company name"

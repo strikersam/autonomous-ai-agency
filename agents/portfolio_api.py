@@ -14,7 +14,9 @@ Imports are kept minimal (no rbac) so the router can be unit-tested in isolation
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import threading
 import time
 from typing import Dict, List, Optional
 
@@ -127,18 +129,44 @@ class PortfolioService:
         self.portfolio: PortfolioManager = PortfolioManager()
         self._built_at: float = 0.0
         self._sources: Dict[str, int] = {}
+        # Builds run in a worker thread; one at a time, never on the event loop.
+        self._build_lock = threading.Lock()
 
     # -- intelligence build ---------------------------------------------------
     def refresh(self, **kwargs) -> None:
-        """Re-sweep all signals and rebuild the portfolio."""
+        """Re-sweep all signals and rebuild the portfolio (blocking: network I/O)."""
+        with self._build_lock:
+            self.refresh_unlocked(**kwargs)
+
+    def _stale(self) -> bool:
+        return self._built_at == 0.0 or (time.time() - self._built_at) > CACHE_TTL_SECONDS
+
+    def ensure_fresh(self) -> None:
+        """Build on first use or when the cached board has expired (blocking)."""
+        if self._stale():
+            with self._build_lock:
+                if self._stale():  # another caller may have rebuilt while we waited
+                    self.refresh_unlocked()
+
+    def refresh_unlocked(self, **kwargs) -> None:
+        """Rebuild; the caller holds ``_build_lock``."""
         self.portfolio = self.intelligence.build(**kwargs)
         self._sources = dict(self.intelligence.last_build)
         self._built_at = time.time()
 
-    def ensure_fresh(self) -> None:
-        """Build on first use or when the cached board has expired."""
-        if self._built_at == 0.0 or (time.time() - self._built_at) > CACHE_TTL_SECONDS:
-            self.refresh()
+    async def ensure_fresh_async(self) -> None:
+        """``ensure_fresh`` off the event loop.
+
+        The build makes blocking GitHub and trend calls (up to ~30 s). Run on
+        the event loop it froze every request, so Render's 5 s health check
+        failed and Cloudflare answered "invalid or incomplete response".
+        """
+        if self._stale():
+            await asyncio.to_thread(self.ensure_fresh)
+
+    async def refresh_async(self, **kwargs) -> None:
+        """``refresh`` off the event loop."""
+        await asyncio.to_thread(self.refresh, **kwargs)
 
     # -- board ----------------------------------------------------------------
     def board(self, *, horizon_capacity: int = DEFAULT_HORIZON_CAPACITY) -> BoardOut:
@@ -235,7 +263,7 @@ async def get_board(horizon_capacity: int = DEFAULT_HORIZON_CAPACITY) -> BoardOu
     running leaves the queue instead of reappearing as PROPOSED on every rebuild.
     """
     svc = get_service()
-    svc.ensure_fresh()
+    await svc.ensure_fresh_async()
     await _sync_and_log(svc)
     return svc.board(horizon_capacity=horizon_capacity)
 
@@ -279,7 +307,7 @@ async def refresh_board() -> BoardOut:
     flag PORTFOLIO_MATERIALIZE_ENABLED to disable).
     """
     svc = get_service()
-    svc.refresh()
+    await svc.refresh_async()
     materialized_ids = await _materialize_and_log(svc)
     await _sync_and_log(svc)
     board = svc.board()
@@ -294,7 +322,7 @@ async def materialize_portfolio() -> BoardOut:
     Same auth as /refresh (none — portfolio is read-only + system task creation).
     """
     svc = get_service()
-    svc.ensure_fresh()
+    await svc.ensure_fresh_async()
     materialized_ids = await _materialize_and_log(svc)
     await _sync_and_log(svc)
     board = svc.board()
@@ -313,7 +341,7 @@ async def reseed() -> BoardOut:
 async def add_initiative(body: InitiativeIn) -> InitiativeOut:
     """Add a manual initiative on top of the auto-generated portfolio."""
     svc = get_service()
-    svc.ensure_fresh()
+    await svc.ensure_fresh_async()
     init = svc.portfolio.add_initiative(
         body.title,
         business_value=body.business_value,
@@ -336,7 +364,7 @@ async def add_initiative(body: InitiativeIn) -> InitiativeOut:
 async def remove_initiative(initiative_id: str) -> None:
     """Remove an initiative from the portfolio (no-op if it is already gone)."""
     svc = get_service()
-    svc.ensure_fresh()
+    await svc.ensure_fresh_async()
     try:
         svc.portfolio.remove_initiative(initiative_id)
     except KeyError:

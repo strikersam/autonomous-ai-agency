@@ -433,7 +433,8 @@ the 512MB free-instance OOM ceiling.
 | `PORTFOLIO_MATERIALIZE_MAX` | `3` | Initiatives turned into tasks per intake pass (automatic or manual). Editable live in Settings → Platform controls. |
 | `PORTFOLIO_RETRY_MAX` | `2` | How many times a FAILED portfolio task is re-queued on its own before it waits for a human. `0` never retries. Editable live in Settings → Platform controls. |
 | `SESSION_RETRO_ENABLED` | `true` | Hourly, the task dispatcher mines recent agent sessions for failures that keep repeating and files each cluster as an improvement issue for the fix pipeline. No LLM calls. Editable live in Settings → Platform controls. |
-| `SELF_COMPANY_CONSOLIDATE_ENABLED` | `true` | At startup, merge every copy of the platform's own company into one (`services/self_company.py`). Copies are matched by a platform domain (Worker frontend, Render backend), the platform repo or a platform name, and only operator-, admin- or system-owned companies are touched. The best copy is kept (repo-connected, onboarded, most specialists, oldest); the others are deleted with their agents, schedules and open tasks. The survivor is renamed, connected to its repo on the real default branch, rescanned, and staffed with backend, frontend, devops, security, QA and data specialists (marketing-type ones are retired). Idempotent. Editable live in Settings → Platform controls. |
+| `SELF_COMPANY_CONSOLIDATE_ENABLED` | `true` | At startup, merge every copy of the platform's own company into one (`services/self_company.py`). Copies are matched by a platform domain (Worker frontend, Render backend), the platform repo or a platform name, and only operator-, admin- or system-owned companies are touched. The best copy is kept (repo-connected, onboarded, most specialists, oldest); the others are deleted with their agents, schedules and open tasks. The survivor is renamed, connected to its repo on the real default branch, rescanned, and staffed with backend, frontend, devops, security, QA, data and SEO specialists (marketing-type ones are retired). A duplicate whose teardown hangs is deleted after 60 s and the orphan reaper finishes it; concurrent runs are skipped. Idempotent. Editable live in Settings → Platform controls. |
+| `SELF_PUBLIC_SITE_URL` | `https://autonomous-ai-agency.strikersam.workers.dev` | The platform's public website (the Cloudflare Worker frontend). It is the platform company's domain, so the website health scan and the daily SEO/GEO/AEO/AIO audit target the site visitors and AI crawlers see, not the Render API host. Deploy wiring, env-only. |
 | `AGENT_MEMORY_ENABLED` | `true` | Per-agent memory (`services/agent_memory/`). Before a task, the agent's always-loaded index notes and the notes relevant to the task are appended to its instruction; afterwards each run is recorded as an episode and any `REMEMBER(kind): …` lines in the reply are kept as notes. No LLM calls. Editable live in Settings → Platform controls. |
 | `AGENT_MEMORY_INDEX_LINES` | `40` | Most notes in an agent's always-loaded index layer (5–200). Editable live. |
 | `AGENT_MEMORY_RECALL_K` | `5` | Task-relevant notes recalled from the deeper store per task (0–20). Editable live. |
@@ -573,6 +574,26 @@ enabled (`services/e2b_config.py` is the only reader of these variables).
 | `E2B_TEMPLATE` | `base` | Sandbox template. A custom template with the target repo's dependencies preinstalled lets `AGENT_EMPIRICAL_VERIFY` run its tests in the sandbox instead of skipping them for missing modules. |
 | `E2B_TIMEOUT_SEC` | `660` | Idle lifetime in seconds, clamped to 30–1800. Refreshed on every tool call (at most once a minute), so a busy run never loses its sandbox; keep it above `TASK_EXECUTION_TIMEOUT_SEC` (600). At the old 300s default the sandbox died mid-task and the task was re-queued in a loop. |
 | `E2B_SANDBOX_METADATA` | unset | Optional `key=value,key=value` metadata passed to the sandbox. |
+
+### Sandbox providers
+
+Sandboxes open through a provider registry (`services/sandbox_providers.py`).
+The `E2B_ENABLED` opt-in, `E2B_TIMEOUT_SEC` and `E2B_SANDBOX_METADATA` apply to every provider.
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `SANDBOX_PROVIDER` | `auto` | Ordered, comma-separated providers: each sandbox opens on the first that works and fails over to the next. Known, in `auto` order: `freestyle`, `daytona`, `instabox`, `e2b`. `auto` (default) = every provider with a key in that order. Providers without a key are skipped; naming only unkeyed ones logs a warning and turns sandboxing off. Live control (Settings → Platform controls → Governance). |
+| `FREESTYLE_API_KEY` | unset | Secret, env-only. [Freestyle](https://freestyle.sh) VMs; the Free plan gives 200 vCPU-hours and 400 GiB-hours of memory a month, never bills, and pauses VMs when the allowance runs out. |
+| `FREESTYLE_SNAPSHOT` | unset | Snapshot to boot from (the default is Freestyle's Ubuntu image with Python; `git` is installed at boot if missing). A snapshot with the target repo's dependencies preinstalled saves the per-task install. |
+| `FREESTYLE_API_URL` | `https://api.freestyle.sh` | Deploy wiring; override only for a proxy. |
+| `DAYTONA_API_KEY` | unset | Secret, env-only. [Daytona](https://daytona.io) sandboxes (SDK `daytona`). One-time $200 signup credit, then paid; a fallback. |
+| `DAYTONA_SNAPSHOT` / `DAYTONA_API_URL` | unset | Snapshot to boot from (default image when unset); API URL override. |
+| `INSTABOX_API_KEY` | unset | Secret, env-only. [InstaBox](https://instabox.sh) machines (SDK `instabox-sdk`). Free plan: one 4 vCPU / 8 GiB machine with no usage cap, but only one may exist at a time, so a second concurrent sandbox fails over to the next provider. Each machine is deleted when its task ends (and after 6 hours at most). |
+| `INSTABOX_SNAPSHOT` / `INSTABOX_API_URL` | unset | Snapshot id to boot from (default template `agent-browser`); API URL override. |
+
+A new provider reads `<NAME>_API_KEY`, `<NAME>_SNAPSHOT` and `<NAME>_API_URL` the same way.
+Freestyle limits: one command runs for at most 5 minutes (longer timeouts are clamped), and
+previews are served on a free `agency-<vm>-<port>.style.dev` host.
 
 ## Workspace Isolation
 

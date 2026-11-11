@@ -259,6 +259,15 @@ async def human_approval(runner: Any, tool: str, path: str, original: str, new: 
     return status is ApprovalStatus.APPROVED, f"{request.approval_id} {status.value}"
 
 
+def _report_rejection(tool: str, path: str) -> None:
+    """Tell operators the Verifier stopped a write. Fixed reason: the issues are model free text."""
+    try:
+        from services.otel_tracing import emit_safety_event
+        emit_safety_event("verifier_reject", f"{tool}:{path}", "verification did not pass")
+    except Exception:  # noqa: BLE001 - telemetry must never change the gate's outcome
+        pass
+
+
 async def gated_write(runner: Any, tool: str, args: dict[str, Any], *, goal: str, step: dict[str, Any],
                       verifier_model: str, user_id: str | None, memory_store: Any,
                       require_approval: bool = False) -> GateOutcome:
@@ -278,6 +287,7 @@ async def gated_write(runner: Any, tool: str, args: dict[str, Any], *, goal: str
         return GateOutcome({"path": path, "diff": "", "error": error} if tool == "edit_file" else f"[{tool} not applied: {error}]")
     passed, issues = await _verifier_verdict(runner, verifier_model, goal, step, path, original, new)
     if not passed:
+        _report_rejection(tool, path)
         listed = "; ".join(str(i) for i in issues[:5]) or "no reason given"
         return GateOutcome(f"[{tool} not applied: verification did not pass — {listed}]")
     if require_approval:
