@@ -14,6 +14,11 @@ from packages.ai.cost_tracker import cached_prompt_tokens, cost_for_tokens
         ({"prompt_tokens": 1000, "prompt_tokens_details": {"cached_tokens": 600}}, 600),
         ({"input_tokens": 1000, "input_tokens_details": {"cached_tokens": 400}}, 400),
         ({"prompt_tokens": 1000, "prompt_tokens_details": {"cached_tokens": None}}, 0),
+        # Malformed counts must not raise: a raise would skip cost, user-token and
+        # agent-spend recording in the router's cost hook, understating budgets.
+        ({"prompt_tokens": 1000, "prompt_tokens_details": {"cached_tokens": "many"}}, 0),
+        ({"prompt_tokens": 1000, "input_tokens_details": {"cached_tokens": [1]}}, 0),
+        ({"cache_read_input_tokens": "unreadable", "prompt_tokens": 1000}, 0),
         ({"prompt_tokens": 1000, "prompt_tokens_details": None}, 0),
         ({"prompt_tokens": 1000}, 0),
         ({}, 0),
@@ -43,3 +48,11 @@ def test_router_records_cost_from_the_shared_helper():
     src = inspect.getsource(ProviderRouter._try_one_provider)
     assert "cached_prompt_tokens(_usage)" in src
     assert '_usage.get("cache_read_input_tokens")' not in src
+
+
+def test_malformed_cache_counts_still_record_cost():
+    """A junk cached-token count reads as 0 tokens cached, so the response is
+    still billed at the full input rate instead of the charge being skipped."""
+    usage = {"prompt_tokens": 1_000_000, "prompt_tokens_details": {"cached_tokens": "junk"}}
+    cost = cost_for_tokens("gemini-4-argon", 1_000_000, 0, cached_prompt_tokens(usage))
+    assert cost == pytest.approx(cost_for_tokens("gemini-4-argon", 1_000_000, 0, 0))
