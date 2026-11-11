@@ -1,3 +1,15 @@
+# NEXT_ACTION — updated 2026-11-11 (post-merge: #1923 + #1913)
+
+**State:** both PRs squash-merged — #1923 → `f7b5bc83`, #1913 → `825f71ee`; master head `825f71ee` and every required check that runs on a push is green (`Security Gate` is PR-only by design).
+
+## Open items
+
+1. `graphify-out/GRAPH_REPORT.md` on master still names the pre-merge commit — regenerate with `graphify update .` and commit it (rule 39). The toolchain is not installed in the cloud sandbox, so the merged PRs carried master's copy.
+2. DeepSeek V4 Flash 0731 is priced at the top of its OpenRouter endpoint band ($0.130/$0.300) so estimates cannot understate; pin DigitalOcean's exact $0.119/$0.238 instead if the operator prefers an exact rate.
+3. Next daily run: check openrouter.ai/models for new releases and verify cost + API id before adding a catalogue entry.
+
+---
+
 # NEXT_ACTION — updated 2026-11-08 (daily automation, PR #1913)
 
 **What shipped:** 3 new cost-catalogue entries (deepseek/deepseek-v4-flash-0731, mistralai/mistral-large-4-0, google/gemini-omni-1.2-flash). PR #1913 on `claude/intelligent-gates-luu41k`, auto-merge armed.
