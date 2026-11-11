@@ -22,7 +22,7 @@ from typing import Callable, Optional
 log = logging.getLogger("research_coordinator")
 
 
-class TaskStatus(str, Enum):
+class ResearchTaskStatus(str, Enum):
     """Lifecycle states for a research task."""
 
     PENDING = "pending"
@@ -50,7 +50,7 @@ class ResearchTask:
     task_id: str
     question: str
     role: AgentRole
-    status: TaskStatus = TaskStatus.PENDING
+    status: ResearchTaskStatus = ResearchTaskStatus.PENDING
     depends_on: list[str] = field(default_factory=list)
     result: Optional[str] = None
     error: Optional[str] = None
@@ -60,21 +60,21 @@ class ResearchTask:
 
     def is_ready(self, completed_ids: set[str]) -> bool:
         """Returns True when every dependency has completed."""
-        if self.status != TaskStatus.PENDING:
+        if self.status != ResearchTaskStatus.PENDING:
             return False
         return all(dep in completed_ids for dep in self.depends_on)
 
     def mark_running(self) -> None:
-        self.status = TaskStatus.RUNNING
+        self.status = ResearchTaskStatus.RUNNING
         self.started_at = datetime.now()
 
     def mark_completed(self, result: str) -> None:
-        self.status = TaskStatus.COMPLETED
+        self.status = ResearchTaskStatus.COMPLETED
         self.result = result
         self.completed_at = datetime.now()
 
     def mark_failed(self, error: str) -> None:
-        self.status = TaskStatus.FAILED
+        self.status = ResearchTaskStatus.FAILED
         self.error = error
         self.completed_at = datetime.now()
 
@@ -206,13 +206,13 @@ class ResearchOrchestrator:
 
     def _ready_tasks(self) -> list[ResearchTask]:
         completed = {tid for tid, t in self.tasks.items()
-                     if t.status == TaskStatus.COMPLETED}
+                     if t.status == ResearchTaskStatus.COMPLETED}
         return [t for t in self.tasks.values() if t.is_ready(completed)]
 
     def _context(self) -> dict[str, str]:
         return {tid: t.result or ""
                 for tid, t in self.tasks.items()
-                if t.status == TaskStatus.COMPLETED}
+                if t.status == ResearchTaskStatus.COMPLETED}
 
     def run(self, max_iterations: int = 100) -> dict[str, ResearchTask]:
         """Execute the DAG until all tasks resolve or no progress is possible."""
@@ -223,11 +223,11 @@ class ResearchOrchestrator:
             for task in ready:
                 agent = self._pick_agent(task.role)
                 if agent is None:
-                    task.status = TaskStatus.BLOCKED
+                    task.status = ResearchTaskStatus.BLOCKED
                     task.error = f"no agent for role {task.role.value}"
                     continue
                 agent.execute(task, self._context())
-                if task.status == TaskStatus.COMPLETED:
+                if task.status == ResearchTaskStatus.COMPLETED:
                     self.history.append(task.task_id)
         return self.tasks
 
@@ -236,12 +236,12 @@ class ResearchOrchestrator:
     def synthesize(self) -> str:
         """Return the final synthesized answer, or a status report if blocked."""
         synth = self.tasks.get("synthesize")
-        if synth and synth.status == TaskStatus.COMPLETED:
+        if synth and synth.status == ResearchTaskStatus.COMPLETED:
             return synth.result or ""
         # fallback: stitch whatever completed
         parts = [
             f"[{tid}] {t.result}" for tid, t in self.tasks.items()
-            if t.status == TaskStatus.COMPLETED and t.result
+            if t.status == ResearchTaskStatus.COMPLETED and t.result
         ]
         if parts:
             return "\n\n".join(parts)
@@ -249,7 +249,7 @@ class ResearchOrchestrator:
 
     def status(self) -> dict[str, int]:
         """Status counts across all tasks."""
-        counts: dict[str, int] = {s.value: 0 for s in TaskStatus}
+        counts: dict[str, int] = {s.value: 0 for s in ResearchTaskStatus}
         for t in self.tasks.values():
             counts[t.status.value] += 1
         return counts

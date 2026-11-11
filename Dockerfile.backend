@@ -16,7 +16,15 @@ RUN CI=false npm run build
 FROM python:3.13-slim
 
 # git is required by mcp_server workspace tools (clone_repo, git_commit, etc.)
-RUN apt-get update && apt-get install -y --no-install-recommends git && rm -rf /var/lib/apt/lists/*
+# libatomic1 is required by the Node binary bundled in the Playwright wheel since
+# playwright 1.65.0: it links libatomic.so.1, which the Debian slim base does not
+# ship (libstdc++/libgcc are there; only libatomic is missing). It has to be
+# installed HERE, before the `playwright install --with-deps` layer below: that
+# command cannot run its own apt step until the driver's Node starts, so without
+# this the build dies on `node: error while loading shared libraries:
+# libatomic.so.1` (exit 127) and never installs any browser deps at all.
+RUN apt-get update && apt-get install -y --no-install-recommends git libatomic1 \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
