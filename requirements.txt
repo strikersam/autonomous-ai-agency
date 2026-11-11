@@ -47,7 +47,7 @@ reportlab>=5.1.0,<6  # CTO-level PDF export for SEO/GEO/AEO/AIO audit reports
 # E2B Firecracker micro-VM sandbox (roadmap ★5). Optional — imports are guarded
 # so the deploy works without it; install to enable sandboxed agent execution.
 # Auto-on when E2B_API_KEY is set; kill-switch E2B_ENABLED=false.
-e2b-code-interpreter>=2.11.6,<3.0.0
+e2b-code-interpreter>=2.11.9,<3.0.0
 # Fallback sandbox providers (services/sandbox_providers.py); optional at runtime.
 daytona>=0.231.0,<1.0.0
 instabox-sdk>=0.4.0,<1.0.0
