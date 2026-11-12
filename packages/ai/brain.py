@@ -46,6 +46,30 @@ def allow_paid_brain() -> bool:
     return os.environ.get("ALLOW_PAID_BRAIN", "").strip().lower() in _TRUTHY
 
 
+_FALSY = {"0", "false", "no", "off"}
+
+
+def bedrock_disabled() -> bool:
+    """True unless the operator explicitly switched the Bedrock kill switch off.
+
+    Amazon Bedrock bills the AWS account directly. ``BEDROCK_DISABLED`` defaults
+    to on and overrides every other gate (``ALLOW_PAID_BRAIN``,
+    ``BEDROCK_BRAIN_ENABLED``, AWS credentials in the environment): while it is
+    on, no code path registers, selects or calls a Bedrock provider. Read at
+    call time so a Platform-controls override takes effect without a restart.
+    """
+    return os.environ.get("BEDROCK_DISABLED", "true").strip().lower() not in _FALSY
+
+
+def is_bedrock_endpoint(provider_id: str = "", base_url: str = "", kind: str = "") -> bool:
+    """True when a provider's id, type or URL says it is served by Amazon Bedrock."""
+    return (
+        (kind or "").lower() == "bedrock"
+        or (provider_id or "").lower().startswith("bedrock")
+        or "bedrock" in (base_url or "").lower()
+    )
+
+
 def get_brain_preference() -> str:
     """Return the operator's brain provider preference.
 

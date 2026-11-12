@@ -123,6 +123,7 @@ See [docs/claude-code-setup.md](claude-code-setup.md) for full Claude Code setup
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `BEDROCK_DISABLED` | `true` | Kill switch for Amazon Bedrock. While it is on, no path registers, selects or calls a Bedrock provider: the provider router (`AWS_ACCESS_KEY_ID` + `ALLOW_PAID_BRAIN`), the agent loop's Bedrock fallback, and the gateway's `bedrock` provider (`BEDROCK_BRAIN_ENABLED`) are all blocked, whatever those settings say. Set it to `false` only to use Bedrock on purpose. Also in Settings → Platform controls; takes effect without a restart. |
 | `BEDROCK_BRAIN_ENABLED` | `false` | Adds Amazon Bedrock (`qwen.qwen3-coder-next` on the OpenAI-compatible Mantle endpoint) to the agent brain's provider pool. Its models are billed to the AWS account but marked `paid_opt_in`, so they serve while `ALLOW_PAID_BRAIN` stays off and the Anthropic API stays closed. Also in Settings → Platform controls; takes effect on restart. |
 | `AWS_BEARER_TOKEN_BEDROCK` | _(unset)_ | Bedrock API key (bearer). Secret: Render env only. Without it the provider is skipped. |
 | `AWS_REGION` | `us-east-1` | Region in the Bedrock endpoint URL. |

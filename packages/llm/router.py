@@ -39,6 +39,7 @@ from packages.llm.config import (
     LLMConfig,
     ModelConfig,
     ProviderConfig,
+    bedrock_blocked,
     get_config,
 )
 from packages.llm.context import ContextManager, build_summariser
@@ -392,6 +393,8 @@ class LLMRouter:
         for provider_id, provider in self._providers.items():
             config = provider.config
             if provider_id in switched_off:
+                continue
+            if bedrock_blocked(config):  # live kill switch, checked per request
                 continue
             if provider_id in request.exclude_providers:
                 continue
@@ -1011,6 +1014,8 @@ class LLMRouter:
         )
         results: list[dict[str, Any]] = []
         for provider in targets:
+            if bedrock_blocked(provider.config):  # no probe either while the switch is on
+                continue
             keys = resolve_keys(provider.config.key_env)
             api_key = keys[0] if keys else ""
             probe = await provider.health(api_key=api_key, client=client)
@@ -1033,6 +1038,8 @@ class LLMRouter:
         client = await self._http()
         discovered: dict[str, list[str]] = {}
         for provider in self._providers.values():
+            if bedrock_blocked(provider.config):
+                continue
             keys = resolve_keys(provider.config.key_env)
             api_key = keys[0] if keys else ""
             try:

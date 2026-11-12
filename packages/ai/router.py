@@ -1096,9 +1096,14 @@ class ProviderRouter:
         # opted into paid brains (ALLOW_PAID_BRAIN), the same gate the agent loop
         # and model router already apply. Without it, AWS credentials in the
         # environment resurrected Bedrock on every boot even after it was removed.
-        from packages.ai.brain import allow_paid_brain
+        from packages.ai.brain import allow_paid_brain, bedrock_disabled
 
-        if aws_access_key and aws_secret_key and allow_paid_brain():
+        if (
+            aws_access_key
+            and aws_secret_key
+            and allow_paid_brain()
+            and not bedrock_disabled()
+        ):
             aws_region = (
                 os.environ.get("AWS_REGION")
                 or os.environ.get("AWS_DEFAULT_REGION")
@@ -2155,6 +2160,12 @@ class ProviderRouter:
         payload: dict[str, Any],
         timeout_sec: float = 300.0,
     ) -> httpx.Response:
+        # Last line of defence: a router built with an explicit Bedrock provider
+        # (not via from_env) must still honour the kill switch.
+        from packages.ai.brain import bedrock_disabled
+
+        if bedrock_disabled():
+            raise RuntimeError("Bedrock is disabled (BEDROCK_DISABLED)")
         try:
             import boto3
         except ImportError as exc:
