@@ -40,6 +40,7 @@
 ---
 
 | 117 | Decide DeepSeek V4 Flash 0731 pricing precision | `TODO` (operator decision) | `packages/ai/cost_tracker.py` | Currently `(0.130, 0.300)`, the top of the OpenRouter endpoint band, so estimates never understate. Pin DigitalOcean's exact `(0.119, 0.238)` if a centre-of-band figure is preferred; `MODEL_COST_INPUT` / `MODEL_COST_OUTPUT` still override. | 2026-11-11 |
+
 ## Bug Log
 
 | # | Bug Description | Found | Fixed | PR | Status |
