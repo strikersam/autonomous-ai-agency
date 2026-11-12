@@ -8809,16 +8809,37 @@ async def clear_response_cache(user: dict = Depends(get_current_user)) -> dict[s
 
 
 @app.get("/api/metrics/cost-attribution")
-async def cost_attribution_stats(user: dict = Depends(get_current_user)) -> dict[str, object]:
+async def cost_attribution_stats(
+    group_by: str | None = None,
+    user: dict = Depends(get_current_user),
+) -> dict[str, object]:
     """Per-model cost attribution — token usage and estimated USD spend.
 
     Aggregates are in-memory and reset on restart.  Cost estimates use a
     built-in per-million-token table (see packages/ai/cost_tracker.py) that
     can be overridden via MODEL_COST_INPUT / MODEL_COST_OUTPUT env vars.
     Requires authentication.
+
+    Optional ``group_by=model|tag`` adds ``group_by`` and a ``groups`` list
+    (one row per model or task tag, ranked by spend).  Without it the response
+    is unchanged, byte for byte.  ``provider`` is not accepted: the aggregates
+    keep a provider *set* per model, so spend cannot be split between providers.
     """
     from packages.ai.cost_tracker import get_stats
-    return get_stats()
+    snapshot = get_stats()
+    if group_by is None:
+        return snapshot
+    from services.cost_attribution import GROUP_BY_CHOICES, group_cost_snapshot
+    if group_by not in GROUP_BY_CHOICES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"group_by must be one of: {', '.join(GROUP_BY_CHOICES)}",
+        )
+    return {
+        **snapshot,
+        "group_by": group_by,
+        "groups": group_cost_snapshot(snapshot, group_by),
+    }
 
 
 @app.get("/api/metrics/cost-table")
