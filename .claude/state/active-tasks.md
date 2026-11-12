@@ -39,8 +39,8 @@
 
 ---
 
-| 116 | Regenerate `graphify-out/GRAPH_REPORT.md` on master (rule 39) | `TODO` | `master` | Master `825f71ee` carried the pre-merge report: the cloud sandbox has no `graphify` toolchain. Run `python -m pip install graphifyy && graphify install && graphify update .` and commit the report on a `chore:` PR. | 2026-11-11 |
 | 117 | Decide DeepSeek V4 Flash 0731 pricing precision | `TODO` (operator decision) | `packages/ai/cost_tracker.py` | Currently `(0.130, 0.300)`, the top of the OpenRouter endpoint band, so estimates never understate. Pin DigitalOcean's exact `(0.119, 0.238)` if a centre-of-band figure is preferred; `MODEL_COST_INPUT` / `MODEL_COST_OUTPUT` still override. | 2026-11-11 |
+
 ## Bug Log
 
 | # | Bug Description | Found | Fixed | PR | Status |
