@@ -276,4 +276,58 @@ def get_cost_attributor() -> CostAttributor:
     global _attributor
     if _attributor is None:
         _attributor = CostAttributor()
-    return _attrib
+    return _attributor
+
+
+# ── Grouping a cost_tracker snapshot ──────────────────────────────────────────
+#
+# `cost_tracker.get_stats()` is what `/api/metrics/cost-attribution` serves: it
+# keeps per-model aggregates (with the set of providers that served each model),
+# per-tag aggregates, and totals. Two groupings can be answered from that data
+# without inventing numbers, so those are the two offered here.
+#
+# Not offered, deliberately:
+#   • provider — a model's entry keeps a provider *set*, not a per-provider
+#     split, so a model served by several providers cannot have its spend
+#     divided between them from these aggregates.
+#   • a time window — the aggregates carry no timestamps at all.
+
+GROUP_BY_CHOICES: tuple[str, ...] = ("model", "tag")
+
+
+def group_cost_snapshot(snapshot: dict[str, Any], group_by: str) -> list[dict[str, Any]]:
+    """Flatten a ``cost_tracker.get_stats()`` snapshot into one ranked list.
+
+    Returns rows of ``{key, calls, total_tokens, estimated_cost_usd}`` sorted by
+    spend (descending), so a caller can render a report without re-deriving it.
+    Raises ``ValueError`` for a grouping the aggregates cannot support; the
+    endpoint validates first, so that is a programming error, not a user one.
+    """
+    if group_by == "model":
+        rows = [
+            {
+                "key": model,
+                "calls": entry["calls"],
+                "total_tokens": entry["total_tokens"],
+                "estimated_cost_usd": entry["estimated_cost_usd"],
+            }
+            for model, entry in (snapshot.get("models") or {}).items()
+        ]
+    elif group_by == "tag":
+        rows = [
+            {
+                "key": tag,
+                "calls": entry["calls"],
+                "total_tokens": entry["total_tokens"],
+                "estimated_cost_usd": entry["estimated_cost_usd"],
+            }
+            for tag, entry in (snapshot.get("by_tag") or {}).items()
+        ]
+    elif group_by == "provider":
+        raise ValueError(
+            "group_by=provider is not derivable: a model's cost_tracker entry keeps the "
+            "providers that served it as a set, so its spend cannot be split between them"
+        )
+    else:
+        raise ValueError(f"unsupported group_by {group_by!r}; choose one of {GROUP_BY_CHOICES}")
+    return sorted(rows, key=lambda row: (-row["estimated_cost_usd"], str(row["key"])))
