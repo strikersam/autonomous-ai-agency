@@ -1,7 +1,7 @@
 # Graph Report - local-llm-server  (2026-11-12)
 
 ## Corpus Check
-- 1243 files · ~1,389,645 words
+- 1243 files · ~1,389,757 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 58 file(s) not represented in the graph (top: (none) 20, .css 5, .bat 5)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `6601c8d0`
+- Built from commit: `978b8719`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -1471,7 +1471,7 @@ Nodes (9): FailureCategory, heal_signature(), HealingEvent, HealState, _now(), S
 
 ### Community 67 - "main"
 Cohesion: 0.06
-Nodes (26): NEXT_ACTION — 2026-11-11, append_checkpoint(), _build_claude_command(), cmd_audit(), cmd_changelog_check(), cmd_logs(), cmd_manifest(), cmd_resume() (+18 more)
+Nodes (26): NEXT_ACTION — 2026-11-12, append_checkpoint(), _build_claude_command(), cmd_audit(), cmd_changelog_check(), cmd_logs(), cmd_manifest(), cmd_resume() (+18 more)
 
 ### Community 68 - "coordinator.py"
 Cohesion: 0.06

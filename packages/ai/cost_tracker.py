@@ -277,6 +277,11 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # lists $0.119/$0.238.
     # Sources: openrouter.ai/deepseek/deepseek-v4-flash-0731 (per-provider table),
     # afit.ai/prices/models/deepseek/deepseek-v4-flash-0731, 2026-11-11.
+    # Settled 2026-11-12: the band top is the decision, not a placeholder. An
+    # estimate that is too high only over-reserves; one that is too low lets a
+    # task run past its budget unseen. Do not "correct" this to a single
+    # endpoint's rate (DigitalOcean's $0.119/$0.238) without changing that
+    # policy: MODEL_COST_INPUT / MODEL_COST_OUTPUT are the exact-rate overrides.
     "deepseek/deepseek-v4-flash-0731": (0.130, 0.300),  # OpenRouter router ID
     # --- Groq: Llama 4 Scout 17B 16E (added 2026-10-04) ---
     # Distinct from NVIDIA NIM's free "meta/llama-4-scout-17b-16e-instruct" ($0/$0).

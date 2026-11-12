@@ -1,5 +1,5 @@
-# NEXT_ACTION — 2026-11-11
+# NEXT_ACTION — 2026-11-12
 
-No pending action from this session. #1923 (`f7b5bc83`) and #1913 (`825f71ee`) are merged and master is green.
+No pending action. #1923 (`f7b5bc83`), #1913 (`825f71ee`), the regenerated graph report (`262c591f`) and the DeepSeek rate decision are all on master, with no open follow-ups left from this session.
 
-The follow-ups that must outlive `update_next_action` live in `.claude/state/active-tasks.md` row 117 (decide the DeepSeek rate precision); the graph-report task (row 116) closed in #1947. This file is intentionally a pointer: the runner replaces its contents wholesale.
+Next session: start from `openrouter.ai/models` for the daily catalogue pass. This file is a pointer — `update_next_action` replaces it wholesale, so durable items belong in `.claude/state/active-tasks.md`.
