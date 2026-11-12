@@ -218,6 +218,18 @@ def test_apply_overrides_refreshes_the_settings_singleton(clean_overrides):
     assert settings.governance_enabled is True
 
 
+def test_model_auto_heal_override_takes_effect(clean_overrides):
+    from packages.ai import model_retirement
+    from packages.config import settings
+
+    control_overrides.apply_overrides({"MODEL_AUTO_HEAL_ENABLED": "false"})
+    assert settings.model_auto_heal_enabled is False
+    assert model_retirement.auto_heal_enabled() is False
+
+    control_overrides.apply_overrides({"MODEL_AUTO_HEAL_ENABLED": "true"})
+    assert model_retirement.auto_heal_enabled() is True
+
+
 def test_settings_refresh_preserves_a_generated_jwt_secret(clean_overrides, monkeypatch):
     """Re-running Settings.__init__ mints a new random secret when SECRET_KEY is
     unset. Carrying the old one across is what stops an unrelated toggle save

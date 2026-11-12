@@ -322,6 +322,9 @@ class Settings:
         # (fetch_url, youtube_transcript, web_search, fetch_rss, browse_page).
         # Default on; when off the tools refuse and drop out of the tool prompt.
         self.web_reach_enabled_raw: str = os.environ.get("WEB_REACH_ENABLED", "true")
+        # MODEL_AUTO_HEAL_ENABLED — move stored model choices off ids a provider
+        # has retired (packages/ai/model_retirement.py). Default on.
+        self.model_auto_heal_raw: str = os.environ.get("MODEL_AUTO_HEAL_ENABLED", "true")
         # AGENT_TOOL_OUTPUT_OFFLOAD — keep the full text of tool output the agent
         # loop shortens, retrievable via read_tool_output. Default on.
         self.agent_tool_output_offload_raw: str = os.environ.get(
@@ -517,6 +520,11 @@ class Settings:
     def governance_session_grants_enabled(self) -> bool:
         """When True, an approval may be widened into a session-scoped grant."""
         return self.governance_session_grants_enabled_raw in {"1", "true", "yes", "on"}
+
+    @property
+    def model_auto_heal_enabled(self) -> bool:
+        """False only when an operator switched retired-model auto-replacement off."""
+        return self.model_auto_heal_raw.strip().lower() not in {"0", "false", "no", "off"}
 
     @property
     def task_verification_required(self) -> bool:

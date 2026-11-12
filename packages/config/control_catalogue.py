@@ -464,6 +464,17 @@ _BRAIN_ROUTING: tuple[ControlSpec, ...] = (
         live=True,
         risk=RISK_MEDIUM,
     ),
+    _toggle(
+        "MODEL_AUTO_HEAL_ENABLED",
+        "Replace retired models automatically",
+        "brain_routing",
+        "true",
+        "When a provider retires a model (it answers 404/410 on real calls and "
+        "drops out of the provider's own model list), the saved brain config and "
+        "provider defaults move to a live model on that provider. Applies to every "
+        "provider. Off: a retired model stays configured until changed by hand.",
+        live=True,
+    ),
     ControlSpec(
         key="DENIED_MODEL_IDS",
         label="Denied model ids",

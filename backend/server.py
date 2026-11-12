@@ -2081,6 +2081,15 @@ async def lifespan(app_: "FastAPI"):
         except Exception as exc:
             log.warning("Brain config safe-default migration failed (non-fatal): %s", exc)
 
+    # Move stored model choices off ids a provider has retired, for every
+    # provider, from live evidence instead of the hand-kept list above.
+    try:
+        if os.environ.get("TESTING", "").strip().lower() not in ("1", "true", "yes"):
+            from packages.ai.model_retirement import auto_heal_loop
+            extra_tasks.append(asyncio.create_task(auto_heal_loop(_model_retirement_probes)))
+    except Exception as exc:  # pragma: no cover - defensive
+        log.warning("Model retirement loop start failed (non-fatal): %s", exc)
+
     try:
         extra_tasks.append(asyncio.create_task(_migrate_brain_to_safe_default()))
     except Exception as exc:  # pragma: no cover - defensive
@@ -4238,7 +4247,42 @@ async def _list_configured_provider_records() -> list[dict]:
     filtered.sort(
         key=lambda r: (_record_priority(r), str(r.get("provider_id") or ""))
     )
-    return filtered or [_fallback_local_provider_record()]
+    return _with_live_default_models(filtered) or [_fallback_local_provider_record()]
+
+
+def _with_live_default_models(records: list[dict]) -> list[dict]:
+    """Swap a retired ``default_model`` for its live replacement, per provider.
+
+    Read-time only: the stored record (or deploy env var) is left as written, so
+    switching ``MODEL_AUTO_HEAL_ENABLED`` off restores it exactly.
+    """
+    from packages.ai import model_retirement
+
+    if not model_retirement.auto_heal_enabled():
+        return records
+    healed: list[dict] = []
+    for record in records:
+        current = str(record.get("default_model") or "").strip()
+        live = model_retirement.live_model(str(record.get("provider_id") or ""), current)
+        healed.append({**record, "default_model": live} if live and live != current else record)
+    return healed
+
+
+async def _model_retirement_probes() -> dict:
+    """Provider key -> what model discovery needs, for every configured provider."""
+    from types import SimpleNamespace
+
+    from packages.ai.model_retirement import provider_key
+
+    probes: dict = {}
+    for record in await _list_configured_provider_records():
+        key = provider_key(str(record.get("provider_id") or ""))
+        base_url = str(record.get("base_url") or "").strip()
+        if key and base_url and key not in probes:
+            probes[key] = SimpleNamespace(
+                id=key, base_url=base_url, api_key=str(record.get("api_key") or "").strip(),
+            )
+    return probes
 
 
 async def _get_provider_policy() -> dict:

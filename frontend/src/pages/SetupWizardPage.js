@@ -62,11 +62,11 @@ const STEPS = [
 
 // Nvidia NIM free models — each role is matched to the best free NIM model for that task.
 const NVIDIA_MODELS = {
-  executor: 'nvidia/nemotron-3-super-120b-a12b',
+  executor: 'nvidia/nemotron-3-ultra-550b-a55b',
   planner:  'qwen/qwen3-coder-480b-a35b-instruct',
-  verifier: 'nvidia/nemotron-3-super-120b-a12b',
+  verifier: 'nvidia/nemotron-3-ultra-550b-a55b',
   judge:    'deepseek-ai/deepseek-v4-pro',
-  default:  'nvidia/nemotron-3-super-120b-a12b',
+  default:  'nvidia/nemotron-3-ultra-550b-a55b',
 };
 const LOCAL_MODELS = {
   executor: 'qwen3-coder:30b',
@@ -1098,7 +1098,7 @@ export default function SetupWizardPage({ onComplete }) {
                       <label className="text-sm font-medium text-gray-700">Planner model</label>
                       <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
                         value={plannerModel} onChange={e => setPlannerModel(e.target.value)}
-                        placeholder="nvidia/nemotron-3-super-120b-a12b" />
+                        placeholder="nvidia/nemotron-3-ultra-550b-a55b" />
                     </div>
                     <div>
                       <label className="text-sm font-medium text-gray-700">Coder / executor model</label>
@@ -1116,7 +1116,7 @@ export default function SetupWizardPage({ onComplete }) {
                       <label className="text-sm font-medium text-gray-700">Judge model</label>
                       <input className="w-full mt-1 border border-gray-300 rounded-lg px-3 py-2 text-base text-gray-900 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 focus:outline-hidden"
                         value={judgeModel} onChange={e => setJudgeModel(e.target.value)}
-                        placeholder="nvidia/nemotron-3-super-120b-a12b" />
+                        placeholder="nvidia/nemotron-3-ultra-550b-a55b" />
                     </div>
                   </div>
                 </div>
