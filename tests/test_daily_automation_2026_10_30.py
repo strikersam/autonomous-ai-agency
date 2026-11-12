@@ -402,16 +402,16 @@ class TestMercury3Yaml:
 
 
 # ---------------------------------------------------------------------------
-# Catalogue consistency — 88 declared IDs after this change
+# Catalogue consistency — 90 declared IDs on the current branch
 # ---------------------------------------------------------------------------
 
 class TestCatalogueSize:
-    def test_catalogue_has_89_models(self, llm_models):
-        """models.yaml declares 89 model entries: 88 after this run's 3 additions, plus
-        tencent/hy4-preview from the 2026-11-07 run (#1903)."""
+    def test_catalogue_has_90_models(self, llm_models):
+        """models.yaml declares 90 model entries: the 89 counted on 2026-10-30 plus
+        gemini-omni-1.2-flash (#1939)."""
         models = llm_models.get("models", {})
-        assert len(models) == 89, (
-            f"Expected 89 model IDs in models.yaml, got {len(models)}. "
+        assert len(models) == 90, (
+            f"Expected 90 model IDs in models.yaml, got {len(models)}. "
             "If you added or removed other models, update this count."
         )
 
