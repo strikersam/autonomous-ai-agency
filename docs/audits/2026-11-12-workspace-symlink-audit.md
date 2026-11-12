@@ -76,13 +76,22 @@ container-side tool needs the same check to close this fully.
 ## Finding 3: check-then-use race (informational)
 
 `_safe_path()` validates the path, then `Path.write_text()` opens it by name. A path
-component swapped for a symlink between the two steps would be followed. Nothing in the
-agent runtime can make that swap on the host, so this is recorded for completeness only.
-The standard fix is to open with `O_NOFOLLOW` on the final component, or walk the path
-with `openat`; not proposed now.
+component swapped for a symlink between the two steps would be followed.
+
+This audit does not show that nothing can make that swap on the host. It did not inspect the
+MCP container's implementations, and `agent/loop.py` prefers an optional local `_run_command`
+when MCP is unavailable — a `getattr` lookup, with no such method defined in-tree, so today
+the fallback returns an error rather than running a command, but a subclass or a future
+addition could supply one. Recorded as a residual risk until the MCP mount configuration and
+that fallback are checked.
+
+The complete fix walks the path with `openat` from a trusted directory descriptor, refusing
+symlinks at every component. `O_NOFOLLOW` on the final component alone is not sufficient: it
+still follows a parent directory replaced with a symlink after validation. Not proposed now.
 
 ## Not checked
 
-- The MCP container's own `read_file` / `write_file` / `run_command` implementations.
+- The MCP container's own `read_file` / `write_file` / `run_command` implementations, and
+  its mount configuration (whether a host path can be swapped under a mounted component).
 - macOS-specific behaviour (case-insensitive and firmlinked paths); probes ran on Linux.
 - Any path through `packages/` that writes files without `WorkspaceTools`.
