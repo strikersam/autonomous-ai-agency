@@ -5,6 +5,8 @@ Changes shipped today:
   released 2026-07-31; appeared on OpenRouter early November 2026).
   1,048,576-token context. Pricing: $0.130/$0.300 per MTok — top of the
   mainstream endpoint band for this OpenRouter router id ($0.043-$0.300 output).
+  Settled 2026-11-12: the band top is deliberate, see
+  ``test_rate_is_the_band_top_not_one_endpoint``.
   Sources: openrouter.ai/deepseek/deepseek-v4-flash-0731,
            pi.dev/models/openrouter/deepseek-deepseek-v4-flash-0731, 2026-11-08.
 
@@ -38,6 +40,16 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parents[1]
 DEEPSEEK_V4_FLASH_ID = "deepseek/deepseek-v4-flash-0731"
 DEEPSEEK_V4_FLASH_INPUT_COST = 0.130
 DEEPSEEK_V4_FLASH_OUTPUT_COST = 0.300
+
+# OpenRouter serves this router id from ~29 endpoints. These are the observed
+# standard rates; the cost table deliberately sits at the top of the band so a
+# spend estimate never understates (settled 2026-11-12, tracker row 117).
+DEEPSEEK_V4_FLASH_ENDPOINT_RATES = {
+    "Relace": (0.043, 0.140),
+    "DeepInfra": (0.060, 0.180),
+    "DigitalOcean": (0.119, 0.238),
+    "Baseten fp8": (0.130, 0.300),
+}
 
 # Mistral Large 4 (OpenRouter alias)
 MISTRAL_LARGE_4_DIRECT_ID = "mistral-large-4-0"
@@ -96,6 +108,25 @@ class TestDeepSeekV4Flash0731CostTracker:
         cost = ct.cost_for_tokens(DEEPSEEK_V4_FLASH_ID, 500_000, 200_000)
         expected = (DEEPSEEK_V4_FLASH_INPUT_COST * 0.5) + (DEEPSEEK_V4_FLASH_OUTPUT_COST * 0.2)
         assert cost == pytest.approx(expected)
+
+    def test_rate_is_the_band_top_not_one_endpoint(self, ct):
+        """The table entry must cover every observed endpoint, not one of them.
+
+        Settled 2026-11-12 (tracker row 117). This id is a router, so the
+        endpoint that serves a request is not known in advance; pricing the
+        table at DigitalOcean's $0.119/$0.238 would understate spend on every
+        request OpenRouter routed to Baseten or Wafer. Exact per-endpoint
+        accounting belongs to MODEL_COST_INPUT / MODEL_COST_OUTPUT instead.
+        """
+        inp, out = ct._DEFAULT_COST_TABLE[DEEPSEEK_V4_FLASH_ID]
+        for endpoint, (ep_in, ep_out) in DEEPSEEK_V4_FLASH_ENDPOINT_RATES.items():
+            assert inp >= ep_in, f"{endpoint} input ${ep_in} exceeds the table's ${inp}"
+            assert out >= ep_out, f"{endpoint} output ${ep_out} exceeds the table's ${out}"
+        cheapest_out = min(r[1] for r in DEEPSEEK_V4_FLASH_ENDPOINT_RATES.values())
+        assert out > cheapest_out, (
+            "a router id priced at its cheapest endpoint understates spend on every "
+            "other endpoint — keep the band top, or use the env overrides"
+        )
 
 
 # ---------------------------------------------------------------------------
