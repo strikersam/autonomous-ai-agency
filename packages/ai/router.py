@@ -1388,9 +1388,9 @@ class ProviderRouter:
                             _usage = _body.get("usage") or {}
                             # Feed the same usage figure to the traffic
                             # director so its TPM window reflects real tokens.
-                            _tokens_for_director = int(_usage.get("total_tokens") or 0) or (
-                                int(_usage.get("prompt_tokens") or 0)
-                                + int(_usage.get("completion_tokens") or 0)
+                            from packages.ai.cost_tracker import usage_counts
+                            _prompt, _completion, _cached, _tokens_for_director = usage_counts(
+                                _usage, anthropic=provider.type == "anthropic"
                             )
                             _tag = "untagged"
                             try:
@@ -1398,17 +1398,11 @@ class ProviderRouter:
                                 _tag = classify_task(messages=payload.get("messages") or [])
                             except Exception:
                                 pass
-                            from packages.ai.cost_tracker import cached_prompt_tokens
-                            _cached = cached_prompt_tokens(_usage)
-                            _prompt = int(_usage.get("prompt_tokens") or 0)
-                            if provider.type == "anthropic":
-                                from packages.ai.cost_tracker import anthropic_prompt_tokens
-                                _prompt = anthropic_prompt_tokens(_usage)
                             _record_cost(
                                 model,
                                 provider_id=provider.provider_id,
                                 prompt_tokens=_prompt,
-                                completion_tokens=int(_usage.get("completion_tokens") or 0),
+                                completion_tokens=_completion,
                                 cached_tokens=_cached,
                                 tag=_tag,
                             )
@@ -1419,7 +1413,7 @@ class ProviderRouter:
                                 _cost_for(
                                     model,
                                     _prompt,
-                                    int(_usage.get("completion_tokens") or 0),
+                                    _completion,
                                     _cached,
                                 ),
                             )
