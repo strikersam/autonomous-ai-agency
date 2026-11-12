@@ -43,6 +43,10 @@ def test_transient_errors_are_requeued(exc: BaseException) -> None:
         FreestyleApiError(404, "not_found", "no such vm"),
         Exception("ValueError: bad plan output"),
         KeyError("missing"),
+        RuntimeError("failed to open file foo.py"),
+        RuntimeError("task 4290 failed"),
+        RuntimeError("Task abc429 KeyError"),
+        RuntimeError("port 8429 bad"),
     ],
 )
 def test_permanent_errors_still_fail(exc: BaseException) -> None:

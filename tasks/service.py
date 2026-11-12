@@ -763,10 +763,13 @@ def _is_brain_connection_error(exc: BaseException) -> bool:
 
 _TRANSIENT_STATUS_CODES = frozenset({408, 425, 429, 500, 502, 503, 504})
 _TRANSIENT_MARKERS = (
-    "rate limit", "rate-limit", "too many requests", "429",
+    "rate limit", "rate-limit", "too many requests",
     "overloaded", "service unavailable", "bad gateway", "gateway timeout",
-    "temporarily unavailable", "sandbox provider", "failed to open",
+    "temporarily unavailable", "sandbox provider",
 )
+# A bare "429" also matches ids and ports ("task 4290", "port 8429"), so require
+# it to stand alone as a status code.
+_TRANSIENT_STATUS_RE = re.compile(r"(?<![\w.])429(?![\w.])")
 
 
 def _is_transient_error(exc: BaseException) -> bool:
@@ -786,7 +789,7 @@ def _is_transient_error(exc: BaseException) -> bool:
     if isinstance(status, int) and status in _TRANSIENT_STATUS_CODES:
         return True
     s = str(exc).lower()
-    return any(marker in s for marker in _TRANSIENT_MARKERS)
+    return any(marker in s for marker in _TRANSIENT_MARKERS) or bool(_TRANSIENT_STATUS_RE.search(s))
 
 
 class TaskExecutionCoordinator:
