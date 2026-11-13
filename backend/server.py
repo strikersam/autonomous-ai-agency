@@ -4282,6 +4282,10 @@ async def _model_retirement_probes() -> dict:
             probes[key] = SimpleNamespace(
                 id=key, base_url=base_url, api_key=str(record.get("api_key") or "").strip(),
             )
+    # Providers the brain failover uses from an env key alone have no record.
+    from packages.ai.model_retirement import env_probes
+    for key, probe in env_probes().items():
+        probes.setdefault(key, probe)
     return probes
 
 

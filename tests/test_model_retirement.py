@@ -200,3 +200,34 @@ async def test_heal_once_does_nothing_when_switched_off(monkeypatch: pytest.Monk
     monkeypatch.setattr(mr, "auto_heal_enabled", lambda: False)
     mr.record_strike("nvidia", DEAD)
     assert await mr.heal_once({}) == {}
+
+
+def test_live_model_follows_a_replacement_chain_and_survives_a_cycle() -> None:
+    mr._REPLACEMENTS[("nvidia", "a")] = "b"
+    mr._REPLACEMENTS[("nvidia", "b")] = "c"
+    assert mr.live_model("nvidia", "a") == "c"
+    mr._REPLACEMENTS[("nvidia", "c")] = "a"
+    assert mr.live_model("nvidia", "a") in {"a", "b", "c"}  # terminates
+
+
+def test_replacement_keeps_the_callable_catalogue_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(mr, "_catalogue", lambda provider: [DEAD, "openai/gpt-oss-20b"])
+    assert mr.pick_replacement("nvidia", ["gpt-oss-20b"], retired={DEAD}) == "openai/gpt-oss-20b"
+
+
+def test_env_probes_cover_providers_configured_by_key_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    from packages.ai import brain_config
+
+    monkeypatch.setattr(brain_config, "all_provider_ids", lambda: ("groq", "cerebras", "nvidia"))
+    monkeypatch.setattr(brain_config, "provider_api_key", lambda p: None if p == "cerebras" else "k")
+    monkeypatch.setattr(brain_config, "provider_base_url", lambda p: f"https://{p}.invalid/v1")
+    probes = mr.env_probes()
+    assert set(probes) == {"groq", "nvidia"}
+    assert probes["groq"].base_url == "https://groq.invalid/v1"
+
+
+def test_worker_starts_the_heal_loop() -> None:
+    from pathlib import Path
+
+    src = Path(mr.__file__).parents[2].joinpath("worker_main.py").read_text(encoding="utf-8")
+    assert "auto_heal_loop(env_probes_async)" in src

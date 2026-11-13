@@ -117,3 +117,23 @@ def test_agent_loop_uses_capacity_backoff() -> None:
     src = Path(cb.__file__).with_name("loop.py").read_text(encoding="utf-8")
     assert "call_with_capacity_retry(" in src, "planning must wait out a rate-limited brain"
     assert "retry_delay_s(" in src, "tool selection must not retry inside a provider cooldown"
+
+
+def test_json_parse_failure_quoting_capacity_words_is_not_capacity() -> None:
+    exc = ValueError(
+        "Model did not return a JSON object after 4 attempts; last raw output "
+        "(truncated to 200 chars): 'I hit a rate limit so I cannot answer'"
+    )
+    assert not cb.is_capacity_error(exc)
+
+
+def test_no_provider_configured_is_not_capacity() -> None:
+    exc = BrainFailoverExhausted("no providers configured — set at least one provider API key")
+    assert not cb.is_capacity_error(exc)
+    try:
+        try:
+            raise exc
+        except BrainFailoverExhausted as inner:
+            raise RuntimeError("planning: no providers configured") from inner
+    except RuntimeError as outer:
+        assert not cb.is_capacity_error(outer)

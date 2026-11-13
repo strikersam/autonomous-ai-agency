@@ -469,10 +469,12 @@ _BRAIN_ROUTING: tuple[ControlSpec, ...] = (
         "Replace retired models automatically",
         "brain_routing",
         "true",
-        "When a provider retires a model (it answers 404/410 on real calls and "
-        "drops out of the provider's own model list), the saved brain config and "
-        "provider defaults move to a live model on that provider. Applies to every "
-        "provider. Off: a retired model stays configured until changed by hand.",
+        "When a provider retires a model, the saved brain config and provider "
+        "defaults move to a live model on that provider. A model counts as retired "
+        "when it answers 404/410 on 2 real calls and has dropped out of the "
+        "provider's own model list, or on 3 such calls in 6 hours even while still "
+        "listed. Applies to every provider. Off: a retired model stays configured "
+        "until changed by hand.",
         live=True,
     ),
     ControlSpec(

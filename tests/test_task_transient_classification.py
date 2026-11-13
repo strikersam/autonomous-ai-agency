@@ -56,3 +56,55 @@ def test_permanent_errors_still_fail(exc: BaseException) -> None:
 def test_brain_connection_errors_remain_transient() -> None:
     assert svc._is_transient_error(httpx.ConnectError("x"))
     assert svc._is_transient_error(Exception("Connection refused"))
+
+
+class _StatusError(Exception):
+    def __init__(self, status: int, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+
+
+def test_any_5xx_status_is_transient_without_a_message_match() -> None:
+    assert svc._is_transient_error(_StatusError(529, "capacity exhausted"))
+    assert svc._is_transient_error(_StatusError(507, "x"))
+
+
+def test_a_permanent_status_wins_over_transient_wording() -> None:
+    assert not svc._is_transient_error(
+        FreestyleApiError(400, "bad_request", "sandbox provider configuration is invalid")
+    )
+    assert not svc._is_transient_error(_StatusError(403, "rate limit plan does not include this"))
+
+
+def test_failed_result_text_is_capacity_only_for_failover_phrases() -> None:
+    assert svc._is_capacity_result(
+        "Tool selection failed after 3 attempts: All brain providers exhausted. Last error: x"
+    )
+    assert svc._is_capacity_result("All 1 brain provider attempt(s) failed: nvidia: nvidia HTTP 429")
+    assert not svc._is_capacity_result("the README mentions a rate limit of 5 requests")
+    assert not svc._is_capacity_result("tests failed: 2 assertions")
+    assert not svc._is_capacity_result(None)
+
+
+async def test_failed_result_from_brain_capacity_is_requeued_not_failed() -> None:
+    from types import SimpleNamespace
+
+    calls: list[str] = []
+    transitions: list[object] = []
+    coordinator = SimpleNamespace(
+        workflow=SimpleNamespace(
+            transition=lambda task, status, **kw: transitions.append(status),
+            add_comment=lambda *a, **kw: None,
+        ),
+        _requeue_or_block_unavailable=lambda task, exc, *, what: calls.append(what),
+    )
+    from unittest.mock import MagicMock
+
+    task = MagicMock()
+    result = MagicMock()
+    result.success = False
+    result.metadata = {}
+    result.output = "planning: All brain providers exhausted. Last error: all candidates failed"
+    await svc.TaskExecutionCoordinator._apply_result(coordinator, task, None, result)
+    assert calls == ["Brain capacity exhausted"]
+    assert transitions == [], "a capacity failure must not mark the task FAILED"

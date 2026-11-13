@@ -33,6 +33,14 @@ _CAPACITY_MARKERS = (
     "quota exhausted",
 )
 
+# Failures that mention capacity words but cannot be fixed by waiting: a reply
+# that was not JSON (its text is the model's own), and no provider configured.
+_NOT_CAPACITY_MARKERS = (
+    "model did not return a json object",
+    "no providers configured",
+    "set at least one provider api key",
+)
+
 _sleep = asyncio.sleep
 
 
@@ -41,9 +49,11 @@ def is_capacity_error(exc: BaseException | None) -> bool:
     seen: set[int] = set()
     while exc is not None and id(exc) not in seen:
         seen.add(id(exc))
+        text = str(exc).lower()
+        if any(marker in text for marker in _NOT_CAPACITY_MARKERS):
+            return False
         if type(exc).__name__ == "BrainFailoverExhausted":
             return True
-        text = str(exc).lower()
         if any(marker in text for marker in _CAPACITY_MARKERS):
             return True
         # Follow explicit causes only: __context__ is whatever happened to be

@@ -136,9 +136,10 @@ def pick_replacement(
     """Best live model for *provider_id*, or ``None`` when none is known."""
     if served is None:
         return None  # no evidence of what is live; guessing is how configs got poisoned
-    known = set(served)
+    # _is_listed, not exact membership: keep the catalogue id, which is the
+    # spelling calls accept, even when the listing omits the vendor prefix.
     for model in _allowed(_catalogue(provider_key(provider_id))):
-        if model not in retired and model in known:
+        if model not in retired and _is_listed(model, served):
             return model
     for model in _allowed(list(served)):
         if model not in retired and _is_chat_model(model):
@@ -147,10 +148,47 @@ def pick_replacement(
 
 
 def live_model(provider_id: str, model: str | None) -> str | None:
-    """Resolve a stored model id to its replacement if it was retired."""
+    """Resolve a stored model id to its current replacement if it was retired.
+
+    Follows the chain (A replaced by B, B later by C gives C) and stops on a cycle.
+    """
     if not model:
         return model
-    return _REPLACEMENTS.get((provider_key(provider_id), model), model)
+    provider = provider_key(provider_id)
+    current, seen = model, {model}
+    while (provider, current) in _REPLACEMENTS:
+        current = _REPLACEMENTS[(provider, current)]
+        if current in seen:
+            break
+        seen.add(current)
+    return current
+
+
+def env_probes() -> dict[str, Any]:
+    """Probes for providers configured by environment key alone (no stored record).
+
+    Cerebras, Groq and the rest of the brain failover chain are usually set up
+    this way, and their calls record strikes too.
+    """
+    from types import SimpleNamespace
+
+    probes: dict[str, Any] = {}
+    try:
+        from packages.ai.brain_config import all_provider_ids, provider_api_key, provider_base_url
+        for pid in all_provider_ids():
+            key, base_url = provider_api_key(pid), (provider_base_url(pid) or "").strip()
+            if key and base_url:
+                probes[provider_key(pid)] = SimpleNamespace(
+                    id=provider_key(pid), base_url=base_url, api_key=key,
+                )
+    except Exception as exc:  # noqa: BLE001 - probes are optional input
+        log.warning("model_retirement: could not build env probes: %s", exc)
+    return probes
+
+
+async def env_probes_async() -> dict[str, Any]:
+    """``env_probes`` as an awaitable, the shape ``auto_heal_loop`` takes."""
+    return env_probes()
 
 
 def replacements() -> dict[str, str]:
