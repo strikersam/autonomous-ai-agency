@@ -106,3 +106,23 @@ def test_feed_failure_is_reported_not_raised(store, monkeypatch):
     reply = asyncio.run(SamAgent().process_command("fix the alerts"))
 
     assert "couldn't reach the alerts feed" in reply
+
+
+def test_capacity_alerts_are_not_turned_into_agent_tasks() -> None:
+    """A rate limit is not a defect an agent can fix; queueing one burns capacity."""
+    from agent.sam_actions import SamAlert
+
+    for title, message in [
+        ("Task blocked", "Brain capacity exhausted after 5 attempts: All brain providers exhausted"),
+        ("Task blocked", "No runtime available after 5 attempts: groq HTTP 429: rate limited (quota exhausted)"),
+        ("Provider error", "All 1 brain provider attempt(s) failed: nvidia: nvidia HTTP 429"),
+    ]:
+        alert = SamAlert(title=title, message=message, kind="error", severity="error")
+        assert alert.is_capacity and not alert.fixable, (title, message)
+
+
+def test_real_defect_alerts_stay_fixable() -> None:
+    from agent.sam_actions import SamAlert
+
+    alert = SamAlert(title="CI failed", message="tests/test_x.py::test_y AssertionError", kind="ci", severity="error")
+    assert not alert.is_capacity and alert.fixable

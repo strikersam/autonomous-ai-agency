@@ -34,6 +34,16 @@ _READ_TERMS = (
 )
 _FIXABLE_KINDS = {"error", "ci", "security", "infra"}
 _MAX_FIX_TASKS = 5
+# Alerts that say a model provider had no capacity. No code change fixes a rate
+# limit or a spent quota, so queueing an agent task for one only spends more of
+# the capacity that ran out (production cycled "Investigate the root cause of
+# 'Brain capacity exhausted'" tasks that could never succeed).
+_CAPACITY_ALERT_MARKERS = (
+    "brain capacity exhausted", "all brain providers exhausted",
+    "brain provider attempt(s) failed", "all configured llm providers failed",
+    "rate limit", "rate-limit", "quota exhausted", "http 429", "too many requests",
+    "no runtime available", "transient provider/sandbox error",
+)
 _FEED_LIMIT = 50
 
 
@@ -47,8 +57,14 @@ class SamAlert:
     severity: str
 
     @property
+    def is_capacity(self) -> bool:
+        """True when the alert reports provider capacity, not a defect an agent can fix."""
+        text = f"{self.title} {self.message}".lower()
+        return any(marker in text for marker in _CAPACITY_ALERT_MARKERS)
+
+    @property
     def fixable(self) -> bool:
-        return self.kind != "approval" and (
+        return self.kind != "approval" and not self.is_capacity and (
             self.kind in _FIXABLE_KINDS or self.severity == "error"
         )
 

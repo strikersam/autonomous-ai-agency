@@ -486,9 +486,10 @@ class InternalAgentAdapter(RuntimeAdapter):
                 try:
                     seeded = await _e2b_session.seed_from_worktree(worktree_path)
                     if not seeded:
-                        self._log.debug(
-                            "E2B seed_from_worktree returned False; agent will run "
-                            "against an empty sandbox (reads may fail)"
+                        self._log.warning(
+                            "Sandbox seed failed for task %s: the agent will see an "
+                            "empty workspace (list_files/search_code return nothing)",
+                            spec.task_id,
                         )
                 except Exception as exc:  # pragma: no cover - best-effort
                     self._log.debug("E2B seed failed (best-effort): %s", exc)
