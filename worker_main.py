@@ -93,6 +93,11 @@ async def _main() -> None:
         task_store=task_store,
         scheduler=scheduler,
     )
+    # The worker makes model calls of its own, so it must act on the retirements
+    # it sees; the web process only learns from its own calls.
+    from packages.ai.model_retirement import auto_heal_loop, env_probes_async
+    heal_task = asyncio.create_task(auto_heal_loop(env_probes_async))
+    heal_task.add_done_callback(lambda t: t.cancelled() or t.exception())
     log.info("All background services started — worker is running")
 
     # Block forever, respond to SIGTERM / SIGINT with graceful shutdown.

@@ -1297,7 +1297,10 @@ class AgentRunner:
             planner_model, planner_decision.mode, planner_decision.selection_source,
         )
         try:
-            raw = await self._chat_json(planner_model, messages)
+            from agent.capacity_backoff import call_with_capacity_retry
+            raw = await call_with_capacity_retry(
+                lambda: self._chat_json(planner_model, messages), what="planning",
+            )
             raw = self._normalize_plan_response(raw, instruction)
             plan = AgentPlan.model_validate(raw)
         except Exception as exc:
@@ -1464,8 +1467,10 @@ class AgentRunner:
                         "observations": observations,
                         "models": {"executor": executor_model, "verifier": verifier_model},
                     }
-                # Brief pause before retry to let transient errors settle
-                await asyncio.sleep(0.5)
+                # A rate-limited brain is cooling for 20s+; retrying sooner cannot
+                # succeed, so wait it out. Other errors keep the brief pause.
+                from agent.capacity_backoff import retry_delay_s
+                await asyncio.sleep(retry_delay_s(exc, tool_retry_count))
                 continue
             if call.tool == "finish":
                 observations.append({"tool": "finish", "result": call.args.get("reason", "done inspecting")})

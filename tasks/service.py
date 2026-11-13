@@ -761,6 +761,58 @@ def _is_brain_connection_error(exc: BaseException) -> bool:
     ))
 
 
+_TRANSIENT_CLIENT_STATUSES = frozenset({408, 425, 429})
+# Failed results (not exceptions) carry only text, so match the exact phrases the
+# brain failover raises, never loose words a model could have written.
+_CAPACITY_RESULT_MARKERS = (
+    "all brain providers exhausted",
+    "brain provider attempt(s) failed",
+    "all configured llm providers failed",
+)
+
+
+def _is_transient_status(status: int) -> bool:
+    """429-class client statuses and every 5xx (529 overloaded included) are retryable."""
+    return status in _TRANSIENT_CLIENT_STATUSES or 500 <= status <= 599
+
+
+def _is_capacity_result(output: str | None) -> bool:
+    """True when a failed result's text says the brain had no capacity."""
+    text = (output or "").lower()
+    return any(marker in text for marker in _CAPACITY_RESULT_MARKERS)
+_TRANSIENT_MARKERS = (
+    "rate limit", "rate-limit", "too many requests",
+    "overloaded", "service unavailable", "bad gateway", "gateway timeout",
+    "temporarily unavailable", "sandbox provider",
+)
+# A bare "429" also matches ids and ports ("task 4290", "port 8429"), so require
+# it to stand alone as a status code.
+_TRANSIENT_STATUS_RE = re.compile(r"(?<![\w.])429(?![\w.])")
+
+
+def _is_transient_error(exc: BaseException) -> bool:
+    """True if *exc* is a retryable provider/sandbox failure, not a task defect.
+
+    Covers brain connectivity errors plus rate limits, upstream 5xx and sandbox
+    API errors (``status`` attribute on the exception, e.g. FreestyleApiError or
+    httpx.HTTPStatusError). Re-queueing stays capped by ``_DISPATCH_RETRY_LIMIT``,
+    so a persistent outage still ends in BLOCKED rather than looping forever.
+    """
+    status = getattr(exc, "status", None)
+    if status is None:
+        response = getattr(exc, "response", None)
+        status = getattr(response, "status_code", None)
+    if isinstance(status, int) and not isinstance(status, bool):
+        # A real HTTP status is authoritative and is checked first: wording in
+        # the message ("connection refused", "rate limit") must not turn a 400
+        # into a retry.
+        return _is_transient_status(status)
+    if _is_brain_connection_error(exc):
+        return True
+    s = str(exc).lower()
+    return any(marker in s for marker in _TRANSIENT_MARKERS) or bool(_TRANSIENT_STATUS_RE.search(s))
+
+
 class TaskExecutionCoordinator:
     """Executes tasks through the runtime layer using agent definitions."""
 
@@ -1106,8 +1158,8 @@ class TaskExecutionCoordinator:
             # (the configured brain is momentarily unreachable), NOT a task defect —
             # re-queue it like RuntimeUnavailableError instead of marking it
             # permanently FAILED. Everything else is a genuine failure.
-            if _is_brain_connection_error(exc):
-                self._requeue_or_block_unavailable(task, exc, what="Brain/LLM endpoint unreachable")
+            if _is_transient_error(exc):
+                self._requeue_or_block_unavailable(task, exc, what="Transient provider/sandbox error")
             else:
                 log.error("Error executing task %s: %s", task.task_id, exc, exc_info=True)
                 task.error_message = str(exc)
@@ -1646,6 +1698,17 @@ class TaskExecutionCoordinator:
                 "execution_time_ms": result.execution_time_ms,
             },
         )
+
+        if not result.success and _is_capacity_result(result.output):
+            # The run failed because every brain provider was rate-limited, not
+            # because of the task. Some runtimes report that as a failed result
+            # instead of raising, so it needs the same capped re-queue.
+            task.error_message = result.output
+            self._requeue_or_block_unavailable(
+                task, RuntimeError((result.output or "")[:300]),
+                what="Brain capacity exhausted",
+            )
+            return
 
         if not result.success:
             task.error_message = result.output

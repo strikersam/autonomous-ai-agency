@@ -98,6 +98,11 @@ def _mark_model_dead(
     ttl = _DEAD_MODEL_COOLDOWN_SECONDS if ttl_sec is None else ttl_sec
     _dead_models[_dead_model_key(provider_id, model)] = time.time() + ttl
     log.warning("Model %s/%s returned %s — skipping for %ds", provider_id, model, reason, ttl)
+    try:  # evidence for packages.ai.model_retirement; never let it break a call
+        from packages.ai.model_retirement import record_strike
+        record_strike(provider_id, model)
+    except Exception:  # noqa: BLE001
+        log.debug("model_retirement strike not recorded", exc_info=True)
 
 
 def _catalogue_models(provider: "ProviderConfig") -> list[str]:

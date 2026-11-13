@@ -153,6 +153,11 @@ def mark_dead(provider_id: str, model_id: str, *, ttl_sec: float) -> None:
     if not model_id:
         return
     _DEAD.setdefault(provider_id, {})[model_id] = time.time() + ttl_sec
+    try:  # evidence for packages.ai.model_retirement; never let it break a call
+        from packages.ai.model_retirement import record_strike
+        record_strike(provider_id, model_id)
+    except Exception:  # noqa: BLE001
+        log.debug("model_retirement strike not recorded", exc_info=True)
 
 
 def dead_models(provider_id: str) -> set[str]:
