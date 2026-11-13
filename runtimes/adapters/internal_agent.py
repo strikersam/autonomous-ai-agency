@@ -12,6 +12,7 @@ Routes through free cloud LLMs in priority order:
 
 from __future__ import annotations
 
+import asyncio
 import os
 import shutil
 import subprocess
@@ -540,7 +541,7 @@ class InternalAgentAdapter(RuntimeAdapter):
         except Exception as exc:
             if _sync_harness:
                 persist_spec(worktree_path, base_workspace, _harness_seeded)
-            self._remove_worktree(base_workspace, worktree_path, _worktree_tmp)
+            await asyncio.to_thread(self._remove_worktree, base_workspace, worktree_path, _worktree_tmp)
             # Close the E2B sandbox if it was opened (best-effort).
             if _e2b_session is not None:
                 try:
@@ -620,7 +621,7 @@ class InternalAgentAdapter(RuntimeAdapter):
         # Clean up the isolated worktree once the agent is done.
         if _sync_harness:
             persist_spec(worktree_path, base_workspace, _harness_seeded)
-        self._remove_worktree(base_workspace, worktree_path, _worktree_tmp)
+        await asyncio.to_thread(self._remove_worktree, base_workspace, worktree_path, _worktree_tmp)
 
         delivery = assess_delivery(
             did_work=did_work,
@@ -683,7 +684,8 @@ class InternalAgentAdapter(RuntimeAdapter):
             )
             if tmp is not None:
                 return tmp.name, tmp
-        return self._create_worktree(base_workspace, spec.task_id or "adhoc")
+        # In a thread: git plus a full workspace copy froze the event loop.
+        return await asyncio.to_thread(self._create_worktree, base_workspace, spec.task_id or "adhoc")
 
     @staticmethod
     def _create_worktree(
@@ -746,6 +748,9 @@ class InternalAgentAdapter(RuntimeAdapter):
                 workspace,
                 tmp.name,
                 dirs_exist_ok=True,
+                # Keep links as links: a dangling one no longer fails the copy,
+                # and a link out of the workspace is not copied in as a file.
+                symlinks=True,
                 ignore=shutil.ignore_patterns(
                     ".git", "__pycache__", "*.pyc", "node_modules"
                 ),

@@ -88,6 +88,12 @@ async def _main() -> None:
     except Exception as exc:  # noqa: BLE001
         log.warning("Platform control overrides not applied: %s", exc)
 
+    # Before the services start, so a stall during their startup is named too.
+    try:
+        from services.loop_watchdog import start_loop_watchdog
+        start_loop_watchdog()
+    except Exception as exc:  # noqa: BLE001 - diagnostics must never block the worker
+        log.warning("Loop stall watchdog not started (non-fatal): %s", exc)
     bg = await start_background_services(
         workspace_root=ROOT_DIR,
         task_store=task_store,
