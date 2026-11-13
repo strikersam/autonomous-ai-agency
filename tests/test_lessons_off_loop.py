@@ -1,0 +1,79 @@
+"""The lessons store is never read or written on the event loop.
+
+The stall watchdog named this in production (2026-11-13): ``harness_spec.refine``
+→ ``lessons.recent`` → a synchronous pymongo read, blocking the loop for 8.7s.
+"""
+from __future__ import annotations
+
+import asyncio
+import time
+from pathlib import Path
+
+import pytest
+
+from agent import harness_spec, lessons
+
+
+async def _ticks_while(coro) -> tuple[object, int]:
+    ticks = 0
+    done = asyncio.Event()
+
+    async def ticker() -> None:
+        nonlocal ticks
+        while not done.is_set():
+            await asyncio.sleep(0.01)
+            ticks += 1
+
+    task = asyncio.create_task(ticker())
+    try:
+        result = await coro
+    finally:
+        done.set()
+        await task
+    return result, ticks
+
+
+def _slow(result=None):
+    def fn(*args, **kwargs):
+        time.sleep(0.3)  # stands in for a slow database round trip
+        return result
+    return fn
+
+
+async def test_recording_a_run_outcome_keeps_the_loop_responsive(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(lessons, "record_step_failures", _slow())
+    monkeypatch.setattr(lessons, "record_run_success", lambda *a, **k: None)
+    _, ticks = await _ticks_while(lessons.record_run_outcome_async("goal", []))
+    assert ticks >= 8
+
+
+async def test_reading_lessons_keeps_the_loop_responsive(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(lessons, "recent_lessons_block", _slow("LESSONS"))
+    result, ticks = await _ticks_while(lessons.recent_lessons_block_async(query="q"))
+    assert result == "LESSONS" and ticks >= 8
+
+
+async def test_recording_a_timeout_keeps_the_loop_responsive(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(lessons, "record_task_timeout", _slow())
+    _, ticks = await _ticks_while(lessons.record_task_timeout_async("t", "g", "m"))
+    assert ticks >= 8
+
+
+async def test_refining_the_spec_keeps_the_loop_responsive(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(harness_spec, "refine", _slow([]))
+    result, ticks = await _ticks_while(harness_spec.refine_async(tmp_path))
+    assert result == [] and ticks >= 8
+
+
+def test_coroutines_use_the_off_loop_wrappers() -> None:
+    import agent.loop as loop_module
+    import tasks.service as service_module
+
+    loop_src = Path(loop_module.__file__).read_text(encoding="utf-8")
+    assert "await record_run_outcome_async(" in loop_src
+    assert "await refine_async(" in loop_src
+    assert "await recent_lessons_block_async(" in loop_src
+    for sync_call in ("record_step_failures(plan.goal", "refine(self.tools.root)", "= recent_lessons_block("):
+        assert sync_call not in loop_src, f"{sync_call} still runs on the event loop"
+    service_src = Path(service_module.__file__).read_text(encoding="utf-8")
+    assert "await record_task_timeout_async(" in service_src

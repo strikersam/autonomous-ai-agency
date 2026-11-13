@@ -1105,9 +1105,8 @@ class AgentRunner:
             # next run's planner sees it (agent/lessons.py). Retry without
             # this is not learning — the same mistake recurs forever.
             try:
-                from agent.lessons import record_run_success, record_step_failures
-                record_step_failures(plan.goal, step_results)
-                record_run_success(plan.goal, step_results)
+                from agent.lessons import record_run_outcome_async
+                await record_run_outcome_async(plan.goal, step_results)
             except Exception:
                 # The learning loop persists failure causes so the next run's
                 # planner avoids them — a broken lessons store means the same
@@ -1122,8 +1121,8 @@ class AgentRunner:
             # makes a repeated failure stick. No-op unless HARNESS_SPEC_AUTO_REFINE
             # is set, so prompts are unchanged for anyone who has not opted in.
             try:
-                from agent.harness_spec import refine
-                refine(self.tools.root)
+                from agent.harness_spec import refine_async
+                await refine_async(self.tools.root)
             except Exception as exc:
                 log.warning("harness spec refine skipped: %s", exc, exc_info=True)
 
@@ -1262,8 +1261,8 @@ class AgentRunner:
         # ── Learning loop: surface lessons from recent failed runs so the
         # planner avoids known failure modes (agent/lessons.py).
         try:
-            from agent.lessons import recent_lessons_block
-            _lessons = recent_lessons_block(query=instruction)
+            from agent.lessons import recent_lessons_block_async
+            _lessons = await recent_lessons_block_async(query=instruction)
             if _lessons and messages and messages[0].get("role") == "system":
                 messages[0]["content"] = f"{messages[0]['content']}\n\n{_lessons}"
         except Exception as exc:
