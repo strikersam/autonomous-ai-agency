@@ -138,11 +138,12 @@ def pick_replacement(
         return None  # no evidence of what is live; guessing is how configs got poisoned
     # _is_listed, not exact membership: keep the catalogue id, which is the
     # spelling calls accept, even when the listing omits the vendor prefix.
+    gone = list(retired)  # compared by _is_listed so "x" also excludes "vendor/x"
     for model in _allowed(_catalogue(provider_key(provider_id))):
-        if model not in retired and _is_listed(model, served):
+        if not _is_listed(model, gone) and _is_listed(model, served):
             return model
     for model in _allowed(list(served)):
-        if model not in retired and _is_chat_model(model):
+        if not _is_listed(model, gone) and _is_chat_model(model):
             return model
     return None
 

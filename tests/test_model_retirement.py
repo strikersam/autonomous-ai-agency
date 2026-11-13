@@ -231,3 +231,12 @@ def test_worker_starts_the_heal_loop() -> None:
 
     src = Path(mr.__file__).parents[2].joinpath("worker_main.py").read_text(encoding="utf-8")
     assert "auto_heal_loop(env_probes_async)" in src
+
+
+def test_a_retired_model_is_not_its_own_replacement_under_another_spelling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(mr, "_catalogue", lambda provider: ["openai/gpt-oss-20b", LIVE])
+    served = ["gpt-oss-20b", LIVE]
+    assert mr.pick_replacement("nvidia", served, retired={"gpt-oss-20b"}) == LIVE
+    assert mr.pick_replacement("nvidia", ["gpt-oss-20b"], retired={"openai/gpt-oss-20b"}) is None
