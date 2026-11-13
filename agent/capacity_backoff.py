@@ -41,7 +41,19 @@ _NOT_CAPACITY_MARKERS = (
     "set at least one provider api key",
 )
 
+# The failover's own text for "nothing was attempted" covers two opposite cases.
+_NOTHING_ATTEMPTED = "none configured or all in cooldown"
+
 _sleep = asyncio.sleep
+
+
+def _no_provider_configured() -> bool:
+    """True when the brain registry has no provider at all, so waiting cannot help."""
+    try:
+        from services.brain_failover import brain_availability_summary
+        return int(brain_availability_summary().get("total", 0) or 0) == 0
+    except Exception:  # noqa: BLE001 - unknown registry state: assume a cooldown
+        return False
 
 
 def is_capacity_error(exc: BaseException | None) -> bool:
@@ -51,6 +63,8 @@ def is_capacity_error(exc: BaseException | None) -> bool:
         seen.add(id(exc))
         text = str(exc).lower()
         if any(marker in text for marker in _NOT_CAPACITY_MARKERS):
+            return False
+        if _NOTHING_ATTEMPTED in text and _no_provider_configured():
             return False
         if type(exc).__name__ == "BrainFailoverExhausted":
             return True

@@ -108,3 +108,8 @@ async def test_failed_result_from_brain_capacity_is_requeued_not_failed() -> Non
     await svc.TaskExecutionCoordinator._apply_result(coordinator, task, None, result)
     assert calls == ["Brain capacity exhausted"]
     assert transitions == [], "a capacity failure must not mark the task FAILED"
+
+
+def test_a_permanent_status_wins_over_connection_wording() -> None:
+    assert not svc._is_transient_error(FreestyleApiError(400, "bad_request", "connection refused"))
+    assert svc._is_transient_error(FreestyleApiError(503, "unavailable", "connection refused"))

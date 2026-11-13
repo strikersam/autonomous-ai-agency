@@ -798,16 +798,17 @@ def _is_transient_error(exc: BaseException) -> bool:
     httpx.HTTPStatusError). Re-queueing stays capped by ``_DISPATCH_RETRY_LIMIT``,
     so a persistent outage still ends in BLOCKED rather than looping forever.
     """
-    if _is_brain_connection_error(exc):
-        return True
     status = getattr(exc, "status", None)
     if status is None:
         response = getattr(exc, "response", None)
         status = getattr(response, "status_code", None)
     if isinstance(status, int) and not isinstance(status, bool):
-        # A real HTTP status is authoritative: wording in the message must not
-        # turn a 400 into a retry.
+        # A real HTTP status is authoritative and is checked first: wording in
+        # the message ("connection refused", "rate limit") must not turn a 400
+        # into a retry.
         return _is_transient_status(status)
+    if _is_brain_connection_error(exc):
+        return True
     s = str(exc).lower()
     return any(marker in s for marker in _TRANSIENT_MARKERS) or bool(_TRANSIENT_STATUS_RE.search(s))
 

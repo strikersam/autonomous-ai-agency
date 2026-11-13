@@ -137,3 +137,24 @@ def test_no_provider_configured_is_not_capacity() -> None:
             raise RuntimeError("planning: no providers configured") from inner
     except RuntimeError as outer:
         assert not cb.is_capacity_error(outer)
+
+
+def test_nothing_attempted_is_capacity_only_when_a_provider_exists(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    exc = BrainFailoverExhausted("ignored")  # default text depends on arguments
+    real = RuntimeError("All brain providers exhausted \u2014 none configured or all in cooldown.")
+    monkeypatch.setattr(cb, "_no_provider_configured", lambda: True)
+    assert not cb.is_capacity_error(real)
+    monkeypatch.setattr(cb, "_no_provider_configured", lambda: False)
+    assert cb.is_capacity_error(real)
+    assert isinstance(exc, RuntimeError)
+
+
+def test_no_provider_configured_reads_the_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    import services.brain_failover as bf
+
+    monkeypatch.setattr(bf, "brain_availability_summary", lambda: {"total": 0})
+    assert cb._no_provider_configured() is True
+    monkeypatch.setattr(bf, "brain_availability_summary", lambda: {"total": 2, "usable": 0})
+    assert cb._no_provider_configured() is False
