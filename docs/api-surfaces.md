@@ -79,6 +79,14 @@ The `backend/` app powers the separate React control plane and includes routes f
 - Code Mode MCP server (phase 7): `POST /api/code-mode/mcp` (authenticated; `401` otherwise, `404` when `CODE_MODE_MCP_SERVER_ENABLED=false`). JSON-RPC 2.0 MCP endpoint (`initialize`, `tools/list`, `tools/call`) with two tools: `search(code)` runs a Python-subset program over `agency.spec()` (a compact list of the agency's OpenAPI operations: path, method, summary, parameters); `execute(code)` can also call `agency.request('GET', '/api/...', query={...})`, made in-process with the caller's own `Authorization`/`Cookie` headers. GET only, only paths the spec declares, never this endpoint; results capped at ~6,000 tokens. Implemented in `backend/code_mode_mcp_router.py`.
 - Telegram bot control-plane (`/api/telegram/*`)
 
+### Cost and metrics (`/api/metrics/*`, authenticated)
+- `GET /api/metrics/cost-attribution` — per-model token usage and estimated USD spend, plus a per-task-tag breakdown and totals. In-memory, resets on restart.
+  - Optional `group_by=model|tag` adds `group_by` and a `groups` list sorted by spend. Omitted, the response is unchanged.
+  - `group_by=provider` returns `400`: a model's entry keeps the providers that served it as a set, so its spend cannot be split between them.
+  - There is no time-window parameter: the aggregates keep no timestamps.
+- `GET /api/metrics/cost-table` — the active per-model price table, useful for confirming `MODEL_COST_INPUT` / `MODEL_COST_OUTPUT` overrides.
+- `DELETE /api/metrics/cost-attribution` — admin-only reset of the counters.
+
 ### Network doctor (`/api/doctor/network`, `backend/doctor_network.py`, authenticated)
 
 - `GET /api/doctor/network`: connectivity only. Probes each provider in the failover chain
