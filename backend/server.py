@@ -1790,6 +1790,14 @@ async def lifespan(app_: "FastAPI"):
     from services.background import BackgroundServices
     bg: Optional[BackgroundServices] = None
     warmup_deadline = asyncio.get_running_loop().time() + _STARTUP_WARMUP_BUDGET_SEC
+    # First thing, so a stall during startup is named too: when the loop stops
+    # answering, this logs the exact call that is blocking it.
+    try:
+        if os.environ.get("TESTING", "").strip().lower() not in ("1", "true", "yes"):
+            from services.loop_watchdog import start_loop_watchdog
+            start_loop_watchdog()
+    except Exception as exc:  # pragma: no cover - diagnostics must never block boot
+        log.warning("Loop stall watchdog not started (non-fatal): %s", exc)
     try:
         await _warmup_step(ensure_bootstrap(), "database bootstrap", warmup_deadline)
         log.info("LLM Relay Platform started — provider=%s", LLM_PROVIDER)

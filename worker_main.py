@@ -97,6 +97,11 @@ async def _main() -> None:
     # it sees; the web process only learns from its own calls.
     from packages.ai.model_retirement import auto_heal_loop, env_probes_async
     heal_task = asyncio.create_task(auto_heal_loop(env_probes_async))
+    try:
+        from services.loop_watchdog import start_loop_watchdog
+        start_loop_watchdog()
+    except Exception as exc:  # noqa: BLE001 - diagnostics must never block the worker
+        log.warning("Loop stall watchdog not started (non-fatal): %s", exc)
     heal_task.add_done_callback(lambda t: t.cancelled() or t.exception())
     log.info("All background services started — worker is running")
 
