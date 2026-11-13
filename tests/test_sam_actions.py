@@ -126,3 +126,27 @@ def test_real_defect_alerts_stay_fixable() -> None:
 
     alert = SamAlert(title="CI failed", message="tests/test_x.py::test_y AssertionError", kind="ci", severity="error")
     assert not alert.is_capacity and alert.fixable
+
+
+def test_alerts_that_only_mention_rate_limiting_stay_fixable() -> None:
+    """A disabled rate limiter or a failing rate-limit test is a real defect."""
+    from agent.sam_actions import SamAlert
+
+    for kind, message in [
+        ("security", "RATE_LIMIT_RPM unset: rate limit disabled in production"),
+        ("ci", "test_proxy_rate limit middleware returns 500 on burst"),
+        ("error", "Task blocked \u2014 no runtime available after 5 retries: adapter not registered"),
+    ]:
+        alert = SamAlert(title="Alert", message=message, kind=kind, severity="error")
+        assert not alert.is_capacity and alert.fixable, message
+
+
+def test_sdk_style_rate_limit_errors_are_capacity() -> None:
+    from agent.sam_actions import SamAlert
+
+    for message in [
+        "Error code: 429 - {'error': 'rate_limit_exceeded'}",
+        "RateLimitError: quota exceeded",
+        "groq HTTP 429: rate limited (quota exhausted)",
+    ]:
+        assert SamAlert(title="x", message=message, kind="error", severity="error").is_capacity, message

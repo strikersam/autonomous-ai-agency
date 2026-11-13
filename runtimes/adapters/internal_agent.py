@@ -25,7 +25,7 @@ from agent.delegation import task_meta as delegation_task_meta
 from agent.loop import AgentRunner
 from packages.ai.router import ProviderConfig, _normalize_nvidia_base_url
 from runtimes.adapters.delivery import assess_delivery, clone_repo_workspace
-from runtimes.adapters.workspace_baseline import git_baseline
+from runtimes.adapters.workspace_baseline import EXCLUDED_NAMES, git_baseline
 from runtimes.adapters.harness_sync import persist_spec, seed_spec
 from runtimes.base import (
     IntegrationMode,
@@ -753,7 +753,7 @@ class InternalAgentAdapter(RuntimeAdapter):
                 # and a link out of the workspace is not copied in as a file.
                 symlinks=True,
                 ignore=shutil.ignore_patterns(
-                    ".git", "__pycache__", "*.pyc", "node_modules"
+                    ".git", "__pycache__", "*.pyc", "node_modules", *EXCLUDED_NAMES
                 ),
             )
         except Exception as exc:

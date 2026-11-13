@@ -107,3 +107,81 @@ async def test_seed_from_worktree_packs_off_the_event_loop(tmp_path: Path, monke
     assert await session.seed_from_worktree(str(ws)) is False
     assert seen["thread"] != loop_thread, "packing must not run on the event loop thread"
     await asyncio.sleep(0)
+
+
+_SENSITIVE = (
+    ".env", ".env.production", "prod.env", "server.pem", "tls.key", "id_rsa", "credentials.json",
+    ".data/agency.db", ".data/providers.json", "chat_history.db", "state.sqlite3", ".instance_id",
+)
+
+
+def _sensitive_workspace(tmp_path: Path) -> Path:
+    ws = _workspace(tmp_path)
+    for rel in _SENSITIVE:
+        target = ws / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("SECRET", encoding="utf-8")
+    return ws
+
+
+def test_a_walk_never_packs_secrets_or_runtime_state(tmp_path: Path) -> None:
+    """A sandbox is a third-party service: these files must not leave the host."""
+    ws = _sensitive_workspace(tmp_path)
+    tar_bytes, _ = seed.pack_seed(str(ws))
+    names = _names(tar_bytes)
+    assert {"pkg/mod.py", "README.md"} <= names
+    leaked = sorted(n for n in names if n in _SENSITIVE or n.startswith(".data"))
+    assert leaked == [], f"sensitive files packed for the sandbox: {leaked}"
+    assert b"SECRET" not in tar_bytes
+
+
+def test_tracked_secrets_are_dropped_too(tmp_path: Path) -> None:
+    ws = _sensitive_workspace(tmp_path)
+    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@t"}
+    subprocess.run(["git", "init", "-q"], cwd=ws, check=True, env=env)
+    subprocess.run(["git", "add", "-A", "-f"], cwd=ws, check=True, env=env)
+    names = _names(seed.pack_seed(str(ws))[0])
+    assert "README.md" in names
+    assert not [n for n in names if n in _SENSITIVE or n.startswith(".data")]
+
+
+def test_a_git_repo_with_nothing_tracked_seeds_nothing(tmp_path: Path) -> None:
+    ws = _sensitive_workspace(tmp_path)
+    subprocess.run(["git", "init", "-q"], cwd=ws, check=True)
+    assert seed.pack_seed(str(ws)) == (b"", 0)
+
+
+def test_odd_filenames_survive_git_listing(tmp_path: Path) -> None:
+    ws = tmp_path / "odd"
+    ws.mkdir()
+    (ws / "caf\u00e9 notes.txt").write_text("x", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=ws, check=True)
+    subprocess.run(["git", "add", "-A"], cwd=ws, check=True)
+    assert "caf\u00e9 notes.txt" in _names(seed.pack_seed(str(ws))[0])
+
+
+def test_the_task_copy_and_its_baseline_leave_secrets_behind(tmp_path: Path) -> None:
+    from runtimes.adapters.internal_agent import InternalAgentAdapter
+
+    ws = _sensitive_workspace(tmp_path)
+    path, tmp = InternalAgentAdapter._create_worktree(str(ws), "task-secret")
+    try:
+        assert path != str(ws)
+        copied = {str(p.relative_to(path)) for p in Path(path).rglob("*") if p.is_file() and ".git" not in p.parts}
+        assert "README.md" in copied
+        assert not [n for n in copied if n in _SENSITIVE or n.startswith(".data")], copied
+        assert b"SECRET" not in seed.pack_seed(path)[0]
+    finally:
+        InternalAgentAdapter._remove_worktree(str(ws), path, tmp)
+
+
+def test_is_excluded_matches_any_path_component() -> None:
+    from runtimes.adapters.workspace_baseline import is_excluded
+
+    assert is_excluded(".data/checkpoints/x.json")
+    assert is_excluded("sub/dir/.env.local")
+    assert is_excluded("a/b/app.db-wal")
+    assert not is_excluded("pkg/database.py")
+    assert not is_excluded("docs/environment.md")
+    assert not is_excluded(".agency/harness-history.jsonl")

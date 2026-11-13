@@ -8,14 +8,31 @@ agent's edits against ("git diff 0 chars" on every brief).
 
 from __future__ import annotations
 
+import fnmatch
 import logging
 import subprocess  # nosec B404 - fixed git argv, list form, no shell
-from pathlib import Path
+from pathlib import Path, PurePath
 
 log = logging.getLogger("qwen-proxy")
 
-# Never committed, so never seeded into a sandbox or shown to a model.
-BASELINE_EXCLUDES = (".env", ".env.*", "*.env", "*.pem", "*.key", "*.p12", "id_rsa*", "credentials.json")
+# Never committed, so never seeded into a sandbox or shown to a model: secrets,
+# then the app's own runtime state (local databases, provider records, chat
+# history), which is user data and is not part of any task. A sandbox is a
+# third-party service, so anything matched here must not reach one.
+BASELINE_EXCLUDES = (
+    ".env", ".env.*", "*.env", "*.pem", "*.key", "*.p12", "id_rsa*", "credentials.json",
+    ".data/", "*.db", "*.db-wal", "*.db-shm", "*.db-journal", "*.sqlite", "*.sqlite3",
+    ".instance_id", ".activation_audit.jsonl",
+)
+# The same patterns as bare names, for matching one path component at a time.
+EXCLUDED_NAMES = tuple(pattern.rstrip("/") for pattern in BASELINE_EXCLUDES)
+
+
+def is_excluded(rel_path: str) -> bool:
+    """True when any component of *rel_path* matches ``BASELINE_EXCLUDES``."""
+    return any(
+        fnmatch.fnmatch(part, pattern) for part in PurePath(rel_path).parts for pattern in EXCLUDED_NAMES
+    )
 
 _IDENTITY = ["-c", "user.email=agent@localhost", "-c", "user.name=Agent", "-c", "core.hooksPath=/dev/null",
              "-c", "commit.gpgsign=false"]
