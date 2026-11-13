@@ -67,11 +67,30 @@ def unsafe_target_reason(url: str) -> str | None:
     A block is also reported as a ``safety_event`` span event (an IP literal, or a
     digest of the hostname, never the URL) so operators can see what the agents were
     stopped from doing.
+
+    When the outbound identity guard is on, a URL carrying a configured operator
+    address is refused here as well — before any DNS lookup, because the hostname
+    itself is one of the places an address can be smuggled out.
     """
-    reason = _unsafe_target_reason(url)
+    reason = _identity_reason(url) or _unsafe_target_reason(url)
     if reason:
         _report_block(url, reason)
     return reason
+
+
+def _identity_reason(text: str) -> str | None:
+    """Why *text* carries a protected operator identity out of the process, or None.
+
+    Inert unless an operator turned the guard on *and* configured ``OPERATOR_EMAILS``
+    (``packages/security/egress.py``). Imported lazily, and every failure is swallowed:
+    a missing or broken config must never take web reach down.
+    """
+    try:
+        from packages.security.egress import egress_identity_reason
+
+        return egress_identity_reason(text)
+    except Exception:  # nosec B110 — the guard must never change availability
+        return None
 
 
 def _strip_url_controls(url: str) -> str:
@@ -129,6 +148,20 @@ def _report_block(url: str, reason: str) -> None:
         if contains_canary(host) or contains_canary(reason):
             return
         emit_safety_event("web_reach_block", _redact_host(host), _redact_reason(reason))
+    except Exception:  # nosec B110 — telemetry must never change the verdict
+        pass
+
+
+def _report_identity_block(reason: str) -> None:
+    """Emit a ``safety_event`` for a refused outbound query, carrying no query text.
+
+    A search query has no host to digest, and any part of it could itself be the
+    address being exfiltrated, so the event carries an empty subject (rule 6).
+    """
+    try:
+        from services.otel_tracing import emit_safety_event
+
+        emit_safety_event("web_reach_block", "", _redact_reason(reason))
     except Exception:  # nosec B110 — telemetry must never change the verdict
         pass
 
@@ -567,6 +600,11 @@ class WebReach:
         """
         if not query.strip():
             return {"ok": False, "query": query, "error": "empty query"}
+        identity = _identity_reason(query)
+        if identity:
+            _report_identity_block(identity)
+            # The query is deliberately not echoed back: it holds the address.
+            return {"ok": False, "error": f"web_search refused: {identity}"}
         errors: list[str] = []
         for name, backend in _SEARCH_BACKENDS:
             if _search_skip_until.get(name, 0.0) > time.monotonic():
