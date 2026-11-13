@@ -91,7 +91,10 @@ class LoopStallWatchdog:
                 return  # loop closed: nothing left to watch
             started = time.monotonic()
             if not answered.wait(self._threshold_s) and not self._stop.is_set():
-                self._report(time.monotonic() - started)
+                try:
+                    self._report(time.monotonic() - started)
+                except Exception:  # noqa: BLE001 - one bad report must not end the watch
+                    log.debug("loop stall report failed", exc_info=True)
                 self._await_recovery(answered, started)
             self._stop.wait(self._interval_s)
 

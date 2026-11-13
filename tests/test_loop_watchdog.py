@@ -101,3 +101,20 @@ def test_server_and_worker_start_the_watchdog() -> None:
     root = Path(lw.__file__).parents[1]
     assert "start_loop_watchdog()" in root.joinpath("backend", "server.py").read_text(encoding="utf-8")
     assert "start_loop_watchdog()" in root.joinpath("worker_main.py").read_text(encoding="utf-8")
+
+
+async def test_a_failing_report_does_not_end_the_watch(monkeypatch: pytest.MonkeyPatch) -> None:
+    watchdog = lw.LoopStallWatchdog(asyncio.get_running_loop(), threshold_s=0.05, interval_s=0.01)
+
+    def boom(blocked_s: float) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(watchdog, "_report", boom)
+    watchdog.start()
+    try:
+        await asyncio.sleep(0.02)
+        _blocking_call_under_test(0.2)
+        await asyncio.sleep(0.1)
+        assert watchdog._thread is not None and watchdog._thread.is_alive()
+    finally:
+        watchdog.stop()

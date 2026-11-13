@@ -62,7 +62,28 @@ def test_copy_survives_a_dangling_symlink(tmp_path: Path) -> None:
         InternalAgentAdapter._remove_worktree(str(workspace), path, tmp)
 
 
+def test_copy_does_not_pull_in_a_file_from_outside_the_workspace(tmp_path: Path) -> None:
+    outside = tmp_path / "outside-secret.txt"
+    outside.write_text("OUTSIDE", encoding="utf-8")
+    workspace = tmp_path / "ws"
+    (workspace / "sub").mkdir(parents=True)
+    (workspace / "sub" / "inner.txt").write_text("inner", encoding="utf-8")
+    os.symlink(str(outside), str(workspace / "leak.txt"))
+    os.symlink("sub/inner.txt", str(workspace / "relative.txt"))
+    path, tmp = InternalAgentAdapter._create_worktree(str(workspace), "task-y")
+    try:
+        copied = Path(path)
+        assert path != str(workspace)
+        assert (copied / "leak.txt").is_symlink(), "an outside target must stay a link, not a copy"
+        assert (copied / "relative.txt").read_text(encoding="utf-8") == "inner"
+        assert (copied / "relative.txt").resolve().is_relative_to(copied.resolve())
+    finally:
+        InternalAgentAdapter._remove_worktree(str(workspace), path, tmp)
+
+
 def test_cleanup_runs_off_the_loop_in_source() -> None:
-    src = Path(InternalAgentAdapter.__module__.replace(".", "/") + ".py").read_text(encoding="utf-8")
+    import runtimes.adapters.internal_agent as module
+
+    src = Path(module.__file__).read_text(encoding="utf-8")
     assert "self._remove_worktree(base_workspace" not in src, "cleanup must go through to_thread"
     assert src.count("asyncio.to_thread(") >= 3
