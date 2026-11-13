@@ -314,12 +314,20 @@ async def learning_context(limit: int = 300) -> str:
         from tasks.store import get_task_store
 
         tasks = await get_task_store().list_all(limit=limit, include_log=False)
-        store = _get_store()
-        doc = store.load()
-        if learn(doc, tasks):
-            store.save(doc)
+
+        def _learn_and_read() -> tuple[Any, str]:
+            # Synchronous stores (playbook and lessons): off the event loop,
+            # where one slow read used to stall every request for seconds.
+            store = _get_store()
+            doc = store.load()
+            if learn(doc, tasks):
+                store.save(doc)
+            return doc, recent_lessons_block()
+
+        import asyncio
+        doc, lessons_block = await asyncio.to_thread(_learn_and_read)
         _doc = doc
-        return render(scoreboard(tasks), beliefs(doc), recent_lessons_block())
+        return render(scoreboard(tasks), beliefs(doc), lessons_block)
     except Exception as exc:  # noqa: BLE001 - learning must never stop a CEO cycle
         log.warning("CEO learning context unavailable: %s", exc)
         return ""

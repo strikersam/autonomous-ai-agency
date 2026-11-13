@@ -77,3 +77,11 @@ def test_coroutines_use_the_off_loop_wrappers() -> None:
         assert sync_call not in loop_src, f"{sync_call} still runs on the event loop"
     service_src = Path(service_module.__file__).read_text(encoding="utf-8")
     assert "await record_task_timeout_async(" in service_src
+
+
+def test_the_ceo_playbook_reads_its_stores_off_the_loop() -> None:
+    import agent.ceo_playbook as playbook
+
+    src = Path(playbook.__file__).read_text(encoding="utf-8")
+    assert "await asyncio.to_thread(_learn_and_read)" in src
+    assert "beliefs(doc), recent_lessons_block())" not in src

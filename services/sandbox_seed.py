@@ -18,9 +18,9 @@ import os
 import subprocess
 import tarfile
 
-log = logging.getLogger("qwen-proxy")
-
 from runtimes.adapters.workspace_baseline import is_excluded
+
+log = logging.getLogger("qwen-proxy")
 
 # Never worth shipping to a sandbox, and large enough to matter.
 _SKIP_DIRS = frozenset({

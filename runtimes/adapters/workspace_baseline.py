@@ -19,20 +19,50 @@ log = logging.getLogger("qwen-proxy")
 # then the app's own runtime state (local databases, provider records, chat
 # history), which is user data and is not part of any task. A sandbox is a
 # third-party service, so anything matched here must not reach one.
+#
+# A denylist cannot be complete. It is the backstop for the fallback paths (a
+# plain copy, a directory walk); a real git checkout is protected first by what
+# it tracks.
 BASELINE_EXCLUDES = (
-    ".env", ".env.*", "*.env", "*.pem", "*.key", "*.p12", "id_rsa*", "credentials.json",
-    ".data/", "*.db", "*.db-wal", "*.db-shm", "*.db-journal", "*.sqlite", "*.sqlite3",
-    ".instance_id", ".activation_audit.jsonl",
+    ".env", ".env.*", "*.env", "*.pem", "*.key", "*.p12", "*.pfx", "*.jks", "*.keystore",
+    "id_rsa*", "id_dsa*", "id_ecdsa*", "id_ed25519*", ".ssh/", ".aws/", ".kube/", ".gnupg/",
+    ".netrc", ".npmrc", ".pypirc", ".git-credentials", "credentials.json", "token.json",
+    "service-account*.json", "secrets.json", "secrets.yaml", "secrets.yml",
+    ".data/", "*.db", "*.db3", "*.db-wal", "*.db-shm", "*.db-journal", "*.sqlite", "*.sqlite3",
+    "*.sqlite-journal", ".instance_id", ".activation_audit.jsonl",
 )
-# The same patterns as bare names, for matching one path component at a time.
-EXCLUDED_NAMES = tuple(pattern.rstrip("/") for pattern in BASELINE_EXCLUDES)
+# Templates are meant to be read and edited (.env.example is tracked on purpose
+# and CLAUDE.md rule 37 requires updating it). Excluding one made an agent's new
+# copy overwrite the real file on the way back.
+TEMPLATE_SUFFIXES = (".example", ".sample", ".template", ".dist")
+# The same patterns as bare, lower-case names, matched one path component at a time.
+EXCLUDED_NAMES = tuple(pattern.rstrip("/").lower() for pattern in BASELINE_EXCLUDES)
+_COPY_SKIP = (".git", "__pycache__", "*.pyc", "node_modules")
+
+
+def _name_excluded(name: str) -> bool:
+    lowered = name.lower()
+    if lowered.endswith(TEMPLATE_SUFFIXES):
+        return False
+    return any(fnmatch.fnmatchcase(lowered, pattern) for pattern in EXCLUDED_NAMES)
 
 
 def is_excluded(rel_path: str) -> bool:
-    """True when any component of *rel_path* matches ``BASELINE_EXCLUDES``."""
-    return any(
-        fnmatch.fnmatch(part, pattern) for part in PurePath(rel_path).parts for pattern in EXCLUDED_NAMES
-    )
+    """True when any component of *rel_path* is a secret or runtime-state name."""
+    return any(_name_excluded(part) for part in PurePath(rel_path).parts)
+
+
+def copy_ignore(_directory: str, names: list[str]) -> set[str]:
+    """``shutil.copytree`` ignore callback: bulky dirs, secrets and runtime state."""
+    return {
+        name for name in names
+        if _name_excluded(name) or any(fnmatch.fnmatchcase(name, skip) for skip in _COPY_SKIP)
+    }
+
+
+def _git_exclude_lines() -> list[str]:
+    """Patterns for ``.git/info/exclude``, re-including the template files."""
+    return [*BASELINE_EXCLUDES, *(f"!*{suffix}" for suffix in TEMPLATE_SUFFIXES)]
 
 _IDENTITY = ["-c", "user.email=agent@localhost", "-c", "user.name=Agent", "-c", "core.hooksPath=/dev/null",
              "-c", "commit.gpgsign=false"]
@@ -44,7 +74,7 @@ def git_baseline(path: str) -> bool:
         _git(path, "init", "-q")
         exclude = Path(path, ".git", "info", "exclude")
         exclude.parent.mkdir(parents=True, exist_ok=True)
-        exclude.write_text("\n".join(BASELINE_EXCLUDES) + "\n", encoding="utf-8")
+        exclude.write_text("\n".join(_git_exclude_lines()) + "\n", encoding="utf-8")
         _git(path, "add", "-A")
         _git(path, *_IDENTITY, "commit", "-q", "--allow-empty", "-m", "task baseline")
         return True

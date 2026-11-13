@@ -185,3 +185,50 @@ def test_is_excluded_matches_any_path_component() -> None:
     assert not is_excluded("pkg/database.py")
     assert not is_excluded("docs/environment.md")
     assert not is_excluded(".agency/harness-history.jsonl")
+
+
+_MORE_SECRETS = (
+    ".ssh/id_ed25519", "id_ecdsa", ".aws/credentials", ".netrc", ".npmrc", ".pypirc",
+    ".git-credentials", "cert.pfx", "keystore.jks", "service-account.json", "token.json",
+    "config/secrets.yaml", ".ENV", "Server.PEM", "v.db3", "w.sqlite-journal", "z.DB",
+)
+
+
+def test_more_secret_formats_and_any_letter_case_are_dropped(tmp_path: Path) -> None:
+    ws = _workspace(tmp_path)
+    for rel in _MORE_SECRETS:
+        target = ws / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("SECRET", encoding="utf-8")
+    tar_bytes, _ = seed.pack_seed(str(ws))
+    assert b"SECRET" not in tar_bytes
+    assert not [n for n in _names(tar_bytes) if n in _MORE_SECRETS]
+
+
+def test_tracked_env_templates_are_still_seeded(tmp_path: Path) -> None:
+    """Dropping .env.example made an agent's new copy overwrite the real one."""
+    ws = _workspace(tmp_path)
+    (ws / ".env.example").write_text("VAR=\n", encoding="utf-8")
+    (ws / ".env.backend-secrets.example").write_text("X=\n", encoding="utf-8")
+    (ws / ".env").write_text("SECRET", encoding="utf-8")
+    subprocess.run(["git", "init", "-q"], cwd=ws, check=True)
+    subprocess.run(["git", "add", "-A", "-f"], cwd=ws, check=True)
+    names = _names(seed.pack_seed(str(ws))[0])
+    assert {".env.example", ".env.backend-secrets.example"} <= names
+    assert ".env" not in names
+
+
+def test_the_task_copy_keeps_env_templates_and_tracks_them(tmp_path: Path) -> None:
+    from runtimes.adapters.internal_agent import InternalAgentAdapter
+
+    ws = _workspace(tmp_path)
+    (ws / ".env.example").write_text("VAR=\n", encoding="utf-8")
+    (ws / ".env").write_text("SECRET", encoding="utf-8")
+    path, tmp = InternalAgentAdapter._create_worktree(str(ws), "task-template")
+    try:
+        assert (Path(path) / ".env.example").is_file()
+        assert not (Path(path) / ".env").exists()
+        tracked = subprocess.run(["git", "ls-files"], cwd=path, capture_output=True, text=True).stdout.split()
+        assert ".env.example" in tracked and ".env" not in tracked
+    finally:
+        InternalAgentAdapter._remove_worktree(str(ws), path, tmp)

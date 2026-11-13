@@ -38,14 +38,17 @@ _MAX_FIX_TASKS = 5
 # limit or a spent quota, so queueing an agent task for one only spends more of
 # the capacity that ran out (production cycled "Investigate the root cause of
 # 'Brain capacity exhausted'" tasks that could never succeed).
-# Exact phrases the failover and providers emit, never loose words: an alert
-# that merely mentions rate limiting (a disabled rate limiter, a failing test)
-# is a real defect and must stay fixable.
+# Exact phrases the failover, providers and the task coordinator emit, never
+# loose words: an alert that merely mentions rate limiting or a 429 (a disabled
+# rate limiter, a failing test) is a real defect and must stay fixable. The last
+# three are the coordinator's own "blocked after N retries" messages, which
+# report an operational condition it has already retried.
 _CAPACITY_ALERT_MARKERS = (
-    "brain capacity exhausted", "all brain providers exhausted",
-    "brain provider attempt(s) failed", "all configured llm providers failed",
-    "http 429", "error code: 429", "rate limited", "rate_limit_exceeded",
-    "quota exhausted", "quota exceeded", "too many requests",
+    "all brain providers exhausted", "brain provider attempt(s) failed",
+    "all configured llm providers failed", "error code: 429", "rate limited",
+    "rate_limit_exceeded", "resource_exhausted", "quota exhausted", "quota exceeded",
+    "brain capacity exhausted", "no runtime available after",
+    "transient provider/sandbox error after",
 )
 _FEED_LIMIT = 50
 

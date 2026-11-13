@@ -135,7 +135,8 @@ def test_alerts_that_only_mention_rate_limiting_stay_fixable() -> None:
     for kind, message in [
         ("security", "RATE_LIMIT_RPM unset: rate limit disabled in production"),
         ("ci", "test_proxy_rate limit middleware returns 500 on burst"),
-        ("error", "Task blocked \u2014 no runtime available after 5 retries: adapter not registered"),
+        ("ci", "test_rate_limited_requests_return_429: expected HTTP 429 got 200"),
+        ("error", "Proxy returns 429 Too Many Requests for every authenticated user (limiter bug)"),
     ]:
         alert = SamAlert(title="Alert", message=message, kind=kind, severity="error")
         assert not alert.is_capacity and alert.fixable, message
@@ -150,3 +151,26 @@ def test_sdk_style_rate_limit_errors_are_capacity() -> None:
         "groq HTTP 429: rate limited (quota exhausted)",
     ]:
         assert SamAlert(title="x", message=message, kind="error", severity="error").is_capacity, message
+
+
+def test_the_coordinators_own_block_messages_are_not_fix_tasks() -> None:
+    """Exactly what tasks/service.py emits after it has retried five times."""
+    from agent.sam_actions import SamAlert
+
+    for message in [
+        "Task blocked \u2014 brain capacity exhausted after 5 retries",
+        "Task blocked \u2014 no runtime available after 5 retries",
+        "Task blocked \u2014 transient provider/sandbox error after 5 retries",
+        "429 RESOURCE_EXHAUSTED",
+    ]:
+        alert = SamAlert(title="Task blocked", message=message, kind="error", severity="error")
+        assert alert.is_capacity and not alert.fixable, message
+
+
+def test_there_is_one_marker_list() -> None:
+    """A second assignment once silently overrode the intended list."""
+    from pathlib import Path
+
+    import agent.sam_actions as module
+
+    assert Path(module.__file__).read_text(encoding="utf-8").count("_CAPACITY_ALERT_MARKERS = (") == 1
