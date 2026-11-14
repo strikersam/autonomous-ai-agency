@@ -543,6 +543,11 @@ async def _try_provider(
         ProviderRouter, with_nemotron_thinking_off, with_ollama_reasoning_effort,
     )
 
+    from packages.llm.config import bedrock_blocked
+
+    if bedrock_blocked(provider):  # env-built URLs can point anywhere; the switch wins
+        return None, "bedrock disabled (BEDROCK_DISABLED)"
+
     requested_model = str(payload.get("model") or "")
     # Key rotation: pick this attempt's key from the provider's pool. Falls back
     # to the single key already on the provider record when no extra keys are

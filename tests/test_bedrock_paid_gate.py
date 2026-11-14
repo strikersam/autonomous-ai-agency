@@ -15,6 +15,12 @@ from packages.ai.router import ProviderRouter
 
 
 @pytest.fixture(autouse=True)
+def _bedrock_kill_switch_off(monkeypatch):
+    """These tests cover Bedrock once the operator has turned the kill switch off."""
+    monkeypatch.setenv("BEDROCK_DISABLED", "false")
+
+
+@pytest.fixture(autouse=True)
 def _aws_creds_present(monkeypatch):
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIATEST1234567890AB")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test_secret")

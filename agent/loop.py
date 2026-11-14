@@ -2588,7 +2588,15 @@ class AgentRunner:
                     log.warning("Anthropic Opus call failed — falling back to Ollama: %s", exc)
 
             # Bedrock fallback: used when only AWS credentials are set (no ANTHROPIC_API_KEY)
-            if _paid_allowed and (not explicit_provider_configured) and (not anthropic_key) and target_is_opus:
+            from packages.ai.brain import bedrock_disabled as _bedrock_disabled
+
+            if (
+                _paid_allowed
+                and not _bedrock_disabled()
+                and (not explicit_provider_configured)
+                and (not anthropic_key)
+                and target_is_opus
+            ):
                 aws_access = os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")
                 aws_secret = os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY")
                 aws_region = (
