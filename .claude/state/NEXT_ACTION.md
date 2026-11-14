@@ -1,3 +1,13 @@
+# NEXT_ACTION — updated 2026-11-14 (enterprise reliability plan, branch `claude/enterprise-reliability-plan`)
+
+**What shipped:** a plan only, as a draft PR: `docs/plans/2026-11-14-enterprise-reliability-durable-execution-plan.md`. No code.
+
+## Open items
+
+1. Operator must answer D1 to D5 (plan section 4) before PR 0 starts.
+2. Not run: `pytest -x` baseline, frontend checks, anything against live Render. Rows marked "not verified" in the gap matrix are open questions.
+
+---
 # NEXT_ACTION — updated 2026-11-12 (retired-model auto-replacement, same branch)
 
 **What shipped:** `packages/ai/model_retirement.py` + live control `MODEL_AUTO_HEAL_ENABLED`: stored model choices move off provider-retired ids for every provider, from 404/410 evidence plus the provider's `/models` listing. Two verifier rounds, both PASS+NOTES; deny-list and id-spelling notes fixed with tests.
