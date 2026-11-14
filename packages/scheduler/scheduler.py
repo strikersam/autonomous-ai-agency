@@ -61,6 +61,19 @@ def _run_once_max_age_sec() -> float:
 
 log = logging.getLogger("qwen-scheduler")
 
+
+async def _store_call(fn: Callable[..., Any], *args: Any) -> Any:
+    """Call a persistence method without blocking the event loop.
+
+    Async stores are awaited. A synchronous store (the pymongo ``ScheduleStore``)
+    runs in a worker thread: ``load_all`` over a few hundred rows took 3-6 s on
+    Render and the watchdog named it as the loop blocker, failing health checks.
+    """
+    if inspect.iscoroutinefunction(fn):
+        return await fn(*args)
+    result = await asyncio.to_thread(fn, *args)
+    return (await result) if inspect.isawaitable(result) else result
+
 try:
     from apscheduler.schedulers.background import BackgroundScheduler
     from apscheduler.triggers.cron import CronTrigger
@@ -434,8 +447,7 @@ class AgentScheduler:
         if self._store is None:
             return 0
         try:
-            result = self._store.load_all()
-            docs = (await result) if inspect.isawaitable(result) else result
+            docs = await _store_call(self._store.load_all)
             count = 0
             cleaned = 0
             seen_names: set[str] = set()  # name dedup — prevents schedule multiplication
@@ -451,9 +463,7 @@ class AgentScheduler:
                 # them from the durable store so they don't pile up forever.
                 if "run-once" in tags and run_count > 0:
                     try:
-                        remove_result = self._store.remove(job_id)
-                        if inspect.isawaitable(remove_result):
-                            await remove_result
+                        await _store_call(self._store.remove, job_id)
                         cleaned += 1
                     except Exception:
                         pass
@@ -462,9 +472,7 @@ class AgentScheduler:
                 # delete this duplicate from the durable store and skip it.
                 if name in seen_names:
                     try:
-                        remove_result = self._store.remove(job_id)
-                        if inspect.isawaitable(remove_result):
-                            await remove_result
+                        await _store_call(self._store.remove, job_id)
                         cleaned += 1
                     except Exception:
                         pass
@@ -506,9 +514,7 @@ class AgentScheduler:
         if self._store is None:
             return
         try:
-            result = self._store.upsert(job.as_dict())
-            if inspect.isawaitable(result):
-                await result
+            await _store_call(self._store.upsert, job.as_dict())
         except Exception as exc:
             log.warning("Scheduler persist failed for %s: %s", job.job_id, exc)
 
@@ -544,9 +550,7 @@ class AgentScheduler:
         zero.
         """
         try:
-            remove_result = self._store.remove(job_id)
-            if inspect.isawaitable(remove_result):
-                remove_result = await remove_result
+            remove_result = await _store_call(self._store.remove, job_id)
         except Exception:
             log.exception(
                 "force_cleanup: could not remove job job_id=%s%s",
@@ -586,8 +590,7 @@ class AgentScheduler:
         conditional = getattr(self._store, "delete_if_unfired_run_once", None)
         if conditional is not None:
             try:
-                result = conditional(job_id)
-                deleted = (await result) if inspect.isawaitable(result) else result
+                deleted = await _store_call(conditional, job_id)
             except Exception:
                 log.exception(
                     "force_cleanup: conditional delete failed for orphaned "
@@ -625,8 +628,7 @@ class AgentScheduler:
         if self._store is None:
             return summary
         try:
-            result = self._store.load_all()
-            docs = (await result) if inspect.isawaitable(result) else result
+            docs = await _store_call(self._store.load_all)
             summary["total"] = len(docs)
             seen_names: set[str] = set()
             for doc in docs:
@@ -752,8 +754,7 @@ class AgentScheduler:
         read_failed = False
         if self._store is not None:
             try:
-                result = self._store.load_all()
-                docs = (await result) if inspect.isawaitable(result) else result
+                docs = await _store_call(self._store.load_all)
             except Exception:
                 log.exception("Scheduler: durable read failed while collecting tag %s", tag)
                 docs, read_failed = [], True
@@ -788,8 +789,7 @@ class AgentScheduler:
         await self._ensure_store()
         tags = {t for j in self._jobs.values() for t in (j.tags or []) if t.startswith(prefix)}
         if self._store is not None:
-            result = self._store.load_all()
-            docs = (await result) if inspect.isawaitable(result) else result
+            docs = await _store_call(self._store.load_all)
             for doc in docs:
                 tags.update(t for t in (doc.get("tags") or []) if t.startswith(prefix))
         return tags
@@ -811,8 +811,7 @@ class AgentScheduler:
         summary = {"total": 0, "deleted": 0}
         if self._store is not None:
             try:
-                result = self._store.load_all()
-                docs = (await result) if inspect.isawaitable(result) else result
+                docs = await _store_call(self._store.load_all)
                 summary["total"] = len(docs)
                 for doc in docs:
                     job_id = doc.get("job_id") or doc.get("id")
@@ -840,9 +839,7 @@ class AgentScheduler:
         if self._store is None:
             return
         try:
-            result = self._store.remove(job_id)
-            if inspect.isawaitable(result):
-                await result
+            await _store_call(self._store.remove, job_id)
         except Exception:
             pass
 
