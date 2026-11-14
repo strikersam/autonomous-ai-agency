@@ -214,7 +214,6 @@ class LLMRouter:
             if api_key is None:
                 continue
 
-            budget.charge()
             attempt = Attempt(
                 provider=candidate.provider.id, model=candidate.model.id, key_index=key_index
             )
@@ -226,6 +225,10 @@ class LLMRouter:
                         continue
                     if bedrock_blocked(candidate.provider):  # the switch may have flipped while waiting
                         continue
+                    # Charged only once the candidate will really be called, as in _dispatch: a
+                    # candidate skipped above must not use up the attempt budget, or with a
+                    # one-attempt budget it would stop the fallback provider from being tried.
+                    budget.charge()
                     async for chunk in provider.stream(
                         request, model=candidate.model.id, api_key=api_key, client=client
                     ):
