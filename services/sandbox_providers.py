@@ -93,16 +93,32 @@ def get_opener(name: str) -> Opener | None:
     return _openers.get(name)
 
 
-async def _warm_sdk(provider: str) -> None:
-    """Import *provider*'s SDK in a worker thread, before its opener imports it inline.
+# The names each opener imports from its SDK. Some SDKs (daytona) are lazy packages: the
+# top-level import is cheap and the heavy submodules load on first attribute access, so
+# warming only the package leaves the real import to the opener, on the event loop.
+_SDK_NAMES: dict[str, tuple[str, ...]] = {
+    PROVIDER_E2B: ("AsyncSandbox",),
+    PROVIDER_DAYTONA: ("AsyncDaytona", "CreateSandboxFromSnapshotParams", "DaytonaConfig"),
+    PROVIDER_INSTABOX: ("Client", "NotFoundError"),
+}
 
-    The first import of the Daytona SDK builds hundreds of pydantic models and held the
-    event loop for ~10 s on Render's free instance, failing the health check. A missing
-    SDK is left for the opener to report.
+
+def _import_sdk(provider: str) -> None:
+    module = importlib.import_module(_SDK_MODULE.get(provider, provider))
+    for name in _SDK_NAMES.get(provider, ()):
+        getattr(module, name)
+
+
+async def _warm_sdk(provider: str) -> None:
+    """Import *provider*'s SDK, and the names its opener uses, in a worker thread.
+
+    The first Daytona SDK import builds hundreds of pydantic models and held the event
+    loop for ~10 s on Render's free instance, failing the health check. A missing SDK or
+    name is left for the opener to report.
     """
     try:
-        await asyncio.to_thread(importlib.import_module, _SDK_MODULE.get(provider, provider))
-    except ImportError:
+        await asyncio.to_thread(_import_sdk, provider)
+    except (ImportError, AttributeError):
         pass
 
 
