@@ -38,15 +38,15 @@ _MAX_FIX_TASKS = 5
 # limit or a spent quota, so queueing an agent task for one only spends more of
 # the capacity that ran out (production cycled "Investigate the root cause of
 # 'Brain capacity exhausted'" tasks that could never succeed).
-# Exact phrases the failover, providers and the task coordinator emit, never
-# loose words: an alert that merely mentions rate limiting or a 429 (a disabled
-# rate limiter, a failing test) is a real defect and must stay fixable. The last
-# three are the coordinator's own "blocked after N retries" messages, which
-# report an operational condition it has already retried.
+# Only phrases that carry their own context: the failover's and the task
+# coordinator's exact messages, and the provider form "HTTP 429: rate limited".
+# Bare words such as "rate limited" or "rate_limit_exceeded" also appear inside
+# real defect reports (a failing test's name, a limiter bug), and those must
+# stay fixable. A raw provider error that reaches the feed unwrapped is
+# therefore still queued; the failover normally wraps it.
 _CAPACITY_ALERT_MARKERS = (
     "all brain providers exhausted", "brain provider attempt(s) failed",
-    "all configured llm providers failed", "error code: 429", "rate limited",
-    "rate_limit_exceeded", "resource_exhausted", "quota exhausted", "quota exceeded",
+    "all configured llm providers failed", "http 429: rate limited",
     "brain capacity exhausted", "no runtime available after",
     "transient provider/sandbox error after",
 )
@@ -168,8 +168,15 @@ async def fix_alerts(owner_id: str) -> str:
     alerts = await fetch_alerts()
     fixable = [a for a in alerts if a.fixable]
     approvals = sum(1 for a in alerts if a.kind == "approval")
+    capacity = sum(1 for a in alerts if a.is_capacity)
     if not fixable:
         tail = f" {_plural(approvals, 'run')} are waiting on your approval." if approvals else ""
+        if capacity:
+            return (
+                f"I checked the alerts, Commander. {_plural(capacity, 'alert')} report a model provider "
+                f"out of capacity or rate limited. That needs more provider capacity, not a code fix, "
+                f"so I queued nothing.{tail} Standing by."
+            )
         return f"I checked the alerts, Commander. There's nothing broken for me to fix.{tail} Standing by."
     created, already = 0, 0
     for alert in fixable[:_MAX_FIX_TASKS]:

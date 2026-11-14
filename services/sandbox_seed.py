@@ -29,6 +29,9 @@ _SKIP_DIRS = frozenset({
 })
 _MAX_FILES = 20000
 _MAX_FILE_BYTES = 5 * 1024 * 1024
+# The archive is built in memory and copied once more on the way out, on an
+# instance that may have 512 MB in total. Past this, the seed is partial.
+_MAX_SEED_BYTES = 64 * 1024 * 1024
 _GIT_TIMEOUT_S = 30
 
 
@@ -52,7 +55,14 @@ def _walked(worktree_path: str) -> list[str]:
     """Relative paths of regular files under *worktree_path*, skipping bulky dirs."""
     found: list[str] = []
     for root, dirs, names in os.walk(worktree_path):
-        dirs[:] = sorted(d for d in dirs if d not in _SKIP_DIRS and not is_excluded(d))
+        keep = sorted(d for d in dirs if d not in _SKIP_DIRS and not is_excluded(d))
+        # os.walk does not descend into a linked directory; record the link
+        # itself so paths through it still resolve in the sandbox.
+        found.extend(
+            os.path.relpath(os.path.join(root, d), worktree_path)
+            for d in keep if os.path.islink(os.path.join(root, d))
+        )
+        dirs[:] = keep
         for name in sorted(names):
             if is_excluded(name):
                 continue
@@ -86,14 +96,21 @@ def pack_seed(worktree_path: str) -> tuple[bytes, int]:
         return b"", 0
     buf = io.BytesIO()
     packed = 0
+    total = 0
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
         for rel in files:
             full = os.path.join(worktree_path, rel)
             try:
                 if not os.path.lexists(full) or os.path.isdir(full) and not os.path.islink(full):
                     continue
-                if not os.path.islink(full) and os.path.getsize(full) > _MAX_FILE_BYTES:
+                size = 0 if os.path.islink(full) else os.path.getsize(full)
+                if size > _MAX_FILE_BYTES:
                     continue
+                if total + size > _MAX_SEED_BYTES:
+                    log.warning("sandbox seed: %d MB budget reached in %s; the seed is partial",
+                                _MAX_SEED_BYTES // (1024 * 1024), worktree_path)
+                    break
+                total += size
                 tar.add(full, arcname=rel, recursive=False)
                 packed += 1
             except (OSError, PermissionError, tarfile.TarError):

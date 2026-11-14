@@ -306,6 +306,9 @@ def _get_store() -> PlaybookStore:
     return _store
 
 
+_LEARN_LOCK = threading.Lock()
+
+
 async def learning_context(limit: int = 300) -> str:
     """Learn from recent task outcomes and return the CEO prompt block. Never raises."""
     global _doc
@@ -319,9 +322,10 @@ async def learning_context(limit: int = 300) -> str:
             # Synchronous stores (playbook and lessons): off the event loop,
             # where one slow read used to stall every request for seconds.
             store = _get_store()
-            doc = store.load()
-            if learn(doc, tasks):
-                store.save(doc)
+            with _LEARN_LOCK:  # two overlapping cycles must not overwrite each other
+                doc = store.load()
+                if learn(doc, tasks):
+                    store.save(doc)
             return doc, recent_lessons_block()
 
         import asyncio

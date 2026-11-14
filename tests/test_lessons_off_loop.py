@@ -85,3 +85,23 @@ def test_the_ceo_playbook_reads_its_stores_off_the_loop() -> None:
     src = Path(playbook.__file__).read_text(encoding="utf-8")
     assert "await asyncio.to_thread(_learn_and_read)" in src
     assert "beliefs(doc), recent_lessons_block())" not in src
+
+
+def test_enrichment_and_spec_persistence_run_off_the_loop() -> None:
+    """Both reach the lessons store or the refine lock, so neither may block the loop."""
+    import agent.loop as loop_module
+    import runtimes.adapters.internal_agent as adapter_module
+
+    loop_src = Path(loop_module.__file__).read_text(encoding="utf-8")
+    assert loop_src.count("await asyncio.to_thread(self._inject_enrichment,") == 2
+    assert "        self._inject_enrichment(" not in loop_src.replace("await asyncio.to_thread(self._inject_enrichment,", "")
+    adapter_src = Path(adapter_module.__file__).read_text(encoding="utf-8")
+    assert adapter_src.count("await asyncio.to_thread(persist_spec,") == 2
+    assert "    persist_spec(worktree_path" not in adapter_src
+
+
+def test_the_playbook_serialises_load_learn_save() -> None:
+    import agent.ceo_playbook as playbook
+
+    src = Path(playbook.__file__).read_text(encoding="utf-8")
+    assert "with _LEARN_LOCK:" in src

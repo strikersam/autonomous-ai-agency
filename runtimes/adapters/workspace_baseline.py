@@ -28,8 +28,8 @@ BASELINE_EXCLUDES = (
     "id_rsa*", "id_dsa*", "id_ecdsa*", "id_ed25519*", ".ssh/", ".aws/", ".kube/", ".gnupg/",
     ".netrc", ".npmrc", ".pypirc", ".git-credentials", "credentials.json", "token.json",
     "service-account*.json", "secrets.json", "secrets.yaml", "secrets.yml",
-    ".data/", "*.db", "*.db3", "*.db-wal", "*.db-shm", "*.db-journal", "*.sqlite", "*.sqlite3",
-    "*.sqlite-journal", ".instance_id", ".activation_audit.jsonl",
+    ".data/", "*.db", "*.db3", "*.sqlite", "*.sqlite3", "*-wal", "*-shm", "*-journal",
+    ".instance_id", ".activation_audit.jsonl",
 )
 # Templates are meant to be read and edited (.env.example is tracked on purpose
 # and CLAUDE.md rule 37 requires updating it). Excluding one made an agent's new
@@ -76,11 +76,30 @@ def git_baseline(path: str) -> bool:
         exclude.parent.mkdir(parents=True, exist_ok=True)
         exclude.write_text("\n".join(_git_exclude_lines()) + "\n", encoding="utf-8")
         _git(path, "add", "-A")
+        _add_ignored_templates(path)
         _git(path, *_IDENTITY, "commit", "-q", "--allow-empty", "-m", "task baseline")
         return True
     except (subprocess.SubprocessError, OSError) as exc:
         log.warning("Could not give the task copy a git baseline: %s", exc)
         return False
+
+
+def _add_ignored_templates(path: str) -> None:
+    """Track template files a workspace ``.gitignore`` hides (e.g. ``.env*``).
+
+    ``.gitignore`` outranks ``.git/info/exclude``, so the ``!*.example`` lines
+    there cannot restore them; without this the tracked-file seed omits them.
+    """
+    listed = subprocess.run(  # nosec B603, B607 - fixed git argv, list form, no shell
+        ["git", "ls-files", "--others", "--ignored", "--exclude-standard", "-z"],
+        cwd=path, check=True, capture_output=True, text=True, timeout=120,
+    ).stdout
+    templates = [
+        f for f in listed.split("\0")
+        if f and f.lower().endswith(TEMPLATE_SUFFIXES) and not is_excluded(f)
+    ]
+    for start in range(0, len(templates), 200):
+        _git(path, "add", "-f", "--", *templates[start:start + 200])
 
 
 def _git(cwd: str, *args: str) -> None:

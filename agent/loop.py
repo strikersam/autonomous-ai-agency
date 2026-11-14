@@ -1257,7 +1257,7 @@ class AgentRunner:
             procedural_memories=proc_memories or None,
         )
         # ── Harness enrichment: inject available tools + skills into planner ───
-        self._inject_enrichment(messages, str(self.tools.root))
+        await asyncio.to_thread(self._inject_enrichment, messages, str(self.tools.root))
         # ── Learning loop: surface lessons from recent failed runs so the
         # planner avoids known failure modes (agent/lessons.py).
         try:
@@ -1430,7 +1430,7 @@ class AgentRunner:
                 base_tool_prompt = str(tool_messages[0].get("content", ""))
                 tool_messages[0]["content"] = _compact_if_enabled(base_tool_prompt)
                 # ── Harness enrichment: inject tool + skill catalog into tool prompt ───
-                self._inject_enrichment(tool_messages, str(self.tools.root))
+                await asyncio.to_thread(self._inject_enrichment, tool_messages, str(self.tools.root))
                 # Inject ReAct scratchpad trace into the system message so the
                 # model can see its own reasoning across tool calls (A2)
                 scratchpad_ctx = scratchpad.to_prompt_context()

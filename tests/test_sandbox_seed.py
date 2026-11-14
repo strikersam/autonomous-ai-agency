@@ -228,3 +228,47 @@ def test_the_task_copy_keeps_env_templates_and_tracks_them(tmp_path: Path) -> No
         assert ".env.example" in tracked and ".env" not in tracked
     finally:
         InternalAgentAdapter._remove_worktree(str(ws), path, tmp)
+
+
+def test_the_seed_has_a_total_byte_budget(tmp_path: Path, monkeypatch) -> None:
+    ws = tmp_path / "big"
+    ws.mkdir()
+    for i in range(6):
+        (ws / f"f{i}.bin").write_bytes(b"x" * 1000)
+    monkeypatch.setattr(seed, "_MAX_SEED_BYTES", 2500)
+    tar_bytes, count = seed.pack_seed(str(ws))
+    assert count == 2 and len(_names(tar_bytes)) == 2
+
+
+def test_a_walk_keeps_directory_links_as_links(tmp_path: Path) -> None:
+    ws = _workspace(tmp_path)
+    os.symlink("pkg", str(ws / "src"))
+    tar_bytes, _ = seed.pack_seed(str(ws))
+    with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:gz") as tar:
+        assert tar.getmember("src").issym()
+        assert "src/mod.py" not in tar.getnames(), "the link is recorded, not walked into"
+
+
+def test_database_sidecars_are_dropped_for_every_extension(tmp_path: Path) -> None:
+    ws = _workspace(tmp_path)
+    sidecars = [f"state.{ext}{tail}" for ext in ("db", "db3", "sqlite", "sqlite3") for tail in ("-wal", "-shm", "-journal")]
+    for name in sidecars:
+        (ws / name).write_text("SECRET", encoding="utf-8")
+    tar_bytes, _ = seed.pack_seed(str(ws))
+    assert b"SECRET" not in tar_bytes and not [n for n in _names(tar_bytes) if n in sidecars]
+
+
+def test_templates_survive_a_gitignore_that_hides_them(tmp_path: Path) -> None:
+    from runtimes.adapters.internal_agent import InternalAgentAdapter
+
+    ws = _workspace(tmp_path)
+    (ws / ".gitignore").write_text(".env*\n", encoding="utf-8")
+    (ws / ".env.example").write_text("VAR=\n", encoding="utf-8")
+    (ws / ".env").write_text("SECRET", encoding="utf-8")
+    path, tmp = InternalAgentAdapter._create_worktree(str(ws), "task-ignored-template")
+    try:
+        tracked = seed._git_tracked(path) or []
+        assert ".env.example" in tracked and ".env" not in tracked
+        assert ".env.example" in _names(seed.pack_seed(path)[0])
+    finally:
+        InternalAgentAdapter._remove_worktree(str(ws), path, tmp)

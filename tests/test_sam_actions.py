@@ -142,15 +142,25 @@ def test_alerts_that_only_mention_rate_limiting_stay_fixable() -> None:
         assert not alert.is_capacity and alert.fixable, message
 
 
-def test_sdk_style_rate_limit_errors_are_capacity() -> None:
+def test_marker_text_quoted_inside_a_defect_report_stays_fixable() -> None:
+    """A failing test's name or a limiter bug can contain the same words."""
     from agent.sam_actions import SamAlert
 
-    for message in [
-        "Error code: 429 - {'error': 'rate_limit_exceeded'}",
-        "RateLimitError: quota exceeded",
-        "groq HTTP 429: rate limited (quota exhausted)",
+    for kind, message in [
+        ("ci", "test_rate_limit_exceeded: expected HTTP 429, got 200"),
+        ("security", "Unauthenticated requests succeed while rate limited"),
+        ("error", "Users report they are rate limited after one request (limiter key collision)"),
+        ("error", "Error code: 429 - {'error': 'rate_limit_exceeded'}"),
     ]:
-        assert SamAlert(title="x", message=message, kind="error", severity="error").is_capacity, message
+        alert = SamAlert(title="Alert", message=message, kind=kind, severity="error")
+        assert not alert.is_capacity and alert.fixable, message
+
+
+def test_the_provider_form_is_capacity() -> None:
+    from agent.sam_actions import SamAlert
+
+    alert = SamAlert(title="x", message="groq HTTP 429: rate limited (quota exhausted)", kind="error", severity="error")
+    assert alert.is_capacity and not alert.fixable
 
 
 def test_the_coordinators_own_block_messages_are_not_fix_tasks() -> None:
@@ -161,7 +171,6 @@ def test_the_coordinators_own_block_messages_are_not_fix_tasks() -> None:
         "Task blocked \u2014 brain capacity exhausted after 5 retries",
         "Task blocked \u2014 no runtime available after 5 retries",
         "Task blocked \u2014 transient provider/sandbox error after 5 retries",
-        "429 RESOURCE_EXHAUSTED",
     ]:
         alert = SamAlert(title="Task blocked", message=message, kind="error", severity="error")
         assert alert.is_capacity and not alert.fixable, message
@@ -174,3 +183,16 @@ def test_there_is_one_marker_list() -> None:
     import agent.sam_actions as module
 
     assert Path(module.__file__).read_text(encoding="utf-8").count("_CAPACITY_ALERT_MARKERS = (") == 1
+
+
+async def test_fix_alerts_says_so_when_every_alert_is_capacity(monkeypatch) -> None:
+    import agent.sam_actions as actions
+
+    async def only_capacity(limit: int = 50):
+        return [actions.SamAlert(title="Task blocked", message="Task blocked \u2014 brain capacity exhausted after 5 retries",
+                                 kind="error", severity="error")]
+
+    monkeypatch.setattr(actions, "fetch_alerts", only_capacity)
+    spoken = await actions.fix_alerts("system:ceo")
+    assert "capacity" in spoken and "queued nothing" in spoken
+    assert "nothing broken" not in spoken
