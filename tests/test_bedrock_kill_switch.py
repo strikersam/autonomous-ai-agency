@@ -276,7 +276,15 @@ def test_failover_and_discovery_never_call_a_bedrock_base_url(monkeypatch):
     result, err = asyncio.run(failover_client._try_provider(
         provider, {"model": "m", "messages": []}, None, [], 5.0, None))
     assert result is None and "BEDROCK_DISABLED" in err
+    reached: list[str] = []
+
+    async def _spy(self, url, *_a, **_k):
+        reached.append(str(url))
+        raise AssertionError("model discovery reached Bedrock")
+
+    monkeypatch.setattr("httpx.AsyncClient.get", _spy)
     assert asyncio.run(model_discovery.discover_models(provider)) is None
+    assert reached == []
 
 
 def test_stream_refuses_a_candidate_whose_switch_flipped_while_waiting(monkeypatch):
@@ -328,3 +336,121 @@ def test_stream_refuses_a_candidate_whose_switch_flipped_while_waiting(monkeypat
     with pytest.raises(Exception):  # noqa: B017 - every candidate was skipped: exhausted
         asyncio.run(_drain())
     assert provider_calls == []
+
+
+# ── Round-2 review: user-created Providers-UI records, OpenClaw, liveness probe ──
+
+BEDROCK_URL = "https://bedrock-mantle.us-east-1.api.aws/v1"
+
+
+def _webui_client(tmp_path, monkeypatch):
+    """A TestClient whose /ui/api uses a store that already holds a Bedrock record."""
+    from fastapi.testclient import TestClient
+
+    import proxy
+    from webui.config_store import JsonConfigStore, JsonStorePaths
+    from webui.providers import ProviderManager
+    from webui.workspaces import WorkspaceManager
+
+    store = JsonConfigStore(JsonStorePaths(
+        providers=tmp_path / "providers.json", workspaces=tmp_path / "workspaces.json"))
+    # Written straight to the store, as a record created before the switch existed.
+    store.save("providers", [{
+        "provider_id": "prov_bedrock", "name": "aws", "base_url": BEDROCK_URL,
+        "api_key": "k", "kind": "openai_compat", "default_model": "m",
+        "default_temperature": 0.2, "priority": 0,
+        "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z",
+    }])
+    proxy.app.state.webui_providers = ProviderManager(store)
+    proxy.app.state.webui_workspaces = WorkspaceManager(store, default_local_root=tmp_path)
+    proxy.app.dependency_overrides[proxy.verify_api_key] = lambda: proxy.AuthContext(
+        key="k", email="t@example.com", department="e", key_id="kid", source="legacy")
+    return TestClient(proxy.app), proxy
+
+
+def test_webui_chat_and_model_list_refuse_a_stored_bedrock_record(tmp_path, monkeypatch):
+    monkeypatch.delenv("BEDROCK_DISABLED", raising=False)
+    reached: list[str] = []
+
+    async def _spy(self, url, *_a, **_k):
+        reached.append(str(url))
+        raise AssertionError("the Providers UI reached Bedrock")
+
+    monkeypatch.setattr("httpx.AsyncClient.get", _spy)
+    monkeypatch.setattr("httpx.AsyncClient.post", _spy)
+    client, proxy = _webui_client(tmp_path, monkeypatch)
+    try:
+        chat = client.post("/ui/api/chat", json={
+            "provider_id": "prov_bedrock", "model": "m",
+            "messages": [{"role": "user", "content": "hi"}]})
+        models = client.get("/ui/api/providers/prov_bedrock/models")
+    finally:
+        proxy.app.dependency_overrides.clear()
+    assert chat.status_code == 403 and models.status_code == 403
+    assert reached == []
+
+
+def test_webui_cannot_create_a_bedrock_provider_while_the_switch_is_on(monkeypatch):
+    from webui.providers import _validate_provider_base_url
+
+    monkeypatch.delenv("BEDROCK_DISABLED", raising=False)
+    with pytest.raises(ValueError, match="BEDROCK_DISABLED"):
+        _validate_provider_base_url(BEDROCK_URL)
+    with pytest.raises(ValueError, match="BEDROCK_DISABLED"):
+        _validate_provider_base_url("https://bedrock-runtime.us-east-1.amazonaws.com/openai")
+    monkeypatch.setenv("BEDROCK_DISABLED", "false")
+    assert _validate_provider_base_url(BEDROCK_URL)
+
+
+def test_liveness_probe_never_posts_to_a_bedrock_override(monkeypatch):
+    from services import brain_liveness
+
+    monkeypatch.delenv("BEDROCK_DISABLED", raising=False)
+    monkeypatch.setenv("GROQ_API_KEY", "x")
+    reached: list[str] = []
+
+    async def _spy(self, url, *_a, **_k):
+        reached.append(str(url))
+        raise AssertionError("liveness probe reached Bedrock")
+
+    monkeypatch.setattr("httpx.AsyncClient.post", _spy)
+    result = asyncio.run(brain_liveness.probe_model_liveness(
+        "groq", "m", base_url="https://bedrock-mantle.us-east-1.api.aws"))
+    assert result.live is False and "BEDROCK_DISABLED" in result.reason
+    assert reached == []
+
+
+def test_openclaw_chat_skips_a_provider_whose_url_is_bedrock(monkeypatch):
+    from services import openclaw_gateway
+
+    monkeypatch.delenv("BEDROCK_DISABLED", raising=False)
+    reached: list[str] = []
+
+    async def _spy(self, url, *_a, **_k):
+        reached.append(str(url))
+        raise AssertionError("OpenClaw reached Bedrock")
+
+    monkeypatch.setattr("httpx.AsyncClient.post", _spy)
+    provider = SimpleNamespace(
+        id="openrouter", kind="openai", type="openai-compatible", api_key="k",
+        base_url="https://bedrock-mantle.us-east-1.api.aws/v1")
+    sent = {"done": False}
+
+    class _FM:
+        def max_attempts(self):
+            return 2
+
+        def next_provider(self, exclude=()):
+            if sent["done"]:
+                return None
+            sent["done"] = True
+            return provider
+
+        def resolve_model(self, *_a, **_k):
+            return "m"
+
+    import services.brain_failover as bf
+
+    monkeypatch.setattr(bf, "get_failover_manager", lambda: _FM())
+    asyncio.run(openclaw_gateway._cmd_chat({"message": "hi"}))
+    assert reached == []

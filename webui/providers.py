@@ -22,7 +22,12 @@ def _now() -> str:
 
 
 def _validate_provider_base_url(url: str) -> str:
-    return validate_outbound_url(url, scheme="http")
+    from packages.ai.brain import bedrock_disabled, is_bedrock_endpoint
+
+    checked = validate_outbound_url(url, scheme="http")
+    if bedrock_disabled() and is_bedrock_endpoint("", checked, ""):
+        raise ValueError("Bedrock endpoints are disabled (BEDROCK_DISABLED)")
+    return checked
 
 
 class ProviderCreate(BaseModel):
