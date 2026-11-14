@@ -1,7 +1,7 @@
 # Graph Report - autonomous-ai-agency  (2026-11-14)
 
 ## Corpus Check
-- 1252 files · ~1,402,289 words
+- 1252 files · ~1,402,401 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 57 file(s) not represented in the graph (top: (none) 19, .css 5, .bat 5)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `99783f75`
+- Built from commit: `0c0e3e05`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -320,7 +320,7 @@
 - pr_approval_gate.py
 - VoiceCommandInterface
 - Frontend Developer Agent Personality
-- models
+- text-embedding-3-small
 - InstaboxSandboxShim
 - Configuration Reference
 - login
@@ -613,7 +613,7 @@
 - meta-llama/llama-4-scout-17b-16e-instruct
 - mistral-large-4-0
 - mistral-large-latest
-- mistral-small-latest
+- cohere/north-mini-code:free
 - nvidia/nemotron-3-super-120b-a12b:free
 - openai/gpt-oss-safeguard-20b
 - documentation
@@ -659,7 +659,7 @@
 - gemma-4-31b
 - google/gemma-4-31b-it:free
 - gpt-oss-120b
-- openrouter/free
+- models
 - qwen/qwen3.8-27b:free
 - Qwen/Qwen3-8B
 - anthropic
@@ -1221,16 +1221,16 @@
 10. `WorkflowEngine` - 58 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `Similarities — convergent design we can validate against` --references--> `_mark_model_dead()`  [INFERRED]
-  docs/adr/008-llm-router-multi-provider.md → packages/ai/router.py
-- `What is safe about switching one on` --references--> `provider_sort_key()`  [INFERRED]
-  docs/traffic-distribution.md → packages/ai/router.py
 - ``QueueFull` errors` --references--> `QueueFull`  [INFERRED]
   docs/llm-router/troubleshooting.md → packages/llm/types.py
 - `How I would make the smaller model behave like me` --references--> `AgentRunner`  [INFERRED]
   audit/fable5/README.md → agent/loop.py
 - `Key findings (so we don't re-investigate)` --references--> `AgentRunner`  [INFERRED]
   docs/architecture/agency-core-progress.md → agent/loop.py
+- `Phase 1 — Plan-PR → Implementation  *(highest leverage; closes the live gap)*` --references--> `AgentRunner`  [INFERRED]
+  docs/architecture/autonomous-sdlc-loop.md → agent/loop.py
+- `Running it yourself` --references--> `AgentRunner`  [INFERRED]
+  docs/verification.md → agent/loop.py
 
 ## Import Cycles
 - 2-file cycle: `backend/server.py -> backend/v4_api.py -> backend/server.py`
@@ -2413,9 +2413,9 @@ Nodes (7): _sniff_container(), _stub_result(), TranscriptionResult, VoiceCommand
 Cohesion: 0.08
 Nodes (25): Accessibility and Inclusive Design, Accessibility Leadership, 🚀 Advanced Capabilities, Create Modern Web Applications, 🚨 Critical Rules You Must Follow, Editor Integration Engineering, Frontend Developer Agent Personality, 🔄 Learning & Memory (+17 more)
 
-### Community 305 - "models"
-Cohesion: 0.08
-Nodes (25): context_window, display_name, max_output_tokens, provider, supports_function_calling, supports_tools, models, codestral-latest (+17 more)
+### Community 305 - "text-embedding-3-small"
+Cohesion: 0.22
+Nodes (9): text-embedding-3-small, context_window, display_name, input_cost_per_1m, priority, provider, supports_chat, supports_embeddings (+1 more)
 
 ### Community 306 - "InstaboxSandboxShim"
 Cohesion: 0.09
@@ -3465,9 +3465,9 @@ Nodes (13): context_window, display_name, input_cost_per_1m, max_output_tokens, 
 Cohesion: 0.15
 Nodes (13): context_window, display_name, input_cost_per_1m, max_output_tokens, output_cost_per_1m, priority, provider, speed_tier (+5 more)
 
-### Community 600 - "mistral-small-latest"
-Cohesion: 0.15
-Nodes (13): context_window, display_name, input_cost_per_1m, max_output_tokens, output_cost_per_1m, priority, provider, speed_tier (+5 more)
+### Community 600 - "cohere/north-mini-code:free"
+Cohesion: 0.14
+Nodes (14): context_window, display_name, input_cost_per_1m, max_output_tokens, output_cost_per_1m, priority, provider, speed_tier (+6 more)
 
 ### Community 601 - "nvidia/nemotron-3-super-120b-a12b:free"
 Cohesion: 0.15
@@ -3637,9 +3637,9 @@ Nodes (12): context_window, display_name, input_cost_per_1m, max_output_tokens, 
 Cohesion: 0.17
 Nodes (12): context_window, display_name, max_output_tokens, max_requests_per_minute, priority, provider, speed_tier, supports_function_calling (+4 more)
 
-### Community 646 - "openrouter/free"
-Cohesion: 0.17
-Nodes (12): openrouter/free, context_window, display_name, input_cost_per_1m, max_output_tokens, output_cost_per_1m, priority, provider (+4 more)
+### Community 646 - "models"
+Cohesion: 0.07
+Nodes (27): context_window, display_name, max_output_tokens, provider, supports_tools, models, mistral-small-latest, nvidia/nemotron-3-ultra-550b-a55b (+19 more)
 
 ### Community 647 - "qwen/qwen3.8-27b:free"
 Cohesion: 0.17
@@ -5466,16 +5466,16 @@ Nodes (3): _build_ceo_prompt(), _collect_recent_git_context(), _now_str()
 _Questions this graph is uniquely positioned to answer:_
 
 - **Why does `Completed Task Archive — October 2026` connect `get_webhook_info` to `TaskStore`, `MetricsRegistry`, `probe_catalogues.py`, `tasks/service.py`, `telegram_bot.py`, `KnowledgeScreen.jsx`, `portfolio_intelligence.py`, `build_tool_prompt`, `MCPClient`, `write_gate.py`, `NotificationDispatcher`, `seo_portfolio_bridge.py`, `ProviderRouter`, `_env_int`, `TaskWorkflowService`, `RepoConnection`, `company_api.py`, `_process_callback`?**
-  _High betweenness centrality (0.018) - this node is a cross-community bridge._
+  _High betweenness centrality (0.030) - this node is a cross-community bridge._
 - **What connects `OPENAI_API_BASE`, `OPENAI_API_KEY`, `react-app` to the rest of the system?**
   _29 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `typing` be split into smaller, more focused modules?**
   _Cohesion score 0.008945292586729629 - nodes in this community are weakly interconnected._
-- **Why does `REWRITE_PLAN.md — Phased Migration Strategy` connect `REWRITE_PLAN.md — Phased Migration Strategy` to `Phase 1: Foundation (Weeks 1-2)`?**
-  _High betweenness centrality (0.016) - this node is a cross-community bridge._
+- **Why does `listCompanies()` connect `get_webhook_info` to `api.js`, `WorkspaceTools`?**
+  _High betweenness centrality (0.024) - this node is a cross-community bridge._
 - **Should `llm/router.py` be split into smaller, more focused modules?**
   _Cohesion score 0.038461538461538464 - nodes in this community are weakly interconnected._
-- **Why does `AgentRunner` connect `AgentRunner` to `typing`, `TaskSpec`, `_do_handle_agent_mode`, `proxy.py`, `build_tool_prompt`, `WorkflowOrchestrator`, `Security Analysis — local-llm-server`, `write_gate.py`, `agent/models.py`, `internal_agent.py`, `.__init__`, `GitHubTools`, `judge_brief.py`, `telegram_bot.py`, `AgentJobRequest`, `backend/server.py`, `ceo_dispatcher.py`, `AgentPlan`, `empirical_verify.py`, `e2b.py`, `Agency Core — Progress & Resume Log`, `RepoConnection`, `.delegate`, `failover_client.py`, `TokenBudget`, `SECTION A — Agent Efficiency (Hermes / AOS / MYT)`, `CEODispatcher`, `RepowiseIntelligence`, `WorkspaceTools`, `SkillRegistry`, `pr_gate.py`, `Autonomous SDLC Loop (Agency Core, repo-agnostic)`, `Deploy: FreeBuff Telegram bot (24×7)`, `Agent Governance Guide`, `EvidenceReport`, `race`, `agent/code_mode_connectors.py`, `de`?**
-  _High betweenness centrality (0.016) - this node is a cross-community bridge._
+- **Why does `Separate hosted dashboard backend (`backend/server.py`)` connect `Separate hosted dashboard backend (`backend/server.py`)` to `agent/code_mode_connectors.py`, `company_api.py`, `policy.py`?**
+  _High betweenness centrality (0.018) - this node is a cross-community bridge._
 - **Should `routing.py` be split into smaller, more focused modules?**
   _Cohesion score 0.03296703296703297 - nodes in this community are weakly interconnected._
