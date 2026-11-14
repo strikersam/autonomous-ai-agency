@@ -26,9 +26,12 @@ first sandbox that opens, so a provider out of quota fails over to the next.
 """
 from __future__ import annotations
 
+import asyncio
+import importlib
 import logging
 from typing import Any, Awaitable, Callable
 
+from services.e2b_config import _SDK_MODULE
 from services.e2b_config import (
     PROVIDER_DAYTONA,
     PROVIDER_E2B,
@@ -90,6 +93,19 @@ def get_opener(name: str) -> Opener | None:
     return _openers.get(name)
 
 
+async def _warm_sdk(provider: str) -> None:
+    """Import *provider*'s SDK in a worker thread, before its opener imports it inline.
+
+    The first import of the Daytona SDK builds hundreds of pydantic models and held the
+    event loop for ~10 s on Render's free instance, failing the health check. A missing
+    SDK is left for the opener to report.
+    """
+    try:
+        await asyncio.to_thread(importlib.import_module, _SDK_MODULE.get(provider, provider))
+    except ImportError:
+        pass
+
+
 async def open_first_available(configs: list[E2BConfig]) -> tuple[Any, E2BConfig]:
     """Open a sandbox with the first provider in *configs* that succeeds.
 
@@ -102,6 +118,7 @@ async def open_first_available(configs: list[E2BConfig]) -> tuple[Any, E2BConfig
             failures.append(f"{config.provider}: no opener registered")
             continue
         try:
+            await _warm_sdk(config.provider)
             return await opener(config), config
         except Exception as exc:  # noqa: BLE001 - one provider down must not stop the chain
             log.warning("Sandbox provider %s failed to open; trying the next: %s", config.provider, exc)
