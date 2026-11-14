@@ -13,6 +13,7 @@ Features:
 - Capability negotiation: agents declare what they can do at session start
 """
 
+import asyncio
 import functools
 import importlib
 import json
@@ -649,8 +650,11 @@ def _register_web_reach_tools(registry: ToolRegistry) -> None:
         },
         capabilities=["web", "read", "research"],
     )
-    def _fetch_url_tool(url: str) -> dict:
-        return web_access_refusal("fetch_url") or reach.fetch_page(url)
+    async def _fetch_url_tool(url: str) -> dict:
+        # reach.* does blocking HTTP (up to several seconds per backend). Run in a
+        # worker thread so the event loop keeps serving health checks; the SSRF
+        # guard inside reach.* still runs first, unchanged.
+        return web_access_refusal("fetch_url") or await asyncio.to_thread(reach.fetch_page, url)
 
     @registry.agent_tool(
         name="youtube_transcript",
@@ -664,8 +668,10 @@ def _register_web_reach_tools(registry: ToolRegistry) -> None:
         },
         capabilities=["web", "read", "research"],
     )
-    def _youtube_transcript_tool(url: str) -> dict:
-        return web_access_refusal("youtube_transcript") or reach.youtube_transcript(url)
+    async def _youtube_transcript_tool(url: str) -> dict:
+        return web_access_refusal("youtube_transcript") or await asyncio.to_thread(
+            reach.youtube_transcript, url
+        )
 
     @registry.agent_tool(
         name="web_search",
@@ -680,8 +686,10 @@ def _register_web_reach_tools(registry: ToolRegistry) -> None:
         },
         capabilities=["web", "search", "research"],
     )
-    def _web_search_tool(query: str, limit: int = 8) -> dict:
-        return web_access_refusal("web_search") or reach.search_web(query, limit=limit)
+    async def _web_search_tool(query: str, limit: int = 8) -> dict:
+        return web_access_refusal("web_search") or await asyncio.to_thread(
+            reach.search_web, query, limit=limit
+        )
 
     @registry.agent_tool(
         name="fetch_rss",
@@ -696,8 +704,10 @@ def _register_web_reach_tools(registry: ToolRegistry) -> None:
         },
         capabilities=["web", "read", "research"],
     )
-    def _fetch_rss_tool(url: str, limit: int = 10) -> dict:
-        return web_access_refusal("fetch_rss") or reach.fetch_rss(url, limit=limit)
+    async def _fetch_rss_tool(url: str, limit: int = 10) -> dict:
+        return web_access_refusal("fetch_rss") or await asyncio.to_thread(
+            reach.fetch_rss, url, limit=limit
+        )
 
 
 def _register_code_graph_tools(registry: ToolRegistry, root: Any) -> None:
