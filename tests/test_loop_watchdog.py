@@ -139,7 +139,10 @@ def test_the_application_frame_survives_a_deep_library_stack() -> None:
     text = lw.format_loop_stack(traceback.StackSummary.from_list(frames))
     assert text.splitlines()[0] == (
         "innermost application frame: /app/services/ceo_ledger.py:329 in _init_mongo")
-    assert "ceo_ledger.py" in text.split("(innermost frames)")[0], "the outer app frame must be kept"
+    outer_marker, inner_marker = "(outer application frames;", "(innermost frames)"
+    assert outer_marker in text and inner_marker in text, "both sections must be present"
+    outer_section = text.split(outer_marker, 1)[1].split(inner_marker, 1)[0]
+    assert "ceo_ledger.py" in outer_section, "the outer app frame must be kept in its own section"
     assert "lib_39" in text, "the innermost library frames are still shown"
 
 
