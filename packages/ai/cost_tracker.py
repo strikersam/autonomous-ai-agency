@@ -511,8 +511,8 @@ def _usage_int(value) -> int:
     estimates the tokens at the full input rate instead of dropping the charge.
     """
     try:
-        return int(value or 0)
-    except (TypeError, ValueError):
+        return max(0, int(value or 0))
+    except (TypeError, ValueError, OverflowError):  # OverflowError: float("inf")
         return 0
 
 
@@ -549,10 +549,26 @@ def anthropic_prompt_tokens(usage: dict) -> int:
     or 2x), which understates them slightly but no longer drops them.
     """
     return (
-        int(usage.get("input_tokens", usage.get("prompt_tokens")) or 0)
-        + int(usage.get("cache_read_input_tokens") or 0)
-        + int(usage.get("cache_creation_input_tokens") or 0)
+        _usage_int(usage.get("input_tokens", usage.get("prompt_tokens")))
+        + _usage_int(usage.get("cache_read_input_tokens"))
+        + _usage_int(usage.get("cache_creation_input_tokens"))
     )
+
+
+def usage_counts(usage: dict, *, anthropic: bool = False) -> tuple[int, int, int, int]:
+    """``(prompt, completion, cached, total)`` from a provider usage block.
+
+    Every count goes through ``_usage_int``, so no malformed value can raise in
+    the router's cost hook and make it skip cost, user-token and agent-spend
+    recording. ``total`` falls back to prompt + completion when the provider
+    sends none.
+    """
+    prompt = _usage_int(usage.get("prompt_tokens"))
+    completion = _usage_int(usage.get("completion_tokens"))
+    total = _usage_int(usage.get("total_tokens")) or (prompt + completion)
+    if anthropic:
+        prompt = anthropic_prompt_tokens(usage)
+    return prompt, completion, cached_prompt_tokens(usage), total
 
 
 def cost_for_tokens(
