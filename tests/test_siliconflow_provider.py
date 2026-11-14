@@ -63,7 +63,8 @@ def test_openrouter_free_models_route_without_paid(monkeypatch):
         assert "openrouter/free" in free
         tools = {m.id for m in llm_registry.get_registry().candidates(
             provider_id="openrouter", allow_paid=False, require_tools=True)}
-        assert tools == {"nvidia/nemotron-3-super-120b-a12b:free"}
+        # North Mini Code (2026-11-14) is the second free OpenRouter model with tool calling.
+        assert tools == {"nvidia/nemotron-3-super-120b-a12b:free", "cohere/north-mini-code:free"}
     finally:
         llm_config.reset()
         llm_registry.reset()
