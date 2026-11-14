@@ -51,6 +51,7 @@ _CAPACITY_ALERT_MARKERS = (
     "transient provider/sandbox error after",
 )
 _FEED_LIMIT = 50
+_DEFECT_WORDING = re.compile(r"\b(expected|assert\w*|should|got)\b", re.IGNORECASE)
 _QUOTED = re.compile(r'"[^"\n]*"')
 
 
@@ -67,11 +68,16 @@ class SamAlert:
     def is_capacity(self) -> bool:
         """True when the alert reports provider capacity, not a defect an agent can fix.
 
-        Double-quoted text is ignored: a defect report quotes what it expected
-        (``expected "HTTP 429: rate limited", got HTTP 200``) and that is not a
-        capacity failure.
+        A defect report quotes what it expected (``expected "HTTP 429: rate
+        limited", got HTTP 200``); that is not a capacity failure. Quoted text is
+        ignored only when the alert uses such defect wording, because a real
+        capacity alert often quotes the provider error (``Task failed: "All
+        brain providers exhausted"``) and must still match.
         """
-        text = _QUOTED.sub(" ", f"{self.title} {self.message}").lower()
+        text = f"{self.title} {self.message}"
+        if _DEFECT_WORDING.search(text):
+            text = _QUOTED.sub(" ", text)
+        text = text.lower()
         return any(marker in text for marker in _CAPACITY_ALERT_MARKERS)
 
     @property

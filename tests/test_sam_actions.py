@@ -198,3 +198,21 @@ async def test_fix_alerts_says_so_when_every_alert_is_capacity(monkeypatch) -> N
     spoken = await actions.fix_alerts("system:ceo")
     assert "capacity" in spoken and "queued nothing" in spoken
     assert "nothing broken" not in spoken
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        'Task failed: "All brain providers exhausted"',
+        '{"error": "All brain providers exhausted", "detail": "HTTP 429: rate limited"}',
+        'RuntimeError("All brain providers exhausted")',
+        'message="Brain capacity exhausted"',
+        'detail: "all configured LLM providers failed"',
+        '"HTTP 429: rate limited" from nvidia',
+    ],
+)
+def test_a_capacity_alert_that_quotes_the_provider_error_is_still_capacity(message: str) -> None:
+    from agent.sam_actions import SamAlert
+
+    alert = SamAlert(title="Task failed", message=message, kind="error", severity="error")
+    assert alert.is_capacity and not alert.fixable

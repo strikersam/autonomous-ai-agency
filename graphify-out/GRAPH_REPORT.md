@@ -1,7 +1,7 @@
 # Graph Report - autonomous-ai-agency  (2026-11-14)
 
 ## Corpus Check
-- 1251 files · ~1,399,508 words
+- 1251 files · ~1,399,547 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 57 file(s) not represented in the graph (top: (none) 19, .css 5, .bat 5)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `809bf5c6`
+- Built from commit: `07653804`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -5245,17 +5245,17 @@ Nodes (3): H1 — Vision Input Support for Multimodal Models [P2] [NVD], H2 — 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `ChatHistoryStore` connect `ChatHistoryStore` to `typing`, `loop.py`?**
-  _High betweenness centrality (0.025) - this node is a cross-community bridge._
+- **Why does `AgentRunner` connect `AgentRunner` to `typing`, `TaskSpec`, `_do_handle_agent_mode`, `proxy.py`, `WorkflowOrchestrator`, `git`, `StuckDetector`, `Universality: case-coverage matrix`, `loop.py`, `LocalWorkspace`, `coordinator.py`, `record_event`, `AgentJobRequest`, `RepoConnection`, `backend/server.py`, `InternalAgentAdapter`, `FreeBuffAgent`, `run_code`, `build_tool_prompt`, `empirical_verify.py`, `SkillRegistry`, `TokenBudget`, `SECTION A — Agent Efficiency (Hermes / AOS / MYT)`, `agent/models.py`, `verification_evidence.py`, `WorkspaceTools`, `MCPUnavailableError`, `_get_store`, `e2b.py`, `CEODispatcher`, `._dispatch_tool`, `race`?**
+  _High betweenness centrality (0.018) - this node is a cross-community bridge._
 - **What connects `OPENAI_API_BASE`, `OPENAI_API_KEY`, `react-app` to the rest of the system?**
   _29 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `typing` be split into smaller, more focused modules?**
   _Cohesion score 0.012334357837456542 - nodes in this community are weakly interconnected._
-- **Why does `Completed Task Archive — October 2026` connect `get_webhook_info` to `._dispatch_tool`, `NotificationDispatcher`, `probe_catalogues.py`, `tasks/service.py`, `telegram_bot.py`, `build_seo_roadmap`, `AgentsScreen.jsx`, `anthropic_compat.py`, `portfolio_intelligence.py`, `get_company_access`, `services/self_heal.py`, `_process_callback`, `MCPClient`, `WorkspaceTools`, `TaskWorkflowService`, `build_tool_prompt`, `ProviderRouter`, `_env_int`?**
-  _High betweenness centrality (0.020) - this node is a cross-community bridge._
+- **Why does `ChatHistoryStore` connect `ChatHistoryStore` to `typing`, `loop.py`?**
+  _High betweenness centrality (0.017) - this node is a cross-community bridge._
 - **Should `build_llm_router` be split into smaller, more focused modules?**
   _Cohesion score 0.0554954954954955 - nodes in this community are weakly interconnected._
-- **Why does `AgentRunner` connect `AgentRunner` to `typing`, `TaskSpec`, `_do_handle_agent_mode`, `proxy.py`, `WorkflowOrchestrator`, `git`, `StuckDetector`, `Universality: case-coverage matrix`, `loop.py`, `LocalWorkspace`, `coordinator.py`, `record_event`, `AgentJobRequest`, `RepoConnection`, `backend/server.py`, `InternalAgentAdapter`, `FreeBuffAgent`, `run_code`, `build_tool_prompt`, `empirical_verify.py`, `SkillRegistry`, `TokenBudget`, `SECTION A — Agent Efficiency (Hermes / AOS / MYT)`, `agent/models.py`, `verification_evidence.py`, `WorkspaceTools`, `MCPUnavailableError`, `_get_store`, `e2b.py`, `CEODispatcher`, `._dispatch_tool`, `race`?**
-  _High betweenness centrality (0.018) - this node is a cross-community bridge._
+- **Why does `Completed Task Archive — October 2026` connect `get_webhook_info` to `._dispatch_tool`, `NotificationDispatcher`, `probe_catalogues.py`, `tasks/service.py`, `telegram_bot.py`, `build_seo_roadmap`, `AgentsScreen.jsx`, `anthropic_compat.py`, `portfolio_intelligence.py`, `get_company_access`, `services/self_heal.py`, `_process_callback`, `MCPClient`, `WorkspaceTools`, `TaskWorkflowService`, `build_tool_prompt`, `ProviderRouter`, `_env_int`?**
+  _High betweenness centrality (0.015) - this node is a cross-community bridge._
 - **Should `subprocess` be split into smaller, more focused modules?**
   _Cohesion score 0.022530053339702254 - nodes in this community are weakly interconnected._
