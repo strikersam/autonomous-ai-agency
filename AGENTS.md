@@ -117,7 +117,7 @@ describes cannot fire.
 
 ### File-size exceptions
 
-Two files are past rule 28's 800-line limit with justification on record. Add to this
+Four files are past rule 28's 800-line limit with justification on record. Add to this
 list rather than silently exceeding it.
 
 **`packages/config/control_catalogue.py`** (1,064) is one flat declarative table — the
@@ -133,6 +133,14 @@ the EXECUTE hot path, so splitting it is a standalone refactor rather than a rid
 behaviour change. Decompose along the seam the CEO work already exposes: delegation and
 planning, supervised execution, ledger writes. `services/ceo_micromanager.py` was split
 at that seam — the judging half became `services/ceo_quality.py`.
+
+**`tasks/store.py`** (854) and **`agent/skill_registry.py`** (853) were both
+already past the limit on master (833 and 839) when 2026-11-14's event-loop work touched
+them; that work added a few lines each and moved no logic. Neither is a split worth
+doing as a rider on a behaviour change. `tasks/store.py` divides along its query methods
+(`list_*`, `get_due_soon`) versus its write path; `agent/skill_registry.py` along remote
+fetching (`_fetch_*`) versus the pure text-analysis helpers (`_extract_*`, `_analyse_text`),
+which need no registry state.
 
 `backend/server.py` and `proxy.py` are also over the limit and are being migrated per
 `REWRITE_PLAN.md`. Neither is licence to add more.
