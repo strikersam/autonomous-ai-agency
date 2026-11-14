@@ -1311,6 +1311,52 @@ models:
     speed_tier: slow
     aliases: [mythos5.1]
 
+  # Fable 5.2: revised Fable 5.1 release (2026-11-09); same gating + adaptive-thinking
+  # constraints as Fable 5.1. Cache reads cost 0.025x base (2.5 %). Price reduced to
+  # $8/$40 per MTok from 5.1's $10/$50. 1M context, 128K output.
+  # Requires ROUTER_ALLOW_FABLE5=1.
+  # Sources: platform.claude.com/docs/en/about-claude/pricing,
+  #          explainx.ai/blog/claude-fable-5-2-mythos-5-2-launch-pricing-api-2026, 2026-11-14.
+  claude-fable-5-2:
+    provider: anthropic
+    display_name: Claude Fable 5.2
+    context_window: 1048576
+    max_output_tokens: 131072
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 8.0
+    output_cost_per_1m: 40.0
+    priority: 58
+    speed_tier: slow
+    aliases: [fable5.2]
+
+  # Mythos 5.2: same underlying model as Fable 5.2 with fewer dual-use safeguards.
+  # Restricted to Anthropic-approved organisations (Glasswing program, cybersecurity /
+  # life-sciences). Requires ROUTER_ALLOW_MYTHOS=1. Cache reads 0.025x base.
+  # Released 2026-11-09. $8/$40 per MTok.
+  # Sources: platform.claude.com/docs/en/about-claude/pricing,
+  #          eesel.ai/blog/claude-mythos-5-2, 2026-11-14.
+  claude-mythos-5-2:
+    provider: anthropic
+    display_name: Claude Mythos 5.2
+    context_window: 1048576
+    max_output_tokens: 131072
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 8.0
+    output_cost_per_1m: 40.0
+    priority: 57
+    speed_tier: slow
+    aliases: [mythos5.2]
+
   # ── DeepSeek API (deepseek.com) ─────────────────────────────────────────
   #
   # DeepSeek's direct API. Candidates without catalog entries get
@@ -1767,6 +1813,38 @@ models:
     output_cost_per_1m: 20.0
     priority: 99
     speed_tier: slow
+
+  # ---------------------------------------------------------------------------
+  # Meta Muse Ember (added 2026-11-14)
+  # Released 2026-11-09. Meta's smallest and most efficient Muse-class model,
+  # optimised for agentic work (tool calls, routing, long documents).
+  # Accepts text, images, video, audio, and PDF. 1,048,576-token context;
+  # up to 524,288 completion tokens.
+  # Pricing (standard, ≤200K input): $0.10/$0.50 per MTok.
+  #   Long-context tier (>200K input tokens, entire request billed):
+  #   $0.30/$1.50 per MTok. Cache reads: $0.004/MTok (≈4 % of input rate).
+  # Available via OpenRouter (meta/muse-ember) and Meta AI API (muse-ember).
+  # priority: 99 — explicit-only; unprobed on this account;
+  # lower once catalogue-probe.yml sees a 200.
+  # Sources: openrouter.ai/meta/muse-ember,
+  #          sumus.im/blog/muse-ember,
+  #          explainx.ai/blog/meta-muse-ember-launch-pricing-benchmarks-2026,
+  #          aireleasetracker.com/model/meta/muse-ember, 2026-11-14.
+  # ---------------------------------------------------------------------------
+  muse-ember:
+    provider: openrouter
+    display_name: Muse Ember (Meta via OpenRouter)
+    context_window: 1048576
+    max_output_tokens: 524288
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    input_cost_per_1m: 0.10
+    output_cost_per_1m: 0.50
+    priority: 99
+    speed_tier: fast
 
   # ---------------------------------------------------------------------------
   # OpenAI / GPT-6.1 Terra (added 2026-10-30)

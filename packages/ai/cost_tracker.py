@@ -148,8 +148,10 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "claude-sonnet-5-5-20260929": (2.0, 10.0),  # Sonnet 5.5 versioned ID
     "claude-fable-5": (10.0, 50.0),        # Fable 5 — $10/$50 per MTok (gated flagship)
     "claude-fable-5-1": (10.0, 50.0),      # Fable 5.1 — $10/$50; cache reads 2.5 % (see _CACHE_READ_FRACTIONS)
+    "claude-fable-5-2": (8.0, 40.0),       # Fable 5.2 — $8/$40 per MTok (released 2026-11-09; cache reads 2.5 %)
     "claude-mythos-5": (10.0, 50.0),       # Mythos 5 — same as Fable 5 (restricted)
     "claude-mythos-5-1": (10.0, 50.0),     # Mythos 5.1 — $10/$50; cache reads 2.5 % (see _CACHE_READ_FRACTIONS)
+    "claude-mythos-5-2": (8.0, 40.0),      # Mythos 5.2 — $8/$40 per MTok (released 2026-11-09; cache reads 2.5 %)
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-sonnet-4-5": (3.0, 15.0),        # Sonnet 4.5 — $3/$15 per MTok (same tier as 4.6)
     "claude-opus-4-8": (5.0, 25.0),        # Opus 4.8 — $5/$25 per MTok (same tier as Opus 5)
@@ -235,6 +237,9 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # Sources: openrouter.ai/meta/muse-wonder, computeprices.com/providers/
     # openrouter/models/muse-wonder, eesel.ai/blog/meta-muse-wonder, 2026-10-24.
     "muse-wonder-1.0": (4.0, 20.0),       # Meta Model API canonical ID
+    # Sources: openrouter.ai/meta/muse-ember, sumus.im/blog/muse-ember, 2026-11-14.
+    "muse-ember": (0.10, 0.50),           # Meta Muse Ember — $0.10/$0.50 per MTok (standard ≤200K)
+    "meta/muse-ember": (0.10, 0.50),      # OpenRouter ID
     "meta/muse-wonder": (4.0, 20.0),       # OpenRouter router ID
     # --- Tencent Hy4 (added 2026-11-07) ---
     # Released 2026-08-28 on OpenRouter. Tencent's 770B MoE open-weight model.
@@ -438,7 +443,9 @@ _COST_TABLE: dict[str, tuple[float, float]] = _build_cost_table()
 _CACHE_READ_FRACTIONS: tuple[tuple[str, float], ...] = (
     # Per-model Anthropic overrides (more-specific prefixes before "claude-").
     ("claude-fable-5-1", 0.025),   # Fable 5.1 — 2.5 % of input rate
+    ("claude-fable-5-2", 0.025),   # Fable 5.2 — 2.5 % (same as 5.1; source: platform.claude.com/docs/en/about-claude/pricing, 2026-11-14)
     ("claude-mythos-5-1", 0.025),  # Mythos 5.1 — same gated tier as Fable 5.1
+    ("claude-mythos-5-2", 0.025),  # Mythos 5.2 — 2.5 % (same as Fable 5.2)
     ("claude-opus-5-5", 0.05),     # Opus 5.5  — 5 % of input rate
     ("claude-sonnet-5-5", 0.05),   # Sonnet 5.5 — 5 % of input rate
     # Gemini 4 Argon: cache reads at $0.10/MTok = 5 % of $2.00/MTok input rate.
@@ -474,6 +481,10 @@ _CACHE_READ_FRACTIONS: tuple[tuple[str, float], ...] = (
     # Source: openrouter.ai/meta/muse-wonder, 2026-10-24.
     ("muse-wonder-1.0", 0.05),
     ("meta/muse-wonder", 0.05),
+    # Meta Muse Ember: cache reads $0.004/MTok ≈ 4 % of $0.10/MTok input rate.
+    # Source: openrouter.ai/meta/muse-ember, 2026-11-14.
+    ("muse-ember", 0.04),
+    ("meta/muse-ember", 0.04),
     # Tencent Hy4: cached input ~$0.042/MTok ≈ 5 % of $0.83/MTok input rate.
     # Source: llmreference.com/model/hy4-preview/openrouter, 2026-11-07.
     ("tencent/hy4-preview", 0.05),
