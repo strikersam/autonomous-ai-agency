@@ -51,6 +51,7 @@ _CAPACITY_ALERT_MARKERS = (
     "transient provider/sandbox error after",
 )
 _FEED_LIMIT = 50
+_QUOTED = re.compile(r'"[^"\n]*"')
 
 
 @dataclass(frozen=True)
@@ -64,8 +65,13 @@ class SamAlert:
 
     @property
     def is_capacity(self) -> bool:
-        """True when the alert reports provider capacity, not a defect an agent can fix."""
-        text = f"{self.title} {self.message}".lower()
+        """True when the alert reports provider capacity, not a defect an agent can fix.
+
+        Double-quoted text is ignored: a defect report quotes what it expected
+        (``expected "HTTP 429: rate limited", got HTTP 200``) and that is not a
+        capacity failure.
+        """
+        text = _QUOTED.sub(" ", f"{self.title} {self.message}").lower()
         return any(marker in text for marker in _CAPACITY_ALERT_MARKERS)
 
     @property

@@ -150,6 +150,8 @@ def test_marker_text_quoted_inside_a_defect_report_stays_fixable() -> None:
         ("ci", "test_rate_limit_exceeded: expected HTTP 429, got 200"),
         ("security", "Unauthenticated requests succeed while rate limited"),
         ("error", "Users report they are rate limited after one request (limiter key collision)"),
+        ("ci", 'expected "HTTP 429: rate limited", got HTTP 200'),
+        ("ci", 'assertion failed: "All brain providers exhausted" not in response.text'),
         ("error", "Error code: 429 - {'error': 'rate_limit_exceeded'}"),
     ]:
         alert = SamAlert(title="Alert", message=message, kind=kind, severity="error")

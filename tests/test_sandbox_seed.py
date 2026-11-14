@@ -272,3 +272,21 @@ def test_templates_survive_a_gitignore_that_hides_them(tmp_path: Path) -> None:
         assert ".env.example" in _names(seed.pack_seed(path)[0])
     finally:
         InternalAgentAdapter._remove_worktree(str(ws), path, tmp)
+
+
+def test_the_task_copy_drops_database_sidecars_too(tmp_path: Path) -> None:
+    """The copy path and the seed path share one exclusion list; check the copy itself."""
+    from runtimes.adapters.internal_agent import InternalAgentAdapter
+
+    ws = _workspace(tmp_path)
+    sidecars = [f"state.{ext}{tail}" for ext in ("db", "db3", "sqlite", "sqlite3") for tail in ("", "-wal", "-shm", "-journal")]
+    for name in sidecars:
+        (ws / name).write_text("SECRET", encoding="utf-8")
+    path, tmp = InternalAgentAdapter._create_worktree(str(ws), "task-sidecars")
+    try:
+        assert path != str(ws)
+        copied = {p.name for p in Path(path).rglob("*") if p.is_file()}
+        assert "README.md" in copied
+        assert not [n for n in sidecars if n in copied], sorted(copied)
+    finally:
+        InternalAgentAdapter._remove_worktree(str(ws), path, tmp)
