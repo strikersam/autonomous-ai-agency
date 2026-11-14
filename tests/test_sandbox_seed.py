@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import io
 import os
-import subprocess
 import tarfile
 from pathlib import Path
 
+from runtimes.adapters.workspace_baseline import _git
 from services import sandbox_seed as seed
 
 
@@ -43,10 +43,8 @@ def test_a_non_git_workspace_is_still_seeded(tmp_path: Path) -> None:
 
 def test_a_git_workspace_seeds_tracked_files_only(tmp_path: Path) -> None:
     ws = _workspace(tmp_path)
-    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
-           "GIT_COMMITTER_EMAIL": "t@t"}
-    subprocess.run(["git", "init", "-q"], cwd=ws, check=True, env=env)
-    subprocess.run(["git", "add", "README.md"], cwd=ws, check=True, env=env)
+    _git(str(ws), "init", "-q")
+    _git(str(ws), "add", "README.md")
     tar_bytes, count = seed.pack_seed(str(ws))
     assert _names(tar_bytes) == {"README.md"} and count == 1
 
@@ -137,10 +135,8 @@ def test_a_walk_never_packs_secrets_or_runtime_state(tmp_path: Path) -> None:
 
 def test_tracked_secrets_are_dropped_too(tmp_path: Path) -> None:
     ws = _sensitive_workspace(tmp_path)
-    env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
-           "GIT_COMMITTER_EMAIL": "t@t"}
-    subprocess.run(["git", "init", "-q"], cwd=ws, check=True, env=env)
-    subprocess.run(["git", "add", "-A", "-f"], cwd=ws, check=True, env=env)
+    _git(str(ws), "init", "-q")
+    _git(str(ws), "add", "-A", "-f")
     names = _names(seed.pack_seed(str(ws))[0])
     assert "README.md" in names
     assert not [n for n in names if n in _SENSITIVE or n.startswith(".data")]
@@ -148,7 +144,7 @@ def test_tracked_secrets_are_dropped_too(tmp_path: Path) -> None:
 
 def test_a_git_repo_with_nothing_tracked_seeds_nothing(tmp_path: Path) -> None:
     ws = _sensitive_workspace(tmp_path)
-    subprocess.run(["git", "init", "-q"], cwd=ws, check=True)
+    _git(str(ws), "init", "-q")
     assert seed.pack_seed(str(ws)) == (b"", 0)
 
 
@@ -156,8 +152,8 @@ def test_odd_filenames_survive_git_listing(tmp_path: Path) -> None:
     ws = tmp_path / "odd"
     ws.mkdir()
     (ws / "caf\u00e9 notes.txt").write_text("x", encoding="utf-8")
-    subprocess.run(["git", "init", "-q"], cwd=ws, check=True)
-    subprocess.run(["git", "add", "-A"], cwd=ws, check=True)
+    _git(str(ws), "init", "-q")
+    _git(str(ws), "add", "-A")
     assert "caf\u00e9 notes.txt" in _names(seed.pack_seed(str(ws))[0])
 
 
@@ -211,8 +207,8 @@ def test_tracked_env_templates_are_still_seeded(tmp_path: Path) -> None:
     (ws / ".env.example").write_text("VAR=\n", encoding="utf-8")
     (ws / ".env.backend-secrets.example").write_text("X=\n", encoding="utf-8")
     (ws / ".env").write_text("SECRET", encoding="utf-8")
-    subprocess.run(["git", "init", "-q"], cwd=ws, check=True)
-    subprocess.run(["git", "add", "-A", "-f"], cwd=ws, check=True)
+    _git(str(ws), "init", "-q")
+    _git(str(ws), "add", "-A", "-f")
     names = _names(seed.pack_seed(str(ws))[0])
     assert {".env.example", ".env.backend-secrets.example"} <= names
     assert ".env" not in names
@@ -228,7 +224,7 @@ def test_the_task_copy_keeps_env_templates_and_tracks_them(tmp_path: Path) -> No
     try:
         assert (Path(path) / ".env.example").is_file()
         assert not (Path(path) / ".env").exists()
-        tracked = subprocess.run(["git", "ls-files"], cwd=path, capture_output=True, text=True).stdout.split()
+        tracked = seed._git_tracked(path) or []
         assert ".env.example" in tracked and ".env" not in tracked
     finally:
         InternalAgentAdapter._remove_worktree(str(ws), path, tmp)
