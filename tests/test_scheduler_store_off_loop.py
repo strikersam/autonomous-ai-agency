@@ -24,7 +24,7 @@ class _SlowSyncStore:
 
     def load_all(self) -> list[dict]:
         self.threads.append(threading.get_ident())
-        time.sleep(0.3)
+        time.sleep(_BLOCK_S)
         return list(self.docs.values())
 
     def upsert(self, doc: dict) -> None:
@@ -44,31 +44,40 @@ class _AsyncStore:
         return list(self.docs)
 
 
-async def _ticks_while(coro) -> int:
-    """Count how often the loop gets to run while ``coro`` is in flight."""
-    ticks = 0
+_BLOCK_S = 0.5      # how long the fake store blocks
+_MAX_GAP_S = 0.25   # the loop may stall for less than this; a blocked loop stalls for _BLOCK_S
+
+
+async def _max_gap_while(coro) -> float:
+    """Longest time the loop went without running a 10 ms ticker while ``coro`` ran.
+
+    Counting ticks depends on runner speed; the longest gap does not: a read that
+    blocks the loop shows a gap of at least ``_BLOCK_S``, an off-loop read only jitter.
+    """
+    stamps: list[float] = [time.monotonic()]
     stop = asyncio.Event()
 
     async def ticker() -> None:
-        nonlocal ticks
         while not stop.is_set():
-            ticks += 1
+            stamps.append(time.monotonic())
             await asyncio.sleep(0.01)
 
     task = asyncio.create_task(ticker())
+    await asyncio.sleep(0.05)  # let the ticker establish its rhythm
     try:
         await coro
     finally:
         stop.set()
         await task
-    return ticks
+    stamps.append(time.monotonic())
+    return max(b - a for a, b in zip(stamps, stamps[1:]))
 
 
 @pytest.mark.asyncio
 async def test_a_sync_store_read_runs_off_the_loop_thread() -> None:
     store = _SlowSyncStore()
-    ticks = await _ticks_while(_store_call(store.load_all))
-    assert ticks >= 10, "the loop must keep running during a 0.3 s blocking read"
+    gap = await _max_gap_while(_store_call(store.load_all))
+    assert gap < _MAX_GAP_S, f"the loop stalled for {gap:.2f}s during a blocking read"
     assert store.threads and store.threads[0] != threading.get_ident()
 
 
@@ -82,10 +91,10 @@ async def test_force_cleanup_does_not_block_the_loop() -> None:
     store = _SlowSyncStore()
     sched = AgentScheduler(persistence=store)
     try:
-        ticks = await _ticks_while(sched.force_cleanup())
+        gap = await _max_gap_while(sched.force_cleanup())
     finally:
         sched.shutdown()
-    assert ticks >= 10
+    assert gap < _MAX_GAP_S, f"the loop stalled for {gap:.2f}s"
     assert all(t != threading.get_ident() for t in store.threads)
 
 
@@ -100,10 +109,10 @@ async def test_tag_values_does_not_block_the_loop() -> None:
         async def run() -> None:
             holder["tags"] = await sched.tag_values("company:")
 
-        ticks = await _ticks_while(run())
+        gap = await _max_gap_while(run())
     finally:
         sched.shutdown()
-    assert ticks >= 10
+    assert gap < _MAX_GAP_S, f"the loop stalled for {gap:.2f}s"
     assert holder["tags"] == {"company:abc"}
 
 
