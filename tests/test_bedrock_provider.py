@@ -11,6 +11,12 @@ import pytest
 from packages.ai.router import ProviderConfig, ProviderRouter, _is_bedrock_model_id
 
 
+@pytest.fixture(autouse=True)
+def _bedrock_kill_switch_off(monkeypatch):
+    """These tests cover Bedrock once the operator has turned the kill switch off."""
+    monkeypatch.setenv("BEDROCK_DISABLED", "false")
+
+
 @contextmanager
 def _mock_boto3(mock_client: MagicMock):
     """Inject a mock boto3 module into sys.modules for the duration of the block."""

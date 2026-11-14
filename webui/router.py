@@ -17,6 +17,18 @@ from webui.providers import ProviderCreate, ProviderManager, ProviderUpdate
 from webui.workspaces import WorkspaceCreate, WorkspaceManager, WorkspaceUpdate
 from webui.commands import run_command
 
+
+def _refuse_bedrock(base_url: str, kind: str = "") -> None:
+    """403 while the Bedrock kill switch is on and a record points at Bedrock.
+
+    Providers here are user-created records, so a base URL naming a Bedrock host
+    would send billed inference to the AWS account without meeting ProviderRouter.
+    """
+    from packages.ai.brain import bedrock_disabled, is_bedrock_endpoint
+
+    if bedrock_disabled() and is_bedrock_endpoint("", base_url, kind):
+        raise HTTPException(status_code=403, detail="Bedrock is disabled")
+
 log = logging.getLogger("qwen-proxy")
 
 
@@ -166,6 +178,7 @@ def register_webui(
         secret = mgr.get_secret(provider_id)
         if not secret:
             raise HTTPException(status_code=404, detail="Unknown provider")
+        _refuse_bedrock(secret.base_url, secret.kind)
         headers = _provider_headers(secret.base_url, secret.api_key, secret.kind)
         effective_kind = _provider_kind(secret.base_url, secret.kind)
         try:
@@ -194,6 +207,7 @@ def register_webui(
         secret = mgr.get_secret(body.provider_id)
         if not secret:
             raise HTTPException(status_code=404, detail="Unknown provider")
+        _refuse_bedrock(secret.base_url, secret.kind)
         effective_kind = _provider_kind(secret.base_url, secret.kind)
         headers: dict[str, str] = {"Content-Type": "application/json"}
         headers.update(_provider_headers(secret.base_url, secret.api_key, secret.kind))

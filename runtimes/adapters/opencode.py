@@ -19,6 +19,7 @@ Configuration:
 
 from __future__ import annotations
 
+from packages.ai.brain import bedrock_safe_env
 import asyncio
 import logging
 import os
@@ -196,6 +197,7 @@ class OpenCodeAdapter(RuntimeAdapter):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=workspace,
+                env=bedrock_safe_env(),
             )
             stdout, stderr = await asyncio.wait_for(
                 proc.communicate(), timeout=float(spec.timeout_sec)

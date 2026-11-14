@@ -6,6 +6,7 @@ system degrades gracefully during development.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import os
@@ -92,6 +93,26 @@ def _is_duplicate_key_error(exc: Exception) -> bool:
     """
     return type(exc).__name__ == "DuplicateKeyError" or "E11000" in str(exc)
 
+
+
+# Below this many documents the thread hop costs more than the validation itself.
+_VALIDATE_OFFLOAD_MIN = 200
+
+
+def _validate_all(docs: list[dict[str, Any]]) -> list[Task]:
+    return [Task.model_validate(d) for d in docs]
+
+
+async def _validate_tasks(docs: list[dict[str, Any]]) -> list[Task]:
+    """``Task.model_validate`` over a result list, off the event loop when it is large.
+
+    Pydantic validation is CPU-bound: ``list_all(limit=10_000)`` at boot held the loop for
+    3.2 s on Render (the watchdog named ``_coerce_timestamp`` in this loop) and failed the
+    health check.
+    """
+    if len(docs) < _VALIDATE_OFFLOAD_MIN:
+        return _validate_all(docs)
+    return await asyncio.to_thread(_validate_all, docs)
 
 class TaskStore:
     """Persistent task store backed by MongoDB.
@@ -351,7 +372,7 @@ class TaskStore:
             docs = docs[offset: offset + limit]
             docs = [_strip_heavy_fields(d) for d in docs] if not include_log else docs
 
-        return [Task.model_validate(d) for d in docs]
+        return await _validate_tasks(docs)
 
     async def list_all(
         self,
@@ -382,7 +403,7 @@ class TaskStore:
             docs = docs[offset: offset + limit]
             docs = [_strip_heavy_fields(d) for d in docs] if not include_log else docs
 
-        return [Task.model_validate(d) for d in docs]
+        return await _validate_tasks(docs)
 
     async def list_pending(self, *, limit: int = 50) -> list[Task]:
         """Return tasks queued for agent execution, highest-priority first.
@@ -425,7 +446,7 @@ class TaskStore:
             -_priority_rank(d.get("priority")),
             _ts_to_float(d.get("updated_at", d.get("created_at", 0))),
         ))
-        return [Task.model_validate(d) for d in docs[:limit]]
+        return await _validate_tasks(docs[:limit])
 
     async def list_blocked(self, *, limit: int = 50) -> list[Task]:
         """Return BLOCKED tasks that are candidates for auto-retry."""
@@ -442,7 +463,7 @@ class TaskStore:
             ]
             docs.sort(key=lambda d: _ts_to_float(d.get("updated_at", d.get("created_at", 0))))
             docs = docs[:limit]
-        return [Task.model_validate(d) for d in docs]
+        return await _validate_tasks(docs)
 
     async def count_by_agent(
         self,
@@ -543,7 +564,7 @@ class TaskStore:
             ]
             docs.sort(key=lambda d: _ts_to_float(d.get("due_date", 0)))
             docs = docs[:20]
-        return [Task.model_validate(d) for d in docs]
+        return await _validate_tasks(docs)
 
     async def count_awaiting_approval(self, owner_id: str | None = None) -> dict[str, int]:
         """Counts per status of tasks at the pre-execution gate, uncapped.
@@ -607,7 +628,7 @@ class TaskStore:
             ]
             docs.sort(key=lambda d: _ts_to_float(d.get("created_at", 0)), reverse=True)
             docs = docs[:limit]
-        return [Task.model_validate(d) for d in docs]
+        return await _validate_tasks(docs)
 
 
     async def reconcile_stranded_tasks(
