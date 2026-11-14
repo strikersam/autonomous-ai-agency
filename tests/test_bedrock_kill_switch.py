@@ -454,3 +454,121 @@ def test_openclaw_chat_skips_a_provider_whose_url_is_bedrock(monkeypatch):
     monkeypatch.setattr(bf, "get_failover_manager", lambda: _FM())
     asyncio.run(openclaw_gateway._cmd_chat({"message": "hi"}))
     assert reached == []
+
+
+# ── Process-wide httpx guard (round 3: one check instead of one per call site) ──
+
+def _mock_client(calls: list[str], *, sync: bool = False):
+    import httpx
+
+    def _handler(request):
+        calls.append(str(request.url))
+        return httpx.Response(200, json={"ok": True})
+
+    transport = httpx.MockTransport(_handler)
+    return httpx.Client(transport=transport) if sync else httpx.AsyncClient(transport=transport)
+
+
+@pytest.mark.parametrize("url", [
+    "https://bedrock-mantle.us-east-1.api.aws/v1/chat/completions",
+    "https://bedrock-runtime.us-east-1.amazonaws.com/model/x/converse",
+    "https://BEDROCK-RUNTIME.eu-west-1.amazonaws.com/openai/v1/chat/completions",
+    "https://vpce-0abc.bedrock-runtime.us-east-1.vpce.amazonaws.com/x",
+])
+def test_http_guard_refuses_every_bedrock_host_for_async_and_sync_clients(monkeypatch, url):
+    monkeypatch.delenv("BEDROCK_DISABLED", raising=False)
+    calls: list[str] = []
+
+    async def _go():
+        async with _mock_client(calls) as client:
+            await client.post(url, json={})
+
+    with pytest.raises(RuntimeError, match="BEDROCK_DISABLED"):
+        asyncio.run(_go())
+    with pytest.raises(RuntimeError, match="BEDROCK_DISABLED"):
+        _mock_client(calls, sync=True).post(url, json={})
+    assert calls == [], "the request reached the transport"
+
+
+def test_http_guard_lets_other_hosts_through_even_if_the_path_says_bedrock(monkeypatch):
+    monkeypatch.delenv("BEDROCK_DISABLED", raising=False)
+    calls: list[str] = []
+
+    async def _go():
+        async with _mock_client(calls) as client:
+            await client.get("https://github.com/aws/bedrock-samples")
+            await client.get("https://api.groq.com/openai/v1/models?q=bedrock")
+
+    asyncio.run(_go())
+    assert len(calls) == 2
+
+
+def test_http_guard_follows_the_live_switch(monkeypatch):
+    calls: list[str] = []
+    url = "https://bedrock-mantle.us-east-1.api.aws/v1/models"
+
+    async def _go():
+        async with _mock_client(calls) as client:
+            return await client.get(url)
+
+    monkeypatch.setenv("BEDROCK_DISABLED", "false")
+    assert asyncio.run(_go()).status_code == 200
+    monkeypatch.setenv("BEDROCK_DISABLED", "true")
+    with pytest.raises(RuntimeError):
+        asyncio.run(_go())
+    monkeypatch.delenv("BEDROCK_DISABLED")
+    with pytest.raises(RuntimeError):
+        asyncio.run(_go())
+    assert len(calls) == 1
+
+
+def test_http_guard_is_installed_once_by_importing_the_brain_module():
+    import httpx
+
+    from packages.security import bedrock_guard
+
+    assert httpx.AsyncClient.send.__name__ == "guarded_async_send"
+    assert httpx.Client.send.__name__ == "guarded_send"
+    assert bedrock_guard.install_bedrock_http_guard() is False  # idempotent
+
+
+def test_a_bedrock_model_preference_is_rejected_for_cli_runtimes(monkeypatch):
+    """model_preference reaches `--model` (aider runs on litellm): a bedrock/ name must 400."""
+    from fastapi import HTTPException
+
+    from runtimes import api
+
+    monkeypatch.delenv("BEDROCK_DISABLED", raising=False)
+    adapter_used: list[str] = []
+
+    class _Registry:
+        def get(self, _id):
+            adapter_used.append("adapter")
+            return SimpleNamespace()
+
+    monkeypatch.setattr(api, "get_runtime_manager", lambda: SimpleNamespace(_registry=_Registry()))
+    for name in ("bedrock/anthropic.claude-3", "bedrock_converse/x", "Bedrock/Y"):
+        body = api.RunTaskBody(instruction="hi", model_preference=name)
+        with pytest.raises(HTTPException) as err:
+            asyncio.run(api.run_task_on_runtime("aider", body, user={}))
+        assert err.value.status_code == 400
+        assert "Bedrock" in str(err.value.detail)
+
+
+def test_the_docker_sidecar_refuses_a_bedrock_base_url(monkeypatch):
+    import importlib.util
+    import pathlib
+
+    from fastapi import HTTPException
+
+    path = pathlib.Path(__file__).resolve().parent.parent / "docker" / "agent_runtime.py"
+    spec = importlib.util.spec_from_file_location("agent_runtime_under_test", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    monkeypatch.delenv("BEDROCK_DISABLED", raising=False)
+    with pytest.raises(HTTPException) as err:
+        asyncio.run(module._chat_with_openai_compat(
+            base_url="https://bedrock-mantle.us-east-1.api.aws/v1", api_key="k",
+            messages=[], model="m"))
+    assert err.value.status_code == 503

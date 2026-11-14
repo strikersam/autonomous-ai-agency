@@ -653,3 +653,10 @@ def _pick_from_records(
             built = _build(rec, role="brain", source="records")
             if built is not None:
                 return built
+
+
+# Refuse any httpx request to a Bedrock host while BEDROCK_DISABLED is on. Installed
+# here because every runtime (proxy, backend, worker) imports this module.
+from packages.security.bedrock_guard import install_bedrock_http_guard  # noqa: E402
+
+install_bedrock_http_guard()
