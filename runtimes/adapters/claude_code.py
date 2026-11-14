@@ -23,6 +23,7 @@ Configuration (env vars or constructor config dict):
 """
 from __future__ import annotations
 
+from packages.ai.brain import bedrock_safe_env
 import asyncio
 import logging
 import os
@@ -178,7 +179,7 @@ class ClaudeCodeAdapter(RuntimeAdapter):
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=workspace,
-                env=env,
+                env=bedrock_safe_env(env),
             )
             try:
                 stdout, stderr = await asyncio.wait_for(

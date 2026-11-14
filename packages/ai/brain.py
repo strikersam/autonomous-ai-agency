@@ -46,6 +46,30 @@ def allow_paid_brain() -> bool:
     return os.environ.get("ALLOW_PAID_BRAIN", "").strip().lower() in _TRUTHY
 
 
+_FALSY = {"0", "false", "no", "off"}
+
+
+def bedrock_disabled() -> bool:
+    """True unless the operator explicitly switched the Bedrock kill switch off.
+
+    Amazon Bedrock bills the AWS account directly. ``BEDROCK_DISABLED`` defaults
+    to on and overrides every other gate (``ALLOW_PAID_BRAIN``,
+    ``BEDROCK_BRAIN_ENABLED``, AWS credentials in the environment): while it is
+    on, no code path registers, selects or calls a Bedrock provider. Read at
+    call time so a Platform-controls override takes effect without a restart.
+    """
+    return os.environ.get("BEDROCK_DISABLED", "true").strip().lower() not in _FALSY
+
+
+def is_bedrock_endpoint(provider_id: str = "", base_url: str = "", kind: str = "") -> bool:
+    """True when a provider's id, type or URL says it is served by Amazon Bedrock."""
+    return (
+        (kind or "").lower() == "bedrock"
+        or (provider_id or "").lower().startswith("bedrock")
+        or "bedrock" in (base_url or "").lower()
+    )
+
+
 def get_brain_preference() -> str:
     """Return the operator's brain provider preference.
 
@@ -629,3 +653,30 @@ def _pick_from_records(
             built = _build(rec, role="brain", source="records")
             if built is not None:
                 return built
+
+
+_BEDROCK_ENV_VARS = (
+    "CLAUDE_CODE_USE_BEDROCK", "ANTHROPIC_BEDROCK_BASE_URL", "AWS_BEARER_TOKEN_BEDROCK",
+    "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_PROFILE",
+)
+
+
+def bedrock_safe_env(env: "dict[str, str] | None" = None) -> "dict[str, str]":
+    """A subprocess environment with Bedrock credentials removed while the switch is on.
+
+    CLI runtimes (Claude Code, aider via litellm, goose, ...) pick Bedrock from ambient AWS
+    variables regardless of the ``--model`` they are given, so the child must not inherit them.
+    """
+    base = dict(os.environ if env is None else env)
+    if bedrock_disabled():
+        for name in _BEDROCK_ENV_VARS:
+            base.pop(name, None)
+        base["CLAUDE_CODE_USE_BEDROCK"] = "0"
+    return base
+
+
+# Refuse any httpx request to a Bedrock host while BEDROCK_DISABLED is on. Installed
+# here because every runtime (proxy, backend, worker) imports this module.
+from packages.security.bedrock_guard import install_bedrock_http_guard  # noqa: E402
+
+install_bedrock_http_guard()

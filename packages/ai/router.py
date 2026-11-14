@@ -1101,9 +1101,14 @@ class ProviderRouter:
         # opted into paid brains (ALLOW_PAID_BRAIN), the same gate the agent loop
         # and model router already apply. Without it, AWS credentials in the
         # environment resurrected Bedrock on every boot even after it was removed.
-        from packages.ai.brain import allow_paid_brain
+        from packages.ai.brain import allow_paid_brain, bedrock_disabled
 
-        if aws_access_key and aws_secret_key and allow_paid_brain():
+        if (
+            aws_access_key
+            and aws_secret_key
+            and allow_paid_brain()
+            and not bedrock_disabled()
+        ):
             aws_region = (
                 os.environ.get("AWS_REGION")
                 or os.environ.get("AWS_DEFAULT_REGION")
@@ -1267,6 +1272,12 @@ class ProviderRouter:
         return cls(providers, keep_order=True)
 
     async def health_check(self, provider: ProviderConfig) -> bool:
+        from packages.ai.brain import bedrock_disabled, is_bedrock_endpoint
+
+        if bedrock_disabled() and is_bedrock_endpoint(
+            provider.provider_id, provider.base_url, provider.type
+        ):
+            return False  # no probe, and never reported healthy, while the switch is on
         try:
             if provider.type == "bedrock":
                 return bool(provider.api_key and provider.headers.get("X-Bedrock-Secret"))
@@ -1816,6 +1827,14 @@ class ProviderRouter:
         timeout_sec: float = 300.0,
     ) -> httpx.Response:
         headers = provider.auth_headers()
+        from packages.ai.brain import bedrock_disabled, is_bedrock_endpoint
+
+        # Not only type == "bedrock": a record labelled openai-compatible that points at
+        # the Bedrock Mantle endpoint spends on the same AWS account.
+        if bedrock_disabled() and is_bedrock_endpoint(
+            provider.provider_id, provider.base_url, provider.type
+        ):
+            raise RuntimeError("Bedrock is disabled (BEDROCK_DISABLED)")
         if provider.type == "bedrock":
             return await self._post_bedrock_converse(provider, payload, timeout_sec)
         if provider.type.startswith("emergent-"):
@@ -2154,6 +2173,12 @@ class ProviderRouter:
         payload: dict[str, Any],
         timeout_sec: float = 300.0,
     ) -> httpx.Response:
+        # Last line of defence: a router built with an explicit Bedrock provider
+        # (not via from_env) must still honour the kill switch.
+        from packages.ai.brain import bedrock_disabled
+
+        if bedrock_disabled():
+            raise RuntimeError("Bedrock is disabled (BEDROCK_DISABLED)")
         try:
             import boto3
         except ImportError as exc:

@@ -39,6 +39,7 @@ from packages.llm.config import (
     LLMConfig,
     ModelConfig,
     ProviderConfig,
+    bedrock_blocked,
     get_config,
 )
 from packages.llm.context import ContextManager, build_summariser
@@ -223,6 +224,8 @@ class LLMRouter:
                 async with self._bulkhead.slot(candidate.provider.id, timeout=15.0) as got_slot:
                     if not got_slot:
                         continue
+                    if bedrock_blocked(candidate.provider):  # the switch may have flipped while waiting
+                        continue
                     async for chunk in provider.stream(
                         request, model=candidate.model.id, api_key=api_key, client=client
                     ):
@@ -286,7 +289,11 @@ class LLMRouter:
 
         for spec in candidates:
             provider = self._providers.get(spec.provider)
-            if provider is None or not self._health.is_available(spec.provider):
+            if (
+                provider is None
+                or bedrock_blocked(provider.config)
+                or not self._health.is_available(spec.provider)
+            ):
                 continue
             keys = resolve_keys(provider.config.key_env)
             api_key, _index = self._keys.acquire(
@@ -392,6 +399,8 @@ class LLMRouter:
         for provider_id, provider in self._providers.items():
             config = provider.config
             if provider_id in switched_off:
+                continue
+            if bedrock_blocked(config):  # live kill switch, checked per request
                 continue
             if provider_id in request.exclude_providers:
                 continue
@@ -656,6 +665,8 @@ class LLMRouter:
                     # Skipped, not attempted. Charging here would let a
                     # saturated provider burn the retry budget of a request
                     # that never reached any provider at all.
+                    return None, None, None
+                if bedrock_blocked(config):  # the switch may have flipped while waiting
                     return None, None, None
                 budget.charge()
                 started = time.monotonic()
@@ -1011,6 +1022,8 @@ class LLMRouter:
         )
         results: list[dict[str, Any]] = []
         for provider in targets:
+            if bedrock_blocked(provider.config):  # no probe either while the switch is on
+                continue
             keys = resolve_keys(provider.config.key_env)
             api_key = keys[0] if keys else ""
             probe = await provider.health(api_key=api_key, client=client)
@@ -1033,6 +1046,8 @@ class LLMRouter:
         client = await self._http()
         discovered: dict[str, list[str]] = {}
         for provider in self._providers.values():
+            if bedrock_blocked(provider.config):
+                continue
             keys = resolve_keys(provider.config.key_env)
             api_key = keys[0] if keys else ""
             try:

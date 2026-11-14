@@ -411,13 +411,13 @@ def test_build_tool_prompt_advertises_browse_page() -> None:
     assert "browse_page" in text
 
 
-def test_capability_registry_fetch_url_tool_is_callable(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_capability_registry_fetch_url_tool_is_callable(monkeypatch: pytest.MonkeyPatch) -> None:
     registry = ToolRegistry()
     _register_web_reach_tools(registry)
 
     tool = registry.get("fetch_url")
     assert tool is not None
-    result = tool.handler(url="http://127.0.0.1/blocked")
+    result = await tool.handler(url="http://127.0.0.1/blocked")
     assert result["ok"] is False
     assert "refused" in result["error"]
 

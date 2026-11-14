@@ -26,9 +26,12 @@ first sandbox that opens, so a provider out of quota fails over to the next.
 """
 from __future__ import annotations
 
+import asyncio
+import importlib
 import logging
 from typing import Any, Awaitable, Callable
 
+from services.e2b_config import _SDK_MODULE
 from services.e2b_config import (
     PROVIDER_DAYTONA,
     PROVIDER_E2B,
@@ -90,6 +93,35 @@ def get_opener(name: str) -> Opener | None:
     return _openers.get(name)
 
 
+# The names each opener imports from its SDK. Some SDKs (daytona) are lazy packages: the
+# top-level import is cheap and the heavy submodules load on first attribute access, so
+# warming only the package leaves the real import to the opener, on the event loop.
+_SDK_NAMES: dict[str, tuple[str, ...]] = {
+    PROVIDER_E2B: ("AsyncSandbox",),
+    PROVIDER_DAYTONA: ("AsyncDaytona", "CreateSandboxFromSnapshotParams", "DaytonaConfig"),
+    PROVIDER_INSTABOX: ("Client", "NotFoundError"),
+}
+
+
+def _import_sdk(provider: str) -> None:
+    module = importlib.import_module(_SDK_MODULE.get(provider, provider))
+    for name in _SDK_NAMES.get(provider, ()):
+        getattr(module, name)
+
+
+async def _warm_sdk(provider: str) -> None:
+    """Import *provider*'s SDK, and the names its opener uses, in a worker thread.
+
+    The first Daytona SDK import builds hundreds of pydantic models and held the event
+    loop for ~10 s on Render's free instance, failing the health check. A missing SDK or
+    name is left for the opener to report.
+    """
+    try:
+        await asyncio.to_thread(_import_sdk, provider)
+    except (ImportError, AttributeError):
+        pass
+
+
 async def open_first_available(configs: list[E2BConfig]) -> tuple[Any, E2BConfig]:
     """Open a sandbox with the first provider in *configs* that succeeds.
 
@@ -102,6 +134,7 @@ async def open_first_available(configs: list[E2BConfig]) -> tuple[Any, E2BConfig
             failures.append(f"{config.provider}: no opener registered")
             continue
         try:
+            await _warm_sdk(config.provider)
             return await opener(config), config
         except Exception as exc:  # noqa: BLE001 - one provider down must not stop the chain
             log.warning("Sandbox provider %s failed to open; trying the next: %s", config.provider, exc)
