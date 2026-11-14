@@ -212,6 +212,18 @@ _AGENT_RUNTIME: tuple[ControlSpec, ...] = (
         risk=RISK_MEDIUM,
     ),
     _toggle(
+        "WEB_REACH_EGRESS_IDENTITY_GUARD",
+        "Refuse agent requests carrying an operator email",
+        "governance",
+        "false",
+        "Refuse any agent web request whose URL, search query or body contains an "
+        "address listed in OPERATOR_EMAILS, before the request leaves the process. "
+        "Off by default, and inert while OPERATOR_EMAILS is empty. The refusal is "
+        "generic and emits a safety_event without the address.",
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
+    _toggle(
         "AGENT_DELEGATION_ENABLED",
         "Agent-to-agent delegation",
         "governance",

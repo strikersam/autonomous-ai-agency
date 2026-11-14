@@ -322,6 +322,15 @@ class Settings:
         # (fetch_url, youtube_transcript, web_search, fetch_rss, browse_page).
         # Default on; when off the tools refuse and drop out of the tool prompt.
         self.web_reach_enabled_raw: str = os.environ.get("WEB_REACH_ENABLED", "true")
+        # WEB_REACH_EGRESS_IDENTITY_GUARD — refuse an agent web request whose URL,
+        # query or body contains an address listed in OPERATOR_EMAILS. Default off:
+        # it changes what agents may send, so an operator opts in.
+        self.web_reach_egress_identity_guard_raw: str = os.environ.get(
+            "WEB_REACH_EGRESS_IDENTITY_GUARD", "false"
+        )
+        # OPERATOR_EMAILS — comma-separated addresses that must never leave the
+        # process on an agent's outbound request. Empty by default.
+        self.operator_emails_raw: str = os.environ.get("OPERATOR_EMAILS", "")
         # MODEL_AUTO_HEAL_ENABLED — move stored model choices off ids a provider
         # has retired (packages/ai/model_retirement.py). Default on.
         self.model_auto_heal_raw: str = os.environ.get("MODEL_AUTO_HEAL_ENABLED", "true")
@@ -609,6 +618,21 @@ class Settings:
     def web_reach_enabled(self) -> bool:
         """False only when an operator switched agent web access off."""
         return self.web_reach_enabled_raw.strip().lower() not in {"0", "false", "no", "off"}
+
+    @property
+    def web_reach_egress_identity_guard(self) -> bool:
+        """True only when an operator switched the outbound identity guard on."""
+        return self.web_reach_egress_identity_guard_raw.strip().lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+
+    @property
+    def operator_emails(self) -> tuple[str, ...]:
+        """Addresses configured in OPERATOR_EMAILS, comma-separated."""
+        return tuple(part.strip() for part in self.operator_emails_raw.split(",") if part.strip())
 
     @property
     def agent_tool_output_offload(self) -> bool:
