@@ -28,6 +28,7 @@ log = logging.getLogger("qwen-proxy")
 DEFAULT_THRESHOLD_S: float = 2.0
 DEFAULT_INTERVAL_S: float = 0.5
 _STACK_DEPTH: int = 25
+_OUTER_APP_FRAMES: int = 12  # application frames kept when library frames fill the depth
 _MAX_REPORTS: int = 20
 
 
@@ -109,7 +110,7 @@ class LoopStallWatchdog:
         frame = sys._current_frames().get(self._loop_thread_id or -1)
         if frame is None:
             return "<loop thread stack unavailable>"
-        return "".join(traceback.format_stack(frame, limit=_STACK_DEPTH))
+        return format_loop_stack(traceback.extract_stack(frame))
 
     def _report(self, blocked_s: float) -> None:
         stack = self._loop_stack()
@@ -120,6 +121,37 @@ class LoopStallWatchdog:
             "event loop blocked for more than %.1fs; the loop thread is in:\n%s",
             blocked_s, stack,
         )
+
+
+def _is_app_frame(frame: traceback.FrameSummary) -> bool:
+    """True for this repository's code: not site-packages, the stdlib or a frozen module."""
+    path = frame.filename
+    return "site-packages" not in path and "/lib/python" not in path and not path.startswith("<")
+
+
+def format_loop_stack(frames: traceback.StackSummary) -> str:
+    """The stack to log for a stall, with the application frame that caused it findable.
+
+    ``traceback.format_stack(limit=N)`` keeps only the *innermost* N frames. A blocking
+    library call (pymongo connecting and authenticating is over 25 frames deep) pushed the
+    application frame that made the call off the top, so the 2026-11-14 14:49:17 stall
+    named pymongo and not its caller. This puts the innermost application frame on its own
+    first line, and keeps the outer application frames the depth limit would drop.
+    """
+    app = [f for f in frames if _is_app_frame(f)]
+    lines: list[str] = []
+    if app:
+        last = app[-1]
+        lines.append(f"innermost application frame: {last.filename}:{last.lineno} in {last.name}\n")
+    tail = list(frames)[-_STACK_DEPTH:]
+    dropped = list(frames)[: max(len(frames) - _STACK_DEPTH, 0)]
+    outer = [f for f in dropped if _is_app_frame(f)][-_OUTER_APP_FRAMES:]
+    if outer:
+        lines.append(f"(outer application frames; {len(dropped)} outer frames omitted)\n")
+        lines.extend(traceback.StackSummary.from_list(outer).format())
+        lines.append("(innermost frames)\n")
+    lines.extend(traceback.StackSummary.from_list(tail).format())
+    return "".join(lines)
 
 
 _watchdog: LoopStallWatchdog | None = None
