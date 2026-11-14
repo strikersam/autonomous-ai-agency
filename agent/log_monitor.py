@@ -23,6 +23,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import re
 import time
 import threading
 from typing import Any
@@ -38,6 +39,11 @@ IGNORED_LOGGERS: frozenset[str] = frozenset(
         "httpcore",
         "asyncio",
         "multipart",
+        # python-engineio inside the Daytona/E2B SDKs logs its own keep-alive
+        # timeout ("packet queue is empty, aborting"). It is a dropped sandbox
+        # connection, not a bug in this repo; the sandbox chain already falls back.
+        "engineio.client",
+        "engineio.server",
         "qwen-proxy",        # avoid self-feeding: our own logger errors are already tracked
     }
 )
@@ -190,7 +196,7 @@ class LogMonitor:
             self._cooldowns[sig] = now
             self._task_count += 1
 
-        title = f"Backend {level}: {logger_name} — {message[:80]}"
+        title = f"Backend {level}: {logger_name} — {_strip_prefix(message)[:80]}"
         description = (
             f"The server emitted a `{level}` log entry from `{logger_name}`.\n\n"
             f"**Full message:**\n```\n{message[:2000]}\n```\n\n"
@@ -202,8 +208,20 @@ class LogMonitor:
         log.debug("LogMonitor: created fix task for %s (sig=%s)", logger_name, sig[:8])
 
 
+# The handler's formatter prefixes every line with "<asctime> [<LEVEL>] ". Left in,
+# that timestamp (to the millisecond) made every occurrence of the same error a new
+# signature, so neither the cooldown nor the healer's dedup ever matched and one
+# recurring line filed a fix task each time (211 "fix" schedules on 2026-11-14).
+_LINE_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[,.]\d+)?\s+\[\w+\]\s+")
+
+
+def _strip_prefix(message: str) -> str:
+    """The message without the formatter's timestamp and level prefix."""
+    return _LINE_PREFIX.sub("", message or "", count=1)
+
+
 def _sig(logger_name: str, message: str) -> str:
-    raw = f"{logger_name}:{message[:120]}"
+    raw = f"{logger_name}:{_strip_prefix(message)[:120]}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
