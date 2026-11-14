@@ -150,3 +150,71 @@ async def test_store_calls_keep_their_submission_order() -> None:
     second = asyncio.create_task(_store_call(store.remove, "j"))
     await asyncio.gather(first, second)
     assert store.docs == {}, "the remove ran before the upsert and the row came back"
+
+
+class _SlowRemoveStore:
+    """Sync store whose remove takes a while, like a slow pymongo delete."""
+
+    def __init__(self) -> None:
+        self.docs: dict[str, dict] = {}
+
+    def load_all(self) -> list[dict]:
+        return list(self.docs.values())
+
+    def upsert(self, doc: dict) -> None:
+        self.docs[doc["job_id"]] = dict(doc)
+
+    def remove(self, job_id: str) -> bool:
+        time.sleep(0.3)
+        return self.docs.pop(job_id, None) is not None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mutate", ["rename", "toggle"])
+async def test_a_job_being_removed_is_not_written_back(mutate: str) -> None:
+    """rename()/toggle() during the awaited durable delete must not resurrect the row."""
+    store = _SlowRemoveStore()
+    sched = AgentScheduler(persistence=store)
+    try:
+        job = sched.create(name="doomed", cron="0 9 * * *", instruction="x")
+        for _ in range(100):  # let create()'s own persist land
+            if job.job_id in store.docs:
+                break
+            await asyncio.sleep(0.01)
+        assert job.job_id in store.docs
+
+        removal = asyncio.create_task(sched._remove_job(job.job_id, reason="test"))
+        await asyncio.sleep(0.05)  # the delete is now in flight on the store worker
+        if mutate == "rename":
+            sched.rename(job.job_id, name="renamed")
+        else:
+            sched.toggle(job.job_id, enabled=False)
+        assert await removal is True
+        await asyncio.sleep(0.2)  # any resurrecting upsert would have run by now
+        assert job.job_id not in store.docs, "the removed job's row was written back"
+        assert job.job_id not in sched._jobs
+        assert job.job_id not in sched._removing
+    finally:
+        sched.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_a_failed_removal_keeps_the_job_persistable() -> None:
+    """If the delete fails the job stays registered, and later edits still persist."""
+
+    class _Failing(_SlowRemoveStore):
+        def remove(self, job_id: str) -> bool:
+            raise RuntimeError("mongo down")
+
+    store = _Failing()
+    sched = AgentScheduler(persistence=store)
+    try:
+        job = sched.create(name="keep", cron="0 9 * * *", instruction="x")
+        await asyncio.sleep(0.1)
+        assert await sched._remove_job(job.job_id, reason="test") is False
+        assert job.job_id in sched._jobs and job.job_id not in sched._removing
+        sched.rename(job.job_id, name="still-here")
+        await asyncio.sleep(0.1)
+        assert store.docs[job.job_id]["name"] == "still-here"
+    finally:
+        sched.shutdown()

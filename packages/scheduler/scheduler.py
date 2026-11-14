@@ -16,6 +16,7 @@ import time
 import asyncio
 import inspect
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -174,6 +175,10 @@ class AgentScheduler:
         persistence: Any | None = None,
     ) -> None:
         self._jobs: dict[str, ScheduledJob] = {}
+        # Job ids whose durable row is being deleted. While the delete is awaited the
+        # job is still in ``_jobs``, so a rename()/toggle() could queue an upsert that
+        # the single store worker runs after the remove and writes the row back.
+        self._removing: set[str] = set()
         self._on_fire = on_fire
         self._aps: Any = None
         # Durable store (ScheduleStore-like: load_all/upsert/remove). Optional —
@@ -515,11 +520,22 @@ class AgentScheduler:
             log.warning("Scheduler hydration failed: %s", exc)
             return 0
 
+    @contextmanager
+    def _marked_removing(self, job_id: str):
+        """Mark ``job_id`` as being removed so ``_persist`` leaves its row alone."""
+        self._removing.add(job_id)
+        try:
+            yield
+        finally:
+            self._removing.discard(job_id)
+
     async def _persist(self, job: ScheduledJob) -> None:
         """#505: Persist a job to durable storage."""
         await self._ensure_store()
         if self._store is None:
             return
+        if job.job_id in self._removing or job.job_id not in self._jobs:
+            return  # being deleted, or already gone: an upsert would resurrect its row
         try:
             await _store_call(self._store.upsert, job.as_dict())
         except Exception as exc:
@@ -556,22 +572,23 @@ class AgentScheduler:
         failure is visible instead of silently keeping the backlog counters at
         zero.
         """
-        try:
-            remove_result = await _store_call(self._store.remove, job_id)
-        except Exception:
-            log.exception(
-                "force_cleanup: could not remove job job_id=%s%s",
-                job_id, f" ({reason})" if reason else "",
-            )
-            return False
-        if remove_result is False:  # ScheduleStore.remove() swallows and reports
-            log.error(
-                "force_cleanup: store refused to remove job job_id=%s%s",
-                job_id, f" ({reason})" if reason else "",
-            )
-            return False
-        self._deregister_and_forget(job_id)
-        return True
+        with self._marked_removing(job_id):
+            try:
+                remove_result = await _store_call(self._store.remove, job_id)
+            except Exception:
+                log.exception(
+                    "force_cleanup: could not remove job job_id=%s%s",
+                    job_id, f" ({reason})" if reason else "",
+                )
+                return False
+            if remove_result is False:  # ScheduleStore.remove() swallows and reports
+                log.error(
+                    "force_cleanup: store refused to remove job job_id=%s%s",
+                    job_id, f" ({reason})" if reason else "",
+                )
+                return False
+            self._deregister_and_forget(job_id)
+            return True
 
     async def _expire_run_once_orphan(
         self, job_id: str, name: str, *, cron: str
@@ -596,20 +613,21 @@ class AgentScheduler:
         """
         conditional = getattr(self._store, "delete_if_unfired_run_once", None)
         if conditional is not None:
-            try:
-                deleted = await _store_call(conditional, job_id)
-            except Exception:
-                log.exception(
-                    "force_cleanup: conditional delete failed for orphaned "
-                    "run-once job name=%r job_id=%s cron=%r", name, job_id, cron,
-                )
-                return False
-            if not deleted:
-                # _fire() incremented run_count first (or the row is already
-                # gone) — leave it; the already-fired rule owns it now.
-                return False
-            self._deregister_and_forget(job_id)
-            return True
+            with self._marked_removing(job_id):
+                try:
+                    deleted = await _store_call(conditional, job_id)
+                except Exception:
+                    log.exception(
+                        "force_cleanup: conditional delete failed for orphaned "
+                        "run-once job name=%r job_id=%s cron=%r", name, job_id, cron,
+                    )
+                    return False
+                if not deleted:
+                    # _fire() incremented run_count first (or the row is already
+                    # gone) — leave it; the already-fired rule owns it now.
+                    return False
+                self._deregister_and_forget(job_id)
+                return True
         return await self._remove_job(
             job_id, reason=f"orphaned run-once name={name!r} cron={cron!r}"
         )
