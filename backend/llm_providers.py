@@ -22,6 +22,20 @@ class LlmProviderConfig:
     default_model: str | None = None
 
 
+def refuse_if_bedrock(provider: LlmProviderConfig) -> None:
+    """Raise while the Bedrock kill switch is on and *provider* points at Bedrock.
+
+    A Providers-UI record is hand-built from the database and never passes
+    through ``ProviderRouter``, so a record whose base URL is a Bedrock endpoint
+    reached AWS (billed inference during context compaction, a GET on test and
+    model listing) without ever meeting the guards there.
+    """
+    from packages.ai.brain import bedrock_disabled, is_bedrock_endpoint
+
+    if bedrock_disabled() and is_bedrock_endpoint("", provider.base_url, provider.type):
+        raise RuntimeError("Bedrock is disabled (BEDROCK_DISABLED)")
+
+
 def normalize_base_url(base_url: str) -> str:
     return (base_url or "").strip().rstrip("/")
 
@@ -129,6 +143,7 @@ async def chat_completion_text(
     retries: int = 2,
     client: httpx.AsyncClient | None = None,
 ) -> str:
+    refuse_if_bedrock(provider)
     use_model = (model or provider.default_model or "").strip()
     if not use_model:
         raise ValueError("Missing model (set provider default_model or pass model)")
@@ -217,6 +232,7 @@ async def list_openai_models(
     timeout_sec: float = 10.0,
     client: httpx.AsyncClient | None = None,
 ) -> list[str]:
+    refuse_if_bedrock(provider)
     ptype = provider_type(provider)
     url = (
         f"{normalize_base_url(provider.base_url)}/v1/models"
