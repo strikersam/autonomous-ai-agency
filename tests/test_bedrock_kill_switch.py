@@ -138,3 +138,110 @@ def test_a_router_built_before_the_switch_went_on_stops_probing_bedrock(monkeypa
     assert asyncio.run(router.health_check("bedrock")) == []
     assert asyncio.run(router.discover_models()) == {}
     assert calls == []
+
+
+# ── Gaps found by review of the first version ───────────────────────────────────
+
+def _mantle_provider() -> ProviderConfig:
+    """Labelled openai-compatible, but it spends on the Bedrock account."""
+    return ProviderConfig(
+        provider_id="my-gateway",
+        type="openai-compatible",
+        base_url="https://bedrock-mantle.us-east-1.api.aws/v1",
+        api_key="test-key",
+        default_model="qwen.qwen3-coder-next",
+        priority=15,
+    )
+
+
+def test_a_generic_provider_pointing_at_bedrock_is_refused_at_call_time(monkeypatch):
+    monkeypatch.delenv("BEDROCK_DISABLED", raising=False)
+    provider = _mantle_provider()
+    with pytest.raises(RuntimeError, match="BEDROCK_DISABLED"):
+        asyncio.run(ProviderRouter([provider])._post_chat(provider, {"messages": []}))
+
+
+def test_a_generic_bedrock_endpoint_is_not_health_probed_or_reported_healthy(monkeypatch):
+    monkeypatch.delenv("BEDROCK_DISABLED", raising=False)
+    provider = _mantle_provider()
+
+    attempts: list[str] = []
+
+    async def _record(self, url, *_a, **_k):  # any HTTP use here would be a call to AWS
+        attempts.append(str(url))
+        return SimpleNamespace(status_code=200, json=lambda: {"data": []})
+
+    monkeypatch.setattr("httpx.AsyncClient.get", _record)
+    monkeypatch.setattr("httpx.AsyncClient.post", _record)
+    assert asyncio.run(ProviderRouter([provider]).health_check(provider)) is False
+    assert attempts == [], f"health_check probed {attempts}"
+
+
+def test_an_unrelated_provider_is_not_affected_by_the_switch(monkeypatch):
+    monkeypatch.delenv("BEDROCK_DISABLED", raising=False)
+    other = ProviderConfig(
+        provider_id="nvidia", type="openai-compatible",
+        base_url="https://integrate.api.nvidia.com/v1", api_key="k",
+        default_model="m", priority=10,
+    )
+    from packages.ai.brain import is_bedrock_endpoint
+
+    assert is_bedrock_endpoint(other.provider_id, other.base_url, other.type) is False
+
+
+def test_embeddings_skip_a_bedrock_provider_while_the_switch_is_on(monkeypatch):
+    from packages.llm.router import LLMRouter
+
+    posted: list[str] = []
+
+    class _Client:
+        async def post(self, url, **_):
+            posted.append(url)
+            raise AssertionError("an embeddings call reached Bedrock")
+
+    class _Registry:
+        def candidates(self, **_):
+            return [SimpleNamespace(id="amazon.titan-embed", provider="bedrock")]
+
+        def get(self, _model):
+            return None
+
+    class _Cache:
+        embedding = SimpleNamespace(get=lambda _k: None, put=lambda *_a, **_k: None)
+
+    async def _http():
+        return _Client()
+
+    router = LLMRouter.__new__(LLMRouter)
+    router._providers = {"bedrock": SimpleNamespace(
+        config=SimpleNamespace(
+            id="bedrock", kind="openai", key_env=["X"],
+            base_url="https://bedrock-mantle.us-east-1.api.aws/v1"),
+        auth_headers=lambda _k: {},
+    )}
+    router._registry = _Registry()
+    router._cache = _Cache()
+    router._http = _http
+    router._health = SimpleNamespace(
+        is_available=lambda _p: True, record_failure=lambda *_a, **_k: None)
+    router._keys = SimpleNamespace(acquire=lambda *_a, **_k: ("key", 0))
+    router._metrics = SimpleNamespace(record_cache=lambda **_k: None)
+    monkeypatch.delenv("BEDROCK_DISABLED", raising=False)
+    monkeypatch.setenv("X", "key")
+
+    try:
+        asyncio.run(router.embed(["hello"]))
+    except Exception:  # noqa: BLE001 - exhaustion is fine; reaching AWS is not
+        pass
+    assert posted == []
+
+
+def test_stream_and_dispatch_recheck_the_switch_after_waiting_for_a_slot():
+    """The switch can flip while a request queues for a bulkhead slot."""
+    import inspect
+
+    from packages.llm.router import LLMRouter
+
+    for method in (LLMRouter.stream, LLMRouter._attempt if hasattr(LLMRouter, "_attempt") else LLMRouter._dispatch):
+        src = inspect.getsource(method)
+        assert "bedrock_blocked(" in src, f"{method.__name__} does not recheck the switch"

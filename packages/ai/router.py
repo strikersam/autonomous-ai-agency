@@ -1272,6 +1272,12 @@ class ProviderRouter:
         return cls(providers, keep_order=True)
 
     async def health_check(self, provider: ProviderConfig) -> bool:
+        from packages.ai.brain import bedrock_disabled, is_bedrock_endpoint
+
+        if bedrock_disabled() and is_bedrock_endpoint(
+            provider.provider_id, provider.base_url, provider.type
+        ):
+            return False  # no probe, and never reported healthy, while the switch is on
         try:
             if provider.type == "bedrock":
                 return bool(provider.api_key and provider.headers.get("X-Bedrock-Secret"))
@@ -1827,6 +1833,14 @@ class ProviderRouter:
         timeout_sec: float = 300.0,
     ) -> httpx.Response:
         headers = provider.auth_headers()
+        from packages.ai.brain import bedrock_disabled, is_bedrock_endpoint
+
+        # Not only type == "bedrock": a record labelled openai-compatible that points at
+        # the Bedrock Mantle endpoint spends on the same AWS account.
+        if bedrock_disabled() and is_bedrock_endpoint(
+            provider.provider_id, provider.base_url, provider.type
+        ):
+            raise RuntimeError("Bedrock is disabled (BEDROCK_DISABLED)")
         if provider.type == "bedrock":
             return await self._post_bedrock_converse(provider, payload, timeout_sec)
         if provider.type.startswith("emergent-"):
