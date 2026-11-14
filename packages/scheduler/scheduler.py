@@ -15,6 +15,7 @@ import secrets
 import time
 import asyncio
 import inspect
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -62,6 +63,12 @@ def _run_once_max_age_sec() -> float:
 log = logging.getLogger("qwen-scheduler")
 
 
+# One worker: store calls from coroutines keep their submission order, as they did
+# when they ran inline on the loop. With a wider pool an upsert and the remove that
+# follows it could swap, and the deleted job would reappear on the next hydrate.
+_STORE_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sched-store")
+
+
 async def _store_call(fn: Callable[..., Any], *args: Any) -> Any:
     """Call a persistence method without blocking the event loop.
 
@@ -71,7 +78,7 @@ async def _store_call(fn: Callable[..., Any], *args: Any) -> Any:
     """
     if inspect.iscoroutinefunction(fn):
         return await fn(*args)
-    result = await asyncio.to_thread(fn, *args)
+    result = await asyncio.get_running_loop().run_in_executor(_STORE_POOL, fn, *args)
     return (await result) if inspect.isawaitable(result) else result
 
 try:

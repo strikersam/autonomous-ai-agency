@@ -118,3 +118,26 @@ async def test_persist_and_remove_still_reach_a_sync_store() -> None:
         assert "x" not in store.docs
     finally:
         sched.shutdown()
+
+
+@pytest.mark.asyncio
+async def test_store_calls_keep_their_submission_order() -> None:
+    """A slow upsert followed by a remove must not be overtaken by the remove."""
+
+    class _Store:
+        def __init__(self) -> None:
+            self.docs: dict[str, dict] = {}
+
+        def upsert(self, doc: dict) -> None:
+            time.sleep(0.1)
+            self.docs[doc["job_id"]] = doc
+
+        def remove(self, job_id: str) -> bool:
+            return self.docs.pop(job_id, None) is not None
+
+    store = _Store()
+    first = asyncio.create_task(_store_call(store.upsert, {"job_id": "j"}))
+    await asyncio.sleep(0)  # the upsert is queued before the remove is
+    second = asyncio.create_task(_store_call(store.remove, "j"))
+    await asyncio.gather(first, second)
+    assert store.docs == {}, "the remove ran before the upsert and the row came back"
