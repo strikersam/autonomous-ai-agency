@@ -4,7 +4,7 @@
 > hand: `python scripts/lifecycles.py check` fails when this file is stale.
 
 Every status field this app owns, the states it can hold, and the moves it
-declares. 21 lifecycles are registered.
+declares. 22 lifecycles are registered.
 
 Read one without opening the source:
 
@@ -30,6 +30,7 @@ python scripts/lifecycles.py mermaid task         # diagram only
 | [`heal`](#heal) | `detected` | `awaiting_human`, `resolved` | 6 | `agent/self_healing.py (HealingEvent.state)` |
 | [`onboarding`](#onboarding) | `not_started` | `archived`, `cancelled`, `complete` | 10 | `models/company_graph.py (Company.onboarding_status)` |
 | [`onboarding_progress`](#onboarding_progress) | `not_started` | `cancelled`, `completed` | 6 | `models/company_graph.py (OnboardingProgress.status)` |
+| [`run`](#run) | `created` | `cancelled`, `dead_letter`, `failed`, `succeeded`, `timed_out` | 14 | `packages/runs/store.py (RunRecord.state)` |
 | [`scan`](#scan) | `pending` | `failed`, `partial`, `success` | 4 | `models/company_graph.py (Website.scan_status, RepoScanResult.status)` |
 | [`spec`](#spec) | `pending` | `approved`, `rejected`, `skipped` | 4 | `services/spec_store.py (spec.status)` |
 | [`specialist`](#specialist) | `available` | `disabled` | 4 | `models/company_graph.py (Specialist.status)` |
@@ -463,6 +464,109 @@ stateDiagram-v2
 | `in_progress` | cancelled, completed, failed, paused |
 | `not_started` | cancelled, in_progress |
 | `paused` | cancelled, in_progress |
+
+## run
+
+A durable run of a task or orchestrator workflow: queued, started under a lease, waiting on children or a person, verified, and settled. A run whose lease expired is recovered before it may continue.
+
+- **Owner:** `packages/runs/store.py (RunRecord.state)`
+- **Status type:** `packages.runs.models:RunState`
+- **Initial:** `created`
+- **Resting:** `cancelled`, `dead_letter`, `failed`, `succeeded`, `timed_out`
+- **Notes:**
+  - Every non-terminal state may move to recovering (its lease expired), cancelled, timed_out or failed.
+  - recovering resumes as queued, or parks in waiting_for_approval when a side effect's outcome is unknown (reason uncertain_side_effect).
+  - A retry of a terminal run is a new run linked by retry_of, not a move out of a resting state; failed and timed_out may only move on to dead_letter.
+
+```mermaid
+stateDiagram-v2
+    state "cancelled (resting)" as s_cancelled
+    state "created" as s_created
+    state "dead_letter (resting)" as s_dead_letter
+    state "failed (resting)" as s_failed
+    state "queued" as s_queued
+    state "recovering" as s_recovering
+    state "retrying" as s_retrying
+    state "running" as s_running
+    state "starting" as s_starting
+    state "succeeded (resting)" as s_succeeded
+    state "timed_out (resting)" as s_timed_out
+    state "verifying" as s_verifying
+    state "waiting_for_agent" as s_waiting_for_agent
+    state "waiting_for_approval" as s_waiting_for_approval
+    [*] --> s_created
+    s_created --> s_cancelled
+    s_created --> s_failed
+    s_created --> s_queued
+    s_created --> s_recovering
+    s_created --> s_timed_out
+    s_failed --> s_dead_letter
+    s_queued --> s_cancelled
+    s_queued --> s_failed
+    s_queued --> s_recovering
+    s_queued --> s_starting
+    s_queued --> s_timed_out
+    s_recovering --> s_cancelled
+    s_recovering --> s_failed
+    s_recovering --> s_queued
+    s_recovering --> s_timed_out
+    s_recovering --> s_waiting_for_approval
+    s_retrying --> s_cancelled
+    s_retrying --> s_failed
+    s_retrying --> s_queued
+    s_retrying --> s_recovering
+    s_retrying --> s_timed_out
+    s_running --> s_cancelled
+    s_running --> s_failed
+    s_running --> s_recovering
+    s_running --> s_retrying
+    s_running --> s_timed_out
+    s_running --> s_verifying
+    s_running --> s_waiting_for_agent
+    s_running --> s_waiting_for_approval
+    s_starting --> s_cancelled
+    s_starting --> s_failed
+    s_starting --> s_recovering
+    s_starting --> s_running
+    s_starting --> s_timed_out
+    s_timed_out --> s_dead_letter
+    s_verifying --> s_cancelled
+    s_verifying --> s_failed
+    s_verifying --> s_recovering
+    s_verifying --> s_running
+    s_verifying --> s_succeeded
+    s_verifying --> s_timed_out
+    s_waiting_for_agent --> s_cancelled
+    s_waiting_for_agent --> s_failed
+    s_waiting_for_agent --> s_recovering
+    s_waiting_for_agent --> s_running
+    s_waiting_for_agent --> s_timed_out
+    s_waiting_for_approval --> s_cancelled
+    s_waiting_for_approval --> s_failed
+    s_waiting_for_approval --> s_recovering
+    s_waiting_for_approval --> s_running
+    s_waiting_for_approval --> s_timed_out
+    s_cancelled --> [*]
+    s_dead_letter --> [*]
+    s_succeeded --> [*]
+```
+
+| From | To |
+|------|----|
+| `cancelled` | — (resting) |
+| `created` | cancelled, failed, queued, recovering, timed_out |
+| `dead_letter` | — (resting) |
+| `failed` | dead_letter |
+| `queued` | cancelled, failed, recovering, starting, timed_out |
+| `recovering` | cancelled, failed, queued, timed_out, waiting_for_approval |
+| `retrying` | cancelled, failed, queued, recovering, timed_out |
+| `running` | cancelled, failed, recovering, retrying, timed_out, verifying, waiting_for_agent, waiting_for_approval |
+| `starting` | cancelled, failed, recovering, running, timed_out |
+| `succeeded` | — (resting) |
+| `timed_out` | dead_letter |
+| `verifying` | cancelled, failed, recovering, running, succeeded, timed_out |
+| `waiting_for_agent` | cancelled, failed, recovering, running, timed_out |
+| `waiting_for_approval` | cancelled, failed, recovering, running, timed_out |
 
 ## scan
 

@@ -15,62 +15,21 @@ import pytest
 
 from tasks import run_lease as service
 from tasks.store import TaskStore
+from tests._fake_motor import FakeMotorDb
 
 
-class _DuplicateKeyError(Exception):
-    """Same class name pymongo uses; the store matches on the name."""
+def _fake_mongo_db() -> FakeMotorDb:
+    """A Motor-like database with Mongo's single document atomicity (tests/_fake_motor.py).
 
-
-class _Result:
-    def __init__(self, matched: int, modified: int) -> None:
-        self.matched_count = matched
-        self.modified_count = modified
-
-
-class _FakeMongoLeases:
-    """The three Mongo operations the lease uses, with Mongo's atomicity."""
-
-    def __init__(self) -> None:
-        self.docs: dict[str, dict] = {}
-
-    async def insert_one(self, doc):
-        if doc["_id"] in self.docs:
-            raise _DuplicateKeyError("E11000 duplicate key")
-        self.docs[doc["_id"]] = dict(doc)
-
-    async def update_one(self, query, update):
-        doc = self.docs.get(query["_id"])
-        if doc is None:
-            return _Result(0, 0)
-        ok = any(
-            ("expires_at" in c and doc["expires_at"] < c["expires_at"]["$lt"])
-            or ("holder" in c and doc["holder"] == c["holder"])
-            for c in query["$or"]
-        )
-        if not ok:
-            return _Result(0, 0)
-        changed = any(doc.get(k) != v for k, v in update["$set"].items())
-        doc.update(update["$set"])
-        return _Result(1, 1 if changed else 0)
-
-    async def delete_one(self, query):
-        doc = self.docs.get(query["_id"])
-        if doc and doc["holder"] == query["holder"]:
-            del self.docs[query["_id"]]
-
-
-class _FakeMongoDb:
-    def __init__(self) -> None:
-        self.leases = _FakeMongoLeases()
-
-    def __getitem__(self, name):
-        assert name == "task_run_leases"
-        return self.leases
+    The lease (packages/runs/lease.py) reads the document and compare-and-sets it
+    on the fencing token, so the fake needs find_one and a general filter matcher.
+    """
+    return FakeMotorDb()
 
 
 def _mongo_store() -> TaskStore:
     store = TaskStore.__new__(TaskStore)
-    store._db = _FakeMongoDb()
+    store._db = _fake_mongo_db()
     store._mode = "mongo"
     store._mem = {}
     return store

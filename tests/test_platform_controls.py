@@ -647,3 +647,30 @@ def test_harness_spec_controls_are_live_and_default_on(clean_overrides, tmp_path
     assert spec_mod.refine(tmp_path, lessons=lesson) == []
     control_overrides.apply_overrides({"HARNESS_SPEC_AUTO_REFINE": "true"})
     assert len(spec_mod.refine(tmp_path, lessons=lesson)) == 1
+
+
+def test_durable_run_controls_are_live_and_overrides_take_effect(clean_overrides):
+    from packages.config import runs_settings
+    from packages.runs import operations
+
+    keys = ("RUNS_LEDGER_ENABLED", "RUNS_RECOVERY_ENABLED", "RUNS_LEASE_TTL_SEC",
+            "RUNS_LEASE_RENEW_SEC", "RUNS_OP_SKEW_SEC")
+    for key in keys:
+        assert get_control(key).live is True
+        os.environ.pop(key, None)
+    # Defaults keep today's behaviour: record only, no recovery.
+    assert operations.ledger_enabled() is True and runs_settings.runs_recovery_enabled() is False
+    assert (runs_settings.lease_ttl_s(), runs_settings.lease_renew_s(), runs_settings.op_skew_s()) == (120, 30, 30)
+
+    control_overrides.apply_overrides({
+        "RUNS_LEDGER_ENABLED": "false", "RUNS_RECOVERY_ENABLED": "true",
+        "RUNS_LEASE_TTL_SEC": "300", "RUNS_LEASE_RENEW_SEC": "60", "RUNS_OP_SKEW_SEC": "5",
+    })
+    assert operations.ledger_enabled() is False and runs_settings.runs_recovery_enabled() is True
+    assert (runs_settings.lease_ttl_s(), runs_settings.lease_renew_s(), runs_settings.op_skew_s()) == (300, 60, 5)
+
+    # Renewal can never be slower than a third of the TTL.
+    control_overrides.apply_overrides({"RUNS_LEASE_TTL_SEC": "30", "RUNS_LEASE_RENEW_SEC": "600"})
+    assert runs_settings.lease_renew_s() == 10
+    with pytest.raises(ValueError):
+        coerce("RUNS_LEASE_TTL_SEC", "5")

@@ -32,6 +32,7 @@ __all__ = [
     "HEAL_LIFECYCLE",
     "ONBOARDING_LIFECYCLE",
     "ONBOARDING_PROGRESS_LIFECYCLE",
+    "RUN_LIFECYCLE",
     "SCAN_LIFECYCLE",
     "SPEC_LIFECYCLE",
     "SPECIALIST_LIFECYCLE",
@@ -298,6 +299,52 @@ CEO_ATTEMPT_LIFECYCLE = _declare(
     terminal="accepted, rejected, error",
     owner="services/ceo_ledger.py (Attempt.status)",
     description="One delegation of one subtask to one model tier.",
+)
+
+# ── Durable runs ─────────────────────────────────────────────────────────────
+
+RUN_LIFECYCLE = _declare(
+    "run",
+    states=(
+        "created, queued, starting, running, waiting_for_agent, waiting_for_approval, "
+        "retrying, recovering, verifying, succeeded, failed, cancelled, timed_out, "
+        "dead_letter"
+    ),
+    initial="created",
+    transitions={
+        "created": "queued, recovering, cancelled, timed_out, failed",
+        "queued": "starting, recovering, cancelled, timed_out, failed",
+        "starting": "running, recovering, cancelled, timed_out, failed",
+        "running": (
+            "waiting_for_agent, waiting_for_approval, verifying, retrying, recovering, cancelled, timed_out, failed"
+        ),
+        "waiting_for_agent": "running, recovering, cancelled, timed_out, failed",
+        "waiting_for_approval": "running, recovering, cancelled, timed_out, failed",
+        "retrying": "queued, recovering, cancelled, timed_out, failed",
+        "recovering": "queued, waiting_for_approval, cancelled, timed_out, failed",
+        "verifying": "succeeded, running, recovering, cancelled, timed_out, failed",
+        "succeeded": "",
+        "failed": "dead_letter",
+        "cancelled": "",
+        "timed_out": "dead_letter",
+        "dead_letter": "",
+    },
+    terminal="succeeded, failed, cancelled, timed_out, dead_letter",
+    status_type="packages.runs.models:RunState",
+    owner="packages/runs/store.py (RunRecord.state)",
+    description=(
+        "A durable run of a task or orchestrator workflow: queued, started under a "
+        "lease, waiting on children or a person, verified, and settled. A run whose "
+        "lease expired is recovered before it may continue."
+    ),
+    notes=(
+        "Every non-terminal state may move to recovering (its lease expired), "
+        "cancelled, timed_out or failed.",
+        "recovering resumes as queued, or parks in waiting_for_approval when a side "
+        "effect's outcome is unknown (reason uncertain_side_effect).",
+        "A retry of a terminal run is a new run linked by retry_of, not a move out of "
+        "a resting state; failed and timed_out may only move on to dead_letter.",
+    ),
 )
 
 # ── Workspaces ───────────────────────────────────────────────────────────────

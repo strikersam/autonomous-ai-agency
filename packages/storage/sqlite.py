@@ -99,6 +99,9 @@ _COLLECTIONS = [
     "user_token_usage", "governance_grants", "tool_output_offload",
     # Per-agent memory (services/agent_memory).
     "agent_memory_notes", "agent_memory_episodes",
+    # Durable runs (packages/runs): the run lease, run records and their ledgers.
+    "task_run_leases", "runs", "run_events", "run_operations", "run_artifacts",
+    "run_approvals", "run_idempotency",
     # Deliberately NOT "agent_schedules": agent/schedule_store.py shares this DB
     # file and creates its own (job_id, doc, updated_at) table of that name;
     # whichever initialises first wins CREATE TABLE IF NOT EXISTS, so listing it
@@ -128,6 +131,12 @@ _INDEXED_FIELDS: dict[str, list[str]] = {
     "agent_specs":     ["spec_id", "status", "created_at"],
     "agent_memory_notes":    ["memory_key"],
     "agent_memory_episodes": ["memory_key"],
+    "runs":            ["company_id", "state", "task_id", "parent_run_id"],
+    "run_events":      ["run_id"],
+    "run_operations":  ["run_id", "state"],
+    "run_artifacts":   ["run_id"],
+    "run_approvals":   ["run_id", "state"],
+    "run_idempotency": ["company_id"],
 }
 
 
