@@ -150,3 +150,46 @@ async def test_open_first_available_warms_the_sdk_before_the_opener(monkeypatch:
     result, used = await sp.open_first_available([config])
     assert result == "sandbox" and used is config
     assert order == ["warm:daytona", "open:daytona"]
+
+
+async def test_a_lazy_sdk_loads_its_submodules_in_the_worker_thread(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The daytona package is lazy: ``import daytona`` is cheap and the heavy submodules
+    load on first attribute access. Warming only the package left that to the opener, on
+    the event loop (a 9.3 s stall in production after the first fix shipped)."""
+    import sys
+    import types
+
+    from services import sandbox_providers as sp
+
+    touched: list[tuple[str, int]] = []
+
+    class LazyModule(types.ModuleType):
+        def __getattr__(self, name: str) -> Any:
+            if name.startswith("__"):
+                raise AttributeError(name)
+            if not touched:
+                time.sleep(_BLOCK_S)  # deliberate: the first access does the heavy import
+            touched.append((name, threading.get_ident()))
+            return object()
+
+    monkeypatch.setitem(sys.modules, "daytona", LazyModule("daytona"))
+    gap = await _max_gap_while(sp._warm_sdk("daytona"))
+    assert gap < _MAX_GAP_S, f"the lazy SDK import stalled the loop for {gap:.2f}s"
+    names = {n for n, _ in touched}
+    assert {"AsyncDaytona", "CreateSandboxFromSnapshotParams", "DaytonaConfig"} <= names
+    assert all(tid != threading.get_ident() for _, tid in touched)
+
+
+def test_every_opener_name_is_warmed() -> None:
+    """The names warmed must be the names the openers import, or the warm-up is a no-op."""
+    import re
+    from pathlib import Path
+
+    from services import sandbox_providers as sp
+
+    root = Path(sp.__file__).parent
+    daytona_src = (root / "daytona_sandbox.py").read_text(encoding="utf-8")
+    match = re.search(r"from daytona import ([^\n]+)", daytona_src)
+    assert match
+    imported = {n.strip() for n in match.group(1).split(",")}
+    assert imported <= set(sp._SDK_NAMES["daytona"]), imported
