@@ -42,11 +42,9 @@ from __future__ import annotations
 
 import base64
 import inspect
-import io
 import json as _json
 import logging
 import os
-import tarfile
 import time
 from typing import Any
 
@@ -649,36 +647,14 @@ class E2BSandboxSession:
         """
         if not self.is_open:
             return False
-        import subprocess
+        import asyncio
         try:
-            # Get the list of tracked files.
-            ls_result = subprocess.run(  # nosec B603, B607 — constant git argv, list form (no shell)
-                ["git", "ls-files"],
-                cwd=worktree_path,
-                capture_output=True,
-                text=True,
-                timeout=30,
-            )
-            if ls_result.returncode != 0:
-                log.warning("E2B seed: git ls-files failed in %s: %s",
-                            worktree_path, ls_result.stderr.strip())
-                return False
-            files = [f for f in ls_result.stdout.strip().split("\n") if f]
-            if not files:
-                return False
-
-            # Create a tar in memory of the tracked files.
-            tar_buf = io.BytesIO()
-            with tarfile.open(fileobj=tar_buf, mode="w:gz") as tar:
-                for f in files:
-                    full_path = os.path.join(worktree_path, f)
-                    if os.path.isfile(full_path):
-                        try:
-                            tar.add(full_path, arcname=f)
-                        except (OSError, PermissionError):
-                            pass  # Skip unreadable files
-            tar_bytes = tar_buf.getvalue()
+            # Listing and packing are blocking (git, filesystem, gzip): keep
+            # them off the event loop. A non-git workspace is walked instead.
+            from services.sandbox_seed import pack_seed
+            tar_bytes, file_count = await asyncio.to_thread(pack_seed, worktree_path)
             if not tar_bytes:
+                log.warning("E2B seed: nothing to seed from %s", worktree_path)
                 return False
 
             # Write the tar to the sandbox.
@@ -714,7 +690,7 @@ class E2BSandboxSession:
 
             self._seeded = True
             await self._remember_base(self._sandbox)
-            log.info("E2B sandbox seeded from %s (%d files)", worktree_path, len(files))
+            log.info("E2B sandbox seeded from %s (%d files)", worktree_path, file_count)
             return True
         except Exception as exc:
             log.warning("E2B seed_from_worktree failed: %s", exc)
