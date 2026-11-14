@@ -628,7 +628,7 @@ def test_cli_runtime_children_do_not_inherit_bedrock_credentials(monkeypatch):
 def test_cli_adapters_launch_their_task_with_the_scrubbed_env():
     import inspect
 
-    from runtimes.adapters import aider, claude_code, goose, jcode, opencode
+    from runtimes.adapters import aider, claude_code, goose, jcode, opencode, task_harness
 
-    for module in (aider, claude_code, goose, jcode, opencode):
+    for module in (aider, claude_code, goose, jcode, opencode, task_harness):
         assert "bedrock_safe_env" in inspect.getsource(module), module.__name__
