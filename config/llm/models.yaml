@@ -677,6 +677,28 @@ models:
     priority: 65
     speed_tier: medium
 
+  # Cohere North Mini Code on OpenRouter's free tier (added 2026-11-14). Cohere's
+  # agentic coding model: 30B MoE / 3B active, 256K context, 64K max output,
+  # tool calling via JSON schema, no response_format. Confirmed on
+  # openrouter.ai/cohere/north-mini-code:free the same day. Not live-probed from
+  # this repo. Free endpoints share one rate limit across ALL ":free" models on
+  # the account, so this adds a better coding model, not extra quota. $0: it
+  # costs nothing and needs no paid opt-in.
+  cohere/north-mini-code:free:
+    provider: openrouter
+    display_name: North Mini Code (OpenRouter, free)
+    context_window: 256000
+    max_output_tokens: 64000
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: false
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 0.0
+    output_cost_per_1m: 0.0
+    priority: 64
+    speed_tier: fast
+
   google/gemma-4-31b-it:free:
     provider: openrouter
     display_name: Gemma 4 31B (OpenRouter, free)
