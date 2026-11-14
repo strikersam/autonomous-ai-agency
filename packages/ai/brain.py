@@ -655,6 +655,26 @@ def _pick_from_records(
                 return built
 
 
+_BEDROCK_ENV_VARS = (
+    "CLAUDE_CODE_USE_BEDROCK", "ANTHROPIC_BEDROCK_BASE_URL", "AWS_BEARER_TOKEN_BEDROCK",
+    "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_PROFILE",
+)
+
+
+def bedrock_safe_env(env: "dict[str, str] | None" = None) -> "dict[str, str]":
+    """A subprocess environment with Bedrock credentials removed while the switch is on.
+
+    CLI runtimes (Claude Code, aider via litellm, goose, ...) pick Bedrock from ambient AWS
+    variables regardless of the ``--model`` they are given, so the child must not inherit them.
+    """
+    base = dict(os.environ if env is None else env)
+    if bedrock_disabled():
+        for name in _BEDROCK_ENV_VARS:
+            base.pop(name, None)
+        base["CLAUDE_CODE_USE_BEDROCK"] = "0"
+    return base
+
+
 # Refuse any httpx request to a Bedrock host while BEDROCK_DISABLED is on. Installed
 # here because every runtime (proxy, backend, worker) imports this module.
 from packages.security.bedrock_guard import install_bedrock_http_guard  # noqa: E402

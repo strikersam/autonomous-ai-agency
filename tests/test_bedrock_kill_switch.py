@@ -527,8 +527,9 @@ def test_http_guard_is_installed_once_by_importing_the_brain_module():
 
     from packages.security import bedrock_guard
 
-    assert httpx.AsyncClient.send.__name__ == "guarded_async_send"
-    assert httpx.Client.send.__name__ == "guarded_send"
+    attr = "_send_single_request" if hasattr(httpx.Client, "_send_single_request") else "send"
+    assert getattr(httpx.AsyncClient, attr).__name__ == "guarded_async_send"
+    assert getattr(httpx.Client, attr).__name__ == "guarded_send"
     assert bedrock_guard.install_bedrock_http_guard() is False  # idempotent
 
 
@@ -572,3 +573,62 @@ def test_the_docker_sidecar_refuses_a_bedrock_base_url(monkeypatch):
             base_url="https://bedrock-mantle.us-east-1.api.aws/v1", api_key="k",
             messages=[], model="m"))
     assert err.value.status_code == 503
+
+
+def test_http_guard_refuses_a_redirect_from_an_allowed_host_to_bedrock(monkeypatch):
+    import httpx
+
+    monkeypatch.delenv("BEDROCK_DISABLED", raising=False)
+    reached: list[str] = []
+
+    def _handler(request):
+        reached.append(request.url.host)
+        if request.url.host == "ok.example.com":
+            return httpx.Response(302, headers={
+                "location": "https://bedrock-runtime.us-east-1.amazonaws.com/x"})
+        return httpx.Response(200, json={})
+
+    async def _go():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(_handler),
+                                     follow_redirects=True) as client:
+            await client.get("https://ok.example.com/start")
+
+    with pytest.raises(RuntimeError, match="BEDROCK_DISABLED"):
+        asyncio.run(_go())
+    with pytest.raises(RuntimeError, match="BEDROCK_DISABLED"):
+        httpx.Client(transport=httpx.MockTransport(_handler),
+                     follow_redirects=True).get("https://ok.example.com/start")
+    assert "bedrock-runtime.us-east-1.amazonaws.com" not in reached
+
+
+def test_cli_runtime_children_do_not_inherit_bedrock_credentials(monkeypatch):
+    from packages.ai.brain import bedrock_safe_env
+
+    for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_BEARER_TOKEN_BEDROCK",
+                 "AWS_SESSION_TOKEN", "AWS_PROFILE", "ANTHROPIC_BEDROCK_BASE_URL"):
+        monkeypatch.setenv(name, "secret")
+    monkeypatch.setenv("CLAUDE_CODE_USE_BEDROCK", "1")
+    monkeypatch.setenv("GROQ_API_KEY", "keep-me")
+    monkeypatch.delenv("BEDROCK_DISABLED", raising=False)
+
+    env = bedrock_safe_env()
+    assert env["CLAUDE_CODE_USE_BEDROCK"] == "0"
+    for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_BEARER_TOKEN_BEDROCK",
+                 "AWS_SESSION_TOKEN", "AWS_PROFILE", "ANTHROPIC_BEDROCK_BASE_URL"):
+        assert name not in env, name
+    assert env["GROQ_API_KEY"] == "keep-me"  # nothing else is touched
+    # And a caller-supplied env is scrubbed too, without mutating the input.
+    given = {"AWS_ACCESS_KEY_ID": "x", "PATH": "/bin"}
+    assert "AWS_ACCESS_KEY_ID" not in bedrock_safe_env(given) and "AWS_ACCESS_KEY_ID" in given
+
+    monkeypatch.setenv("BEDROCK_DISABLED", "false")  # switched off: untouched
+    assert bedrock_safe_env()["AWS_ACCESS_KEY_ID"] == "secret"
+
+
+def test_cli_adapters_launch_their_task_with_the_scrubbed_env():
+    import inspect
+
+    from runtimes.adapters import aider, claude_code, goose, jcode, opencode
+
+    for module in (aider, claude_code, goose, jcode, opencode):
+        assert "bedrock_safe_env" in inspect.getsource(module), module.__name__
