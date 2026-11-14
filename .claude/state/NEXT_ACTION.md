@@ -1,3 +1,8 @@
+# NEXT_ACTION — updated 2026-11-14 (daily routine)
+
+Backlog W46 items 2 and 3 were already on master (#1955, #1959); item 1 (per-role effort) is still open and is the next candidate. Shipped today: docs fix so `AGENT_PLANNER/EXECUTOR/VERIFIER_MODEL` defaults in `docs/configuration-reference.md` match `agent/loop.py` (the retired nemotron-3-super is no longer named as the default). Item 3 of the 2026-11-12 open list above is closed by this.
+
+---
 # NEXT_ACTION — updated 2026-11-12 (retired-model auto-replacement, same branch)
 
 **What shipped:** `packages/ai/model_retirement.py` + live control `MODEL_AUTO_HEAL_ENABLED`: stored model choices move off provider-retired ids for every provider, from 404/410 evidence plus the provider's `/models` listing. Two verifier rounds, both PASS+NOTES; deny-list and id-spelling notes fixed with tests.
