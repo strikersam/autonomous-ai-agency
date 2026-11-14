@@ -434,8 +434,7 @@ class AgentScheduler:
         if self._store is None:
             return 0
         try:
-            result = self._store.load_all()
-            docs = (await result) if inspect.isawaitable(result) else result
+            docs = await self._load_all_docs()
             count = 0
             cleaned = 0
             seen_names: set[str] = set()  # name dedup — prevents schedule multiplication
@@ -625,8 +624,7 @@ class AgentScheduler:
         if self._store is None:
             return summary
         try:
-            result = self._store.load_all()
-            docs = (await result) if inspect.isawaitable(result) else result
+            docs = await self._load_all_docs()
             summary["total"] = len(docs)
             seen_names: set[str] = set()
             for doc in docs:
@@ -752,8 +750,7 @@ class AgentScheduler:
         read_failed = False
         if self._store is not None:
             try:
-                result = self._store.load_all()
-                docs = (await result) if inspect.isawaitable(result) else result
+                docs = await self._load_all_docs()
             except Exception:
                 log.exception("Scheduler: durable read failed while collecting tag %s", tag)
                 docs, read_failed = [], True
@@ -783,13 +780,25 @@ class AgentScheduler:
                 summary["failed"] += 1
         return summary
 
+    async def _load_all_docs(self) -> list[dict[str, Any]]:
+        """Read every persisted schedule without blocking the event loop.
+
+        The Mongo store's ``load_all`` is synchronous pymongo. Run inline it froze
+        the loop for seconds on every scheduler tick (Render's 5s health check
+        then failed and restarted the service), so a sync store runs in a thread.
+        """
+        result = self._store.load_all
+        if inspect.iscoroutinefunction(result):
+            return await result()
+        docs = await asyncio.to_thread(result)
+        return (await docs) if inspect.isawaitable(docs) else docs
+
     async def tag_values(self, prefix: str) -> set[str]:
         """Distinct tags starting with ``prefix`` across memory and the store."""
         await self._ensure_store()
         tags = {t for j in self._jobs.values() for t in (j.tags or []) if t.startswith(prefix)}
         if self._store is not None:
-            result = self._store.load_all()
-            docs = (await result) if inspect.isawaitable(result) else result
+            docs = await self._load_all_docs()
             for doc in docs:
                 tags.update(t for t in (doc.get("tags") or []) if t.startswith(prefix))
         return tags
@@ -811,8 +820,7 @@ class AgentScheduler:
         summary = {"total": 0, "deleted": 0}
         if self._store is not None:
             try:
-                result = self._store.load_all()
-                docs = (await result) if inspect.isawaitable(result) else result
+                docs = await self._load_all_docs()
                 summary["total"] = len(docs)
                 for doc in docs:
                     job_id = doc.get("job_id") or doc.get("id")
