@@ -118,3 +118,64 @@ async def test_a_failing_report_does_not_end_the_watch(monkeypatch: pytest.Monke
         assert watchdog._thread is not None and watchdog._thread.is_alive()
     finally:
         watchdog.stop()
+
+
+# ── The stack names the application frame, even under a deep library call ─────
+
+import traceback  # noqa: E402
+
+
+def _frame(path: str, line: int, name: str) -> traceback.FrameSummary:
+    return traceback.FrameSummary(path, line, name, line="call()")
+
+
+_LIB = "/usr/local/lib/python3.13/site-packages/pymongo/pool.py"
+
+
+def test_the_application_frame_survives_a_deep_library_stack() -> None:
+    """The 2026-11-14 stall: 40 pymongo frames above one application frame."""
+    frames = [_frame("/app/services/ceo_ledger.py", 329, "_init_mongo")]
+    frames += [_frame(_LIB, i, f"lib_{i}") for i in range(40)]
+    text = lw.format_loop_stack(traceback.StackSummary.from_list(frames))
+    assert text.splitlines()[0] == (
+        "innermost application frame: /app/services/ceo_ledger.py:329 in _init_mongo")
+    assert "ceo_ledger.py" in text.split("(innermost frames)")[0], "the outer app frame must be kept"
+    assert "lib_39" in text, "the innermost library frames are still shown"
+
+
+def test_the_innermost_application_frame_is_the_deepest_one() -> None:
+    frames = [
+        _frame("/app/a.py", 1, "outer"),
+        _frame("/app/b.py", 2, "inner"),
+        _frame(_LIB, 3, "lib"),
+    ]
+    text = lw.format_loop_stack(traceback.StackSummary.from_list(frames))
+    assert text.splitlines()[0].endswith("/app/b.py:2 in inner")
+
+
+def test_a_shallow_stack_is_not_annotated_with_omissions() -> None:
+    frames = [_frame("/app/a.py", 1, "f"), _frame(_LIB, 2, "g")]
+    text = lw.format_loop_stack(traceback.StackSummary.from_list(frames))
+    assert "omitted" not in text and "(innermost frames)" not in text
+
+
+def test_a_stack_with_no_application_frame_still_formats() -> None:
+    frames = [_frame("/usr/local/lib/python3.13/asyncio/runners.py", 1, "run")]
+    text = lw.format_loop_stack(traceback.StackSummary.from_list(frames))
+    assert "innermost application frame" not in text
+    assert "runners.py" in text
+
+
+async def test_a_real_stall_report_leads_with_the_application_frame() -> None:
+    watchdog = lw.LoopStallWatchdog(asyncio.get_running_loop(), threshold_s=0.1, interval_s=0.02)
+    watchdog.start()
+    try:
+        await asyncio.sleep(0.05)
+        _blocking_call_under_test(0.5)
+        await asyncio.sleep(0.2)
+    finally:
+        watchdog.stop()
+    reports = watchdog.recent()
+    assert reports
+    assert reports[0].stack.splitlines()[0].startswith("innermost application frame:")
+    assert "_blocking_call_under_test" in reports[0].stack.splitlines()[0]
