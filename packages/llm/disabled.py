@@ -52,34 +52,16 @@ def auto_disable(provider_id: str, reason: str) -> None:
         log.debug("llm.disabled: could not disable %s (%s)", provider_id, exc)
 
 
-def _billing_signals() -> tuple[str, ...]:
-    """The one list of "you have no money" phrases, borrowed not copied.
-
-    Lazy because ``packages.ai.failover_client`` imports the router: taking this
-    at module scope would close the cycle.
-    """
-    try:
-        from packages.ai.failover_client import _BILLING_SIGNALS
-        return _BILLING_SIGNALS
-    except Exception:  # pragma: no cover - defensive
-        return ()
-
-
 def is_unfixable(status: int | None, body: str = "") -> bool:
-    """Whether this failure needs a human rather than a retry.
+    """Whether this failure needs a human rather than a retry, by status alone.
 
-    Two shapes qualify. A 401/402/403 says so in the status line. A billing
-    refusal says so only in the body: providers disagree on the code for "your
-    account is empty" — DeepSeek answers 402, Anthropic answers 400 with
-    "credit balance is too low" — and both mean every model on that provider
-    will refuse identically.
+    Only the status line qualifies: 401/402/403. The body is never read here —
+    a 400 body may echo request content ("payment required"), and a funds
+    refusal that names itself in the body is decided by
+    ``packages.llm.quarantine.is_funds_refusal`` and quarantined, not disabled
+    for good. *body* is kept for call compatibility.
     """
-    if status in UNFIXABLE_STATUSES:
-        return True
-    if status is None or not 400 <= status < 500:
-        return False
-    haystack = body[:600].lower()
-    return any(signal in haystack for signal in _billing_signals())
+    return status in UNFIXABLE_STATUSES
 
 
 def describe(status: int | None, error: str = "") -> str:

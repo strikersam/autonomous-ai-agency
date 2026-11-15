@@ -478,7 +478,7 @@ def _needs_funds(resp: httpx.Response) -> bool:
     """True when a refusal is fixed by a top-up (so a timed quarantine fits)."""
     try:
         from packages.llm.quarantine import is_funds_refusal
-        return is_funds_refusal(resp.status_code, resp.text[:4000])
+        return is_funds_refusal(resp.status_code, resp.text)
     except Exception:  # noqa: BLE001 — classification must never fail a call
         return False
 

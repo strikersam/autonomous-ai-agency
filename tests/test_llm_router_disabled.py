@@ -239,8 +239,6 @@ async def test_transient_failures_never_auto_disable(
 
 @pytest.mark.parametrize(("status", "body"), [
     (401, ""), (402, ""), (403, ""),
-    (400, "your credit balance is too low"),
-    (429, "insufficient_quota"),
 ])
 def test_is_unfixable_recognises_the_human_only_failures(status, body):
     assert llm_disabled.is_unfixable(status, body) is True
@@ -264,3 +262,23 @@ def test_disabled_bridge_degrades_instead_of_raising(monkeypatch):
 
     assert llm_disabled.disabled_provider_ids() == frozenset()
     llm_disabled.auto_disable("alpha", "401 invalid key")  # must not raise
+
+
+async def test_billing_words_echoed_in_a_400_never_disable_the_provider(router_factory):
+    """Regression: a 400 echoing request content ("payment required billing") is a bad request."""
+    def handler(request):
+        if request.url.host == "alpha.test":
+            return httpx.Response(400, json={
+                "error": {"message": "bad"}, "input": "payment required billing"})
+        return _ok()
+
+    router = router_factory(handler)
+    await router.chat(_request())
+
+    assert "alpha" not in bf.disabled_providers(force=True)
+
+
+def test_is_unfixable_ignores_body_text_on_a_400():
+    assert llm_disabled.is_unfixable(400, "payment required billing quota exceeded") is False
+    assert llm_disabled.is_unfixable(401, "") is True
+    assert llm_disabled.is_unfixable(403, "") is True
