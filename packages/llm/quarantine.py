@@ -22,6 +22,7 @@ Nothing here raises: classification is pure, and storage is best-effort, as in
 from __future__ import annotations
 
 import logging
+import re
 
 log = logging.getLogger("llm.quarantine")
 
@@ -44,6 +45,14 @@ _RESETTING_SIGNALS: tuple[str, ...] = (
     "try again in", "retry in", "please retry",
 )
 _FUNDS_STATUSES = frozenset({400, 403, 429})
+# Whole words only: "discredited" and "accreditation" are not funds refusals.
+_FUNDS_RE = re.compile(
+    r"(?<![a-z0-9])(?:" + "|".join(re.escape(sig) for sig in _FUNDS_SIGNALS) + r")(?![a-z0-9])"
+)
+_STRONG_FUNDS_RE = re.compile(
+    r"(?<![a-z0-9])(?:insufficient[ _]balance|credit balance|out of credits?"
+    r"|payment required|card on file)(?![a-z0-9])"
+)
 
 
 def is_funds_refusal(status: int | None, body: str = "") -> bool:
@@ -63,7 +72,10 @@ def is_funds_refusal(status: int | None, body: str = "") -> bool:
         return True
     if any(signal in text for signal in _RESETTING_SIGNALS):
         return False
-    return any(signal in text for signal in _FUNDS_SIGNALS)
+    # A 400 is usually a bad request whose body may quote user content (a prompt
+    # about "credit card payment"), so only unambiguous phrases count there.
+    pattern = _STRONG_FUNDS_RE if status == 400 else _FUNDS_RE
+    return bool(pattern.search(text))
 
 
 def quarantine_seconds() -> float:

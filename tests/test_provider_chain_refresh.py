@@ -388,3 +388,17 @@ def test_availability_summary_reports_when_a_quarantine_ends(tmp_path, monkeypat
     assert summary["usable"] == 1
     (entry,) = summary["disabled"]
     assert entry["id"] == "siliconflow" and entry["until"].endswith("UTC")
+
+
+@pytest.mark.parametrize("status,body,expected", [
+    (429, "the claim was discredited by reviewers", False),
+    (429, "accreditation pending", False),
+    (400, "Invalid input: the 'credit card payment' content was rejected", False),
+    (400, "Your credit balance is too low to access the API", True),
+    (403, "billing is not enabled for this project", True),
+    (429, "You have run out of credits", True),
+    (402, "", True),
+])
+def test_funds_classifier_matches_whole_words_only(status, body, expected):
+    from packages.llm.quarantine import is_funds_refusal
+    assert is_funds_refusal(status, body) is expected

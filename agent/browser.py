@@ -267,7 +267,9 @@ def _quarantine_browserbase(why: str) -> None:
     """Stop dialling Browserbase for the live PROVIDER_FUNDS_QUARANTINE_HOURS window.
 
     Its 402 "Free plan browser minutes limit reached" does not clear in the 600 s
-    start-failure cooldown, so every browse spent ~5 s re-hitting it.
+    start-failure cooldown, so every browse spent ~5 s re-hitting it. Browserbase
+    has no durable on/off switch, so a control value of 0 ("until switched on by
+    hand" for LLM providers) means 24 h here, and the window resets on deploy.
     """
     global _browserbase_out_until
     from packages.llm.quarantine import quarantine_seconds
