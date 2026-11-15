@@ -489,6 +489,21 @@ _BRAIN_ROUTING: tuple[ControlSpec, ...] = (
         "until changed by hand.",
         live=True,
     ),
+    _number(
+        "PROVIDER_FUNDS_QUARANTINE_HOURS",
+        "Out-of-credit provider quarantine (hours)",
+        "brain_routing",
+        "24",
+        "A provider that answers 'needs credits / payment' (HTTP 402, or a refusal "
+        "naming credit, billing or payment) is taken out of the brain chain for this "
+        "many hours, shown on the doctor and Providers screen with the time it "
+        "returns, then probed once again. Daily free quotas and rate limits are not "
+        "affected; they keep their short cooldowns. 0: switched off until you switch "
+        "it back on by hand. Also governs the Browserbase 'browser minutes' limit.",
+        live=True,
+        minimum=0,
+        maximum=720,
+    ),
     ControlSpec(
         key="DENIED_MODEL_IDS",
         label="Denied model ids",

@@ -371,6 +371,9 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         # deepseek-ai/deepseek-v4.1-flash removed 2026-09-27: never probed, and
         # every production attempt timed out. Mirrors config/models.yaml.
         # nemotron-3-super removed 2026-10-30: HTTP 404 on NIM (issue #1813).
+        # Added 2026-11-14: HTTP 200 + tool_calls on catalogue-probe run
+        # 43619238209. Mirrors config/models.yaml.
+        "mistralai/mistral-large-4-1t-a52b",
     ],
     # tokenin.my.id — free frontier gateway. Ordered highest-RPM first so the
     # rotation prefers the models that 429 least; opus is last so it stays a

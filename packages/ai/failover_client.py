@@ -491,6 +491,29 @@ def _auto_disable(provider_id: str, reason: str) -> None:
         log.debug("brain_failover: auto-disable of %s failed: %s", provider_id, exc)
 
 
+def _needs_funds(resp: httpx.Response) -> bool:
+    """True when a refusal is fixed by a top-up (so a timed quarantine fits)."""
+    try:
+        from packages.llm.quarantine import is_funds_refusal
+        return is_funds_refusal(resp.status_code, resp.text[:800])
+    except Exception:  # noqa: BLE001 — classification must never fail a call
+        return False
+
+
+def _quarantine(provider_id: str, reason: str) -> None:
+    """Take a provider that needs credits out of rotation for the live window.
+
+    ``PROVIDER_FUNDS_QUARANTINE_HOURS`` (default 24 h) instead of the permanent
+    switch-off: the provider is re-tried on its own once the window ends, and a
+    value of 0 restores the permanent behaviour (``_auto_disable``).
+    """
+    try:
+        from packages.llm.quarantine import quarantine_provider
+        quarantine_provider(provider_id, reason)
+    except Exception as exc:  # noqa: BLE001 — never fail a call over bookkeeping
+        log.debug("brain_failover: quarantine of %s failed: %s", provider_id, exc)
+
+
 def _parse_success(resp: httpx.Response) -> tuple[str, int, int]:
     """Extract ``(text, prompt_tokens, completion_tokens)`` from a 2xx body.
 
@@ -678,7 +701,7 @@ async def _try_provider(
             return None, f"{provider.id} {resp.status_code} unauthorized/forbidden"
         if resp.status_code == 402:
             fm.record_failure(provider.id, "payment_required", resp.status_code)
-            _auto_disable(provider.id, "402 out of credit")
+            _quarantine(provider.id, "402 out of credit")
             return None, f"{provider.id} 402 payment required (out of credit)"
         if resp.status_code >= 500:
             fm.record_failure(provider.id, "server_error", resp.status_code)
@@ -690,7 +713,10 @@ async def _try_provider(
         # next two model attempts are guaranteed to repeat it verbatim.
         if _is_billing_refusal(resp):
             fm.record_failure(provider.id, "payment_required", resp.status_code)
-            _auto_disable(provider.id, f"{resp.status_code} out of credit/quota")
+            if _needs_funds(resp):
+                _quarantine(provider.id, f"{resp.status_code} out of credit/quota")
+            else:
+                _auto_disable(provider.id, f"{resp.status_code} out of credit/quota")
             return None, (
                 f"{provider.id} {resp.status_code} out of credit/quota: "
                 f"{resp.text[:120]}"

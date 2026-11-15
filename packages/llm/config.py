@@ -63,6 +63,9 @@ class ProviderConfig:
     max_concurrency: int = 8            # bulkhead size
     requests_per_minute: int = 0        # 0 = unmetered
     tokens_per_minute: int = 0
+    # What a plain 429 rests: "key" (the account's key, every model) or "model"
+    # (only the model that was refused) for providers that meter per model.
+    rate_limit_scope: str = "key"
     timeout_sec: float = 120.0
     auth_style: str = "bearer"          # bearer | x-api-key | query | none
     auth_header: str = ""               # explicit override

@@ -89,7 +89,9 @@ class BrowserSession:
         self._page: Any = None
         self._browser: Any = None
         self._pw: Any = None
-        self._remote: bool = settings.browserbase_configured
+        # A Browserbase account out of free minutes (HTTP 402) is quarantined, and
+        # the image's local Chromium serves until the quarantine ends.
+        self._remote: bool = settings.browserbase_configured and not browserbase_quarantined()
         self._available = self._check_available()
 
     # ------------------------------------------------------------------
@@ -252,6 +254,61 @@ def _scrub(text: str) -> str:
     return _KEY_RE.sub(r"\1***", text)
 
 
+# Monotonic deadline until which Browserbase is skipped after a funds refusal.
+_browserbase_out_until = 0.0
+
+
+def browserbase_quarantined() -> bool:
+    """True while Browserbase is out of the loop for a 402 (plan minutes spent)."""
+    return time.monotonic() < _browserbase_out_until
+
+
+def _quarantine_browserbase(why: str) -> None:
+    """Stop dialling Browserbase for the live PROVIDER_FUNDS_QUARANTINE_HOURS window.
+
+    Its 402 "Free plan browser minutes limit reached" does not clear in the 600 s
+    start-failure cooldown, so every browse spent ~5 s re-hitting it.
+    """
+    global _browserbase_out_until
+    from packages.llm.quarantine import quarantine_seconds
+
+    window = quarantine_seconds() or 24 * 3600.0
+    _browserbase_out_until = time.monotonic() + window
+    log.warning("browse_page: Browserbase needs credits (%s); using the local browser "
+                "for %.0fh", why[:160], window / 3600)
+
+
+def _is_funds_failure(text: str) -> bool:
+    from packages.llm.quarantine import is_funds_refusal
+
+    # The CDP error only carries the status inside its text; a bare "402" could
+    # be anything, so the body must also name the plan, credit or payment.
+    return "402" in text and is_funds_refusal(400, text)
+
+
+async def _start(session: "BrowserSession") -> tuple["BrowserSession", str | None]:
+    """Start *session*; on a Browserbase 402, quarantine it and start locally.
+
+    Returns ``(session, error)`` — the session that is running (possibly a new,
+    local one) and None, or the original session and the scrubbed error.
+    """
+    try:
+        await session.start()
+        return session, None
+    except Exception as exc:  # noqa: BLE001 - connect/launch failure
+        why = _scrub(str(exc))[:300]
+    if session.backend != "browserbase" or not _is_funds_failure(why):
+        return session, why
+    _quarantine_browserbase(why)
+    await session.stop()
+    local = BrowserSession()
+    try:
+        await local.start()
+        return local, None
+    except Exception as exc:  # noqa: BLE001 - local launch failure
+        return local, f"browserbase needs credits; local browser failed: {_scrub(str(exc))[:200]}"
+
+
 def browser_cooling_down() -> bool:
     """True while a recent start failure keeps the browser switched off."""
     return time.monotonic() < _down_until
@@ -298,13 +355,11 @@ async def browse_page(url: str, *, text_limit: int = 4000) -> dict[str, Any]:
         return await _fetch_fallback(url, "the browser failed to start recently")
     backend = session.backend
     try:
-        try:
-            await session.start()
-        except Exception as exc:  # noqa: BLE001 - connect/launch failure
-            why = _scrub(str(exc))[:300]
+        session, why = await _start(session)
+        if why is not None:
             _mark_down(why)
             return await _fetch_fallback(url, f"{backend} failed to start: {why}")
-        return await _read_page(session, url, backend, text_limit)
+        return await _read_page(session, url, session.backend, text_limit)
     except Exception as exc:  # noqa: BLE001 - a tool must never break the loop
         log.warning("browse_page failed for %s: %s", url, _scrub(str(exc)))
         return {"ok": False, "url": url, "error": _scrub(str(exc)), "backend": backend}
@@ -348,13 +403,11 @@ async def screenshot_page(url: str) -> dict[str, Any]:
         return {"ok": False, "url": url, "error": "browser failed to start recently", "backend": session.backend}
     backend = session.backend
     try:
-        try:
-            await session.start()
-        except Exception as exc:  # noqa: BLE001 - connect/launch failure
-            why = _scrub(str(exc))[:300]
+        session, why = await _start(session)
+        if why is not None:
             _mark_down(why)
             return {"ok": False, "url": url, "error": f"{backend} failed to start: {why}", "backend": backend}
-        return await _capture(session, url, backend)
+        return await _capture(session, url, session.backend)
     except Exception as exc:  # noqa: BLE001 - evidence capture must never break the run
         log.warning("screenshot_page failed for %s: %s", url, _scrub(str(exc)))
         return {"ok": False, "url": url, "error": _scrub(str(exc)), "backend": backend}

@@ -115,22 +115,22 @@ models:
   # planner requests, so each agent call lost 60s before reaching a model that
   # answers. Re-add only after a live completion probe.
 
-  # ---------------------------------------------------------------------------
-  # DeepSeek V4 Pro (added 2026-10-20)
-  # Available on NVIDIA NIM since Aug 2026 (free tier); also reachable via
-  # TokenIn as myt/deepseek-v4-pro-free. Heavy/Pro variant of the V4 generation.
-  # Priority 99 (explicit-only) until a live completion probe confirms the id
-  # answers on this NIM account — the V4.1-Flash lesson taught us that an NIM
-  # id can be listed in the catalog without answering completions.
-  # Source: packages/ai/cost_tracker.py comment + NVIDIA NIM catalog, 2026-10-20.
-  # ---------------------------------------------------------------------------
-  deepseek-ai/deepseek-v4-pro:
+  # deepseek-ai/deepseek-v4-pro was removed on 2026-11-14: NVIDIA answers HTTP 410
+  # Gone (catalogue-probe run 43619238209) and it is absent from the account's
+  # /v1/models (scheduled run 43598099666). Do not re-add without a live probe.
+
+  # Mistral Large 4 (1T total / 52B active MoE) on NVIDIA NIM, free tier. Added
+  # 2026-11-14 on probe evidence, not docs: catalogue-probe run 43619238209
+  # answered HTTP 200 and returned tool_calls[get_weather]. A third tool-calling
+  # NVIDIA model, so a per-model 429 on the other two still leaves NVIDIA in the
+  # chain. Latency not measured, hence behind gpt-oss-20b.
+  mistralai/mistral-large-4-1t-a52b:
     provider: nvidia
-    display_name: DeepSeek V4 Pro (NVIDIA NIM, free)
-    supports_tools: false           # not yet probed — declare true after a tool_call probe
-    supports_function_calling: false
+    display_name: Mistral Large 4 (NVIDIA NIM, free)
+    supports_tools: true            # probed: returned tool_calls[get_weather]
+    supports_function_calling: true
     supports_streaming: true
-    priority: 99                    # unprobed: explicit-only until a live probe
+    priority: 35
     speed_tier: slow
 
   # moonshotai/kimi-k2-instruct and qwen-qwq-32b were removed on 2026-10-01: Groq
