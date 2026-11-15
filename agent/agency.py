@@ -922,20 +922,31 @@ class Agency:
                 log.warning("Agency tick skipped — kill switch engaged")
                 time.sleep(self._tick)
                 continue
-            try:
-                if self._main_loop is not None:
-                    # Dispatch onto the FastAPI main loop so coroutines can
-                    # safely touch Motor/aiosqlite clients bound to it.
-                    future = asyncio.run_coroutine_threadsafe(
-                        self._run_cycle_as_ceo(), self._main_loop
-                    )
-                    future.result(timeout=300)  # 5-min cap per cycle
-                else:
-                    # Fallback: fresh loop (only used before attach_main_loop)
-                    asyncio.run(self._run_cycle_as_ceo())
-            except Exception as exc:
-                log.error("Agency tick error: %s", exc)
+            self._run_one_cycle()
             time.sleep(self._tick)
+
+    def _run_one_cycle(self) -> None:
+        """Run one CEO cycle with the per-cycle time cap. Never raises."""
+        future = None
+        try:
+            if self._main_loop is not None:
+                # Dispatch onto the FastAPI main loop so coroutines can
+                # safely touch Motor/aiosqlite clients bound to it.
+                future = asyncio.run_coroutine_threadsafe(
+                    self._run_cycle_as_ceo(), self._main_loop
+                )
+                future.result(timeout=_CYCLE_TIMEOUT_S)  # 5-min cap per cycle
+            else:
+                # Fallback: fresh loop (only used before attach_main_loop)
+                asyncio.run(self._run_cycle_as_ceo())
+        except TimeoutError:
+            # The timeout error has an empty message, and the cycle kept running on
+            # the main loop while the next tick started another (2026-11-15 13:16).
+            if future is not None:
+                future.cancel()
+            log.error("Agency tick error: cycle exceeded %ds and was cancelled", _CYCLE_TIMEOUT_S)
+        except Exception as exc:
+            log.error("Agency tick error: %s: %s", type(exc).__name__, exc)
 
 
 async def _company_repo_url(store: Any, company: Any) -> str:
@@ -958,6 +969,8 @@ async def _company_repo_url(store: Any, company: Any) -> str:
         log.debug("Agency: could not resolve repo URL for %s: %s", getattr(company, "id", "?"), exc)
     return "N/A"
 
+
+_CYCLE_TIMEOUT_S = 300  # cap on one CEO cycle
 
 # ── CEO LLM prompt helpers ─────────────────────────────────────────────────────
 
