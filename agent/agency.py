@@ -518,7 +518,7 @@ class Agency:
                     instruction=(
                         f"Company: {company.name} (ID: {cid})\n"
                         f"Domain: {company.domain}\n"
-                        f"Repo: {company.repos[0].url if company.repos else 'N/A'}\n\n"
+                        f"Repo: {await _company_repo_url(store, company)}\n\n"
                         "Look at this company's connected repository. Identify the single\n"
                         "highest-value improvement: a bug fix, a test gap, a doc inconsistency,\n"
                         "or a code quality issue. Implement the fix and open a pull request.\n"
@@ -936,6 +936,27 @@ class Agency:
             except Exception as exc:
                 log.error("Agency tick error: %s", exc)
             time.sleep(self._tick)
+
+
+async def _company_repo_url(store: Any, company: Any) -> str:
+    """The company's primary repository URL, or ``'N/A'``. Never raises.
+
+    ``Company.repos`` holds repository *IDs* (strings), not ``Repo`` objects, so
+    the URL comes from the connected repo (``repo_connection``) or a store lookup
+    of the first ID. Reading ``.url`` off the ID aborted the whole CEO cycle.
+    """
+    try:
+        conn = getattr(company, "repo_connection", None)
+        if conn is not None:
+            return f"https://github.com/{conn.owner}/{conn.repo}"
+        for repo_id in list(getattr(company, "repos", None) or [])[:1]:
+            repo = await store.get_repo(str(repo_id))
+            url = getattr(repo, "url", None)
+            if url:
+                return str(url)
+    except Exception as exc:  # noqa: BLE001 - a missing repo line must not cost the cycle
+        log.debug("Agency: could not resolve repo URL for %s: %s", getattr(company, "id", "?"), exc)
+    return "N/A"
 
 
 # ── CEO LLM prompt helpers ─────────────────────────────────────────────────────
