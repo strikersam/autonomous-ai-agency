@@ -109,7 +109,7 @@ def _free_env(monkeypatch):
     _FakeAsyncClient.captured = {}
 
 
-async def test_chat_text_reroutes_anthropic_model_to_nvidia(_free_env, monkeypatch, role=None):
+async def test_chat_text_reroutes_anthropic_model_to_nvidia(_free_env, monkeypatch):
     """The core #656 regression: an Anthropic-shaped model must NOT hit
     api.anthropic.com — it must POST to the free NVIDIA endpoint instead."""
     import agent.loop as loop_mod
@@ -139,7 +139,7 @@ async def test_chat_text_reroutes_anthropic_model_to_nvidia(_free_env, monkeypat
     assert cap["headers"]["Authorization"] == "Bearer nvapi-TESTKEY"
 
 
-async def test_chat_text_refuses_when_no_free_brain(monkeypatch, role=None):
+async def test_chat_text_refuses_when_no_free_brain(monkeypatch):
     """Free policy + Anthropic-shaped model + NO NVIDIA key → refuse loudly,
     never silently call paid Anthropic."""
     monkeypatch.delenv("ALLOW_PAID_BRAIN", raising=False)
@@ -155,7 +155,7 @@ async def test_chat_text_refuses_when_no_free_brain(monkeypatch, role=None):
         )
 
 
-async def test_chat_text_nvidia_model_uses_configured_endpoint(monkeypatch, role=None):
+async def test_chat_text_nvidia_model_uses_configured_endpoint(monkeypatch):
     """A non-Anthropic (NVIDIA) model is unaffected — it uses the configured
     provider endpoint normally."""
     # Legacy-path test — see the note on the _free_env fixture above.

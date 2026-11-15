@@ -266,7 +266,7 @@ def test_agent_runner_surfaces_structured_planner_failure(tmp_path: Path):
         )
 
 
-def test_chat_text_uses_resolved_max_tokens_and_timeout(tmp_path: Path, monkeypatch, role=None):
+def test_chat_text_uses_resolved_max_tokens_and_timeout(tmp_path: Path, monkeypatch):
     """The agent LLM call must use the BrainConfig budget, not a hardcoded 16384.
 
     Regression for the production ``planning: TimeoutError``: a slow reasoning
@@ -285,7 +285,7 @@ def test_chat_text_uses_resolved_max_tokens_and_timeout(tmp_path: Path, monkeypa
 
     captured = {}
 
-    async def fake_failover(payload, *, timeout_sec):
+    async def fake_failover(payload, *, timeout_sec, role=None):
         captured["payload"] = payload
         captured["timeout_sec"] = timeout_sec
         return SimpleNamespace(
@@ -1017,7 +1017,7 @@ def test_timed_phase_still_logs_phase_end_when_the_body_raises(caplog):
     assert any(m.startswith("phase_end demo_phase") for m in messages)
 
 
-def test_chat_json_error_carries_attempt_count_and_bounded_snippet(tmp_path: Path, role=None):
+def test_chat_json_error_carries_attempt_count_and_bounded_snippet(tmp_path: Path):
     """Regression for #1422 item 3: when the model never returns a JSON object,
     the raised error must name how many attempts were made and include a bounded
     snippet of the last raw output — not the context-free "Model did not return a

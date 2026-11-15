@@ -972,8 +972,25 @@ async def failover_chat_completion(
     if (routed := await _try_router(payload, timeout_sec)) is not None:
         return routed
     from services.brain_failover import get_failover_manager
-    requested_model = str(payload.get("model") or "")
+
     fm = get_failover_manager()
+    result, attempted, failures, last_error = await _walk_failover_chain(
+        fm, payload, str(payload.get("model") or ""), timeout_sec, role
+    )
+    if result is not None:
+        return result
+    _log_exhaustion(attempted, failures)
+    raise BrainFailoverExhausted(last_error, set(attempted), failures)
+
+
+async def _walk_failover_chain(
+    fm: Any,
+    payload: dict[str, Any],
+    requested_model: str,
+    timeout_sec: float,
+    role: str | None,
+) -> tuple[FailoverResult | None, list[str], list[str], str]:
+    """Walk the provider chain once; return (result, attempted, failures, last_error)."""
     budget = _Budget(_MAX_TOTAL_ATTEMPTS, _WALL_CLOCK_BUDGET_SEC)
     tried: set[str] = set()          # exclusion set; cleared on breaker reset
     attempted: list[str] = []        # append-only record, for reporting
@@ -985,13 +1002,10 @@ async def failover_chat_completion(
         if budget.spent():
             failures = list(dict.fromkeys([*failures, budget.reason()]))
             break
-        provider = _select_provider(fm, budget, tried, requested_model)
+        provider = _next_provider(fm, budget, tried, requested_model)
         if provider is None:
-            provider = _recover_all_unhealthy(fm, tried, requested_model)
-            if provider is None:
-                # Falls through to the single terminal error below, not two.
-                log.warning("brain_failover: no healthy providers left")
-                break
+            # Falls through to the single terminal error, not two.
+            break
 
         tried.add(provider.id)
         attempted = list(dict.fromkeys([*attempted, provider.id]))
@@ -1000,10 +1014,22 @@ async def failover_chat_completion(
         )
         if result is not None:
             _log_recovery(result, failures)
-            return result
+            return result, attempted, failures, last_error
         if provider_error:
             failures = list(dict.fromkeys([*failures, provider_error]))
             last_error = provider_error
 
-    _log_exhaustion(attempted, failures)
-    raise BrainFailoverExhausted(last_error, set(attempted), failures)
+    return None, attempted, failures, last_error
+
+
+def _next_provider(
+    fm: Any, budget: _Budget, tried: set[str], requested_model: str
+) -> Any:
+    """Next healthy provider to try, recovering the pool if needed; None when empty."""
+    provider = _select_provider(fm, budget, tried, requested_model)
+    if provider is not None:
+        return provider
+    provider = _recover_all_unhealthy(fm, tried, requested_model)
+    if provider is None:
+        log.warning("brain_failover: no healthy providers left")
+    return provider
