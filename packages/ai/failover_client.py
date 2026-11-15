@@ -458,23 +458,6 @@ _BILLING_SIGNALS: tuple[str, ...] = (
 )
 
 
-def _is_billing_refusal(resp: httpx.Response) -> bool:
-    """True when a 4xx body says the account is out of credit or quota.
-
-    Providers disagree on the status code for "you have no money": DeepSeek uses
-    402, Anthropic uses 400 with an ``invalid_request_error``. Both mean every
-    model on that provider will refuse identically, so both must fail over to the
-    next provider instead of burning the remaining model attempts.
-    """
-    if not (400 <= resp.status_code < 500):
-        return False
-    try:
-        body = resp.text[:600].lower()
-    except Exception:  # noqa: BLE001 — a body we cannot read is not a billing signal
-        return False
-    return any(signal in body for signal in _BILLING_SIGNALS)
-
-
 def _auto_disable(provider_id: str, reason: str) -> None:
     """Take a permanently-broken provider out of rotation until a human returns it.
 
@@ -495,7 +478,7 @@ def _needs_funds(resp: httpx.Response) -> bool:
     """True when a refusal is fixed by a top-up (so a timed quarantine fits)."""
     try:
         from packages.llm.quarantine import is_funds_refusal
-        return is_funds_refusal(resp.status_code, resp.text[:800])
+        return is_funds_refusal(resp.status_code, resp.text[:4000])
     except Exception:  # noqa: BLE001 — classification must never fail a call
         return False
 
@@ -669,6 +652,17 @@ async def _try_provider(
             )
             continue
 
+        # A funds refusal is fixed by a top-up, whatever status carries it: a 403
+        # "payment required" must not be switched off for good as a bad key, and
+        # a 429 "insufficient_quota" is not a rate limit. Classify it first.
+        if resp.status_code in (403, 429) and _needs_funds(resp):
+            fm.record_failure(provider.id, "payment_required", resp.status_code)
+            _quarantine(provider.id, f"{resp.status_code} out of credit/quota")
+            return None, (
+                f"{provider.id} {resp.status_code} out of credit/quota: "
+                f"{resp.text[:120]}"
+            )
+
         # The remaining statuses fail identically for every model on this
         # provider, so trying another model here would repeat the same error.
         if resp.status_code in (429, 419):
@@ -711,12 +705,11 @@ async def _try_provider(
         # Anthropic returns 400 with "credit balance is too low" — semantically
         # the same class as 402: no model on this provider can succeed, so the
         # next two model attempts are guaranteed to repeat it verbatim.
-        if _is_billing_refusal(resp):
+        # Only the strict funds classifier counts: a 400 that merely mentions
+        # "billing" is a bad request, and must not switch a working provider off.
+        if _needs_funds(resp):
             fm.record_failure(provider.id, "payment_required", resp.status_code)
-            if _needs_funds(resp):
-                _quarantine(provider.id, f"{resp.status_code} out of credit/quota")
-            else:
-                _auto_disable(provider.id, f"{resp.status_code} out of credit/quota")
+            _quarantine(provider.id, f"{resp.status_code} out of credit/quota")
             return None, (
                 f"{provider.id} {resp.status_code} out of credit/quota: "
                 f"{resp.text[:120]}"

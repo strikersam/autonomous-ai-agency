@@ -615,6 +615,8 @@ def _merge_env_defaults(
             models=[default_model] if default_model else [],
             tier=tier,
             priority=priority,
+            # NVIDIA meters per model, so a plain 429 rests only that model (matches providers.yaml).
+            rate_limit_scope="model" if pid == "nvidia" else "key",
             requires_key=requires_key,
             auth_style="x-api-key" if kind == "anthropic" else ("none" if not requires_key else "bearer"),
             api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "") if pid == "azure" else "",

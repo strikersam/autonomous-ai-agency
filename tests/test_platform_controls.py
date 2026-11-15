@@ -660,4 +660,5 @@ def test_provider_funds_quarantine_override_takes_effect(clean_overrides):
     assert quarantine.quarantine_seconds() == 0.0
 
     control_overrides.apply_overrides({})
-    assert quarantine.quarantine_seconds() == 24 * 3600.0
+    base = control_overrides._BASE_ENV.get("PROVIDER_FUNDS_QUARANTINE_HOURS")
+    assert quarantine.quarantine_seconds() == (24 if base is None else float(base)) * 3600.0

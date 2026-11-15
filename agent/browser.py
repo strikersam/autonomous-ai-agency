@@ -285,7 +285,7 @@ def _is_funds_failure(text: str) -> bool:
 
     # The CDP error only carries the status inside its text; a bare "402" could
     # be anything, so the body must also name the plan, credit or payment.
-    return "402" in text and is_funds_refusal(400, text)
+    return "402" in text and (is_funds_refusal(400, text) or "free plan" in text.lower())
 
 
 async def _start(session: "BrowserSession") -> tuple["BrowserSession", str | None]:
@@ -307,6 +307,11 @@ async def _start(session: "BrowserSession") -> tuple["BrowserSession", str | Non
     try:
         await local.start()
         return local, None
+    except asyncio.CancelledError:
+        # The callers only hold the original session, so nothing else would
+        # close whatever the replacement had already launched.
+        await asyncio.shield(local.stop())
+        raise
     except Exception as exc:  # noqa: BLE001 - local launch failure
         return local, f"browserbase needs credits; local browser failed: {_scrub(str(exc))[:200]}"
 

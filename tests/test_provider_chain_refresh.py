@@ -402,3 +402,159 @@ def test_availability_summary_reports_when_a_quarantine_ends(tmp_path, monkeypat
 def test_funds_classifier_matches_whole_words_only(status, body, expected):
     from packages.llm.quarantine import is_funds_refusal
     assert is_funds_refusal(status, body) is expected
+
+
+# ── Review findings on PR #1975 ─────────────────────────────────────────────
+
+
+def _legacy_refusal(monkeypatch, status: int, text: str):
+    """Run the legacy dispatcher against one refusal; return (error, quarantined, disabled)."""
+    from types import SimpleNamespace
+
+    from packages.ai import failover_client as fc
+
+    class _Client:
+        def __init__(self, *a, **k):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def post(self, *a, **k):
+            return httpx.Response(status, text=text)
+
+    quarantined: list[str] = []
+    disabled: list[str] = []
+    monkeypatch.setattr(fc.httpx, "AsyncClient", _Client)
+    monkeypatch.setattr(fc, "_quarantine", lambda pid, why: quarantined.append(pid))
+    monkeypatch.setattr(fc, "_auto_disable", lambda pid, why: disabled.append(pid))
+    monkeypatch.setattr(fc, "_provider_keys", lambda p: [])
+    fm = SimpleNamespace(record_failure=lambda *a, **k: None,
+                         resolve_model=lambda provider, model: model or "m")
+    provider = SimpleNamespace(id="acme", kind="openai", type="openai-compatible",
+                               api_key="k", base_url="https://acme.test/v1", models=["m"])
+    result, error = asyncio.run(fc._try_provider(
+        provider, {"model": "m", "messages": []}, fm, [], 5.0, fc._Budget(3, 60.0)))
+    assert result is None
+    return error, quarantined, disabled
+
+
+@pytest.mark.parametrize("status,body", [
+    (403, "Payment required: add credits"),
+    (429, '{"error":{"code":"insufficient_quota","message":"You exceeded your quota"}}'),
+])
+def test_legacy_funds_refusal_is_quarantined_before_the_status_returns(
+        monkeypatch, status, body):
+    _error, quarantined, disabled = _legacy_refusal(monkeypatch, status, body)
+    assert quarantined == ["acme"] and disabled == []
+
+
+def test_legacy_400_the_funds_classifier_rejects_does_not_disable(monkeypatch):
+    _error, quarantined, disabled = _legacy_refusal(
+        monkeypatch, 400, "Invalid request: prompt contains billing")
+    assert quarantined == [] and disabled == []
+
+
+def test_browserbase_free_plan_402_text_counts_as_funds():
+    from agent import browser
+
+    assert browser._is_funds_failure(
+        "connect_over_cdp: 402 Free plan browser minutes limit reached")
+    assert not browser._is_funds_failure("connect_over_cdp: 503 Service Unavailable")
+    assert not browser._is_funds_failure("free plan minutes limit reached")  # no 402
+
+
+def test_quoted_request_content_is_not_a_funds_refusal():
+    echoed = '{"error":{"message":"Invalid message content","input":"payment required"}}'
+    assert not llm_quarantine.is_funds_refusal(400, echoed)
+    assert not getattr(classify_error(400, echoed, provider_id="acme"), "funds", False)
+    real = '{"error":{"message":"Payment required: credit balance is too low"}}'
+    assert llm_quarantine.is_funds_refusal(400, real)
+
+
+def test_env_derived_nvidia_provider_rests_one_model_on_429(monkeypatch):
+    monkeypatch.setenv("NVIDIA_API_KEY", "nv-key")
+    providers: dict = {}
+    llm_config._merge_env_defaults(providers, {})
+    assert providers["nvidia"].rate_limit_scope == "model"
+    assert all(p.rate_limit_scope == "key" for pid, p in providers.items() if pid != "nvidia")
+
+
+def test_classify_error_is_within_the_function_length_limit():
+    import ast
+    import inspect
+
+    from packages.llm.providers import base
+
+    tree = ast.parse(inspect.getsource(base))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef):
+            assert node.end_lineno - node.lineno + 1 <= 50, node.name
+
+
+async def test_funds_refusal_skips_the_providers_remaining_models(router_factory):
+    seen: list[str] = []
+
+    def handler(request):
+        model = _model_of(request)
+        seen.append(model)
+        if request.url.host == "alpha.test":
+            return httpx.Response(402, json={"error": "Payment Required"})
+        return _ok(model)
+
+    router = router_factory(handler)
+    response = await router.chat(_request())
+    assert response.provider == "beta"
+    assert [m for m in seen if m.startswith("alpha")] == ["alpha-big"]
+
+
+async def test_request_scoped_error_releases_the_half_open_probe_permit(router_factory):
+    def handler(request):
+        model = _model_of(request)
+        if request.url.host == "alpha.test":
+            return httpx.Response(400, json={"error": {
+                "message": "Tool choice is none, but model called a tool"}})
+        return _ok(model)
+
+    router = router_factory(handler)
+    health = router._health
+    for _ in range(20):
+        health.record_failure("alpha", status=500)
+    health._get("alpha").state = llm_health.BreakerState.HALF_OPEN
+    health._get("alpha").probes_in_flight = 0
+    health._get("alpha").probes_allowed = 1
+    await router.chat(_request())
+    assert health._get("alpha").probes_in_flight == 0
+
+
+async def test_cancelled_local_startup_closes_the_replacement_session(monkeypatch):
+    from agent import browser
+
+    monkeypatch.setattr(browser, "_browserbase_out_until", 0.0)
+    stopped: list[str] = []
+
+    class Remote:
+        backend = "browserbase"
+
+        async def start(self):
+            raise RuntimeError("402 Payment Required - Free plan browser minutes limit reached")
+
+        async def stop(self):
+            stopped.append("remote")
+
+    class Local:
+        backend = "local"
+
+        async def start(self):
+            raise asyncio.CancelledError
+
+        async def stop(self):
+            stopped.append("local")
+
+    monkeypatch.setattr(browser, "BrowserSession", Local)
+    with pytest.raises(asyncio.CancelledError):
+        await browser._start(Remote())
+    assert stopped == ["remote", "local"]

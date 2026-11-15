@@ -21,6 +21,7 @@ Nothing here raises: classification is pure, and storage is best-effort, as in
 """
 from __future__ import annotations
 
+import json
 import logging
 import re
 
@@ -55,6 +56,31 @@ _STRONG_FUNDS_RE = re.compile(
 )
 
 
+_ERROR_FIELDS = ("message", "code", "type", "status", "detail", "error_description")
+
+
+def _provider_message(body: str) -> str:
+    """The provider's own error text, without any request content it echoed.
+
+    A JSON error body is reduced to its message/code/type fields, so an echoed
+    ``"input": "payment required"`` is not read as a refusal. A body that is not
+    JSON is the provider's own plain-text message and is used whole.
+    """
+    try:
+        data = json.loads(body)
+    except (ValueError, TypeError):
+        return body
+    if not isinstance(data, dict):
+        return body
+    parts: list[str] = []
+    for container in (data, data.get("error")):
+        if isinstance(container, str):
+            parts.append(container)
+        elif isinstance(container, dict):
+            parts.extend(str(container[k]) for k in _ERROR_FIELDS if container.get(k))
+    return " ".join(parts)
+
+
 def is_funds_refusal(status: int | None, body: str = "") -> bool:
     """True when *status*/*body* say the account needs credits, payment or a plan.
 
@@ -67,7 +93,7 @@ def is_funds_refusal(status: int | None, body: str = "") -> bool:
         return True
     if status not in _FUNDS_STATUSES:
         return False
-    text = (body or "")[:800].lower()
+    text = _provider_message((body or "")[:4000])[:800].lower()
     if "insufficient_quota" in text:
         return True
     if any(signal in text for signal in _RESETTING_SIGNALS):

@@ -99,7 +99,16 @@ def classify_error(
 
     if is_funds_refusal(status, body or ""):
         return _funds_error(prefix, status, body or "")
+    return (
+        _classify_rate_or_request(status, lowered, prefix, rate_limit_scope)
+        or _classify_by_status(status, body, prefix)
+    )
 
+
+def _classify_rate_or_request(
+    status: int | None, lowered: str, prefix: str, rate_limit_scope: str
+) -> TransientError | None:
+    """The 429, stray-tool-call, per-minute 413 and model-scoped branches, else None."""
     if status == 429:
         quota = any(hint in lowered for hint in _QUOTA_HINTS)
         scope = "model_rate" if rate_limit_scope == "model" and not quota else "key"
@@ -127,7 +136,13 @@ def classify_error(
         # A bad model name is permanent for this model but not for the
         # provider — the router retries the next model on the same provider.
         return TransientError(f"{prefix}: model unavailable", status=status, scope="model")
+    return None
 
+
+def _classify_by_status(
+    status: int | None, body: str, prefix: str
+) -> PermanentError | TransientError:
+    """The status-only fallbacks once no body-specific branch matched."""
     if status == 410:
         return TransientError(f"{prefix}: endpoint gone", status=status, scope="model")
 

@@ -536,12 +536,13 @@ class LLMRouter:
         client = await self._http()
         started = time.monotonic()
         skipped: dict[str, str] = {}
+        funds_out: set[str] = set()     # providers that refused for funds this dispatch
 
         for index, candidate in enumerate(candidates):
             if budget.exhausted():
                 break
             provider = self._providers.get(candidate.provider.id)
-            if provider is None:
+            if provider is None or candidate.provider.id in funds_out:
                 continue
             if not self._health.is_available(candidate.provider.id):
                 skipped.setdefault(candidate.provider.id, "breaker open")
@@ -599,6 +600,13 @@ class LLMRouter:
                 return response
 
             last_error = error
+            is_funds = bool(getattr(error, "funds", False))
+            if is_funds:
+                funds_out.add(provider_id)     # its other models would refuse identically
+            if probing and (is_funds or getattr(error, "scope", None) in _NEXT_CANDIDATE_SCOPES):
+                # These record no breaker outcome, so hand the half-open probe
+                # permit back or the provider can never be probed again.
+                self._health.release_probe(provider_id)
             if _is_timeout(error):
                 # A hung provider rarely answers its next model inside what is
                 # left of the budget: production spent 60s on one NVIDIA model,
