@@ -2088,6 +2088,8 @@ class ProviderRouter:
     def _anthropic_to_openai_response(
         response: httpx.Response, model: str
     ) -> httpx.Response:
+        from packages.ai.cost_tracker import _usage_int
+
         data = response.json()
         content = "".join(
             block.get("text", "")
@@ -2108,16 +2110,19 @@ class ProviderRouter:
                 }
             ],
             "usage": {
-                "prompt_tokens": int(usage.get("input_tokens") or 0),
-                "completion_tokens": int(usage.get("output_tokens") or 0),
-                "total_tokens": int(usage.get("input_tokens") or 0)
-                + int(usage.get("output_tokens") or 0),
+                # Safe reads: a malformed provider count (a string, inf) used to raise here,
+                # which made a completed request look like a provider failure and dropped
+                # its cost, user-token and agent-spend recording.
+                "prompt_tokens": _usage_int(usage.get("input_tokens")),
+                "completion_tokens": _usage_int(usage.get("output_tokens")),
+                "total_tokens": _usage_int(usage.get("input_tokens"))
+                + _usage_int(usage.get("output_tokens")),
                 # Prompt-caching fields: always present so callers can read them safely
-                "cache_creation_input_tokens": int(
-                    usage.get("cache_creation_input_tokens") or 0
+                "cache_creation_input_tokens": _usage_int(
+                    usage.get("cache_creation_input_tokens")
                 ),
-                "cache_read_input_tokens": int(
-                    usage.get("cache_read_input_tokens") or 0
+                "cache_read_input_tokens": _usage_int(
+                    usage.get("cache_read_input_tokens")
                 ),
             },
         }
