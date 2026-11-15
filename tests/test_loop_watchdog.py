@@ -139,7 +139,10 @@ def test_the_application_frame_survives_a_deep_library_stack() -> None:
     text = lw.format_loop_stack(traceback.StackSummary.from_list(frames))
     assert text.splitlines()[0] == (
         "innermost application frame: /app/services/ceo_ledger.py:329 in _init_mongo")
-    assert "ceo_ledger.py" in text.split("(innermost frames)")[0], "the outer app frame must be kept"
+    outer_marker, inner_marker = "(outer application frames;", "(innermost frames)"
+    assert outer_marker in text and inner_marker in text, "both sections must be present"
+    outer_section = text.split(outer_marker, 1)[1].split(inner_marker, 1)[0]
+    assert "ceo_ledger.py" in outer_section, "the outer app frame must be kept in its own section"
     assert "lib_39" in text, "the innermost library frames are still shown"
 
 
@@ -179,3 +182,31 @@ async def test_a_real_stall_report_leads_with_the_application_frame() -> None:
     assert reports
     assert reports[0].stack.splitlines()[0].startswith("innermost application frame:")
     assert "_blocking_call_under_test" in reports[0].stack.splitlines()[0]
+
+
+# ── Other threads are listed, and console-script shims are not "application" ──
+
+def test_a_console_script_shim_is_not_an_application_frame() -> None:
+    frames = [_frame("/usr/local/bin/uvicorn", 6, "<module>"),
+              _frame("/usr/local/lib/python3.13/site-packages/uvicorn/main.py", 448, "main")]
+    text = lw.format_loop_stack(traceback.StackSummary.from_list(frames))
+    assert "innermost application frame" not in text
+
+
+def test_other_threads_are_listed_with_their_application_frame() -> None:
+    stacks = {
+        1: traceback.StackSummary.from_list([_frame("/app/main.py", 1, "main")]),
+        2: traceback.StackSummary.from_list([
+            _frame("/app/agent/improvement_loop.py", 88, "_scan"), _frame(_LIB, 3, "read")]),
+    }
+    text = lw.format_other_threads(stacks, skip={1})
+    assert "other threads:" in text
+    assert "/app/agent/improvement_loop.py:88 in _scan (innermost: read)" in text
+    assert "/app/main.py" not in text, "the skipped (loop) thread is not repeated"
+
+
+def test_no_other_threads_adds_nothing_and_the_count_is_capped() -> None:
+    assert lw.format_other_threads({1: traceback.StackSummary.from_list([_frame("/app/a.py", 1, "f")])}, {1}) == ""
+    many = {i: traceback.StackSummary.from_list([_frame("/app/a.py", i, "f")]) for i in range(40)}
+    text = lw.format_other_threads(many, skip=set())
+    assert text.count("  thread ") == lw._OTHER_THREADS_SHOWN and "more threads" in text

@@ -28,6 +28,8 @@ log = logging.getLogger("qwen-proxy")
 DEFAULT_THRESHOLD_S: float = 2.0
 DEFAULT_INTERVAL_S: float = 0.5
 _STACK_DEPTH: int = 25
+_SCRIPT_DIRS = ("/usr/local/bin/", "/usr/bin/")  # console-script shims such as /usr/local/bin/uvicorn
+_OTHER_THREADS_SHOWN: int = 12
 _OUTER_APP_FRAMES: int = 12  # application frames kept when library frames fill the depth
 _MAX_REPORTS: int = 20
 
@@ -110,7 +112,11 @@ class LoopStallWatchdog:
         frame = sys._current_frames().get(self._loop_thread_id or -1)
         if frame is None:
             return "<loop thread stack unavailable>"
-        return format_loop_stack(traceback.extract_stack(frame))
+        text = format_loop_stack(traceback.extract_stack(frame))
+        return text + format_other_threads(
+            {tid: traceback.extract_stack(f) for tid, f in sys._current_frames().items()},
+            skip={self._loop_thread_id, threading.get_ident()},
+        )
 
     def _report(self, blocked_s: float) -> None:
         stack = self._loop_stack()
@@ -126,7 +132,10 @@ class LoopStallWatchdog:
 def _is_app_frame(frame: traceback.FrameSummary) -> bool:
     """True for this repository's code: not site-packages, the stdlib or a frozen module."""
     path = frame.filename
-    return "site-packages" not in path and "/lib/python" not in path and not path.startswith("<")
+    return (
+        "site-packages" not in path and "/lib/python" not in path
+        and not path.startswith("<") and not path.startswith(_SCRIPT_DIRS)
+    )
 
 
 def format_loop_stack(frames: traceback.StackSummary) -> str:
@@ -152,6 +161,32 @@ def format_loop_stack(frames: traceback.StackSummary) -> str:
         lines.append("(innermost frames)\n")
     lines.extend(traceback.StackSummary.from_list(tail).format())
     return "".join(lines)
+
+
+def format_other_threads(stacks: dict[int, traceback.StackSummary], skip: set[int | None]) -> str:
+    """One line per other thread: where it is now, application frame first.
+
+    A stall whose loop-thread stack has no application frame is either C code or a
+    wait for the interpreter lock held by another thread. These lines show which
+    threads were running, so the second case is visible.
+    """
+    names = {t.ident: t.name for t in threading.enumerate()}
+    lines: list[str] = []
+    for tid, frames in stacks.items():
+        if tid in skip or not frames:
+            continue
+        app = [f for f in frames if _is_app_frame(f)]
+        pick = app[-1] if app else frames[-1]
+        lines.append(
+            f"  thread {names.get(tid, tid)}: {pick.filename}:{pick.lineno} in {pick.name}"
+            f" (innermost: {frames[-1].name})\n"
+        )
+    if not lines:
+        return ""
+    shown = lines[:_OTHER_THREADS_SHOWN]
+    extra = len(lines) - len(shown)
+    tail = [f"  ... and {extra} more threads\n"] if extra > 0 else []
+    return "other threads:\n" + "".join(shown + tail)
 
 
 _watchdog: LoopStallWatchdog | None = None
