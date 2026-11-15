@@ -246,10 +246,22 @@ def disabled_providers(force: bool = False) -> dict[str, str]:
     attempt, and never raises — a storage problem must not take the brain
     offline, so the last known set is returned instead.
     """
-    global _DISABLED_CACHE
     cached, at = _DISABLED_CACHE
     if not force and (time.time() - at) < _DISABLED_CACHE_TTL:
         return _without_expired(cached)
+    if not force and _on_event_loop():
+        # 2026-11-15: a stale read reopened a Mongo connection on the loop (6.6 s
+        # stall). Serve the last set and refresh in a thread; the cost is one
+        # attempt at a just-disabled provider, not a frozen server.
+        _refresh_disabled_in_background()
+        return _without_expired(cached)
+    return _refresh_disabled_cache()
+
+
+def _refresh_disabled_cache() -> dict[str, str]:
+    """Read the kill-switch set (blocking) and update the cache; never raises."""
+    global _DISABLED_CACHE
+    cached = _DISABLED_CACHE[0]
     out = _disabled_from_mongo()
     if out is None:
         try:
@@ -296,6 +308,26 @@ def quarantine_provider(provider_id: str, reason: str, ttl_sec: float) -> None:
     set_provider_enabled(
         provider_id, False, f"auto: {reason} [quarantine-until={until}]"
     )
+
+
+_disabled_refresh_running = threading.Event()
+
+
+def _refresh_disabled_in_background() -> None:
+    """Single-flight refresh of the disabled-provider cache off the event loop."""
+    if _disabled_refresh_running.is_set():
+        return
+    _disabled_refresh_running.set()
+
+    def _run() -> None:
+        try:
+            _refresh_disabled_cache()
+        except Exception:  # noqa: BLE001 - keep the last known set
+            log.exception("brain_failover: disabled-provider refresh failed")
+        finally:
+            _disabled_refresh_running.clear()
+
+    threading.Thread(target=_run, name="disabled-providers-refresh", daemon=True).start()
 
 
 def _write_disabled_sqlite(provider_id: str, enabled: bool, reason: str) -> None:
@@ -369,7 +401,15 @@ def set_provider_enabled(provider_id: str, enabled: bool, reason: str = "") -> s
         log.error("brain_failover: %s enabled=%s was not persisted anywhere",
                   provider_id, enabled)
         return "none"
-    _DISABLED_CACHE = ({}, 0.0)  # force re-read
+    # Apply the change to the last known set and mark it stale. Resetting to {} would
+    # make a read on the event loop, which serves the cached set while it refreshes,
+    # briefly see every disabled provider as enabled.
+    current = dict(_DISABLED_CACHE[0])
+    if enabled:
+        current.pop(provider_id, None)
+    else:
+        current[provider_id] = reason
+    _DISABLED_CACHE = (current, 0.0)  # stale: the next read re-reads storage
     log.info("brain_failover: provider %s %s%s", provider_id,
              "ENABLED" if enabled else "DISABLED",
              "" if enabled else f" ({reason})")

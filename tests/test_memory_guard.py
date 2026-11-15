@@ -72,3 +72,34 @@ async def test_loop_cancels_cleanly(monkeypatch):
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+@pytest.mark.asyncio
+async def test_the_trim_runs_off_the_event_loop(monkeypatch):
+    """2026-11-15: malloc_trim ran on the loop and stalled it for 8 s."""
+    import threading
+    import time
+
+    monkeypatch.setattr(memory_guard, "_INTERVAL_SEC", 0)
+    monkeypatch.setattr(memory_guard, "_MIN_INTERVAL_SEC", 0.01)
+    seen: dict[str, object] = {}
+
+    def slow_trim(_trim=None):
+        seen["thread"] = threading.current_thread()
+        time.sleep(0.5)
+        return 0
+
+    monkeypatch.setattr(memory_guard, "trim_now", slow_trim)
+    task = asyncio.create_task(memory_guard.memory_guard_loop())
+    gaps, last = [], time.monotonic()
+    deadline = last + 0.9
+    while time.monotonic() < deadline:
+        await asyncio.sleep(0.01)
+        now = time.monotonic()
+        gaps.append(now - last)
+        last = now
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert seen.get("thread") is not threading.main_thread(), "trim ran on the loop thread"
+    assert max(gaps) < 0.25, f"the loop was blocked for {max(gaps):.2f}s"
