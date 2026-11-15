@@ -246,10 +246,22 @@ def disabled_providers(force: bool = False) -> dict[str, str]:
     attempt, and never raises — a storage problem must not take the brain
     offline, so the last known set is returned instead.
     """
-    global _DISABLED_CACHE
     cached, at = _DISABLED_CACHE
     if not force and (time.time() - at) < _DISABLED_CACHE_TTL:
         return cached
+    if not force and _on_event_loop():
+        # 2026-11-15: a stale read reopened a Mongo connection on the loop (6.6 s
+        # stall). Serve the last set and refresh in a thread; the cost is one
+        # attempt at a just-disabled provider, not a frozen server.
+        _refresh_disabled_in_background()
+        return cached
+    return _refresh_disabled_cache()
+
+
+def _refresh_disabled_cache() -> dict[str, str]:
+    """Read the kill-switch set (blocking) and update the cache; never raises."""
+    global _DISABLED_CACHE
+    cached = _DISABLED_CACHE[0]
     out = _disabled_from_mongo()
     if out is None:
         try:
@@ -259,6 +271,26 @@ def disabled_providers(force: bool = False) -> dict[str, str]:
             return cached
     _DISABLED_CACHE = (out, time.time())
     return out
+
+
+_disabled_refresh_running = threading.Event()
+
+
+def _refresh_disabled_in_background() -> None:
+    """Single-flight refresh of the disabled-provider cache off the event loop."""
+    if _disabled_refresh_running.is_set():
+        return
+    _disabled_refresh_running.set()
+
+    def _run() -> None:
+        try:
+            _refresh_disabled_cache()
+        except Exception:  # noqa: BLE001 - keep the last known set
+            log.exception("brain_failover: disabled-provider refresh failed")
+        finally:
+            _disabled_refresh_running.clear()
+
+    threading.Thread(target=_run, name="disabled-providers-refresh", daemon=True).start()
 
 
 def _write_disabled_sqlite(provider_id: str, enabled: bool, reason: str) -> None:

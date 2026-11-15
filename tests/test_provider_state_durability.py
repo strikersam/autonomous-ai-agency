@@ -531,3 +531,66 @@ class TestPaidPolicyOffLoop:
     def test_a_sync_caller_still_reads_inline(self, monkeypatch) -> None:
         monkeypatch.setattr(bf, "_paid_allowed_mongo", lambda: True)
         assert bf._is_paid_allowed_db() is True
+
+
+# ── The disabled-provider read never blocks the event loop ───────────────────
+
+class TestDisabledProvidersOffLoop:
+    """2026-11-15: a stale read reopened a Mongo connection on the loop (6.6 s)."""
+
+    def test_a_stale_read_on_the_loop_returns_the_last_set_without_waiting(
+        self, monkeypatch
+    ) -> None:
+        bf._DISABLED_CACHE = ({"nvidia": "off"}, 0.0)
+        calls = {"thread": None}
+
+        def slow():
+            calls["thread"] = threading.current_thread()
+            time.sleep(0.4)
+            return {"groq": "off"}
+
+        monkeypatch.setattr(bf, "_disabled_from_mongo", slow)
+
+        async def go():
+            start = time.monotonic()
+            value = bf.disabled_providers()
+            return value, time.monotonic() - start
+
+        value, elapsed = asyncio.run(go())
+        assert elapsed < 0.2, "the loop thread waited on the Mongo read"
+        assert value == {"nvidia": "off"}
+        deadline = time.monotonic() + 3
+        while bf._DISABLED_CACHE[0] != {"groq": "off"} and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert bf._DISABLED_CACHE[0] == {"groq": "off"}, "the refresh fills the cache"
+        assert calls["thread"] is not threading.main_thread()
+
+    def test_concurrent_stale_reads_start_one_refresh(self, monkeypatch) -> None:
+        started, release = [], threading.Event()
+
+        def slow():
+            started.append(1)
+            release.wait(2)
+            return {}
+
+        monkeypatch.setattr(bf, "_disabled_from_mongo", slow)
+
+        async def go():
+            for _ in range(5):
+                bf.disabled_providers()
+
+        asyncio.run(go())
+        time.sleep(0.1)
+        release.set()
+        assert len(started) == 1
+
+    def test_sync_and_forced_reads_still_go_inline(self, monkeypatch) -> None:
+        monkeypatch.setattr(bf, "_disabled_from_mongo", lambda: {"a": "off"})
+        assert bf.disabled_providers() == {"a": "off"}
+        bf._DISABLED_CACHE = ({"old": "x"}, time.time())
+        monkeypatch.setattr(bf, "_disabled_from_mongo", lambda: {"new": "y"})
+
+        async def go():
+            return bf.disabled_providers(force=True)
+
+        assert asyncio.run(go()) == {"new": "y"}, "an explicit force reads inline, even on the loop"
