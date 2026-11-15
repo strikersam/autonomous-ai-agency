@@ -1015,7 +1015,7 @@ class AgentRunner:
                 ]
                 for _ in range(3):
                     try:
-                        raw = await self._chat_json(judge_model, judge_messages)
+                        raw = await self._chat_json(judge_model, judge_messages, role="judge")
                         if "verdict" not in raw:
                             continue
                         judge = raw
@@ -1298,7 +1298,7 @@ class AgentRunner:
         try:
             from agent.capacity_backoff import call_with_capacity_retry
             raw = await call_with_capacity_retry(
-                lambda: self._chat_json(planner_model, messages), what="planning",
+                lambda: self._chat_json(planner_model, messages, role="planner"), what="planning",
             )
             raw = self._normalize_plan_response(raw, instruction)
             plan = AgentPlan.model_validate(raw)
@@ -1441,7 +1441,9 @@ class AgentRunner:
                 if cm_stats is not None:
                     cm_stats.record_selection(tool_messages)
                 async with _timed_phase("tool_selection", step_id=step.get("id"), remaining=remaining):
-                    tool_call = await self._chat_json(executor_model, tool_messages)
+                    tool_call = await self._chat_json(
+                        executor_model, tool_messages, role="executor"
+                    )
                 call = self._coerce_tool_call(tool_call)
             except Exception as exc:
                 tool_retry_count += 1
@@ -1722,6 +1724,7 @@ class AgentRunner:
                                     new_content=new_content,
                                     syntax_issues=syntax_issues,
                                 ),
+                                role="verifier",
                             )
                         verdict = VerificationResult.model_validate(verification)
                     except Exception as verif_exc:
@@ -2354,8 +2357,13 @@ class AgentRunner:
             log.warning("context compaction failed (continuing uncompacted): %s", exc)
             return history
 
-    async def _chat_text(self, model: str, messages: list[dict[str, str]]) -> str:
+    async def _chat_text(
+        self, model: str, messages: list[dict[str, str]], role: str | None = None
+    ) -> str:
         """Send chat messages and return the assistant's text output.
+
+        *role* (planner / executor / verifier / judge) selects that role's Ollama
+        ``reasoning_effort`` tier; ``None`` keeps the global pin only.
 
         If an Anthropic/Bedrock Opus model is configured and the request targets
         an Opus/Claude model, prefer calling Anthropic (Opus) directly. Fall
@@ -2757,7 +2765,9 @@ class AgentRunner:
         )
 
         try:
-            fo = await failover_chat_completion(payload, timeout_sec=float(_agent_timeout_sec))
+            fo = await failover_chat_completion(
+                payload, timeout_sec=float(_agent_timeout_sec), role=role
+            )
         except BrainFailoverExhausted as exc:
             raise RuntimeError(str(exc)) from exc
 
@@ -2787,8 +2797,10 @@ class AgentRunner:
         require_complete(getattr(fo, "finish_reason", None))
         return fo.text
 
-    async def _chat_json(self, model: str, messages: list[dict[str, str]]) -> dict[str, Any]:
-        raw = await self._chat_text(model, messages)
+    async def _chat_json(
+        self, model: str, messages: list[dict[str, str]], role: str | None = None
+    ) -> dict[str, Any]:
+        raw = await self._chat_text(model, messages, role=role)
         attempts = 1
         for _ in range(3):
             try:
@@ -2800,7 +2812,7 @@ class AgentRunner:
                 if "{" not in self._REASONING_RE.sub("", raw or ""):
                     # Only reasoning, no answer: there is nothing to reformat, and
                     # asking for "a JSON object" from it made the model invent one.
-                    raw = await self._chat_text(model, messages)
+                    raw = await self._chat_text(model, messages, role=role)
                 else:
                     raw = await self._chat_text(
                         model,
@@ -2808,6 +2820,7 @@ class AgentRunner:
                             {"role": "system", "content": "Return only a valid JSON object. No prose. No code fences."},
                             {"role": "user", "content": raw},
                         ],
+                        role=role,
                     )
                 attempts += 1
         try:

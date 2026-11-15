@@ -217,6 +217,12 @@ class Settings:
         self.ollama_reasoning_effort: str = os.environ.get(
             "OLLAMA_REASONING_EFFORT", ""
         ).strip().lower()
+        # ROLE_REASONING_EFFORT_ENABLED — per-role effort tiers for Ollama thinking
+        # models (planner/judge high, executor/verifier medium), overriding the
+        # single global pin above. Default on; off restores the global-only path.
+        self.role_reasoning_effort_enabled_raw: str = os.environ.get(
+            "ROLE_REASONING_EFFORT_ENABLED", "true"
+        )
 
         # Nemotron 3 (the default free NVIDIA NIM brain) thinks by default,
         # which multiplies latency several-fold and routinely pushes a
@@ -739,6 +745,16 @@ class Settings:
         behaviour)."""
         v = self.ollama_reasoning_effort
         return v if v in ("high", "medium", "low") else ""
+
+    @property
+    def role_reasoning_effort_enabled(self) -> bool:
+        """False only when an operator switched the per-role effort tiers off."""
+        return self.role_reasoning_effort_enabled_raw.strip().lower() not in {
+            "0",
+            "false",
+            "no",
+            "off",
+        }
 
     @property
     def is_nemotron_thinking_enabled(self) -> bool:

@@ -37,7 +37,7 @@ async def test_reasoning_only_reply_re_asks_the_original_question(runner, monkey
     replies = iter(["<reasoning>We need to read the file.</reasoning>",
                     '{"tool": "read_file", "args": {"path": "a.py"}}'])
 
-    async def _fake_chat_text(self, model, messages):  # noqa: ANN001
+    async def _fake_chat_text(self, model, messages, role=None):  # noqa: ANN001
         calls.append(messages)
         return next(replies)
 
