@@ -1,7 +1,7 @@
 # Graph Report - autonomous-ai-agency  (2026-11-15)
 
 ## Corpus Check
-- 1252 files · ~1,402,975 words
+- 1252 files · ~1,403,031 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 57 file(s) not represented in the graph (top: (none) 19, .css 5, .bat 5)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `995bd2f1`
+- Built from commit: `0cc2de77`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -5309,17 +5309,17 @@ Nodes (3): routing_strategy(), active_strategy(), reset()
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `AgentRunner` connect `AgentRunner` to `TaskSpec`, `direct_chat.py`, `proxy.py`, `build_tool_prompt`, `backend/server.py`, `WorkflowOrchestrator`, `Competitor Analysis — Autonomous AI Agency`, `SkillRegistry`, `write_gate.py`, `.__init__`, `_get_store`, `AgentJobRequest`, `build_governance_router`, `agent/models.py`, `InternalAgentAdapter`, `empirical_verify.py`, `Agency Core — Progress & Resume Log`, `RepoConnection`, `failover_client.py`, `TokenBudget`, `SECTION A — Agent Efficiency (Hermes / AOS / MYT)`, `EvidenceReport`, `Issue #504: EPIC: Autonomy hardening — live-verified defects 2026-06-10`, `WorkspaceTools`, `Issue #656: Bugs`, `MCPUnavailableError`, `loop.py`, `Autonomous SDLC Loop (Agency Core, repo-agnostic)`, `Deploy: FreeBuff Telegram bot (24×7)`, `unsafe_target_reason`, `race`, `ceo_dispatcher.py`, `UserMemoryStore`?**
-  _High betweenness centrality (0.037) - this node is a cross-community bridge._
+- **Why does `Completed Task Archive — October 2026` connect `ProviderRouter` to `unsafe_target_reason`, `probe_catalogues.py`, `tasks/service.py`, `seo_api.py`, `telegram_bot.py`, `company_api.py`, `build_tool_prompt`, `_env_int`, `portfolio_api.py`, `KnowledgeScreen.jsx`, `ai/router.py`, `MCPClient`, `WorkspaceTools`, `get_webhook_info`, `get_task_store`, `_process_callback`, `NotificationDispatcher`?**
+  _High betweenness centrality (0.019) - this node is a cross-community bridge._
 - **What connects `OPENAI_API_BASE`, `OPENAI_API_KEY`, `react-app` to the rest of the system?**
   _29 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `typing` be split into smaller, more focused modules?**
   _Cohesion score 0.013190818102697998 - nodes in this community are weakly interconnected._
-- **Why does `Completed Task Archive — October 2026` connect `ProviderRouter` to `unsafe_target_reason`, `probe_catalogues.py`, `tasks/service.py`, `seo_api.py`, `telegram_bot.py`, `company_api.py`, `build_tool_prompt`, `_env_int`, `portfolio_api.py`, `KnowledgeScreen.jsx`, `ai/router.py`, `MCPClient`, `WorkspaceTools`, `get_webhook_info`, `get_task_store`, `_process_callback`, `NotificationDispatcher`?**
-  _High betweenness centrality (0.022) - this node is a cross-community bridge._
+- **Why does `WorkspaceTools` connect `WorkspaceTools` to `typing`, `Conflicts and Stale Facts`, `Docker AI Governance Audit — Final Report`, `build_tool_prompt`, `TOOLS.md — Available Tools for AI Agents`, `MCPClient`, `.__init__`, `_register_builtin_tools`, `bounty/sandbox.py`, `agent/models.py`, `Agent: Implementer (Executor)`, `capability_registry.py`, `RepowiseIntelligence`, `Issue #504: EPIC: Autonomy hardening — live-verified defects 2026-06-10`, `Issue #656: Bugs`, `prompts/README.md`, `loop.py`, `Deploy: FreeBuff Telegram bot (24×7)`, `unsafe_target_reason`, `4. Troubleshooting`, `WorkspaceManager`, `UserMemoryStore`?**
+  _High betweenness centrality (0.017) - this node is a cross-community bridge._
 - **Should `llm/router.py` be split into smaller, more focused modules?**
   _Cohesion score 0.01588240263580299 - nodes in this community are weakly interconnected._
-- **Why does `listCompanies()` connect `WorkspaceTools` to `ProviderRouter`, `api.js`?**
-  _High betweenness centrality (0.018) - this node is a cross-community bridge._
+- **Why does `AgentRunner` connect `AgentRunner` to `TaskSpec`, `direct_chat.py`, `proxy.py`, `build_tool_prompt`, `backend/server.py`, `WorkflowOrchestrator`, `Competitor Analysis — Autonomous AI Agency`, `SkillRegistry`, `write_gate.py`, `.__init__`, `_get_store`, `AgentJobRequest`, `build_governance_router`, `agent/models.py`, `InternalAgentAdapter`, `empirical_verify.py`, `Agency Core — Progress & Resume Log`, `RepoConnection`, `failover_client.py`, `TokenBudget`, `SECTION A — Agent Efficiency (Hermes / AOS / MYT)`, `EvidenceReport`, `Issue #504: EPIC: Autonomy hardening — live-verified defects 2026-06-10`, `WorkspaceTools`, `Issue #656: Bugs`, `MCPUnavailableError`, `loop.py`, `Autonomous SDLC Loop (Agency Core, repo-agnostic)`, `Deploy: FreeBuff Telegram bot (24×7)`, `unsafe_target_reason`, `race`, `ceo_dispatcher.py`, `UserMemoryStore`?**
+  _High betweenness centrality (0.017) - this node is a cross-community bridge._
 - **Should `agile_sprints.py` be split into smaller, more focused modules?**
   _Cohesion score 0.043010752688172046 - nodes in this community are weakly interconnected._
