@@ -195,6 +195,22 @@ def run_background_in_web() -> bool:
     return val in {"true", "1", "yes"}
 
 
+async def _release_active_runs() -> None:
+    """Graceful shutdown of durable runs, before the dispatcher is cancelled. Never raises.
+
+    Each live task run gets one fast write to RECOVERING and drops its lease, and
+    is fenced first, so the cancelled execution's final write cannot settle it.
+    """
+    try:
+        from packages.runs.task_binding import shutdown_all
+
+        handled = await asyncio.wait_for(shutdown_all("shutdown"), timeout=10)
+        if handled:
+            log.info("Shutdown: released %d active run(s) for recovery", handled)
+    except Exception as exc:  # noqa: BLE001 - shutdown must finish regardless
+        log.warning("Shutdown: could not release active runs: %s", exc)
+
+
 @dataclass
 class BackgroundServices:
     """Handle returned by ``start_background_services`` — call ``stop()`` on shutdown."""
@@ -213,6 +229,7 @@ class BackgroundServices:
         if self._stopped:
             return
         self._stopped = True
+        await _release_active_runs()
         self.dispatcher.stop()
         self.dispatcher_task.cancel()
         try:

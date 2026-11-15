@@ -29,7 +29,9 @@ from tasks.store import TaskStore, get_task_store
 from agent.workflow import WorkflowEngine, WorkflowPhase, classify_domain
 from packages.lifecycle.catalogue import TASK_LIFECYCLE
 
-from tasks.run_lease import claim_task_run, release_task_run
+from packages.runs import task_binding as _runs
+from packages.runs.models import RunState
+from tasks.run_lease import claim_task_run, claim_task_run_token, release_task_run  # noqa: F401 (claim_task_run: patched by tests)
 from services.agent_memory import record_task_outcome, resolve_memory_key, with_agent_memory
 
 log = logging.getLogger("qwen-proxy")
@@ -999,6 +1001,7 @@ class TaskExecutionCoordinator:
             await self._release_task(task_id)
             return task
 
+        binding = await _runs.bind(self.store, task)
         try:
             agent = await self._resolve_agent(task)
 
@@ -1021,6 +1024,7 @@ class TaskExecutionCoordinator:
                 },
             )
             await self.store.update(task)
+            await _runs.mark(binding, RunState.RUNNING)
 
             spec = self._build_spec(task, agent, may_ship=await _owner_may_ship_code(task.owner_id))
             # Per-agent memory (services/agent_memory): the agent's index notes and
@@ -1061,7 +1065,7 @@ class TaskExecutionCoordinator:
             _bypass_token = _wo._BYPASS.set(True)
             try:
                 result, decision = await asyncio.wait_for(
-                    self.runtime_manager.execute(spec),
+                    _runs.guard(binding, self.runtime_manager.execute(spec)),
                     timeout=self.execution_timeout_s,
                 )
             finally:
@@ -1094,6 +1098,7 @@ class TaskExecutionCoordinator:
                 verdict=task.verification.verdict if task.verification else None,
             )
             task.workflow_phase = WorkflowPhase.VERIFY.value
+            await _runs.mark(binding, RunState.VERIFYING)
             task.add_log(
                 "Workflow: verifying result",
                 event_type="workflow_verify",
@@ -1185,7 +1190,9 @@ class TaskExecutionCoordinator:
                 except Exception:
                     pass
         finally:
-            await self.store.update(task)
+            # Fenced: a worker whose lease was taken over drops its result here.
+            await _runs.settle(self.store, binding, task)
+            await _runs.unbind(binding, task)
             await self._release_task(task_id)
             self._active_task_ids.discard(task_id)
         return task
@@ -1237,7 +1244,8 @@ class TaskExecutionCoordinator:
             )
 
     async def _claim_task(self, task_id: str) -> bool:
-        return await claim_task_run(self.store, task_id)
+        # The token stays in tasks.run_lease; _runs.bind reads it for the heartbeat.
+        return await claim_task_run_token(self.store, task_id) is not None
 
     async def _release_task(self, task_id: str) -> None:
         await release_task_run(self.store, task_id)

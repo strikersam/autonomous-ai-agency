@@ -217,6 +217,12 @@ class Task(BaseModel):
     # when the task completes successfully.
     auto_retry_count: int = 0
 
+    # Durable runs (packages/runs): the run this task's executions append to,
+    # and whether the task is a parent parked until its children finish (the
+    # stranded reconciler and the blocked auto retry leave such a task alone).
+    current_run_id: str | None = None
+    waiting_on_children: bool = False
+
     @field_validator("created_at", "updated_at", "started_at", "completed_at", "due_date", mode="before")
     @classmethod
     def _coerce_timestamps(cls, v: Any) -> Any:

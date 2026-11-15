@@ -1,3 +1,13 @@
+# NEXT_ACTION — updated 2026-11-14 (enterprise reliability plan, branch `claude/enterprise-reliability-plan`)
+
+**What shipped so far:** the plan, as draft PR #1965: `docs/plans/2026-11-14-enterprise-reliability-durable-execution-plan.md`. No code.
+
+## Open items
+
+1. Decisions D1 to D5 are made (plan section 4); implementation proceeds in the phases of plan section 2.2 on this branch.
+2. Not run yet: frontend checks, anything against live Render. Rows marked "not verified" in the gap matrix are settled during phase 2.
+
+---
 # NEXT_ACTION — updated 2026-11-12 (retired-model auto-replacement, same branch)
 
 **What shipped:** `packages/ai/model_retirement.py` + live control `MODEL_AUTO_HEAL_ENABLED`: stored model choices move off provider-retired ids for every provider, from 404/410 evidence plus the provider's `/models` listing. Two verifier rounds, both PASS+NOTES; deny-list and id-spelling notes fixed with tests.
