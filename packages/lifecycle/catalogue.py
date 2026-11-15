@@ -318,7 +318,7 @@ RUN_LIFECYCLE = _declare(
         "running": (
             "waiting_for_agent, waiting_for_approval, verifying, retrying, recovering, cancelled, timed_out, failed"
         ),
-        "waiting_for_agent": "running, recovering, cancelled, timed_out, failed",
+        "waiting_for_agent": "queued, running, recovering, cancelled, timed_out, failed",
         "waiting_for_approval": "running, recovering, cancelled, timed_out, failed",
         "retrying": "queued, recovering, cancelled, timed_out, failed",
         "recovering": "queued, waiting_for_approval, cancelled, timed_out, failed",
@@ -342,6 +342,8 @@ RUN_LIFECYCLE = _declare(
         "cancelled, timed_out or failed.",
         "recovering resumes as queued, or parks in waiting_for_approval when a side "
         "effect's outcome is unknown (reason uncertain_side_effect).",
+        "waiting_for_agent moves to queued when the recovery tick sees every child "
+        "terminal (level triggered wake of a parked parent).",
         "A retry of a terminal run is a new run linked by retry_of, not a move out of "
         "a resting state; failed and timed_out may only move on to dead_letter.",
     ),

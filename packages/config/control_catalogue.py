@@ -1549,9 +1549,10 @@ _PLATFORM_OPS: tuple[ControlSpec, ...] = (
         "RUNS_LEASE_TTL_SEC",
         "Run lease lifetime (seconds)",
         "platform_ops",
-        "120",
+        "600",
         "How long a run's lease lasts without a renewal. A run whose worker died "
-        "can be taken over after this long.",
+        "can be taken over after this long. Generous by default: a blocked event "
+        "loop must not cost a healthy task its lease.",
         live=True,
         minimum=10,
         maximum=3600,
@@ -1560,7 +1561,7 @@ _PLATFORM_OPS: tuple[ControlSpec, ...] = (
         "RUNS_LEASE_RENEW_SEC",
         "Run lease renewal interval (seconds)",
         "platform_ops",
-        "30",
+        "60",
         "How often a live run renews its lease. Capped at a third of the lease lifetime.",
         live=True,
         minimum=1,
@@ -1576,6 +1577,39 @@ _PLATFORM_OPS: tuple[ControlSpec, ...] = (
         live=True,
         minimum=0,
         maximum=600,
+    ),
+    _number(
+        "RUNS_MAX_ATTEMPTS",
+        "Run attempts before dead letter",
+        "platform_ops",
+        "3",
+        "How many attempts a crashed run gets in total. When recovery would start "
+        "one more, the run is dead lettered and its task marked failed instead.",
+        live=True,
+        minimum=1,
+        maximum=20,
+    ),
+    _number(
+        "RUNS_RETRY_BACKOFF_BASE_SEC",
+        "Recovered run backoff (seconds)",
+        "platform_ops",
+        "10",
+        "Wait before a recovered run is queued again; doubles with each attempt, "
+        "plus up to 25% random jitter. 0 queues it at once.",
+        live=True,
+        minimum=0,
+        maximum=3600,
+    ),
+    _number(
+        "RUNS_RECOVERY_TICK_SEC",
+        "Run recovery check interval (seconds)",
+        "platform_ops",
+        "30",
+        "How often the task dispatcher looks for crashed runs, parked parents whose "
+        "children finished, and runs past their deadline (when recovery is on).",
+        live=True,
+        minimum=5,
+        maximum=3600,
     ),
     _toggle(
         "RENDER_OPS_ENABLED",

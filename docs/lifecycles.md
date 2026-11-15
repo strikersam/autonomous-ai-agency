@@ -476,6 +476,7 @@ A durable run of a task or orchestrator workflow: queued, started under a lease,
 - **Notes:**
   - Every non-terminal state may move to recovering (its lease expired), cancelled, timed_out or failed.
   - recovering resumes as queued, or parks in waiting_for_approval when a side effect's outcome is unknown (reason uncertain_side_effect).
+  - waiting_for_agent moves to queued when the recovery tick sees every child terminal (level triggered wake of a parked parent).
   - A retry of a terminal run is a new run linked by retry_of, not a move out of a resting state; failed and timed_out may only move on to dead_letter.
 
 ```mermaid
@@ -538,6 +539,7 @@ stateDiagram-v2
     s_verifying --> s_timed_out
     s_waiting_for_agent --> s_cancelled
     s_waiting_for_agent --> s_failed
+    s_waiting_for_agent --> s_queued
     s_waiting_for_agent --> s_recovering
     s_waiting_for_agent --> s_running
     s_waiting_for_agent --> s_timed_out
@@ -565,7 +567,7 @@ stateDiagram-v2
 | `succeeded` | — (resting) |
 | `timed_out` | dead_letter |
 | `verifying` | cancelled, failed, recovering, running, succeeded, timed_out |
-| `waiting_for_agent` | cancelled, failed, recovering, running, timed_out |
+| `waiting_for_agent` | cancelled, failed, queued, recovering, running, timed_out |
 | `waiting_for_approval` | cancelled, failed, recovering, running, timed_out |
 
 ## scan

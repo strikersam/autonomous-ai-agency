@@ -660,7 +660,7 @@ def test_durable_run_controls_are_live_and_overrides_take_effect(clean_overrides
         os.environ.pop(key, None)
     # Defaults keep today's behaviour: record only, no recovery.
     assert operations.ledger_enabled() is True and runs_settings.runs_recovery_enabled() is False
-    assert (runs_settings.lease_ttl_s(), runs_settings.lease_renew_s(), runs_settings.op_skew_s()) == (120, 30, 30)
+    assert (runs_settings.lease_ttl_s(), runs_settings.lease_renew_s(), runs_settings.op_skew_s()) == (600, 60, 30)
 
     control_overrides.apply_overrides({
         "RUNS_LEDGER_ENABLED": "false", "RUNS_RECOVERY_ENABLED": "true",
@@ -674,3 +674,21 @@ def test_durable_run_controls_are_live_and_overrides_take_effect(clean_overrides
     assert runs_settings.lease_renew_s() == 10
     with pytest.raises(ValueError):
         coerce("RUNS_LEASE_TTL_SEC", "5")
+
+
+def test_phase2_run_recovery_controls_are_live_and_overrides_take_effect(clean_overrides):
+    from packages.config import runs_settings
+
+    keys = ("RUNS_MAX_ATTEMPTS", "RUNS_RETRY_BACKOFF_BASE_SEC", "RUNS_RECOVERY_TICK_SEC")
+    for key in keys:
+        assert get_control(key).live is True
+        os.environ.pop(key, None)
+    assert (runs_settings.max_attempts(), runs_settings.retry_backoff_base_s(),
+            runs_settings.recovery_tick_s()) == (3, 10, 30)
+    control_overrides.apply_overrides({
+        "RUNS_MAX_ATTEMPTS": "5", "RUNS_RETRY_BACKOFF_BASE_SEC": "0", "RUNS_RECOVERY_TICK_SEC": "60",
+    })
+    assert (runs_settings.max_attempts(), runs_settings.retry_backoff_base_s(),
+            runs_settings.recovery_tick_s()) == (5, 0, 60)
+    with pytest.raises(ValueError):
+        coerce("RUNS_MAX_ATTEMPTS", "0")

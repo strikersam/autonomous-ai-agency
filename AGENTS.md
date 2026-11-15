@@ -137,6 +137,12 @@ at that seam — the judging half became `services/ceo_quality.py`.
 `backend/server.py` and `proxy.py` are also over the limit and are being migrated per
 `REWRITE_PLAN.md`. Neither is licence to add more.
 
+**`agent/loop.py`** (3,892) is the pre-existing `AgentRunner` plan/execute/verify loop,
+a risky module (`agent/CLAUDE.md`). The durable side effect recording of the 2026-11
+reliability plan added a small net delta to `_auto_push_and_pr` and keeps its logic
+in `packages/runs/side_effects.py`. Splitting the runner is a standalone refactor; new
+logic belongs in helper modules, not here.
+
 ---
 
 ## Deployment

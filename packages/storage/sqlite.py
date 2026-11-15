@@ -18,7 +18,9 @@ import asyncio
 import json
 import logging
 import os
+import random
 import re
+import sqlite3
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -101,7 +103,7 @@ _COLLECTIONS = [
     "agent_memory_notes", "agent_memory_episodes",
     # Durable runs (packages/runs): the run lease, run records and their ledgers.
     "task_run_leases", "runs", "run_events", "run_operations", "run_artifacts",
-    "run_approvals", "run_idempotency",
+    "run_approvals", "run_idempotency", "run_checkpoints",
     # Deliberately NOT "agent_schedules": agent/schedule_store.py shares this DB
     # file and creates its own (job_id, doc, updated_at) table of that name;
     # whichever initialises first wins CREATE TABLE IF NOT EXISTS, so listing it
@@ -137,6 +139,7 @@ _INDEXED_FIELDS: dict[str, list[str]] = {
     "run_artifacts":   ["run_id"],
     "run_approvals":   ["run_id", "state"],
     "run_idempotency": ["company_id"],
+    "run_checkpoints": ["run_id"],
 }
 
 
@@ -813,6 +816,17 @@ class _PendingCursor:
         return await cur.to_list(length)
 
 
+# First connect: switching a brand new file to WAL and creating the schema can
+# meet another process doing the same, and SQLite answers some of those lock
+# conflicts with "database is locked" at once, without consulting busy_timeout.
+_FIRST_CONNECT_ATTEMPTS = 6
+_FIRST_CONNECT_BACKOFF_S = 0.05
+
+
+def _is_locked(exc: BaseException) -> bool:
+    return isinstance(exc, sqlite3.OperationalError) and "locked" in str(exc).lower()
+
+
 class SQLiteStore:
     """Top-level store — exposes collections as attributes.
 
@@ -849,15 +863,39 @@ class SQLiteStore:
         async with self._lock:
             if self._conn is None or not self._initialized:
                 os.makedirs(os.path.dirname(self._db_path) or ".", exist_ok=True)
-                self._conn = await aiosqlite.connect(self._db_path)
-                await self._conn.execute("PRAGMA journal_mode=WAL")
-                await self._conn.execute("PRAGMA foreign_keys=ON")
-                # Wait (up to 5s) for a transient lock instead of failing fast with
-                # "database is locked" under concurrent access.
-                await self._conn.execute("PRAGMA busy_timeout=5000")
-                await self._init_schema()
+                for attempt in range(_FIRST_CONNECT_ATTEMPTS):
+                    try:
+                        await self._first_connect()
+                        break
+                    except sqlite3.OperationalError as exc:
+                        await self._discard_conn()
+                        if not _is_locked(exc) or attempt == _FIRST_CONNECT_ATTEMPTS - 1:
+                            raise
+                        log.warning("SQLiteStore: first connect to %s found the file locked; "
+                                    "retrying (%d/%d)", self._db_path, attempt + 1,
+                                    _FIRST_CONNECT_ATTEMPTS)
+                        await asyncio.sleep(_FIRST_CONNECT_BACKOFF_S * (2 ** attempt)
+                                            * (1 + random.random()))
                 self._initialized = True
         return self._conn
+
+    async def _first_connect(self) -> None:
+        """Open the writer connection, switch to WAL and create the schema."""
+        self._conn = await aiosqlite.connect(self._db_path)
+        # busy_timeout first, so the statements below wait (up to 5s) for a
+        # transient lock instead of failing fast with "database is locked".
+        await self._conn.execute("PRAGMA busy_timeout=5000")
+        await self._conn.execute("PRAGMA journal_mode=WAL")
+        await self._conn.execute("PRAGMA foreign_keys=ON")
+        await self._init_schema()
+
+    async def _discard_conn(self) -> None:
+        conn, self._conn = self._conn, None
+        if conn is not None:
+            try:
+                await conn.close()
+            except Exception:  # pragma: no cover - best effort on a failed connect
+                log.debug("SQLiteStore: closing a failed first connection raised", exc_info=True)
 
     async def _ensure_read_pool(self) -> None:
         """Lazily build the pool of read-only connections (idempotent)."""

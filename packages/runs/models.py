@@ -102,6 +102,8 @@ class RunRecord(BaseModel):
     depth: int = 0
     waiting_reason: str | None = None
     deadline_at: float | None = None
+    # Earliest time a recovered run may be queued again (backoff); cleared once requeued.
+    not_before: float | None = None
     cancel_requested: bool = False
     schema_version: int = SCHEMA_VERSION
 
@@ -111,7 +113,7 @@ class RunRecord(BaseModel):
         ts = _epoch(v)
         return ts if ts is not None else time.time()
 
-    @field_validator("started_at", "completed_at", "deadline_at", mode="before")
+    @field_validator("started_at", "completed_at", "deadline_at", "not_before", mode="before")
     @classmethod
     def _optional_ts(cls, v: Any) -> float | None:
         return _epoch(v)

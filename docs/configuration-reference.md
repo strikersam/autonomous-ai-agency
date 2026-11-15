@@ -534,16 +534,19 @@ Counts are in-memory, per process and reset on restart, the same scope as
 ### Durable runs (`packages/runs/`)
 
 Phase 1 of the durable execution plan (`docs/plans/2026-11-14-enterprise-reliability-durable-execution-plan.md`).
-Read at call time by `packages/config/runs_settings.py`; all five are live controls under
+Read at call time by `packages/config/runs_settings.py`; all eight are live controls under
 Settings → Platform controls → Platform Operations.
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `RUNS_LEDGER_ENABLED` | `true` | Record runs, their event timeline and each side effecting operation (`runs`, `run_events`, `run_operations`). Recording only: it changes no scheduling or execution decision. |
-| `RUNS_RECOVERY_ENABLED` | `false` | Let a worker take over a run whose lease expired, reconcile its operations and resume it; an operation with an unknown outcome parks the run in `waiting_for_approval`. No code acts on it until phase 2 wires recovery; off keeps today's behaviour. |
-| `RUNS_LEASE_TTL_SEC` | `120` | Lifetime of a run lease without renewal (10 to 3600). Used by `LeaseHeartbeat`. The task dispatcher's claim keeps its one hour lease until phase 2 renews it with the heartbeat. |
+| `RUNS_RECOVERY_ENABLED` | `false` | Let a worker take over a run whose lease expired, reconcile its operations and resume it; an operation with an unknown outcome parks the run in `waiting_for_approval` (and its task at the execution approval gate). The recovery tick (`packages/runs/recovery.py`) runs in the dispatcher poll loop; off keeps today's behaviour. |
+| `RUNS_LEASE_TTL_SEC` | `600` | Lifetime of a run lease without renewal (10 to 3600). The task claim on a durable lease (Mongo, SQLite) uses it, renewed by `LeaseHeartbeat` while the task runs; memory mode keeps the one hour claim. |
 | `RUNS_LEASE_RENEW_SEC` | `30` | Lease renewal interval (1 to 1200), capped at a third of `RUNS_LEASE_TTL_SEC`. |
 | `RUNS_OP_SKEW_SEC` | `30` | Clock skew margin (0 to 600) added to each operation deadline, so recovery never reconciles an operation another worker may still be performing. |
+| `RUNS_MAX_ATTEMPTS` | `3` | Attempts a crashed run gets in total (1 to 20); the recovery that would exceed it dead letters the run and marks its task failed. |
+| `RUNS_RETRY_BACKOFF_BASE_SEC` | `10` | Backoff base (0 to 3600) before a recovered run's task is queued again: `base * 2^(attempt-2)` plus up to 25% jitter, stored as the run's `not_before`. |
+| `RUNS_RECOVERY_TICK_SEC` | `30` | How often (5 to 3600) the dispatcher runs the recovery tick. The same poll loop also reloads Platform control overrides from the database at most every 15 s, so the worker sees dashboard changes. |
 
 The run lease (`task_run_leases`) is now shared across processes on both backends: on
 Mongo through the raw Motor collection, on SQLite through single statement helpers in

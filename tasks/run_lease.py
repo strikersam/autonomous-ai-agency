@@ -26,9 +26,9 @@ log = logging.getLogger("qwen-proxy")
 # One holder id per process: the run lease in TaskStore is what stops the web
 # process, the worker and the cron tick from running the same task at once.
 _RUN_LEASE_HOLDER = f"{os.getpid()}-{uuid.uuid4().hex[:8]}"
-# Kept at an hour until the dispatcher renews the lease with a heartbeat
-# (packages/runs/lease.py LeaseHeartbeat, RUNS_LEASE_TTL_SEC): a shorter TTL
-# without renewal would let a second process take over a task still running.
+# TTL of the non durable claims (shared_state lock, process local lease), which
+# nothing renews. The durable lease uses RUNS_LEASE_TTL_SEC instead: the task
+# binding (packages/runs/task_binding.py) renews it with a LeaseHeartbeat.
 _RUN_LEASE_TTL_S = 3600.0
 # Tasks this process holds a durable lease for: (fencing token, monotonic expiry).
 # The expiry mirrors the lease TTL, so a release that never ran cannot block
@@ -58,16 +58,40 @@ async def claim_task_run_token(store: Any, task_id: str, run_id: str | None = No
     return None
 
 
+def durable_lease_ttl_s() -> float:
+    """TTL of the durable run lease (``RUNS_LEASE_TTL_SEC``), renewed by the heartbeat."""
+    from packages.config import runs_settings
+
+    return float(runs_settings.lease_ttl_s())
+
+
+def holder_id() -> str:
+    """This process's lease holder id (read at call time so tests can patch it)."""
+    return _RUN_LEASE_HOLDER
+
+
+def held_token(task_id: str) -> int | None:
+    """The fencing token this process holds for *task_id*, or ``None``."""
+    held = _local_claims.get(task_id)
+    return held[0] if held is not None and held[0] else None
+
+
+def pin_local_claim(task_id: str) -> None:
+    """Keep this process's claim on *task_id* until release (a heartbeat renews the lease)."""
+    held = _local_claims.get(task_id)
+    if held is not None:
+        _local_claims[task_id] = (held[0], float("inf"))
+
+
 async def _claim_durable(store: Any, task_id: str, run_id: str | None) -> int | None:
     held = _local_claims.get(task_id)
     if held is not None and held[1] > time.monotonic():
         return None
-    expiry = time.monotonic() + _RUN_LEASE_TTL_S
+    ttl = durable_lease_ttl_s()
+    expiry = time.monotonic() + ttl
     _local_claims[task_id] = (0, expiry)  # reserve before the await so a sibling coroutine sees it
     try:
-        token = await store.acquire_run_lease_token(
-            task_id, _RUN_LEASE_HOLDER, _RUN_LEASE_TTL_S, run_id
-        )
+        token = await store.acquire_run_lease_token(task_id, _RUN_LEASE_HOLDER, ttl, run_id)
     except Exception:
         log.warning("Run lease for task %s unavailable; skipping this dispatch", task_id,
                     exc_info=True)

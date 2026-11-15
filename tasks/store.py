@@ -178,6 +178,23 @@ class TaskStore:
         """Drop *holder*'s lease on *task_id*; a lease held by someone else is kept."""
         await self._run_lease().release(task_id, holder, token)
 
+    async def _run_lease_live(self, task_id: str) -> bool:
+        """True when another process still holds a live durable lease on *task_id*.
+
+        Memory mode has no shared lease (False). A lease read that fails counts
+        as not live, which keeps the reconciler's behaviour before the lease existed.
+        """
+        if not self.has_durable_run_lease:
+            return False
+        try:
+            from packages.runs.lease import remaining_s
+
+            return remaining_s(await self._run_lease().current(task_id)) > 0
+        except Exception:
+            log.warning("Reconciler: could not read the run lease of task %s", task_id,
+                        exc_info=True)
+            return False
+
     # ── CRUD ──────────────────────────────────────────────────────────────────
 
     async def create(self, task: Task) -> Task:
@@ -421,7 +438,7 @@ class TaskStore:
         """Return BLOCKED tasks that are candidates for auto-retry."""
         if self._mode == "mongo":
             cursor = self._collection.find(
-                {"status": TaskStatus.BLOCKED.value},
+                {"status": TaskStatus.BLOCKED.value, "waiting_on_children": {"$ne": True}},
                 {"_id": 0},
             ).sort("updated_at", 1).limit(limit)
             docs = await cursor.to_list(length=limit)
@@ -429,6 +446,7 @@ class TaskStore:
             docs = [
                 value for value in self._mem.values()
                 if value.get("status") == TaskStatus.BLOCKED.value
+                and not value.get("waiting_on_children")
             ]
             docs.sort(key=lambda d: _ts_to_float(d.get("updated_at", d.get("created_at", 0))))
             docs = docs[:limit]
@@ -636,6 +654,7 @@ class TaskStore:
                 {
                     "status": TaskStatus.IN_PROGRESS.value,
                     "pending_agent_run": False,
+                    "waiting_on_children": {"$ne": True},
                     "updated_at": {"$lt": cutoff},
                     "$or": [
                         {"requires_approval": {"$ne": True}},
@@ -651,6 +670,7 @@ class TaskStore:
                 if v.get("status") == TaskStatus.IN_PROGRESS.value
                 and v.get("pending_agent_run") is False
                 and _ts_to_float(v.get("updated_at", 0)) < cutoff
+                and not v.get("waiting_on_children")
                 and not (v.get("requires_approval") and not v.get("execution_approved"))
             ]
 
@@ -658,6 +678,10 @@ class TaskStore:
         for doc in stranded:
             task_id = doc.get("task_id") or doc.get("_id")
             if not task_id or task_id in active:
+                continue
+            if await self._run_lease_live(task_id):
+                # Running in another process (worker or web): its heartbeat keeps the lease.
+                log.info("Reconciler: task %s still holds a live run lease; not re-queuing", task_id)
                 continue
             if int(doc.get("auto_retry_count") or 0) >= auto_retry_cap:
                 log.warning(
@@ -700,6 +724,7 @@ class TaskStore:
                 {
                     "status": TaskStatus.TODO.value,
                     "pending_agent_run": False,
+                    "waiting_on_children": {"$ne": True},
                     "$or": [
                         {"requires_approval": {"$ne": True}},
                         {"execution_approved": True},
@@ -713,6 +738,7 @@ class TaskStore:
                 v for v in self._mem.values()
                 if v.get("status") == TaskStatus.TODO.value
                 and v.get("pending_agent_run") is False
+                and not v.get("waiting_on_children")
                 and not (v.get("requires_approval") and not v.get("execution_approved"))
             ]
 

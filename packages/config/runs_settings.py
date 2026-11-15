@@ -9,9 +9,13 @@ malformed value and clamps numbers to the bounds declared in the catalogue.
   Recording only; it changes no scheduling or execution decision.
 * ``RUNS_RECOVERY_ENABLED`` (off): let a worker take over and resume a run whose
   lease expired. Consumed from phase 2; off keeps today's behaviour.
-* ``RUNS_LEASE_TTL_SEC`` (120): how long a run lease lives without a renewal.
-* ``RUNS_LEASE_RENEW_SEC`` (30): how often a live run renews its lease.
+* ``RUNS_LEASE_TTL_SEC`` (600): how long a run lease lives without a renewal.
+* ``RUNS_LEASE_RENEW_SEC`` (60): how often a live run renews its lease.
 * ``RUNS_OP_SKEW_SEC`` (30): clock skew margin added to every operation deadline.
+* ``RUNS_MAX_ATTEMPTS`` (3): attempts a recovered run gets before it is dead lettered.
+* ``RUNS_RETRY_BACKOFF_BASE_SEC`` (10): base of the exponential backoff (with
+  jitter) before a recovered run is queued again.
+* ``RUNS_RECOVERY_TICK_SEC`` (30): how often the dispatcher runs the recovery tick.
 """
 from __future__ import annotations
 
@@ -55,15 +59,35 @@ def runs_recovery_enabled() -> bool:
 
 def lease_ttl_s() -> int:
     """``RUNS_LEASE_TTL_SEC``: run lease lifetime without renewal, 10 to 3600 s."""
-    return _seconds("RUNS_LEASE_TTL_SEC", 120, 10, 3600)
+    return _seconds("RUNS_LEASE_TTL_SEC", 600, 10, 3600)
 
 
 def lease_renew_s() -> int:
     """``RUNS_LEASE_RENEW_SEC``: renewal interval, 1 s up to a third of the TTL."""
     ttl = lease_ttl_s()
-    return min(_seconds("RUNS_LEASE_RENEW_SEC", 30, 1, 1200), max(ttl // 3, 1))
+    return min(_seconds("RUNS_LEASE_RENEW_SEC", 60, 1, 1200), max(ttl // 3, 1))
 
 
 def op_skew_s() -> int:
     """``RUNS_OP_SKEW_SEC``: clock skew margin on operation deadlines, 0 to 600 s."""
     return _seconds("RUNS_OP_SKEW_SEC", 30, 0, 600)
+
+
+def max_attempts() -> int:
+    """``RUNS_MAX_ATTEMPTS``: attempts before a recovered run is dead lettered, 1 to 20."""
+    return _seconds("RUNS_MAX_ATTEMPTS", 3, 1, 20)
+
+
+def retry_backoff_base_s() -> int:
+    """``RUNS_RETRY_BACKOFF_BASE_SEC``: backoff base for recovered runs, 0 to 3600 s."""
+    return _seconds("RUNS_RETRY_BACKOFF_BASE_SEC", 10, 0, 3600)
+
+
+def recovery_tick_s() -> int:
+    """``RUNS_RECOVERY_TICK_SEC``: recovery tick cadence in the dispatcher, 5 to 3600 s."""
+    return _seconds("RUNS_RECOVERY_TICK_SEC", 30, 5, 3600)
+
+
+def task_auto_retry_cap() -> int:
+    """``TASK_AUTO_RETRY_MAX`` (read by the task reconciler too): auto retries per task."""
+    return _seconds("TASK_AUTO_RETRY_MAX", 5, 0, 1000)

@@ -138,7 +138,11 @@ def _memory_matches(doc: dict[str, Any], expect: Expect) -> bool:
     for field, expected in expect.items():
         value = doc.get(field)
         if isinstance(expected, tuple):
-            if value is None or not value < expected[1]:
+            # ("lt", v): a missing or non comparable stored value is no match, not an error.
+            try:
+                if value is None or not value < expected[1]:
+                    return False
+            except TypeError:
                 return False
         elif value != expected:
             return False

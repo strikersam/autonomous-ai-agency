@@ -19,6 +19,8 @@ from typing import Any
 log = logging.getLogger("qwen-proxy")
 
 _CHECKPOINT_COLLECTION = "orchestrator_checkpoints"
+# Version of the stored document; documents without it read as version 1.
+SCHEMA_VERSION = 1
 
 
 class OrchestratorCheckpointStore:
@@ -39,6 +41,10 @@ class OrchestratorCheckpointStore:
             self._store = _NoopDB()
             return self._store
 
+    async def is_durable(self) -> bool:
+        """False when checkpoints only live in this process (no database)."""
+        return not isinstance(await self._db(), _NoopDB)
+
     async def save(self, run: Any) -> None:
         """Persist a WorkflowRun snapshot."""
         db = await self._db()
@@ -53,6 +59,7 @@ class OrchestratorCheckpointStore:
             "last_heartbeat": getattr(run, "last_heartbeat", time.time()),
             "snapshot": run.as_dict() if hasattr(run, 'as_dict') else {},
             "updated_at": time.time(),
+            "schema_version": SCHEMA_VERSION,
         }
         try:
             col = getattr(db, _CHECKPOINT_COLLECTION, None)

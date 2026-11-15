@@ -391,6 +391,16 @@ def _clear_discovered_models() -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
+def _clear_checkpoint_mirror() -> Iterator[None]:
+    """Forget mirrored agent checkpoints (packages/runs/checkpoints.py) between tests."""
+    from packages.runs import checkpoints
+
+    checkpoints.reset()
+    yield
+    checkpoints.reset()
+
+
+@pytest.fixture(autouse=True)
 def _clear_response_cache():
     """Clear the LRU+TTL response cache between tests to prevent cross-test contamination."""
     import packages.ai.response_cache as rc
