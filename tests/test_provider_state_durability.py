@@ -594,3 +594,57 @@ class TestDisabledProvidersOffLoop:
             return bf.disabled_providers(force=True)
 
         assert asyncio.run(go()) == {"new": "y"}, "an explicit force reads inline, even on the loop"
+
+
+class TestToggleKeepsTheCacheUsableOnTheLoop:
+    """Verifier finding: set_provider_enabled reset the cache to {}, so a read on the
+    loop (which now serves the cached set while it refreshes) saw every disabled
+    provider as enabled until the refresh landed."""
+
+    def test_a_toggle_on_the_loop_keeps_earlier_entries_and_adds_the_new_one(
+        self, monkeypatch
+    ) -> None:
+        bf._DISABLED_CACHE = ({"a": "off", "b": "off"}, time.time())
+        monkeypatch.setattr(bf, "_write_disabled_mongo", lambda *a, **k: None)
+        monkeypatch.setattr(bf, "_write_disabled_sqlite", lambda *a, **k: None)
+        release = threading.Event()
+
+        def slow():
+            release.wait(2)
+            return {"a": "off", "b": "off", "c": "operator"}
+
+        monkeypatch.setattr(bf, "_disabled_from_mongo", slow)
+
+        async def go():
+            bf.set_provider_enabled("c", False, "operator")
+            return bf.disabled_providers()
+
+        seen = asyncio.run(go())
+        release.set()
+        assert seen == {"a": "off", "b": "off", "c": "operator"}
+
+    def test_enabling_removes_only_that_provider(self, monkeypatch) -> None:
+        bf._DISABLED_CACHE = ({"a": "off", "b": "off"}, time.time())
+        monkeypatch.setattr(bf, "_write_disabled_mongo", lambda *a, **k: None)
+        monkeypatch.setattr(bf, "_write_disabled_sqlite", lambda *a, **k: None)
+        monkeypatch.setattr(bf, "_disabled_from_mongo", lambda: None)
+        monkeypatch.setattr(bf, "_disabled_from_sqlite", lambda: {"b": "off"})
+        bf.set_provider_enabled("a", True)
+        assert bf._DISABLED_CACHE[0] == {"b": "off"}
+        assert bf._DISABLED_CACHE[1] == 0.0, "the entry is marked stale so the next read re-reads storage"
+
+    def test_auto_disable_does_not_overwrite_an_existing_reason_after_a_toggle(
+        self, monkeypatch
+    ) -> None:
+        bf._DISABLED_CACHE = ({"a": "auto: first"}, time.time())
+        writes = []
+        monkeypatch.setattr(bf, "_write_disabled_mongo", lambda *a, **k: None)
+        monkeypatch.setattr(bf, "_write_disabled_sqlite", lambda pid, en, reason: writes.append((pid, en, reason)))
+        monkeypatch.setattr(bf, "_disabled_from_mongo", lambda: {"a": "auto: first", "z": "x"})
+
+        async def go():
+            bf.set_provider_enabled("z", False, "x")
+            bf.auto_disable_provider("a", "newreason")
+
+        asyncio.run(go())
+        assert ("a", False, "auto: newreason") not in writes

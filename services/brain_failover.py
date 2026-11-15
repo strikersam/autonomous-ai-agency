@@ -364,7 +364,15 @@ def set_provider_enabled(provider_id: str, enabled: bool, reason: str = "") -> s
         log.error("brain_failover: %s enabled=%s was not persisted anywhere",
                   provider_id, enabled)
         return "none"
-    _DISABLED_CACHE = ({}, 0.0)  # force re-read
+    # Apply the change to the last known set and mark it stale. Resetting to {} would
+    # make a read on the event loop, which serves the cached set while it refreshes,
+    # briefly see every disabled provider as enabled.
+    current = dict(_DISABLED_CACHE[0])
+    if enabled:
+        current.pop(provider_id, None)
+    else:
+        current[provider_id] = reason
+    _DISABLED_CACHE = (current, 0.0)  # stale: the next read re-reads storage
     log.info("brain_failover: provider %s %s%s", provider_id,
              "ENABLED" if enabled else "DISABLED",
              "" if enabled else f" ({reason})")
