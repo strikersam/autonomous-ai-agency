@@ -3629,9 +3629,12 @@ class AgentRunner:
             # Never push directly to a protected branch OR to the PR base branch —
             # opening a PR with head == base is rejected by GitHub. Isolate the agent's
             # changes on a fresh feature branch in those cases.
+            from packages.runs import side_effects as _fx
+
             if current_branch == base_branch or current_branch in ("main", "master"):
-                push_branch = f"agent/task-{uuid.uuid4().hex[:8]}"
-                await ws.create_branch(push_branch, current_branch)
+                # Stable per task (agent/task-<task_id>), so a retried run reuses its branch.
+                push_branch = _fx.task_branch_name()
+                await _fx.checkout_branch(ws, push_branch, current_branch)
                 self._log_event(session_id, "step_start", {"description": f"Created branch {push_branch}"})
             else:
                 push_branch = current_branch
@@ -3639,8 +3642,16 @@ class AgentRunner:
             if plan is not None:
                 commits = commits + await self._commit_plan_artifact(plan)
 
-            # Push with token-scrubbing (LocalWorkspace.push handles try/finally).
-            await ws.push(branch=push_branch, agent_initiated=True)
+            # Push with token-scrubbing (LocalWorkspace.push handles try/finally),
+            # recorded in the run's ledger so a retried run does not push twice.
+            _, head_sha, _ = await ws._run("git", "rev-parse", "HEAD")
+            push_args = {"branch": push_branch, "sha": head_sha.strip()}
+            async with _fx.recorded_effect("git_push", push_args,
+                                           {**push_args, "cwd": str(ws.path)}, 110) as fx:
+                if not fx.skipped:
+                    push_branch = fx.result_ref = await _fx.push_branch(ws, push_branch)
+                elif fx.result_ref:  # replayed: reuse the branch the earlier attempt pushed
+                    push_branch = fx.result_ref
             self._log_event(session_id, "step_start", {"description": f"Pushed branch {push_branch}"})
 
             # Derive a meaningful PR title from the task goal or first commit.
@@ -3655,16 +3666,20 @@ class AgentRunner:
 
             pr_body = render_pr_body(goal, plan, self._gate_report, judge, commits)
 
-            pr_result = await self.github.open_pull_request(
-                owner=owner,
-                repo=repo,
-                title=pr_title,
-                head=push_branch,
-                base=base_branch,
-                body=pr_body,
-                agent_initiated=True,
-            )
-            pr_url = pr_result.get("html_url") or ""
+            pr_args = {"owner": owner, "repo": repo, "head": push_branch, "base": base_branch}
+            async with _fx.recorded_effect("open_pull_request", pr_args, pr_args, 30) as fx:
+                if not fx.skipped:  # replayed: the PR opened by an earlier attempt is reused
+                    pr_result = await self.github.open_pull_request(
+                        owner=owner,
+                        repo=repo,
+                        title=pr_title,
+                        head=push_branch,
+                        base=base_branch,
+                        body=pr_body,
+                        agent_initiated=True,
+                    )
+                    fx.result_ref = pr_result.get("html_url") or ""
+            pr_url = fx.result_ref or ""
             self._log_event(session_id, "assistant_message", {
                 "summary": f"Opened PR: {pr_url}",
                 "pr_url": pr_url,

@@ -1806,6 +1806,12 @@ async def lifespan(app_: "FastAPI"):
         log.info(
             "LLM Relay Platform started in limited mode — set MONGO_URL to enable full features"
         )
+    try:
+        from packages.runs.store import get_run_store
+
+        await _warmup_step(get_run_store().ensure_indexes(), "run store indexes", warmup_deadline)
+    except Exception as exc:  # noqa: BLE001 - the run store creates them lazily too
+        log.warning("Run store indexes deferred: %s", exc)
 
     # Dashboard-set platform controls, applied before anything reads them.
     # Ordered here deliberately: start_background_services() below builds the
@@ -9155,10 +9161,15 @@ async def autonomy_tick(request: Request) -> dict[str, object]:
             # Same claim as TaskExecutionCoordinator.execute(): without it this tick
             # and the dispatcher could run the same task at the same time.
             from tasks.run_lease import claim_task_run, release_task_run
+            from packages.runs import task_binding as _runs
+            from packages.runs.models import RunState as _RunState
             if not await claim_task_run(store, task_id):
                 result["dispatch"]["ran"] = False
                 result["dispatch"]["skipped"] = "task already running elsewhere"
             else:
+                # Same durable binding as the coordinator: heartbeat, run record, fencing.
+                binding = await _runs.bind(store, pending[0], actor="system:autonomy_tick")
+                _final = pending[0]
                 try:
                     try:
                         from runtimes.base import TaskSpec
@@ -9168,6 +9179,7 @@ async def autonomy_tick(request: Request) -> dict[str, object]:
                         task.status = "in_progress"
                         task.pending_agent_run = False
                         await store.update(task)
+                        await _runs.mark(binding, _RunState.RUNNING)
 
                         spec = TaskSpec(
                             task_id=task_id,
@@ -9180,7 +9192,7 @@ async def autonomy_tick(request: Request) -> dict[str, object]:
                         try:
                             adapter = InternalAgentAdapter({"workspace_root": str(ROOT_DIR)})
                             exec_result, decision = await asyncio.wait_for(
-                                adapter.execute(spec), timeout=float(os.environ.get("AGENCY_TASK_TIMEOUT_SEC", "40"))
+                                _runs.guard(binding, adapter.execute(spec)), timeout=float(os.environ.get("AGENCY_TASK_TIMEOUT_SEC", "40"))
                             )
                             task.result = exec_result.output
                             if exec_result.success:
@@ -9191,7 +9203,7 @@ async def autonomy_tick(request: Request) -> dict[str, object]:
                             else:
                                 task.status = "failed"
                                 task.error_message = "Execution failed"
-                            await store.update(task)
+                            await _runs.settle(store, binding, task)
                             result["dispatch"]["ran"] = True
                             result["dispatch"]["result_status"] = task.status
                             result["dispatch"]["result_error"] = (task.error_message or "")[:100]
@@ -9201,7 +9213,7 @@ async def autonomy_tick(request: Request) -> dict[str, object]:
                             result["dispatch"]["error"] = "Task timed out (20s) — will retry next cycle"
                             task.status = "todo"
                             task.pending_agent_run = True
-                            await store.update(task)
+                            await _runs.settle(store, binding, task)
                         finally:
                             _wo._BYPASS.reset(_bypass_token)
                     except Exception as exc:
@@ -9212,10 +9224,12 @@ async def autonomy_tick(request: Request) -> dict[str, object]:
                             if task:
                                 task.status = "failed"
                                 task.error_message = str(exc)[:500]
-                                await store.update(task)
+                                _final = task
+                                await _runs.settle(store, binding, task)
                         except Exception:
                             pass
                 finally:
+                    await _runs.unbind(binding, _final)
                     await release_task_run(store, task_id)
         else:
             result["dispatch"]["pending_count"] = 0

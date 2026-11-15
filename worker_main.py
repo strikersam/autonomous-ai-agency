@@ -62,14 +62,17 @@ async def _main() -> None:
 
     log.info("Worker starting — STORAGE_BACKEND=%s", os.environ.get("STORAGE_BACKEND", "mongodb"))
 
-    # Optional DB bootstrap (non-fatal; same logic as web lifespan)
+    # Durable run indexes (non-fatal). The web lifespan's ensure_bootstrap lives
+    # in backend/server.py and seeds web-only data, so the worker only needs
+    # the run store's indexes; the old `from db import ensure_bootstrap` never
+    # resolved and always fell into the warning branch.
     try:
-        from db import ensure_bootstrap
+        from packages.runs.store import get_run_store
 
-        await ensure_bootstrap()
-        log.info("DB bootstrap complete")
-    except Exception as exc:
-        log.warning("DB bootstrap deferred: %s — continuing in limited mode", exc)
+        await asyncio.wait_for(get_run_store().ensure_indexes(), timeout=10)
+        log.info("Run store indexes ensured")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Run store indexes deferred: %s — continuing", exc)
 
     # Dashboard-set platform controls, applied before the loops read them.
     # This worker runs the same background services as the web process, so a

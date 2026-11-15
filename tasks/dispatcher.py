@@ -45,6 +45,12 @@ _AUTO_RETRY_MAX = int(os.environ.get("TASK_AUTO_RETRY_MAX", "5"))
 # 2026-10-04: one task blocked 7 times in 7 hours, each block 5 more LLM runs).
 _BLOCKED_COOLDOWN_MAX_S = 4 * 3600.0
 
+# The worker reloads dashboard control overrides at most this often, idle or not,
+# so a kill switch or recovery toggle flipped in the web process reaches it.
+_CONTROLS_REFRESH_S = 15.0
+# Upper bound on one recovery tick, so a slow store cannot stall dispatch.
+_RECOVERY_TICK_TIMEOUT_S = 60.0
+
 
 def provider_capacity(slots_per_provider: int) -> int | None:
     """Tasks the brain can carry right now, or ``None`` when not limiting.
@@ -94,6 +100,12 @@ class TaskDispatcher:
       - time-to-pickup once a task starts executing
     """
 
+    # Class defaults for the side jobs, so a dispatcher built without __init__
+    # (tests use __new__) still polls; __init__ sets the per instance values.
+    _controls_refreshed_at = float("-inf")
+    _recovered_at = float("-inf")
+    _recovery = None
+
     def __init__(
         self,
         *,
@@ -121,6 +133,12 @@ class TaskDispatcher:
         self._first_seen: dict[str, float] = {}
         # Tasks this dispatcher is running right now, by task id.
         self._running: dict[str, asyncio.Task] = {}
+        self._controls_refreshed_at = float("-inf")
+        self._recovered_at = float("-inf")
+        self._recovery = None
+        # Control refresh and recovery run beside the poll, one of each at a time,
+        # so a slow settings store or recovery pass never delays dispatch.
+        self._side_jobs: dict[str, asyncio.Task] = {}
 
     async def run_forever(self) -> None:
         log.info(
@@ -155,6 +173,52 @@ class TaskDispatcher:
         except Exception as exc:  # pragma: no cover
             log.error("TaskDispatcher reconciler error: %s", exc, exc_info=True)
 
+    def _spawn_side_job(self, name: str, job) -> None:
+        """Start *job* in the background unless the previous one is still running."""
+        jobs = self.__dict__.setdefault("_side_jobs", {})
+        running = jobs.get(name)
+        if running is not None and not running.done():
+            return
+        jobs[name] = asyncio.create_task(job(), name=f"dispatcher-{name}")
+
+    async def _refresh_controls(self) -> None:
+        """Re-apply the dashboard's control overrides (at most every 15 s). Never raises."""
+        now = time.monotonic()
+        if now - self._controls_refreshed_at < _CONTROLS_REFRESH_S:
+            return
+        self._controls_refreshed_at = now
+        try:
+            from packages.config.control_overrides import apply_overrides, read_overrides
+
+            # read_overrides propagates a failed read: applying {} instead would
+            # revert every override this process holds to the boot environment.
+            apply_overrides(await read_overrides())
+        except Exception as exc:  # noqa: BLE001 — a refresh must never stop dispatch
+            log.warning("TaskDispatcher: control override refresh failed: %s", exc)
+
+    async def _recovery_tick(self) -> None:
+        """Run the durable run recovery tick at RUNS_RECOVERY_TICK_SEC. Never raises."""
+        from packages.config import runs_settings
+
+        now = time.monotonic()
+        if now - self._recovered_at < runs_settings.recovery_tick_s():
+            return
+        self._recovered_at = now
+        if not runs_settings.runs_recovery_enabled():
+            return
+        try:
+            if self._recovery is None:
+                from packages.runs.recovery import RecoveryService
+
+                self._recovery = RecoveryService(self.store)
+            report = await asyncio.wait_for(self._recovery.tick(), _RECOVERY_TICK_TIMEOUT_S)
+            if report.recovered or report.parked or report.dead_lettered or report.woken:
+                log.info("TaskDispatcher recovery: recovered=%d parked=%d dead_lettered=%d "
+                         "woken=%d", len(report.recovered), len(report.parked),
+                         len(report.dead_lettered), len(report.woken))
+        except Exception as exc:  # noqa: BLE001 — recovery must never stop dispatch
+            log.warning("TaskDispatcher: recovery tick failed: %s", exc, exc_info=True)
+
     async def _ceo_triage(self) -> None:
         """Approve/reject parked tasks and queue fixes for open error alerts."""
         from tasks.autonomy_triage import triage_gated_tasks
@@ -176,6 +240,8 @@ class TaskDispatcher:
 
     async def _poll_and_execute(self) -> None:
         self._poll_count += 1
+        self._spawn_side_job("controls", self._refresh_controls)
+        self._spawn_side_job("recovery", self._recovery_tick)
 
         # Periodic reconciliation to catch tasks stranded by mid-flight crashes.
         if _RECONCILE_EVERY > 0 and self._poll_count % _RECONCILE_EVERY == 0:
