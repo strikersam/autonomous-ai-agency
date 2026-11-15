@@ -217,6 +217,12 @@ class Settings:
         self.ollama_reasoning_effort: str = os.environ.get(
             "OLLAMA_REASONING_EFFORT", ""
         ).strip().lower()
+        # ROLE_REASONING_EFFORT_ENABLED — per-role effort tiers for Ollama thinking
+        # models (planner/judge high, executor/verifier medium), overriding the
+        # single global pin above. Default on; off restores the global-only path.
+        self.role_reasoning_effort_enabled_raw: str = os.environ.get(
+            "ROLE_REASONING_EFFORT_ENABLED", "true"
+        )
 
         # Nemotron 3 (the default free NVIDIA NIM brain) thinks by default,
         # which multiplies latency several-fold and routinely pushes a
@@ -334,6 +340,13 @@ class Settings:
         # MODEL_AUTO_HEAL_ENABLED — move stored model choices off ids a provider
         # has retired (packages/ai/model_retirement.py). Default on.
         self.model_auto_heal_raw: str = os.environ.get("MODEL_AUTO_HEAL_ENABLED", "true")
+        # PROVIDER_FUNDS_QUARANTINE_HOURS — how long a provider that answered a
+        # credits/billing refusal (HTTP 402, or a body naming credit/billing) stays
+        # out of the brain chain before it is probed again. 0 restores the old
+        # behaviour: switched off until a human switches it back on.
+        self.provider_funds_quarantine_hours_raw: str = os.environ.get(
+            "PROVIDER_FUNDS_QUARANTINE_HOURS", "24"
+        )
         # AGENT_TOOL_OUTPUT_OFFLOAD — keep the full text of tool output the agent
         # loop shortens, retrievable via read_tool_output. Default on.
         self.agent_tool_output_offload_raw: str = os.environ.get(
@@ -536,6 +549,15 @@ class Settings:
         return self.model_auto_heal_raw.strip().lower() not in {"0", "false", "no", "off"}
 
     @property
+    def provider_funds_quarantine_sec(self) -> float:
+        """Seconds a funds-refusing provider stays out of the chain; 0 = until re-enabled."""
+        try:
+            hours = float(self.provider_funds_quarantine_hours_raw.strip() or 24)
+        except ValueError:
+            hours = 24.0
+        return max(0.0, min(hours, 24.0 * 30)) * 3600.0
+
+    @property
     def task_verification_required(self) -> bool:
         """When True, DONE needs a PASS/PASS+NOTES verdict from an independent verifier."""
         return self.task_verification_required_raw in {"1", "true", "yes", "on"}
@@ -723,6 +745,16 @@ class Settings:
         behaviour)."""
         v = self.ollama_reasoning_effort
         return v if v in ("high", "medium", "low") else ""
+
+    @property
+    def role_reasoning_effort_enabled(self) -> bool:
+        """False only when an operator switched the per-role effort tiers off."""
+        return self.role_reasoning_effort_enabled_raw.strip().lower() not in {
+            "0",
+            "false",
+            "no",
+            "off",
+        }
 
     @property
     def is_nemotron_thinking_enabled(self) -> bool:

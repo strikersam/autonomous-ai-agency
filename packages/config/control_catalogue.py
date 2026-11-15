@@ -489,6 +489,21 @@ _BRAIN_ROUTING: tuple[ControlSpec, ...] = (
         "until changed by hand.",
         live=True,
     ),
+    _number(
+        "PROVIDER_FUNDS_QUARANTINE_HOURS",
+        "Out-of-credit provider quarantine (hours)",
+        "brain_routing",
+        "24",
+        "A provider that answers 'needs credits / payment' (HTTP 402, or a refusal "
+        "naming credit, billing or payment) is taken out of the brain chain for this "
+        "many hours, shown on the doctor and Providers screen with the time it "
+        "returns, then probed once again. Daily free quotas and rate limits are not "
+        "affected; they keep their short cooldowns. 0: switched off until you switch "
+        "it back on by hand. Also governs the Browserbase 'browser minutes' limit.",
+        live=True,
+        minimum=0,
+        maximum=720,
+    ),
     ControlSpec(
         key="DENIED_MODEL_IDS",
         label="Denied model ids",
@@ -519,6 +534,23 @@ _BRAIN_ROUTING: tuple[ControlSpec, ...] = (
         ),
         live=True,
         risk=RISK_MEDIUM,
+    ),
+    ControlSpec(
+        key="ROLE_REASONING_EFFORT_ENABLED",
+        label="Per-role reasoning effort",
+        group="brain_routing",
+        kind=KIND_TOGGLE,
+        default="true",
+        help=(
+            "Give each agent role its own Ollama reasoning_effort: planner and judge "
+            "high, executor and verifier medium. Order, highest first: an explicit "
+            "per-role value saved on the Brain card, then OLLAMA_REASONING_EFFORT (a "
+            "global pin of low applies to every role), then the built-in map. When "
+            "off, only the single global pin applies. The opt-in LLM_ROUTER_ENABLED "
+            "path still uses the global pin only."
+        ),
+        live=True,
+        risk=RISK_LOW,
     ),
     ControlSpec(
         key="OLLAMA_REASONING_EFFORT",

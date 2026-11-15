@@ -65,7 +65,7 @@ def test_failover_reads_finish_reason() -> None:
 def _runner_with_failover(tmp_path: Path, monkeypatch, finish_reason) -> AgentRunner:
     import packages.ai.failover_client as fc
 
-    async def fake_failover(payload, *, timeout_sec):
+    async def fake_failover(payload, *, timeout_sec, role=None):
         return SimpleNamespace(text='{"steps": [', model=payload["model"],
                                prompt_tokens=1, completion_tokens=1, latency_ms=5,
                                finish_reason=finish_reason)

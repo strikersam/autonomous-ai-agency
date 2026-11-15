@@ -254,7 +254,9 @@ def test_risky_module_detection_emits_warning(
         '{"verdict":"APPROVED_WITH_CONDITIONS","security":"WARN","correctness":"PASS","notes":"auth change needs review"}',
     ])
 
-    async def fake_chat_text(self_or_model, model_or_messages, messages=None) -> str:
+    async def fake_chat_text(
+        self_or_model, model_or_messages, messages=None, role=None
+    ) -> str:
         return next(responses)
 
     with mock.patch.object(AgentRunner, "_chat_text", fake_chat_text), \
@@ -312,7 +314,9 @@ def test_complex_multi_file_task_parallel_detection(tmp_path: Path) -> None:
         '{"verdict":"APPROVED","security":"PASS","correctness":"PASS","notes":""}',
     ])
 
-    async def fake_chat_text(self_or_model, model_or_messages, messages=None) -> str:
+    async def fake_chat_text(
+        self_or_model, model_or_messages, messages=None, role=None
+    ) -> str:
         return next(responses)
 
     with mock.patch.object(Runner, "_chat_text", fake_chat_text), \
@@ -355,7 +359,9 @@ def test_spawn_subagent_integrates_into_plan(tmp_path: Path) -> None:
         '{"verdict":"APPROVED","security":"PASS","correctness":"PASS","notes":""}',
     ])
 
-    async def fake_chat_text(self_or_model, model_or_messages, messages=None) -> str:
+    async def fake_chat_text(
+        self_or_model, model_or_messages, messages=None, role=None
+    ) -> str:
         return next(responses)
 
     spawn_mock = mock.AsyncMock(

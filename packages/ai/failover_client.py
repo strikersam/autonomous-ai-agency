@@ -458,23 +458,6 @@ _BILLING_SIGNALS: tuple[str, ...] = (
 )
 
 
-def _is_billing_refusal(resp: httpx.Response) -> bool:
-    """True when a 4xx body says the account is out of credit or quota.
-
-    Providers disagree on the status code for "you have no money": DeepSeek uses
-    402, Anthropic uses 400 with an ``invalid_request_error``. Both mean every
-    model on that provider will refuse identically, so both must fail over to the
-    next provider instead of burning the remaining model attempts.
-    """
-    if not (400 <= resp.status_code < 500):
-        return False
-    try:
-        body = resp.text[:600].lower()
-    except Exception:  # noqa: BLE001 — a body we cannot read is not a billing signal
-        return False
-    return any(signal in body for signal in _BILLING_SIGNALS)
-
-
 def _auto_disable(provider_id: str, reason: str) -> None:
     """Take a permanently-broken provider out of rotation until a human returns it.
 
@@ -489,6 +472,29 @@ def _auto_disable(provider_id: str, reason: str) -> None:
         auto_disable_provider(provider_id, reason)
     except Exception as exc:  # noqa: BLE001 — never fail a call over bookkeeping
         log.debug("brain_failover: auto-disable of %s failed: %s", provider_id, exc)
+
+
+def _needs_funds(resp: httpx.Response) -> bool:
+    """True when a refusal is fixed by a top-up (so a timed quarantine fits)."""
+    try:
+        from packages.llm.quarantine import is_funds_refusal
+        return is_funds_refusal(resp.status_code, resp.text[:4000])
+    except Exception:  # noqa: BLE001 — classification must never fail a call
+        return False
+
+
+def _quarantine(provider_id: str, reason: str) -> None:
+    """Take a provider that needs credits out of rotation for the live window.
+
+    ``PROVIDER_FUNDS_QUARANTINE_HOURS`` (default 24 h) instead of the permanent
+    switch-off: the provider is re-tried on its own once the window ends, and a
+    value of 0 restores the permanent behaviour (``_auto_disable``).
+    """
+    try:
+        from packages.llm.quarantine import quarantine_provider
+        quarantine_provider(provider_id, reason)
+    except Exception as exc:  # noqa: BLE001 — never fail a call over bookkeeping
+        log.debug("brain_failover: quarantine of %s failed: %s", provider_id, exc)
 
 
 def _parse_success(resp: httpx.Response) -> tuple[str, int, int]:
@@ -527,6 +533,7 @@ async def _try_provider(
     attempts: list[str],
     timeout_sec: float,
     budget: "_Budget",
+    role: str | None = None,
 ) -> tuple[FailoverResult | None, str]:
     """Try up to ``_MAX_MODELS_PER_PROVIDER`` models on one provider.
 
@@ -580,7 +587,7 @@ async def _try_provider(
         budget.charge()
         call_payload = {**payload, "model": try_model}
         post_payload = with_nemotron_thinking_off(with_ollama_reasoning_effort(
-            call_payload, is_ollama=_is_ollama(provider)
+            call_payload, is_ollama=_is_ollama(provider), role=role
         ))
         if is_anthropic:
             post_payload = ProviderRouter._anthropic_payload(post_payload)
@@ -646,6 +653,17 @@ async def _try_provider(
             )
             continue
 
+        # A funds refusal is fixed by a top-up, whatever status carries it: a 403
+        # "payment required" must not be switched off for good as a bad key, and
+        # a 429 "insufficient_quota" is not a rate limit. Classify it first.
+        if resp.status_code in (403, 429) and _needs_funds(resp):
+            fm.record_failure(provider.id, "payment_required", resp.status_code)
+            _quarantine(provider.id, f"{resp.status_code} out of credit/quota")
+            return None, (
+                f"{provider.id} {resp.status_code} out of credit/quota: "
+                f"{resp.text[:120]}"
+            )
+
         # The remaining statuses fail identically for every model on this
         # provider, so trying another model here would repeat the same error.
         if resp.status_code in (429, 419):
@@ -678,7 +696,7 @@ async def _try_provider(
             return None, f"{provider.id} {resp.status_code} unauthorized/forbidden"
         if resp.status_code == 402:
             fm.record_failure(provider.id, "payment_required", resp.status_code)
-            _auto_disable(provider.id, "402 out of credit")
+            _quarantine(provider.id, "402 out of credit")
             return None, f"{provider.id} 402 payment required (out of credit)"
         if resp.status_code >= 500:
             fm.record_failure(provider.id, "server_error", resp.status_code)
@@ -688,9 +706,11 @@ async def _try_provider(
         # Anthropic returns 400 with "credit balance is too low" — semantically
         # the same class as 402: no model on this provider can succeed, so the
         # next two model attempts are guaranteed to repeat it verbatim.
-        if _is_billing_refusal(resp):
+        # Only the strict funds classifier counts: a 400 that merely mentions
+        # "billing" is a bad request, and must not switch a working provider off.
+        if _needs_funds(resp):
             fm.record_failure(provider.id, "payment_required", resp.status_code)
-            _auto_disable(provider.id, f"{resp.status_code} out of credit/quota")
+            _quarantine(provider.id, f"{resp.status_code} out of credit/quota")
             return None, (
                 f"{provider.id} {resp.status_code} out of credit/quota: "
                 f"{resp.text[:120]}"
@@ -936,6 +956,7 @@ async def failover_chat_completion(
     payload: dict[str, Any],
     *,
     timeout_sec: float = _DEFAULT_TIMEOUT_SEC,
+    role: str | None = None,
 ) -> FailoverResult:
     """Run one chat completion across the brain-failover chain.
 
@@ -943,12 +964,33 @@ async def failover_chat_completion(
     local, then paid), and up to three models per provider. Raises
     :class:`BrainFailoverExhausted` when nothing succeeds — never returns a
     partial or placeholder result. See :func:`_try_router` (ADR-008 §8).
+
+    *role* (planner / executor / verifier / judge) selects that role's Ollama
+    ``reasoning_effort`` tier; without it the global ``OLLAMA_REASONING_EFFORT``
+    applies, exactly as before.
     """
     if (routed := await _try_router(payload, timeout_sec)) is not None:
         return routed
     from services.brain_failover import get_failover_manager
-    requested_model = str(payload.get("model") or "")
+
     fm = get_failover_manager()
+    result, attempted, failures, last_error = await _walk_failover_chain(
+        fm, payload, str(payload.get("model") or ""), timeout_sec, role
+    )
+    if result is not None:
+        return result
+    _log_exhaustion(attempted, failures)
+    raise BrainFailoverExhausted(last_error, set(attempted), failures)
+
+
+async def _walk_failover_chain(
+    fm: Any,
+    payload: dict[str, Any],
+    requested_model: str,
+    timeout_sec: float,
+    role: str | None,
+) -> tuple[FailoverResult | None, list[str], list[str], str]:
+    """Walk the provider chain once; return (result, attempted, failures, last_error)."""
     budget = _Budget(_MAX_TOTAL_ATTEMPTS, _WALL_CLOCK_BUDGET_SEC)
     tried: set[str] = set()          # exclusion set; cleared on breaker reset
     attempted: list[str] = []        # append-only record, for reporting
@@ -960,25 +1002,34 @@ async def failover_chat_completion(
         if budget.spent():
             failures = list(dict.fromkeys([*failures, budget.reason()]))
             break
-        provider = _select_provider(fm, budget, tried, requested_model)
+        provider = _next_provider(fm, budget, tried, requested_model)
         if provider is None:
-            provider = _recover_all_unhealthy(fm, tried, requested_model)
-            if provider is None:
-                # Falls through to the single terminal error below, not two.
-                log.warning("brain_failover: no healthy providers left")
-                break
+            # Falls through to the single terminal error, not two.
+            break
 
         tried.add(provider.id)
         attempted = list(dict.fromkeys([*attempted, provider.id]))
         result, provider_error = await _try_provider(
-            provider, payload, fm, attempts, timeout_sec, budget
+            provider, payload, fm, attempts, timeout_sec, budget, role=role
         )
         if result is not None:
             _log_recovery(result, failures)
-            return result
+            return result, attempted, failures, last_error
         if provider_error:
             failures = list(dict.fromkeys([*failures, provider_error]))
             last_error = provider_error
 
-    _log_exhaustion(attempted, failures)
-    raise BrainFailoverExhausted(last_error, set(attempted), failures)
+    return None, attempted, failures, last_error
+
+
+def _next_provider(
+    fm: Any, budget: _Budget, tried: set[str], requested_model: str
+) -> Any:
+    """Next healthy provider to try, recovering the pool if needed; None when empty."""
+    provider = _select_provider(fm, budget, tried, requested_model)
+    if provider is not None:
+        return provider
+    provider = _recover_all_unhealthy(fm, tried, requested_model)
+    if provider is None:
+        log.warning("brain_failover: no healthy providers left")
+    return provider

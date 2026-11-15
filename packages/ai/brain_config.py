@@ -30,7 +30,7 @@ import os
 import time
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 log = logging.getLogger("brain_config_store")
 
@@ -371,6 +371,9 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         # deepseek-ai/deepseek-v4.1-flash removed 2026-09-27: never probed, and
         # every production attempt timed out. Mirrors config/models.yaml.
         # nemotron-3-super removed 2026-10-30: HTTP 404 on NIM (issue #1813).
+        # Added 2026-11-14: HTTP 200 + tool_calls on catalogue-probe run
+        # 43619238209. Mirrors config/models.yaml.
+        "mistralai/mistral-large-4-1t-a52b",
     ],
     # tokenin.my.id — free frontier gateway. Ordered highest-RPM first so the
     # rotation prefers the models that 429 least; opus is last so it stays a
@@ -826,6 +829,50 @@ def provider_key_present(provider: str) -> bool:
 # ── Pydantic model ──────────────────────────────────────────────────────────
 
 
+# ── Per-role reasoning-effort tiers (#1892 item 1) ─────────────────────────
+#
+# ``OLLAMA_REASONING_EFFORT`` pins one level for every Ollama request. Planning and
+# judging benefit from more thinking than a tool-call execution step, so effort is
+# now per role. Precedence, highest first:
+#
+#   BrainConfig.reasoning_effort_by_role[role]  →  OLLAMA_REASONING_EFFORT  →  this map
+#
+# A caller that already set ``reasoning_effort`` on the payload still wins over all
+# three (``with_ollama_reasoning_effort`` never overwrites it), and the whole feature
+# is behind ``ROLE_REASONING_EFFORT_ENABLED`` so an operator can return to one
+# global pin without a deploy.
+ROLE_REASONING_EFFORTS: dict[str, str] = {
+    "planner": "high",
+    "executor": "medium",
+    "verifier": "medium",
+    "judge": "high",
+}
+
+REASONING_EFFORT_LEVELS: tuple[str, ...] = ("low", "medium", "high")
+
+
+def validate_reasoning_effort_by_role(value: dict[str, str]) -> dict[str, str]:
+    """Reject an unknown role or level instead of silently ignoring it.
+
+    Shared by ``BrainConfig`` and ``BrainConfigPatch``. A typo (``"plannner"``)
+    that were dropped would look like the feature was on while the role kept the
+    previous tier, so it fails the save instead. A bad value that reached the
+    store would also be rejected on the *next* read, sending the operator's whole
+    brain config back to defaults — failing the write is the cheaper failure.
+    """
+    for role, level in value.items():
+        if role not in ROLE_REASONING_EFFORTS:
+            raise ValueError(
+                f"unknown role {role!r}; expected one of {tuple(ROLE_REASONING_EFFORTS)}"
+            )
+        if level not in REASONING_EFFORT_LEVELS:
+            raise ValueError(
+                f"invalid effort {level!r} for {role!r}; "
+                f"expected one of {REASONING_EFFORT_LEVELS}"
+            )
+    return dict(value)
+
+
 class BrainConfig(BaseModel):
     """The agency's active brain — provider + per-role models.
 
@@ -842,6 +889,10 @@ class BrainConfig(BaseModel):
     executor_model: str = Field(default=SAFE_DEFAULT_MODEL, min_length=1, max_length=200)
     verifier_model: str = Field(default=SAFE_DEFAULT_MODEL, min_length=1, max_length=200)
     judge_model: str = Field(default=SAFE_DEFAULT_MODEL, min_length=1, max_length=200)
+    # Per-role reasoning_effort overrides, e.g. {"planner": "medium"}. Empty → the
+    # built-in tier map above. An explicit value beats both the map and
+    # OLLAMA_REASONING_EFFORT. Ollama-only: other providers never receive the field.
+    reasoning_effort_by_role: dict[str, str] = Field(default_factory=dict)
     max_tokens: int = Field(default=4096, ge=256, le=32768)
     # Per-request LLM timeout for agent-loop calls (planner/executor/verifier),
     # in seconds. UI-configurable so an operator who picks a slower/larger model
@@ -857,6 +908,11 @@ class BrainConfig(BaseModel):
     ollama_base_url: str = Field(default="", max_length=300)
     updated_at: str = Field(default="")
     updated_by: str = Field(default="")
+
+    @field_validator("reasoning_effort_by_role")
+    @classmethod
+    def _validate_effort_by_role(cls, value: dict[str, str]) -> dict[str, str]:
+        return validate_reasoning_effort_by_role(value)
 
 
 def default_brain_config() -> BrainConfig:
@@ -923,11 +979,25 @@ class BrainConfigPatch(BaseModel):
     executor_model: str | None = Field(default=None, min_length=1, max_length=200)
     verifier_model: str | None = Field(default=None, min_length=1, max_length=200)
     judge_model: str | None = Field(default=None, min_length=1, max_length=200)
+    reasoning_effort_by_role: dict[str, str] | None = None
     max_tokens: int | None = Field(default=None, ge=256, le=32768)
     request_timeout_sec: int | None = Field(default=None, ge=15, le=600)
     # Empty string is allowed (clears the override → fall back to env/localhost);
     # min_length is therefore 0, unlike the model fields.
     ollama_base_url: str | None = Field(default=None, max_length=300)
+
+    @field_validator("reasoning_effort_by_role")
+    @classmethod
+    def _validate_effort_by_role(cls, value: dict[str, str] | None) -> dict[str, str] | None:
+        """Validate at PATCH time, not only on the next read.
+
+        ``set_brain_config`` merges with ``model_copy(update=...)``, which does
+        not re-run validators; without this the invalid mapping would be
+        persisted and the next read would reject the whole document.
+        """
+        if value is None:
+            return None
+        return validate_reasoning_effort_by_role(value)
 
 
 # ── Store ───────────────────────────────────────────────────────────────────
@@ -1010,6 +1080,11 @@ class BrainConfigStore:
                     if v is not None
                 }
             )
+            # Re-validate the merged document: model_copy() does not run
+            # validators, so this is the backstop that stops an unloadable
+            # config from reaching the store (a bad doc would be rejected on
+            # the next read and reset the operator's whole brain to defaults).
+            merged = BrainConfig.model_validate(merged.model_dump())
             # Stamp audit fields.
             merged.updated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             merged.updated_by = (actor or "unknown")[:200]
@@ -1329,6 +1404,62 @@ def resolve_role_model_sync(role: str, requested: str | None = None) -> str:
 
     # 4. Safe default.
     return SAFE_DEFAULT_MODEL
+
+
+def resolve_role_reasoning_effort(role: str | None) -> str:
+    """``reasoning_effort`` for *role*, or ``""`` to leave the payload untouched.
+
+    Precedence (highest first):
+      1. ``BrainConfig.reasoning_effort_by_role[role]`` — an explicit operator choice
+      2. ``OLLAMA_REASONING_EFFORT`` — the existing global pin, still honoured
+      3. ``ROLE_REASONING_EFFORTS`` — planner/judge high, executor/verifier medium
+
+    Returns ``""`` when the feature is switched off, when *role* is unknown/None, or
+    on any read failure. Never raises: effort tuning must not be able to break a
+    model call, and ``""`` is the documented no-op ("don't send the field").
+    """
+    if not role:
+        return ""
+
+    def _global_pin() -> str:
+        """The operator's global ``OLLAMA_REASONING_EFFORT``, or ``""``."""
+        try:
+            from packages.config import settings
+
+            return settings.ollama_reasoning_effort_value
+        except Exception:  # noqa: BLE001 — defensive
+            return ""
+
+    enabled = True
+    try:
+        from packages.config import settings
+
+        enabled = settings.role_reasoning_effort_enabled
+    except Exception:  # noqa: BLE001 — defensive; config load must not break calls
+        pass
+    if not enabled:
+        # Switched off means exactly the pre-tier behaviour: the global pin, or
+        # nothing. Returning "" here would silently drop an operator's pin too.
+        return _global_pin()
+
+    # 1. Explicit per-role override from the cached BrainConfig (best-effort).
+    try:
+        if _store is not None and _store._cache is not None:
+            if (time.monotonic() - _store._cache_at) < _CACHE_TTL_SECONDS:
+                overrides = getattr(_store._cache, "reasoning_effort_by_role", None) or {}
+                chosen = str(overrides.get(role, "") or "").strip()
+                if chosen in REASONING_EFFORT_LEVELS:
+                    return chosen
+    except Exception:  # noqa: BLE001 — defensive
+        pass
+
+    # 2. The operator's global pin beats the built-in map, per role.
+    global_effort = _global_pin()
+    if global_effort:
+        return global_effort
+
+    # 3. Built-in tier map.
+    return ROLE_REASONING_EFFORTS.get(role, "")
 
 
 _DEFAULT_AGENT_MAX_TOKENS = 4096

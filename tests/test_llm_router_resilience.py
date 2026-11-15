@@ -34,9 +34,18 @@ def tracker() -> HealthTracker:
 
 # ── Error classification ────────────────────────────────────────────────────
 
+def test_insufficient_quota_429_is_a_funds_refusal_not_a_rate_limit():
+    """OpenAI's 429 `insufficient_quota` means no credit: it never clears by
+    waiting, so it is tagged for quarantine rather than key-cooled (2026-11-14)."""
+    error = classify_error(429, "insufficient_quota", provider_id="demo")
+    assert isinstance(error, PermanentError)
+    assert getattr(error, "funds", False) is True
+
+
 @pytest.mark.parametrize("status,body,expected_type,expected_scope", [
     (429, "rate limit exceeded",        TransientError, "key"),
-    (429, "insufficient_quota",         TransientError, "key"),
+    (429, "Rate limit reached for model on tokens per day (TPD). "
+          "Upgrade at console.groq.com/settings/billing", TransientError, "key"),
     (404, "model_not_found: gone",      TransientError, "model"),
     (400, "unknown model xyz",          TransientError, "model"),
     (410, "endpoint removed",           TransientError, "model"),

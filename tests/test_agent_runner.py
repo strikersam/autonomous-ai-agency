@@ -25,7 +25,7 @@ def test_agent_runner_applies_a_change_with_mocked_model(tmp_path: Path):
         ]
     )
 
-    async def fake_chat_text(model: str, messages: list[dict[str, str]]) -> str:
+    async def fake_chat_text(model: str, messages: list[dict[str, str]], role=None) -> str:
         return next(responses)
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
@@ -68,7 +68,7 @@ def test_agent_runner_logs_tool_events_for_live_streaming(tmp_path: Path):
         ]
     )
 
-    async def fake_chat_text(model: str, messages: list[dict[str, str]]) -> str:
+    async def fake_chat_text(model: str, messages: list[dict[str, str]], role=None) -> str:
         return next(responses)
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
@@ -110,7 +110,7 @@ def test_agent_runner_reports_format_failure_with_mocked_model(tmp_path: Path):
         ]
     )
 
-    async def fake_chat_text(model: str, messages: list[dict[str, str]]) -> str:
+    async def fake_chat_text(model: str, messages: list[dict[str, str]], role=None) -> str:
         return next(responses)
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
@@ -147,7 +147,7 @@ def test_agent_runner_cleans_language_prefix_from_generated_file(tmp_path: Path)
         ]
     )
 
-    async def fake_chat_text(model: str, messages: list[dict[str, str]]) -> str:
+    async def fake_chat_text(model: str, messages: list[dict[str, str]], role=None) -> str:
         return next(responses)
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
@@ -182,7 +182,7 @@ def test_agent_runner_fails_incomplete_shared_logger_change(tmp_path: Path):
         ]
     )
 
-    async def fake_chat_text(model: str, messages: list[dict[str, str]]) -> str:
+    async def fake_chat_text(model: str, messages: list[dict[str, str]], role=None) -> str:
         return next(responses)
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
@@ -223,7 +223,7 @@ def test_agent_runner_fails_unsafe_jwt_change(tmp_path: Path):
         ]
     )
 
-    async def fake_chat_text(model: str, messages: list[dict[str, str]]) -> str:
+    async def fake_chat_text(model: str, messages: list[dict[str, str]], role=None) -> str:
         return next(responses)
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
@@ -249,7 +249,7 @@ def test_agent_runner_surfaces_structured_planner_failure(tmp_path: Path):
     runner = AgentRunner(ollama_base="http://localhost:11434", workspace_root=root)
     responses = iter(["not-json"])
 
-    async def fake_chat_text(model: str, messages: list[dict[str, str]]) -> str:
+    async def fake_chat_text(model: str, messages: list[dict[str, str]], role=None) -> str:
         return next(responses)
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
@@ -285,7 +285,7 @@ def test_chat_text_uses_resolved_max_tokens_and_timeout(tmp_path: Path, monkeypa
 
     captured = {}
 
-    async def fake_failover(payload, *, timeout_sec):
+    async def fake_failover(payload, *, timeout_sec, role=None):
         captured["payload"] = payload
         captured["timeout_sec"] = timeout_sec
         return SimpleNamespace(
@@ -323,7 +323,7 @@ def test_planning_timeout_names_its_cause(tmp_path: Path):
     root.mkdir()
     runner = AgentRunner(ollama_base="http://localhost:11434", workspace_root=root)
 
-    async def timeout_chat_text(model: str, messages: list[dict[str, str]]) -> str:
+    async def timeout_chat_text(model: str, messages: list[dict[str, str]], role=None) -> str:
         raise _asyncio.TimeoutError()
 
     runner._chat_text = timeout_chat_text  # type: ignore[method-assign]
@@ -358,7 +358,7 @@ def test_agent_runner_surfaces_structured_verifier_failure(tmp_path: Path):
         ]
     )
 
-    async def fake_chat_text(model: str, messages: list[dict[str, str]]) -> str:
+    async def fake_chat_text(model: str, messages: list[dict[str, str]], role=None) -> str:
         return next(responses)
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
@@ -397,7 +397,7 @@ def test_agent_runner_blocks_when_judge_output_invalid(tmp_path: Path):
         ]
     )
 
-    async def fake_chat_text(model: str, messages: list[dict[str, str]]) -> str:
+    async def fake_chat_text(model: str, messages: list[dict[str, str]], role=None) -> str:
         return next(responses)
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
@@ -572,7 +572,7 @@ def test_runner_succeeds_when_model_returns_slices_schema(tmp_path: Path):
         ]
     )
 
-    async def fake_chat_text(model: str, messages: list) -> str:
+    async def fake_chat_text(model: str, messages: list, role=None) -> str:
         return next(responses)
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
@@ -618,7 +618,7 @@ def test_spawn_subagent_delegates_to_child_runner(tmp_path: Path):
         "Subagent completed successfully.",
     ])
 
-    async def fake_chat_text(self_arg: object, model: str, messages: list) -> str:
+    async def fake_chat_text(self_arg: object, model: str, messages: list, role=None) -> str:
         return next(responses)
 
     # Patch at class level so child AgentRunner instances also use the mock
@@ -717,7 +717,7 @@ def test_auto_parallelize_triggers_for_independent_steps(tmp_path: Path):
             "report": "Ran in parallel",
         }
 
-    async def fake_chat_text(model: str, messages: list) -> str:
+    async def fake_chat_text(model: str, messages: list, role=None) -> str:
         return plan_json
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
@@ -927,7 +927,7 @@ def test_agent_runner_fails_closed_when_spec_approval_required_but_persist_broke
     runner = AgentRunner(ollama_base="http://localhost:11434", workspace_root=root)
     responses = iter(['{"goal":"Do work","steps":[]}'])
 
-    async def fake_chat_text(model: str, messages: list[dict[str, str]]) -> str:
+    async def fake_chat_text(model: str, messages: list[dict[str, str]], role=None) -> str:
         return next(responses)
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
@@ -960,7 +960,7 @@ def test_agent_runner_proceeds_normally_when_approval_not_required_and_persist_b
         '{"goal":"Do work","steps":[]}',
     ])
 
-    async def fake_chat_text(model: str, messages: list[dict[str, str]]) -> str:
+    async def fake_chat_text(model: str, messages: list[dict[str, str]], role=None) -> str:
         return next(responses)
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]
@@ -1028,7 +1028,7 @@ def test_chat_json_error_carries_attempt_count_and_bounded_snippet(tmp_path: Pat
 
     last_raw = "sorry, here is some prose and definitely not json " * 20  # >200 chars
 
-    async def fake_chat_text(model: str, messages: list[dict[str, str]]) -> str:
+    async def fake_chat_text(model: str, messages: list[dict[str, str]], role=None) -> str:
         return last_raw
 
     runner._chat_text = fake_chat_text  # type: ignore[method-assign]

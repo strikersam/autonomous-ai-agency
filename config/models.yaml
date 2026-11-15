@@ -98,6 +98,9 @@ providers:
       - openai/gpt-oss-20b
       # deepseek-ai/deepseek-v4.1-flash removed 2026-09-27: never probed, and
       # every production attempt timed out (5 of 5). Re-add after a live probe.
+      # Added 2026-11-14: HTTP 200 + tool_calls on catalogue-probe run
+      # 43619238209. deepseek-ai/deepseek-v4-pro answered 410 on the same run.
+      - mistralai/mistral-large-4-1t-a52b
 
   # tokenin.my.id — free OpenAI-compatible gateway fronting a rotating pool of
   # frontier models (GPT-5.6, Claude Opus 4.8, Gemini 3.5 Flash, GLM 5.3,
