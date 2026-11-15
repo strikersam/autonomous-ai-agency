@@ -27,6 +27,7 @@ log = logging.getLogger("qwen-proxy")
 
 LEASE_COLLECTION = "task_run_leases"
 _CAS_ATTEMPTS = 3
+_FIRST_TOKEN = 1  # fencing counter start, not a credential
 
 
 def run_lease_key(run_id: str) -> str:
@@ -73,8 +74,8 @@ class RunLease:
         now = time.time() if now is None else now
         fields = {"holder": holder, "run_id": run_id, "expires_at": now + ttl_s, "acquired_at": now}
         for _ in range(_CAS_ATTEMPTS):
-            if await self._table.insert_if_absent(key, {**fields, "token": 1}):
-                return 1
+            if await self._table.insert_if_absent(key, {**fields, "token": _FIRST_TOKEN}):
+                return _FIRST_TOKEN
             current = await self._table.get(key)
             if current is None:
                 continue

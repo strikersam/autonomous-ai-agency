@@ -824,7 +824,12 @@ _FIRST_CONNECT_BACKOFF_S = 0.05
 
 
 def _is_locked(exc: BaseException) -> bool:
-    return isinstance(exc, sqlite3.OperationalError) and "locked" in str(exc).lower()
+    if not isinstance(exc, sqlite3.OperationalError):
+        return False
+    # "schema has changed" is the same race seen from the other side: another
+    # process created the tables between this one's prepare and step.
+    text = str(exc).lower()
+    return "locked" in text or "schema has changed" in text
 
 
 class SQLiteStore:
@@ -875,7 +880,7 @@ class SQLiteStore:
                                     "retrying (%d/%d)", self._db_path, attempt + 1,
                                     _FIRST_CONNECT_ATTEMPTS)
                         await asyncio.sleep(_FIRST_CONNECT_BACKOFF_S * (2 ** attempt)
-                                            * (1 + random.random()))
+                                            * (1 + random.random()))  # nosec B311 - backoff jitter
                 self._initialized = True
         return self._conn
 

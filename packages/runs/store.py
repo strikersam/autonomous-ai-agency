@@ -148,7 +148,8 @@ class RunStore:
             "from": run.state.value, "to": to_state.value, "reason": reason,
         }, actor=actor)
         updated = await self.get(run_id)
-        assert updated is not None
+        if updated is None:
+            raise KeyError(run_id)
         return updated
 
     async def append_event(self, run_id: str, kind: str, data: dict[str, Any] | None = None,

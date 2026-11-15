@@ -171,7 +171,8 @@ async def _open_run(binding: TaskRunBinding, store: RunStore, task: Any, actor: 
             task_id=task.task_id, company_id=task.company_id, agent_id=task.agent_id,
             owner_id=task.owner_id, initiated_by=actor, lease_token=binding.token,
         ))
-    assert run is not None
+    if run is None:
+        raise KeyError(binding.run_id)
     fields: dict[str, Any] = {"lease_token": binding.token}
     # A run the recovery tick queued already counted this attempt.
     if resumed and run.state is not RunState.QUEUED:
