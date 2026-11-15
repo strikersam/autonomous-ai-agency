@@ -65,3 +65,54 @@ def test_the_improve_directive_is_generated_for_a_company_with_repo_ids(monkeypa
     improve = [d for d in directives if d.role == AgentRole.DEV]
     assert improve, "the sixth-cycle Improve directive must not be lost to an exception"
     assert "https://github.com/acme/app" in improve[0].instruction
+
+
+# ── A cycle past its time cap is cancelled and logged readably ───────────────
+
+def test_a_cycle_past_the_cap_is_cancelled_and_logged_with_a_message(monkeypatch, caplog) -> None:
+    """2026-11-15 13:16: the timeout error had an empty message ('Agency tick error: ')
+    and the cycle kept running on the main loop while the next tick started another."""
+    import logging
+    import threading
+
+    import agent.agency as agency_mod
+
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+    state = {"cancelled": threading.Event()}
+
+    async def slow_cycle():
+        try:
+            await asyncio.sleep(30)
+        except asyncio.CancelledError:
+            state["cancelled"].set()
+            raise
+
+    monkeypatch.setattr(agency_mod, "_CYCLE_TIMEOUT_S", 0.3)
+    agency = Agency.__new__(Agency)
+    agency._main_loop = loop
+    agency._run_cycle_as_ceo = slow_cycle
+    try:
+        with caplog.at_level(logging.ERROR, logger="qwen-proxy"):
+            agency._run_one_cycle()
+        assert state["cancelled"].wait(2), "the timed-out cycle must be cancelled, not left running"
+        assert any("exceeded" in r.getMessage() and "cancelled" in r.getMessage() for r in caplog.records)
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(2)
+
+
+def test_other_cycle_errors_log_the_exception_type(caplog) -> None:
+    import logging
+
+    agency = Agency.__new__(Agency)
+    agency._main_loop = None
+
+    async def boom():
+        raise KeyError("")
+
+    agency._run_cycle_as_ceo = boom
+    with caplog.at_level(logging.ERROR, logger="qwen-proxy"):
+        agency._run_one_cycle()
+    assert any("KeyError" in r.getMessage() for r in caplog.records), "an empty message must still name the error"
