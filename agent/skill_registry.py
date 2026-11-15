@@ -631,6 +631,7 @@ class SkillRegistry:
         name = parts[-2] if len(parts) >= 2 else parts[0]
         categories = parts[:-2]  # everything above the skill dir
         skill_id = f"github:{reg['id']}:{name}"
+        tags, tech_rel, wf_rel = await asyncio.to_thread(_analyse_text, raw)
 
         return RegistrySkill(
             skill_id=skill_id,
@@ -639,9 +640,9 @@ class SkillRegistry:
             source=f"github:{reg['id']}",
             registry_id=reg["id"],
             url=f"https://github.com/{owner}/{repo}/blob/{branch}/{path}",
-            tags=sorted(set(_extract_tags(raw)) | set(categories)),
-            tech_relevance=_extract_tech_relevance(raw),
-            workflow_relevance=_extract_workflow_relevance(raw),
+            tags=sorted(set(tags) | set(categories)),
+            tech_relevance=tech_rel,
+            workflow_relevance=wf_rel,
             raw_content=raw[:4000],
             fetched_at=time.time(),
         )
@@ -685,6 +686,7 @@ class SkillRegistry:
                 title = s[2:].strip()[:80]
                 break
 
+        tags, tech_rel, wf_rel = await asyncio.to_thread(_analyse_text, raw)
         return RegistrySkill(
             skill_id=skill_id,
             name=title,
@@ -692,9 +694,9 @@ class SkillRegistry:
             source=f"github:{reg['id']}",
             registry_id=reg["id"],
             url=entry.get("html_url"),
-            tags=_extract_tags(raw),
-            tech_relevance=_extract_tech_relevance(raw),
-            workflow_relevance=_extract_workflow_relevance(raw),
+            tags=tags,
+            tech_relevance=tech_rel,
+            workflow_relevance=wf_rel,
             raw_content=raw[:4000],
             fetched_at=time.time(),
         )
@@ -726,6 +728,7 @@ class SkillRegistry:
 
         name = entry["name"]
         skill_id = f"github:{reg['id']}:{name}"
+        tags, tech_rel, wf_rel = await asyncio.to_thread(_analyse_text, raw)
         return RegistrySkill(
             skill_id=skill_id,
             name=_fmt_name(name),
@@ -733,9 +736,9 @@ class SkillRegistry:
             source=f"github:{reg['id']}",
             registry_id=reg["id"],
             url=entry.get("html_url"),
-            tags=_extract_tags(raw),
-            tech_relevance=_extract_tech_relevance(raw),
-            workflow_relevance=_extract_workflow_relevance(raw),
+            tags=tags,
+            tech_relevance=tech_rel,
+            workflow_relevance=wf_rel,
             raw_content=raw[:4000],
             fetched_at=time.time(),
         )
@@ -771,6 +774,17 @@ def _extract_tech_relevance(content: str) -> list[str]:
 
     # Deduplicate and cap at 12
     return list(dict.fromkeys(found))[:12]
+
+
+def _analyse_text(raw: str) -> tuple[list[str], list[str], list[str]]:
+    """Tags, technology relevance and workflow relevance of one skill file.
+
+    The technology scan runs hundreds of compiled regexes over the text. It is CPU-bound,
+    and doing it inline in the async fetchers held the event loop for 2.2 s per batch on
+    Render (``_extract_tech_relevance`` named by the stall watchdog), so callers run this
+    in a worker thread.
+    """
+    return _extract_tags(raw), _extract_tech_relevance(raw), _extract_workflow_relevance(raw)
 
 
 def _extract_workflow_relevance(content: str) -> list[str]:

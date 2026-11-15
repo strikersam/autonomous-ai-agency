@@ -199,6 +199,10 @@ async def discover_models(provider: Any) -> list[str] | None:
     caller must not treat it as evidence of anything, because a network blip and
     an empty entitlement would otherwise look identical.
     """
+    from packages.llm.config import bedrock_blocked
+
+    if bedrock_blocked(provider):
+        return None  # unknown, and never a call to a Bedrock endpoint
     entry = _fresh_entry(provider.id)
     if entry is not None:
         return entry[1]

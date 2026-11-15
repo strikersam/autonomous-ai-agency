@@ -16,6 +16,12 @@ import pytest
 from packages.ai.router import ProviderRouter, provider_access_tier
 
 
+@pytest.fixture(autouse=True)
+def _bedrock_kill_switch_off(monkeypatch):
+    """These tests cover Bedrock once the operator has turned the kill switch off."""
+    monkeypatch.setenv("BEDROCK_DISABLED", "false")
+
+
 def _url_has_host(url: str, *hosts: str) -> bool:
     """Check if url hostname matches expected domain (exact or subdomain)."""
     try:

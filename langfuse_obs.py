@@ -6,7 +6,9 @@ import json
 import logging
 import os
 import secrets
+import threading
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any
 
@@ -183,6 +185,42 @@ def _emit_langfuse_http_sync(
 
 # Backward-compatible alias
 _emit_langfuse_http = _emit_langfuse_http_sync
+
+# Agency observations are fire-and-forget telemetry emitted from coroutines
+# (scheduler_tick every 20 s, the CEO cycle, task execution). The blocking POSTs ran on
+# the event loop and held it for 2-4 s per call on Render, failing health checks. They
+# now run on a small pool; when it is saturated an observation is dropped rather than
+# queued without bound or blocking the caller.
+_EMIT_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="langfuse-emit")
+_EMIT_QUEUE_MAX = 100
+_emit_pending = 0
+_emit_lock = threading.Lock()
+
+
+def _emit_in_background(**kwargs: Any) -> None:
+    """Run ``_emit_langfuse_http(**kwargs)`` off the caller's thread; never raises."""
+    global _emit_pending
+    with _emit_lock:
+        if _emit_pending >= _EMIT_QUEUE_MAX:
+            log.debug("Langfuse emit queue full; dropping an agency observation")
+            return
+        _emit_pending += 1
+
+    def run() -> None:
+        global _emit_pending
+        try:
+            _emit_langfuse_http(**kwargs)
+        except Exception as exc:  # noqa: BLE001 - telemetry must never raise
+            log.debug("Langfuse agency observation emit failed (non-fatal): %s", exc)
+        finally:
+            with _emit_lock:
+                _emit_pending -= 1
+
+    try:
+        _EMIT_POOL.submit(run)
+    except RuntimeError:  # interpreter is shutting down
+        with _emit_lock:
+            _emit_pending -= 1
 
 
 def _emit_sdk(
@@ -465,7 +503,7 @@ def emit_agency_observation(
     # Use the HTTP emitter directly (no LLM token counting needed for
     # agency operations — they're not chat completions)
     try:
-        _emit_langfuse_http(
+        _emit_in_background(
             email=f"{actor}@agency.internal",
             department=operation,
             key_id=None,

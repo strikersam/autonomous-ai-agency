@@ -125,6 +125,7 @@ def test_bedrock_sdk_truncation_is_not_swallowed(tmp_path: Path, monkeypatch) ->
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test-access")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test-secret")
+    monkeypatch.setenv("BEDROCK_DISABLED", "false")  # operator opted into Bedrock
     runner = _sdk_runner(tmp_path, monkeypatch)
     with pytest.raises(TruncatedResponseError):
         asyncio.run(runner._chat_text("claude-opus-5-5", [{"role": "user", "content": "plan"}]))

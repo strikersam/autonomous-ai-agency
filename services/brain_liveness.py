@@ -146,6 +146,14 @@ async def probe_model_liveness(
     else:
         resolved_base = _PROVIDER_URLS[provider_norm]
 
+    from packages.ai.brain import bedrock_disabled, is_bedrock_endpoint
+
+    if bedrock_disabled() and is_bedrock_endpoint(provider_norm, resolved_base):
+        return ProbeResult(
+            provider=provider, model=model, live=False,
+            reason="Bedrock is disabled (BEDROCK_DISABLED)",
+        )
+
     # Get the API key
     if provider_norm in PROVIDER_KEY_ENV:
         api_key = provider_api_key(provider_norm)

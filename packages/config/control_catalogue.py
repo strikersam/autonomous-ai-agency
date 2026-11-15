@@ -583,6 +583,17 @@ _BRAIN_ROUTING: tuple[ControlSpec, ...] = (
         requires=("ANTHROPIC_API_KEY",),
     ),
     _toggle(
+        "BEDROCK_DISABLED",
+        "Bedrock kill switch",
+        "brain_routing",
+        "true",
+        "Block every call to Amazon Bedrock, whatever the other switches or AWS "
+        "credentials say. On by default because Bedrock bills the AWS account "
+        "directly. Turn it off only to use Bedrock on purpose.",
+        live=True,
+        risk=RISK_HIGH,
+    ),
+    _toggle(
         "BEDROCK_BRAIN_ENABLED",
         "Bedrock brain (AWS credit)",
         "brain_routing",

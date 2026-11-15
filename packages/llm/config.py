@@ -233,6 +233,15 @@ class BudgetConfig:
     enforce: bool = False               # True = raise BudgetExceeded at 100%
 
 
+def bedrock_blocked(provider: Any) -> bool:
+    """True when ``provider`` is Bedrock-hosted and the kill switch is on."""
+    from packages.ai.brain import bedrock_disabled, is_bedrock_endpoint
+
+    return bedrock_disabled() and is_bedrock_endpoint(
+        getattr(provider, "id", ""), getattr(provider, "base_url", ""), getattr(provider, "kind", "")
+    )
+
+
 @dataclass
 class LLMConfig:
     """The fully-resolved routing configuration."""
@@ -246,7 +255,9 @@ class LLMConfig:
     source_dir: str = ""
 
     def enabled_providers(self) -> list[ProviderConfig]:
-        return [p for p in self.providers.values() if p.enabled]
+        return [
+            p for p in self.providers.values() if p.enabled and not bedrock_blocked(p)
+        ]
 
     def models_for(self, provider_id: str) -> list[ModelConfig]:
         # A model whose primary provider is `provider_id` is returned as-is; one

@@ -96,6 +96,10 @@ def _build_llm(cfg: LiveKitConfig) -> Any:
     """SAM's brain: any OpenAI-compatible endpoint (NVIDIA NIM / Hermes / proxy)."""
     from livekit.plugins import openai
 
+    from packages.ai.brain import bedrock_disabled, is_bedrock_endpoint
+
+    if bedrock_disabled() and is_bedrock_endpoint("", cfg.llm_base_url, ""):
+        raise RuntimeError("Bedrock is disabled (BEDROCK_DISABLED)")
     if not cfg.llm_api_key:
         log.warning(
             "SAM_LLM_API_KEY/NVIDIA_API_KEY not set — LLM calls to %s may fail",
