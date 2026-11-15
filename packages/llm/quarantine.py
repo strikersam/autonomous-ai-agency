@@ -59,19 +59,23 @@ _STRONG_FUNDS_RE = re.compile(
 _ERROR_FIELDS = ("message", "code", "type", "status", "detail", "error_description")
 
 
-def _provider_message(body: str) -> str:
+def _provider_message(body: str) -> str | None:
     """The provider's own error text, without any request content it echoed.
 
-    A JSON error body is reduced to its message/code/type fields, so an echoed
-    ``"input": "payment required"`` is not read as a refusal. A body that is not
-    JSON is the provider's own plain-text message and is used whole.
+    The whole body is parsed first (a long error that echoes the request is
+    still valid JSON; cutting it first would break it), and only then are the
+    message/code/type fields extracted, so an echoed ``"input": "payment
+    required"`` is not read as a refusal. A body that looks like JSON but does
+    not parse yields ``None``: its text is request content we cannot separate,
+    so it is not scanned. Any other body is the provider's plain-text message.
     """
+    stripped = body.lstrip()
     try:
-        data = json.loads(body)
+        data = json.loads(stripped)
     except (ValueError, TypeError):
-        return body
+        return None if stripped[:1] in ("{", "[") else body
     if not isinstance(data, dict):
-        return body
+        return None if isinstance(data, list) else body
     parts: list[str] = []
     for container in (data, data.get("error")):
         if isinstance(container, str):
@@ -93,7 +97,10 @@ def is_funds_refusal(status: int | None, body: str = "") -> bool:
         return True
     if status not in _FUNDS_STATUSES:
         return False
-    text = _provider_message((body or "")[:4000])[:800].lower()
+    message = _provider_message(body or "")
+    if message is None:
+        return False
+    text = message[:800].lower()
     if "insufficient_quota" in text:
         return True
     if any(signal in text for signal in _RESETTING_SIGNALS):

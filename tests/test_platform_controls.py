@@ -649,10 +649,12 @@ def test_harness_spec_controls_are_live_and_default_on(clean_overrides, tmp_path
     assert len(spec_mod.refine(tmp_path, lessons=lesson)) == 1
 
 
-def test_provider_funds_quarantine_override_takes_effect(clean_overrides):
+def test_provider_funds_quarantine_override_takes_effect(clean_overrides, monkeypatch):
     """PROVIDER_FUNDS_QUARANTINE_HOURS is read at call time, so an override lands live."""
     from packages.llm import quarantine
 
+    # Pin the startup value: the real one may be blank, invalid or out of range.
+    monkeypatch.setitem(control_overrides._BASE_ENV, "PROVIDER_FUNDS_QUARANTINE_HOURS", "12")
     control_overrides.apply_overrides({"PROVIDER_FUNDS_QUARANTINE_HOURS": "6"})
     assert quarantine.quarantine_seconds() == 6 * 3600.0
 
@@ -660,5 +662,4 @@ def test_provider_funds_quarantine_override_takes_effect(clean_overrides):
     assert quarantine.quarantine_seconds() == 0.0
 
     control_overrides.apply_overrides({})
-    base = control_overrides._BASE_ENV.get("PROVIDER_FUNDS_QUARANTINE_HOURS")
-    assert quarantine.quarantine_seconds() == (24 if base is None else float(base)) * 3600.0
+    assert quarantine.quarantine_seconds() == 12 * 3600.0
