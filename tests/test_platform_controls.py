@@ -649,9 +649,6 @@ def test_harness_spec_controls_are_live_and_default_on(clean_overrides, tmp_path
     assert len(spec_mod.refine(tmp_path, lessons=lesson)) == 1
 
 
-<<<<<<< HEAD
-def test_provider_funds_quarantine_override_takes_effect(clean_overrides, monkeypatch):
-=======
 def test_durable_run_controls_are_live_and_overrides_take_effect(clean_overrides):
     from packages.config import runs_settings
     from packages.runs import operations
@@ -695,8 +692,7 @@ def test_phase2_run_recovery_controls_are_live_and_overrides_take_effect(clean_o
             runs_settings.recovery_tick_s()) == (5, 0, 60)
     with pytest.raises(ValueError):
         coerce("RUNS_MAX_ATTEMPTS", "0")
-def test_provider_funds_quarantine_override_takes_effect(clean_overrides):
->>>>>>> origin/master
+def test_provider_funds_quarantine_override_takes_effect(clean_overrides, monkeypatch):
     """PROVIDER_FUNDS_QUARANTINE_HOURS is read at call time, so an override lands live."""
     from packages.llm import quarantine
 
