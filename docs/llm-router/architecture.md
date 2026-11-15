@@ -84,13 +84,21 @@ narrowest scope that explains it:
 | Signal | Scope | Effect | Recovery |
 |--------|-------|--------|----------|
 | 429 (+ `retry-after`) | **key** | that key cools down | other keys keep serving; the request retries the same provider with the next key |
+| 429 on a provider with `rate_limit_scope: model` (NVIDIA NIM) | **model** (`model_rate`) | that model rests for `retry-after` or 30 s | the provider's other models are tried at once, no backoff; a quota-exhausted 429 stays key-scoped |
+| Groq 400 "Tool choice is none, but model called a tool" | **request** | nothing is penalised | the next candidate is tried at once |
 | 404/400 naming a model | **model** | that model is skipped | sibling models on the same provider keep serving |
 | 5xx, timeout, reset | **provider** | breaker counts a failure | half-open probe after the open window |
 | 413 | **provider** | that provider's context window is too small | the next provider is tried; a 200k model accepts what a 32k model refused |
 | 414/422 | none — permanent | stop entirely | fix the request; every provider rejects it identically |
-| 401/403/402, billing-shaped 4xx | none — permanent | provider is **switched off durably** | a human restores the key or the credit |
+| 402, or a 400/403/429 whose body names credit/billing/payment | none — funds | provider is **quarantined** for `PROVIDER_FUNDS_QUARANTINE_HOURS` (default 24 h) | re-tried automatically when the window ends; `0` = switched off until re-enabled |
+| 401/403 (not funds) | none — permanent | provider is **switched off durably** | a human restores the key |
 
-A permanent credential or billing failure is the one case where the router
+A daily free quota that resets is not a funds refusal even when its text names
+billing (Gemini's 429 "exceeded your current quota, please check your plan and
+billing details"; Groq's tokens-per-day 429 linking its billing page): those stay
+key-scoped rate limits. The classifier is `packages/llm/quarantine.py`.
+
+A permanent credential or funds failure is the one case where the router
 writes rather than just reads. `packages/llm/disabled.py` records it through
 `services/brain_failover.py`, the same persisted set the Providers screen shows
 and the legacy path already used — a revoked key is not a bad minute, so a

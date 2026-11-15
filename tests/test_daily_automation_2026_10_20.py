@@ -82,60 +82,21 @@ class TestDeepSeekV4ProCost:
 # ---------------------------------------------------------------------------
 
 class TestDeepSeekV4ProYaml:
-    def test_entry_present(self, llm_models):
+    """Retired 2026-11-14: NVIDIA answered HTTP 410 Gone on catalogue-probe run
+    43619238209, and the id is absent from the account's /v1/models (scheduled
+    run 43598099666). It stayed priority-99 explicit-only until then; a live 410
+    means it must not be routable at all."""
+
+    def test_entry_removed(self, llm_models):
         models = llm_models.get("models", {})
-        assert MODEL_ID in models, f"{MODEL_ID} not found in config/llm/models.yaml"
-
-    def test_provider_nvidia(self, llm_models):
-        entry = llm_models["models"][MODEL_ID]
-        assert entry.get("provider") == "nvidia", (
-            "provider must be 'nvidia' (served via NVIDIA NIM free tier)"
+        assert MODEL_ID not in models, (
+            f"{MODEL_ID} answers 410 on NVIDIA NIM; do not re-add without a live probe"
         )
 
-    def test_supports_tools_false(self, llm_models):
-        """Tool calling must be declared false until a tool_call probe returns green."""
-        entry = llm_models["models"][MODEL_ID]
-        assert entry.get("supports_tools") is False, (
-            "supports_tools must be false (not yet probed on this account)"
-        )
-
-    def test_supports_streaming(self, llm_models):
-        entry = llm_models["models"][MODEL_ID]
-        assert entry.get("supports_streaming") is True
-
-    def test_priority_explicit_only(self, llm_models):
-        """Unprobed NIM model must sit at priority 99 (explicit-only)."""
-        entry = llm_models["models"][MODEL_ID]
-        assert entry.get("priority") == 99, (
-            f"{MODEL_ID} must be at priority 99 (explicit-only) until probed"
-        )
-
-    def test_speed_tier_slow(self, llm_models):
-        """Pro/heavy model; declared slow for routing classification."""
-        entry = llm_models["models"][MODEL_ID]
-        assert entry.get("speed_tier") == "slow"
-
-    def test_display_name_present(self, llm_models):
-        entry = llm_models["models"][MODEL_ID]
-        assert "display_name" in entry and entry["display_name"], (
-            "display_name must be non-empty"
-        )
+    def test_listed_as_retired(self):
+        from tests.test_nvidia_default_model import RETIRED
+        assert MODEL_ID in RETIRED
 
     def test_not_in_recommended_priority_list(self, llm_models):
-        """Unprobed model must not appear in the recommended_priority list."""
         recommended = llm_models.get("recommended_priority", [])
-        assert MODEL_ID not in recommended, (
-            f"{MODEL_ID} should not be in recommended_priority (unprobed)"
-        )
-
-    def test_input_cost_zero(self, llm_models):
-        entry = llm_models["models"][MODEL_ID]
-        # cost_per_1m fields are optional when the cost_tracker carries them;
-        # if present, must be zero (free NIM tier).
-        if "input_cost_per_1m" in entry:
-            assert entry["input_cost_per_1m"] == pytest.approx(0.0)
-
-    def test_output_cost_zero(self, llm_models):
-        entry = llm_models["models"][MODEL_ID]
-        if "output_cost_per_1m" in entry:
-            assert entry["output_cost_per_1m"] == pytest.approx(0.0)
+        assert MODEL_ID not in recommended

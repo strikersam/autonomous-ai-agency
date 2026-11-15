@@ -141,6 +141,13 @@ providers:
     # silently until the whole 120s budget was gone, with no failover. At 60s
     # a hung call leaves the router half the budget to try the next provider.
     timeout_sec: 60
+    # NIM refuses one model while another on the same key keeps answering:
+    # production 2026-11-14 16:32–17:01 logged nemotron-3-ultra 429s (in ~45 ms,
+    # at ~8 calls/min, far under the 40 RPM account limit) between successful
+    # openai/gpt-oss-20b calls. With the key-wide default one such 429 cooled the
+    # key for 30 s, every other NVIDIA model was skipped, and agent calls failed
+    # with "All 1 brain provider attempt(s) failed: nvidia HTTP 429".
+    rate_limit_scope: model
     default_model: ${NVIDIA_DEFAULT_MODEL:-nvidia/nemotron-3-ultra-550b-a55b}
     notes: The always-on free floor. Kept last among free tiers on purpose.
 

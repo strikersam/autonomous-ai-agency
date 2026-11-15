@@ -334,6 +334,13 @@ class Settings:
         # MODEL_AUTO_HEAL_ENABLED — move stored model choices off ids a provider
         # has retired (packages/ai/model_retirement.py). Default on.
         self.model_auto_heal_raw: str = os.environ.get("MODEL_AUTO_HEAL_ENABLED", "true")
+        # PROVIDER_FUNDS_QUARANTINE_HOURS — how long a provider that answered a
+        # credits/billing refusal (HTTP 402, or a body naming credit/billing) stays
+        # out of the brain chain before it is probed again. 0 restores the old
+        # behaviour: switched off until a human switches it back on.
+        self.provider_funds_quarantine_hours_raw: str = os.environ.get(
+            "PROVIDER_FUNDS_QUARANTINE_HOURS", "24"
+        )
         # AGENT_TOOL_OUTPUT_OFFLOAD — keep the full text of tool output the agent
         # loop shortens, retrievable via read_tool_output. Default on.
         self.agent_tool_output_offload_raw: str = os.environ.get(
@@ -534,6 +541,15 @@ class Settings:
     def model_auto_heal_enabled(self) -> bool:
         """False only when an operator switched retired-model auto-replacement off."""
         return self.model_auto_heal_raw.strip().lower() not in {"0", "false", "no", "off"}
+
+    @property
+    def provider_funds_quarantine_sec(self) -> float:
+        """Seconds a funds-refusing provider stays out of the chain; 0 = until re-enabled."""
+        try:
+            hours = float(self.provider_funds_quarantine_hours_raw.strip() or 24)
+        except ValueError:
+            hours = 24.0
+        return max(0.0, min(hours, 24.0 * 30)) * 3600.0
 
     @property
     def task_verification_required(self) -> bool:
