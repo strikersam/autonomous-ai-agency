@@ -575,3 +575,15 @@ def test_long_json_400_echoing_a_billing_phrase_is_not_a_funds_refusal():
     # ...but a 402 is a funds refusal whatever the body, and plain text still is.
     assert is_funds_refusal(402, '{"error": "payment') is True
     assert is_funds_refusal(403, "payment required") is True
+
+
+def test_bom_prefixed_json_and_long_funds_bodies_are_classified_correctly():
+    """Verifier findings: a BOM hid the JSON; the legacy path truncated before parsing."""
+    import json
+    from packages.llm.quarantine import is_funds_refusal
+
+    echoed = "\ufeff" + json.dumps({"error": {"message": "bad"}, "input": "payment required"})
+    assert is_funds_refusal(400, echoed) is False
+    long_real = json.dumps({"meta": "x" * 5000,
+                            "error": {"message": "Your credit balance is too low"}})
+    assert is_funds_refusal(400, long_real) is True

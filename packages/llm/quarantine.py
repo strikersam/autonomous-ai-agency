@@ -69,7 +69,7 @@ def _provider_message(body: str) -> str | None:
     not parse yields ``None``: its text is request content we cannot separate,
     so it is not scanned. Any other body is the provider's plain-text message.
     """
-    stripped = body.lstrip()
+    stripped = body.lstrip("\ufeff \t\r\n")  # a byte order mark must not hide JSON
     try:
         data = json.loads(stripped)
     except (ValueError, TypeError):
