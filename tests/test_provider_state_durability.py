@@ -10,7 +10,9 @@ readers sit on the sync hot path inside the event loop.
 """
 from __future__ import annotations
 
+import asyncio
 import os
+import threading
 import time
 import uuid
 
@@ -454,3 +456,78 @@ class TestDisabledReasonRendering:
                 f"or the operator sees raw text next to the switch"
             )
             assert out["code"], f"reason {reason!r} lost its status code"
+
+
+# ── The paid-policy read never blocks the event loop ─────────────────────────
+
+class TestPaidPolicyOffLoop:
+    """2026-11-14: the first read opened a Mongo connection (a ~2 s SCRAM
+    handshake) on the loop thread, which the stall watchdog named as
+    ``_paid_allowed_mongo``."""
+
+    @staticmethod
+    def _slow_mongo(monkeypatch, allow: bool, delay: float = 0.4):
+        calls = {"thread": None}
+
+        def slow():
+            calls["thread"] = threading.current_thread()
+            time.sleep(delay)
+            return allow
+
+        monkeypatch.setattr(bf, "_paid_allowed_mongo", slow)
+        return calls
+
+    def test_a_stale_read_on_the_loop_returns_without_waiting(self, monkeypatch) -> None:
+        calls = self._slow_mongo(monkeypatch, allow=True)
+
+        async def go():
+            start = time.monotonic()
+            value = bf._is_paid_allowed_db()
+            return value, time.monotonic() - start
+
+        value, elapsed = asyncio.run(go())
+        assert elapsed < 0.2, "the loop thread waited on the Mongo read"
+        assert value is False, "paid spend is never enabled before the first read lands"
+        deadline = time.monotonic() + 3
+        while bf._PAID_CACHE[0] is not True and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert bf._PAID_CACHE[0] is True, "the background refresh fills the cache"
+        assert calls["thread"] is not threading.main_thread()
+
+    def test_a_policy_change_makes_the_registry_rebuild_at_once(self, monkeypatch) -> None:
+        self._slow_mongo(monkeypatch, allow=True, delay=0.0)
+        manager = bf.get_failover_manager()
+        manager._last_registry_build = time.time()
+
+        async def go():
+            bf._is_paid_allowed_db()
+
+        asyncio.run(go())
+        deadline = time.monotonic() + 3
+        while manager._last_registry_build != 0.0 and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert manager._last_registry_build == 0.0
+
+    def test_concurrent_stale_reads_start_one_refresh(self, monkeypatch) -> None:
+        started = []
+        release = threading.Event()
+
+        def slow():
+            started.append(1)
+            release.wait(2)
+            return False
+
+        monkeypatch.setattr(bf, "_paid_allowed_mongo", slow)
+
+        async def go():
+            for _ in range(5):
+                bf._is_paid_allowed_db()
+
+        asyncio.run(go())
+        time.sleep(0.1)
+        release.set()
+        assert len(started) == 1
+
+    def test_a_sync_caller_still_reads_inline(self, monkeypatch) -> None:
+        monkeypatch.setattr(bf, "_paid_allowed_mongo", lambda: True)
+        assert bf._is_paid_allowed_db() is True

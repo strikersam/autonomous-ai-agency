@@ -53,6 +53,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import asyncio
 import threading
 import time
 from dataclasses import dataclass, field
@@ -503,20 +504,62 @@ def _is_paid_allowed_db() -> bool:
     survives a redeploy; the SQLite mirror serves dev/CI and Mongo outages.
     Cached for 10s so the hot path (every LLM call) doesn't hit the DB.
     """
-    global _PAID_CACHE
     now = time.time()
     cached_val, cached_at = _PAID_CACHE
     if now - cached_at < _PAID_CACHE_TTL:
         return cached_val
+    if _on_event_loop():
+        # The first read opens a Mongo connection (SCRAM handshake, ~2s): never
+        # on the loop. Serve the last value (False until the first read lands,
+        # so paid spend is never enabled by accident) and refresh in a thread.
+        _refresh_paid_in_background()
+        return cached_val
+    return _refresh_paid_cache()
 
+
+def _on_event_loop() -> bool:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    return True
+
+
+def _refresh_paid_cache() -> bool:
+    """Read the policy (blocking) and update the cache."""
+    global _PAID_CACHE
+    previous = _PAID_CACHE[0]
     val = _paid_allowed_mongo()
     if val is None:
         try:
             val = _paid_allowed_sqlite()
         except Exception:  # noqa: BLE001 — a kv problem must not enable paid spend
             val = None
-    _PAID_CACHE = (bool(val), now)
+    _PAID_CACHE = (bool(val), time.time())
+    if bool(val) != previous:
+        # Rebuild the provider registry now rather than at its next 60s tick.
+        get_failover_manager()._last_registry_build = 0.0
     return bool(val)
+
+
+_paid_refresh_running = threading.Event()
+
+
+def _refresh_paid_in_background() -> None:
+    """Single-flight refresh of the paid-policy cache off the event loop."""
+    if _paid_refresh_running.is_set():
+        return
+    _paid_refresh_running.set()
+
+    def _run() -> None:
+        try:
+            _refresh_paid_cache()
+        except Exception:  # noqa: BLE001 — a refresh failure keeps the old value
+            log.exception("brain_failover: paid-policy refresh failed")
+        finally:
+            _paid_refresh_running.clear()
+
+    threading.Thread(target=_run, name="paid-policy-refresh", daemon=True).start()
 
 
 # ── Provider definitions ─────────────────────────────────────────────────
