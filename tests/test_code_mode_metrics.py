@@ -154,7 +154,7 @@ def test_execute_step_counts_selections_and_run_code(tmp_path: Path, monkeypatch
         {"tool": "finish", "args": {"reason": "done"}},
     ])
 
-    async def fake_chat_json(self_arg: object, model: str, messages: list) -> dict[str, Any]:
+    async def fake_chat_json(self_arg: object, model: str, messages: list, role=None) -> dict[str, Any]:
         return next(calls)
 
     monkeypatch.setattr(AgentRunner, "_chat_json", fake_chat_json)
@@ -282,7 +282,7 @@ def test_allow_list_ignores_tool_lines_inside_observations(tmp_path: Path, monke
         {"tool": "finish", "args": {"reason": "done"}},
     ])
 
-    async def fake_chat_json(self_arg: object, model: str, messages: list) -> dict[str, Any]:
+    async def fake_chat_json(self_arg: object, model: str, messages: list, role=None) -> dict[str, Any]:
         return next(calls)
 
     monkeypatch.setattr(AgentRunner, "_chat_json", fake_chat_json)

@@ -127,3 +127,43 @@ def test_invalid_overrides_are_rejected_at_save_time(overrides):
 def test_valid_overrides_round_trip():
     config = BrainConfig(reasoning_effort_by_role={"planner": "low", "judge": "medium"})
     assert config.reasoning_effort_by_role == {"planner": "low", "judge": "medium"}
+
+
+@pytest.mark.parametrize("overrides", [{"plannner": "high"}, {"planner": "max"}])
+def test_patch_model_rejects_invalid_overrides(overrides):
+    # The PATCH payload is validated too: set_brain_config merges with
+    # model_copy(update=...), which would otherwise persist the bad mapping and
+    # make the next read reject the whole brain document.
+    with pytest.raises(Exception):
+        bc.BrainConfigPatch(reasoning_effort_by_role=overrides)
+
+
+def test_patch_model_keeps_none_and_valid_values():
+    assert bc.BrainConfigPatch().reasoning_effort_by_role is None
+    assert bc.BrainConfigPatch(
+        reasoning_effort_by_role={"executor": "high"}
+    ).reasoning_effort_by_role == {"executor": "high"}
+
+
+def test_store_refuses_to_persist_an_invalid_merged_document():
+    """Backstop for a patch object built without validation."""
+    store = bc.BrainConfigStore()
+    persisted: list[BrainConfig] = []
+
+    async def _load() -> BrainConfig:
+        return BrainConfig()
+
+    async def _persist(config: BrainConfig) -> None:
+        persisted.append(config)
+
+    store._load_unlocked = _load  # type: ignore[method-assign]
+    store._persist_unlocked = _persist  # type: ignore[method-assign]
+    bad = bc.BrainConfigPatch.model_construct(
+        reasoning_effort_by_role={"planner": "max"}
+    )
+
+    import asyncio
+
+    with pytest.raises(Exception):
+        asyncio.run(store.set_brain_config(bad, actor="test"))
+    assert persisted == []

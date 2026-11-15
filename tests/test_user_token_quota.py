@@ -311,7 +311,7 @@ def _stub_failover(monkeypatch, calls: list[int], prompt: int = 30, completion: 
 
 
 @pytest.mark.anyio
-async def test_agent_runner_chat_text_records_tokens_for_the_bound_user(tmp_path, monkeypatch):
+async def test_agent_runner_chat_text_records_tokens_for_the_bound_user(tmp_path, monkeypatch, role=None):
     calls: list[int] = []
     _stub_failover(monkeypatch, calls)
     runner = _runner(tmp_path)

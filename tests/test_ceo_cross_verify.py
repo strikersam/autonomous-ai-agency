@@ -88,7 +88,7 @@ def test_cross_verify_actually_runs_under_default_orchestrator_mode(monkeypatch,
         '{"goal":"Review","steps":[]}',  # planner: no steps needed, review-only
     ])
 
-    async def fake_chat_text(self, model, messages):
+    async def fake_chat_text(self, model, messages, role=None):
         return next(responses)
 
     monkeypatch.setattr(AgentRunner, "_chat_text", fake_chat_text)

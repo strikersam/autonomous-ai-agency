@@ -543,9 +543,11 @@ _BRAIN_ROUTING: tuple[ControlSpec, ...] = (
         default="true",
         help=(
             "Give each agent role its own Ollama reasoning_effort: planner and judge "
-            "high, executor and verifier medium. Beats OLLAMA_REASONING_EFFORT per "
-            "role; an explicit per-role value saved on the Brain card beats both. "
-            "When off, only the single global pin applies."
+            "high, executor and verifier medium. Order, highest first: an explicit "
+            "per-role value saved on the Brain card, then OLLAMA_REASONING_EFFORT (a "
+            "global pin of low applies to every role), then the built-in map. When "
+            "off, only the single global pin applies. The opt-in LLM_ROUTER_ENABLED "
+            "path still uses the global pin only."
         ),
         live=True,
         risk=RISK_LOW,

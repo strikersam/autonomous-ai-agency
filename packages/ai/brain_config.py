@@ -851,6 +851,28 @@ ROLE_REASONING_EFFORTS: dict[str, str] = {
 REASONING_EFFORT_LEVELS: tuple[str, ...] = ("low", "medium", "high")
 
 
+def validate_reasoning_effort_by_role(value: dict[str, str]) -> dict[str, str]:
+    """Reject an unknown role or level instead of silently ignoring it.
+
+    Shared by ``BrainConfig`` and ``BrainConfigPatch``. A typo (``"plannner"``)
+    that were dropped would look like the feature was on while the role kept the
+    previous tier, so it fails the save instead. A bad value that reached the
+    store would also be rejected on the *next* read, sending the operator's whole
+    brain config back to defaults — failing the write is the cheaper failure.
+    """
+    for role, level in value.items():
+        if role not in ROLE_REASONING_EFFORTS:
+            raise ValueError(
+                f"unknown role {role!r}; expected one of {tuple(ROLE_REASONING_EFFORTS)}"
+            )
+        if level not in REASONING_EFFORT_LEVELS:
+            raise ValueError(
+                f"invalid effort {level!r} for {role!r}; "
+                f"expected one of {REASONING_EFFORT_LEVELS}"
+            )
+    return dict(value)
+
+
 class BrainConfig(BaseModel):
     """The agency's active brain — provider + per-role models.
 
@@ -890,22 +912,7 @@ class BrainConfig(BaseModel):
     @field_validator("reasoning_effort_by_role")
     @classmethod
     def _validate_effort_by_role(cls, value: dict[str, str]) -> dict[str, str]:
-        """Reject an unknown role or level instead of silently ignoring it.
-
-        A typo (``"plannner"``) that were dropped would look like the feature was
-        on while the role kept the previous tier, so it fails the save instead.
-        """
-        for role, level in value.items():
-            if role not in ROLE_REASONING_EFFORTS:
-                raise ValueError(
-                    f"unknown role {role!r}; expected one of {tuple(ROLE_REASONING_EFFORTS)}"
-                )
-            if level not in REASONING_EFFORT_LEVELS:
-                raise ValueError(
-                    f"invalid effort {level!r} for {role!r}; "
-                    f"expected one of {REASONING_EFFORT_LEVELS}"
-                )
-        return dict(value)
+        return validate_reasoning_effort_by_role(value)
 
 
 def default_brain_config() -> BrainConfig:
@@ -978,6 +985,19 @@ class BrainConfigPatch(BaseModel):
     # Empty string is allowed (clears the override → fall back to env/localhost);
     # min_length is therefore 0, unlike the model fields.
     ollama_base_url: str | None = Field(default=None, max_length=300)
+
+    @field_validator("reasoning_effort_by_role")
+    @classmethod
+    def _validate_effort_by_role(cls, value: dict[str, str] | None) -> dict[str, str] | None:
+        """Validate at PATCH time, not only on the next read.
+
+        ``set_brain_config`` merges with ``model_copy(update=...)``, which does
+        not re-run validators; without this the invalid mapping would be
+        persisted and the next read would reject the whole document.
+        """
+        if value is None:
+            return None
+        return validate_reasoning_effort_by_role(value)
 
 
 # ── Store ───────────────────────────────────────────────────────────────────
@@ -1060,6 +1080,11 @@ class BrainConfigStore:
                     if v is not None
                 }
             )
+            # Re-validate the merged document: model_copy() does not run
+            # validators, so this is the backstop that stops an unloadable
+            # config from reaching the store (a bad doc would be rejected on
+            # the next read and reset the operator's whole brain to defaults).
+            merged = BrainConfig.model_validate(merged.model_dump())
             # Stamp audit fields.
             merged.updated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
             merged.updated_by = (actor or "unknown")[:200]
