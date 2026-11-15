@@ -50,7 +50,9 @@ def _drive(runner: AgentRunner, code: str, verdicts: list[dict[str, Any]], monke
     verifier = iter(verdicts)
     roles: list[str] = []
 
-    async def fake_chat_json(self_arg: object, model: str, messages: list) -> dict[str, Any]:
+    async def fake_chat_json(
+        self_arg: object, model: str, messages: list, role: str | None = None
+    ) -> dict[str, Any]:
         is_verify = str(messages[0].get("content", "")).startswith("Check syntax and logic")
         roles.append("verify" if is_verify else "select")
         return next(verifier) if is_verify else next(selections)

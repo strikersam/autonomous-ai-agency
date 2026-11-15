@@ -66,7 +66,7 @@ def _drive(runner: AgentRunner, tool: str, args: dict[str, Any], monkeypatch: py
         {"tool": "finish", "args": {"reason": "done"}},
     ])
 
-    async def fake_chat_json(self_arg: object, model: str, messages: list) -> dict[str, Any]:
+    async def fake_chat_json(self_arg: object, model: str, messages: list, role=None) -> dict[str, Any]:
         """Replay the scripted tool selections instead of calling an LLM."""
         return next(calls)
 

@@ -152,7 +152,9 @@ def _run_with_budget(tmp_path: Path, monkeypatch, budget: float | None) -> dict[
         clock.now += 30.0  # each step takes 30s of "wall clock"
         return {"step_id": step["id"], "status": "applied", "changed_files": [], "issues": []}
 
-    async def fake_chat_text(_model: str, _messages: list[dict[str, str]]) -> str:
+    async def fake_chat_text(
+        _model: str, _messages: list[dict[str, str]], role: str | None = None
+    ) -> str:
         return '{"verdict":"APPROVED","security":"PASS","correctness":"PASS","notes":""}'
 
     runner._generate_plan = fake_plan  # type: ignore[method-assign]
@@ -195,13 +197,17 @@ def _explore(tmp_path: Path, monkeypatch, budget: float) -> int:
     runner._run_budget_s = budget
     calls = 0
 
-    async def fake_chat_json(_model: str, _messages: list[dict[str, str]]) -> dict[str, Any]:
+    async def fake_chat_json(
+        _model: str, _messages: list[dict[str, str]], role: str | None = None
+    ) -> dict[str, Any]:
         nonlocal calls
         clock.now += 30.0  # each tool-selection call takes 30s
         calls += 1
         return {"tool": "read_file", "args": {"path": f"f{calls}.txt"}}
 
-    async def fake_chat_text(_model: str, _messages: list[dict[str, str]]) -> str:
+    async def fake_chat_text(
+        _model: str, _messages: list[dict[str, str]], role: str | None = None
+    ) -> str:
         return "analysis done"
 
     runner._chat_json = fake_chat_json  # type: ignore[method-assign]
@@ -241,7 +247,9 @@ def test_run_budget_clock_includes_planning(tmp_path: Path, monkeypatch):
         clock.now += 5.0
         return {"step_id": step["id"], "status": "applied", "changed_files": [], "issues": []}
 
-    async def fake_chat_text(_model: str, _messages: list[dict[str, str]]) -> str:
+    async def fake_chat_text(
+        _model: str, _messages: list[dict[str, str]], role: str | None = None
+    ) -> str:
         return '{"verdict":"APPROVED","security":"PASS","correctness":"PASS","notes":""}'
 
     runner._generate_plan = fake_plan  # type: ignore[method-assign]
