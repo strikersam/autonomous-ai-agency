@@ -104,7 +104,8 @@ async def memory_guard_loop() -> None:
     while True:
         try:
             await asyncio.sleep(interval)
-            trim_now(trim)
+            # malloc_trim took 8 s on the loop (2026-11-15 stall); ctypes releases the GIL.
+            await asyncio.to_thread(trim_now, trim)
         except asyncio.CancelledError:
             log.info("Memory guard stopped")
             raise
