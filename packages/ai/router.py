@@ -445,19 +445,39 @@ def _ollama_reasoning_effort() -> str:
         return ""
 
 
-def with_ollama_reasoning_effort(payload: dict[str, Any], *, is_ollama: bool) -> dict[str, Any]:
+def _role_reasoning_effort(role: str | None) -> str:
+    """Per-role tier for *role*, or ``""`` when it has none / is unknowable."""
+    if not role:
+        return ""
+    try:
+        from packages.ai.brain_config import resolve_role_reasoning_effort
+
+        return resolve_role_reasoning_effort(role)
+    except Exception:  # noqa: BLE001 — effort tuning must never break a call
+        return ""
+
+
+def with_ollama_reasoning_effort(
+    payload: dict[str, Any], *, is_ollama: bool, role: str | None = None
+) -> dict[str, Any]:
     """Return *payload* with ``reasoning_effort`` added for Ollama thinking models.
 
     Ollama's OpenAI-compatible ``/v1/chat/completions`` maps ``reasoning_effort``
     → interleaved thinking for capable models (North Mini Code, deepseek-r1,
-    qwen3). This is a no-op — the SAME object is returned — when the request is
-    not for Ollama, when ``OLLAMA_REASONING_EFFORT`` is unset, or when the
-    caller already set the field. So the default (unset) config leaves every
-    request byte-for-byte unchanged and never touches non-Ollama providers.
+    qwen3).
+
+    With *role* (planner / executor / verifier / judge) the level comes from
+    ``resolve_role_reasoning_effort``: the BrainConfig per-role override, else
+    ``OLLAMA_REASONING_EFFORT``, else the built-in tier map. Without a role only
+    the global pin applies, which is exactly the pre-tier behaviour.
+
+    This is a no-op — the SAME object is returned — when the request is not for
+    Ollama, when no effort resolves, or when the caller already set the field. So
+    non-Ollama providers never receive it and an explicit caller value always wins.
     """
     if not is_ollama:
         return payload
-    effort = _ollama_reasoning_effort()
+    effort = _role_reasoning_effort(role) if role else _ollama_reasoning_effort()
     if not effort or "reasoning_effort" in payload:
         return payload
     return {**payload, "reasoning_effort": effort}

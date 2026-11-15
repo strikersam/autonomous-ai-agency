@@ -536,6 +536,21 @@ _BRAIN_ROUTING: tuple[ControlSpec, ...] = (
         risk=RISK_MEDIUM,
     ),
     ControlSpec(
+        key="ROLE_REASONING_EFFORT_ENABLED",
+        label="Per-role reasoning effort",
+        group="brain_routing",
+        kind=KIND_TOGGLE,
+        default="true",
+        help=(
+            "Give each agent role its own Ollama reasoning_effort: planner and judge "
+            "high, executor and verifier medium. Beats OLLAMA_REASONING_EFFORT per "
+            "role; an explicit per-role value saved on the Brain card beats both. "
+            "When off, only the single global pin applies."
+        ),
+        live=True,
+        risk=RISK_LOW,
+    ),
+    ControlSpec(
         key="OLLAMA_REASONING_EFFORT",
         label="Ollama thinking effort",
         group="brain_routing",

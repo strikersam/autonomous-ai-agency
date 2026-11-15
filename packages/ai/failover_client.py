@@ -533,6 +533,7 @@ async def _try_provider(
     attempts: list[str],
     timeout_sec: float,
     budget: "_Budget",
+    role: str | None = None,
 ) -> tuple[FailoverResult | None, str]:
     """Try up to ``_MAX_MODELS_PER_PROVIDER`` models on one provider.
 
@@ -586,7 +587,7 @@ async def _try_provider(
         budget.charge()
         call_payload = {**payload, "model": try_model}
         post_payload = with_nemotron_thinking_off(with_ollama_reasoning_effort(
-            call_payload, is_ollama=_is_ollama(provider)
+            call_payload, is_ollama=_is_ollama(provider), role=role
         ))
         if is_anthropic:
             post_payload = ProviderRouter._anthropic_payload(post_payload)
@@ -955,6 +956,7 @@ async def failover_chat_completion(
     payload: dict[str, Any],
     *,
     timeout_sec: float = _DEFAULT_TIMEOUT_SEC,
+    role: str | None = None,
 ) -> FailoverResult:
     """Run one chat completion across the brain-failover chain.
 
@@ -962,6 +964,10 @@ async def failover_chat_completion(
     local, then paid), and up to three models per provider. Raises
     :class:`BrainFailoverExhausted` when nothing succeeds — never returns a
     partial or placeholder result. See :func:`_try_router` (ADR-008 §8).
+
+    *role* (planner / executor / verifier / judge) selects that role's Ollama
+    ``reasoning_effort`` tier; without it the global ``OLLAMA_REASONING_EFFORT``
+    applies, exactly as before.
     """
     if (routed := await _try_router(payload, timeout_sec)) is not None:
         return routed
@@ -990,7 +996,7 @@ async def failover_chat_completion(
         tried.add(provider.id)
         attempted = list(dict.fromkeys([*attempted, provider.id]))
         result, provider_error = await _try_provider(
-            provider, payload, fm, attempts, timeout_sec, budget
+            provider, payload, fm, attempts, timeout_sec, budget, role=role
         )
         if result is not None:
             _log_recovery(result, failures)
