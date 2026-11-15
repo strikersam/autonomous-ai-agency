@@ -59,6 +59,7 @@ class TaskRunBinding:
     run_id: str | None = None
     fenced: bool = False
     occurrences: dict[str, int] = field(default_factory=dict)
+    cancel: asyncio.Event = field(default_factory=asyncio.Event)
     ctx_token: Token[Any] | None = None
 
     @property
@@ -70,6 +71,10 @@ class TaskRunBinding:
     def recording(self) -> bool:
         """True when this execution writes to the run ledger."""
         return self.store is not None and self.run_id is not None
+
+
+class RunCancelled(Exception):
+    """The run's ``cancel_requested`` flag was seen; the worker must stop and settle it."""
 
 
 current_run: ContextVar[TaskRunBinding | None] = ContextVar("current_run", default=None)
@@ -158,6 +163,7 @@ async def bind(task_store: Any, task: Any, *, actor: str = "system:dispatcher") 
             log.warning("run ledger: could not open the run of task %s; continuing without it",
                         task.task_id, exc_info=True)
             binding.store = binding.run_id = None
+    binding.heartbeat.on_tick = lambda: _poll_cancel(binding)
     binding.ctx_token = current_run.set(binding)
     _ACTIVE[task.task_id] = binding
     return binding
@@ -188,6 +194,15 @@ async def _open_run(binding: TaskRunBinding, store: RunStore, task: Any, actor: 
     task.current_run_id = run.run_id
 
 
+async def _poll_cancel(binding: TaskRunBinding) -> None:
+    """One cheap read per heartbeat: set ``binding.cancel`` once cancellation is requested."""
+    if not binding.recording or binding.cancel.is_set():
+        return
+    run = await binding.store.get(binding.run_id)  # type: ignore[union-attr,arg-type]
+    if run is not None and run.cancel_requested:
+        binding.cancel.set()
+
+
 async def mark(binding: TaskRunBinding | None, state: RunState, reason: str | None = None) -> None:
     """Record a state transition of the bound run. Never raises."""
     if binding is None or not binding.recording or binding.fenced:
@@ -204,25 +219,31 @@ async def mark(binding: TaskRunBinding | None, state: RunState, reason: str | No
 
 
 async def guard(binding: TaskRunBinding | None, work: Awaitable[T]) -> T:
-    """Await *work*, but stop it and raise ``FencedOut`` the moment the lease is lost."""
+    """Await *work*, but stop it the moment the lease is lost (``FencedOut``) or a cancel
+    is requested (``RunCancelled``)."""
     if binding is None:
         return await work
     job = asyncio.ensure_future(work)
     lost = asyncio.ensure_future(binding.heartbeat.lost.wait())
+    cancel = asyncio.ensure_future(binding.cancel.wait())
     try:
-        await asyncio.wait({job, lost}, return_when=asyncio.FIRST_COMPLETED)
+        await asyncio.wait({job, lost, cancel}, return_when=asyncio.FIRST_COMPLETED)
     except BaseException:
         job.cancel()
         lost.cancel()
+        cancel.cancel()
         raise
+    lost.cancel()
+    cancel.cancel()
     if job.done():
-        lost.cancel()
         return job.result()
     job.cancel()
     try:
         await job
-    except BaseException:  # noqa: BLE001 — the stale work's own outcome is irrelevant now
+    except BaseException:  # noqa: BLE001 — the stopped work's own outcome is irrelevant now
         pass
+    if binding.cancel.is_set() and not binding.heartbeat.lost.is_set():
+        raise RunCancelled(f"task {binding.task_id}: run cancelled")
     binding.fenced = True
     raise FencedOut(f"task {binding.task_id}: run lease lost (token {binding.token}); stopping")
 

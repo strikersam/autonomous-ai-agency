@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from packages.config import runs_settings
 from packages.runs.backend import DocTable, MemoryTable, table_for
@@ -130,6 +130,8 @@ class LeaseHeartbeat:
         self._clock = clock
         self._task: asyncio.Task[None] | None = None
         self.lost = asyncio.Event()
+        # Optional cheap check run after every successful renewal (cancel polling).
+        self.on_tick: Callable[[], Awaitable[None]] | None = None
 
     def start(self) -> None:
         """Begin renewing on the running loop (idempotent)."""
@@ -164,6 +166,15 @@ class LeaseHeartbeat:
                 self._mark_lost("a newer holder took the lease")
                 continue
             last_ok = self._clock()
+            await self._tick()
+
+    async def _tick(self) -> None:
+        if self.on_tick is None:
+            return
+        try:
+            await self.on_tick()
+        except Exception:
+            log.warning("lease heartbeat tick for %s failed", self._key, exc_info=True)
 
     def _mark_lost(self, why: str) -> None:
         log.warning("lease %s lost (token %s): %s", self._key, self._token, why)

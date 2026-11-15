@@ -11419,6 +11419,8 @@ except Exception as _llm_router_err:  # noqa: BLE001 - must not block startup
 
 app.include_router(runtime_router, dependencies=[Depends(get_current_user)])
 app.include_router(task_router)
+import packages.runs.api as runs_api_module  # noqa: E402
+app.include_router(runs_api_module.build_runs_router(get_current_user))
 app.include_router(schedules_router, dependencies=[Depends(get_current_user)])
 app.include_router(setup_router)
 app.include_router(activation_router)
