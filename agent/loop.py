@@ -3636,7 +3636,9 @@ class AgentRunner:
             async with _fx.recorded_effect("git_push", push_args,
                                            {**push_args, "cwd": str(ws.path)}, 110) as fx:
                 if not fx.skipped:
-                    push_branch = await _fx.push_branch(ws, push_branch)
+                    push_branch = fx.result_ref = await _fx.push_branch(ws, push_branch)
+                elif fx.result_ref:  # replayed: reuse the branch the earlier attempt pushed
+                    push_branch = fx.result_ref
             self._log_event(session_id, "step_start", {"description": f"Pushed branch {push_branch}"})
 
             # Derive a meaningful PR title from the task goal or first commit.
