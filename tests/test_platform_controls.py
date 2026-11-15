@@ -692,3 +692,16 @@ def test_phase2_run_recovery_controls_are_live_and_overrides_take_effect(clean_o
             runs_settings.recovery_tick_s()) == (5, 0, 60)
     with pytest.raises(ValueError):
         coerce("RUNS_MAX_ATTEMPTS", "0")
+def test_provider_funds_quarantine_override_takes_effect(clean_overrides):
+    """PROVIDER_FUNDS_QUARANTINE_HOURS is read at call time, so an override lands live."""
+    from packages.llm import quarantine
+
+    control_overrides.apply_overrides({"PROVIDER_FUNDS_QUARANTINE_HOURS": "6"})
+    assert quarantine.quarantine_seconds() == 6 * 3600.0
+
+    control_overrides.apply_overrides({"PROVIDER_FUNDS_QUARANTINE_HOURS": "0"})
+    assert quarantine.quarantine_seconds() == 0.0
+
+    control_overrides.apply_overrides({})
+    base = control_overrides._BASE_ENV.get("PROVIDER_FUNDS_QUARANTINE_HOURS")
+    assert quarantine.quarantine_seconds() == (24 if base is None else float(base)) * 3600.0

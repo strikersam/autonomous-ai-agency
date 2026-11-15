@@ -10893,6 +10893,12 @@ async def get_doctor_report(user: Optional[dict] = Depends(get_optional_user)) -
     )
 
 
+def _doctor_off_label(entry: dict) -> str:
+    """A disabled provider's id, with its return time when it is only quarantined."""
+    until = entry.get("until")
+    return f"{entry['id']} (out of credit, back {until})" if until else str(entry["id"])
+
+
 @app.get("/api/doctor/public", response_model=_DoctorReport)
 async def get_public_doctor() -> _DoctorReport:
     """Public Doctor endpoint — no authentication required.
@@ -10999,7 +11005,7 @@ async def get_public_doctor() -> _DoctorReport:
             brain_status = "warn"
             brain_detail = (
                 f"{usable}/{total} brain providers usable"
-                + (f" — off: {', '.join(d['id'] for d in brain['disabled'])}" if brain["disabled"] else "")
+                + (f" — off: {', '.join(_doctor_off_label(d) for d in brain['disabled'])}" if brain["disabled"] else "")
                 + (f" — cooling: {', '.join(brain['cooling'])}" if brain["cooling"] else "")
             )
             brain_fix = "Tasks still run, but capacity is reduced."

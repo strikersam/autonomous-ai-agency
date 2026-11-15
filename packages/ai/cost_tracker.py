@@ -83,6 +83,8 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     # GPT-OSS 120B / 20B — served on both NVIDIA NIM and Groq free tier.
     "openai/gpt-oss-120b": (0.0, 0.0),
     "openai/gpt-oss-20b": (0.0, 0.0),
+    # NVIDIA NIM free tier; probed 2026-11-14 (run 43619238209).
+    "mistralai/mistral-large-4-1t-a52b": (0.0, 0.0),
     # GPT-OSS-Safeguard: OpenAI safety-reasoning models (Oct 2025). Fine-tuned
     # from gpt-oss-20b / gpt-oss-120b respectively; purpose-built for safety
     # classification — follows explicit user-provided policies and explains

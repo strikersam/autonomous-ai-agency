@@ -63,6 +63,9 @@ class ProviderConfig:
     max_concurrency: int = 8            # bulkhead size
     requests_per_minute: int = 0        # 0 = unmetered
     tokens_per_minute: int = 0
+    # What a plain 429 rests: "key" (the account's key, every model) or "model"
+    # (only the model that was refused) for providers that meter per model.
+    rate_limit_scope: str = "key"
     timeout_sec: float = 120.0
     auth_style: str = "bearer"          # bearer | x-api-key | query | none
     auth_header: str = ""               # explicit override
@@ -612,6 +615,8 @@ def _merge_env_defaults(
             models=[default_model] if default_model else [],
             tier=tier,
             priority=priority,
+            # NVIDIA meters per model, so a plain 429 rests only that model (matches providers.yaml).
+            rate_limit_scope="model" if pid == "nvidia" else "key",
             requires_key=requires_key,
             auth_style="x-api-key" if kind == "anthropic" else ("none" if not requires_key else "bearer"),
             api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "") if pid == "azure" else "",

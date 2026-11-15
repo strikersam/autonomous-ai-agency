@@ -248,13 +248,13 @@ def disabled_providers(force: bool = False) -> dict[str, str]:
     """
     cached, at = _DISABLED_CACHE
     if not force and (time.time() - at) < _DISABLED_CACHE_TTL:
-        return cached
+        return _without_expired(cached)
     if not force and _on_event_loop():
         # 2026-11-15: a stale read reopened a Mongo connection on the loop (6.6 s
         # stall). Serve the last set and refresh in a thread; the cost is one
         # attempt at a just-disabled provider, not a frozen server.
         _refresh_disabled_in_background()
-        return cached
+        return _without_expired(cached)
     return _refresh_disabled_cache()
 
 
@@ -268,9 +268,46 @@ def _refresh_disabled_cache() -> dict[str, str]:
             out = _disabled_from_sqlite()
         except Exception as exc:  # noqa: BLE001
             log.debug("brain_failover: disabled-provider read failed: %s", exc)
-            return cached
+            return _without_expired(cached)
     _DISABLED_CACHE = (out, time.time())
-    return out
+    return _without_expired(out)
+
+
+# A timed switch-off (packages/llm/quarantine.py) carries its expiry inside the
+# stored reason, so both stores, the Providers screen and the doctor keep working
+# on the same single string, and an expired quarantine needs no sweeper: it simply
+# stops being reported as disabled and the next call re-probes the provider.
+_QUARANTINE_RE = re.compile(r"\[quarantine-until=(\d+)\]")
+
+
+def quarantine_until(reason: str) -> float | None:
+    """The epoch second a quarantine *reason* ends, or None for a permanent one."""
+    match = _QUARANTINE_RE.search(reason or "")
+    return float(match.group(1)) if match else None
+
+
+def _without_expired(out: dict[str, str]) -> dict[str, str]:
+    now = time.time()
+    return {
+        pid: why for pid, why in out.items()
+        if (until := quarantine_until(why)) is None or until > now
+    }
+
+
+def quarantine_provider(provider_id: str, reason: str, ttl_sec: float) -> None:
+    """Switch *provider_id* off for *ttl_sec*, then let it back into the chain.
+
+    For refusals that waiting cannot fix but a top-up can (no credit, no paid
+    plan): unlike ``auto_disable_provider`` it returns on its own, so a provider
+    whose credit is restored is not lost until someone notices. Idempotent like
+    ``auto_disable_provider`` — an active switch-off keeps its first reason.
+    """
+    if provider_id in disabled_providers():
+        return
+    until = int(time.time() + max(ttl_sec, 1.0))
+    set_provider_enabled(
+        provider_id, False, f"auto: {reason} [quarantine-until={until}]"
+    )
 
 
 _disabled_refresh_running = threading.Event()
@@ -423,6 +460,18 @@ def describe_disabled_reason(reason: str) -> dict[str, str]:
     raw = (reason or "").strip()
     if not raw:
         return {"code": "", "summary": "", "action": "", "auto": False, "reason": ""}
+    until = quarantine_until(raw)
+    if until is not None:
+        out = describe_disabled_reason(_QUARANTINE_RE.sub("", raw).strip())
+        when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(until))
+        out.update(
+            summary=f"{out['summary'] or 'Needs credits'} — out of the loop until {when}",
+            action="Top up the account or remove the key; it is re-tried "
+                   "automatically when the quarantine ends.",
+            until=when,
+            reason=raw,
+        )
+        return out
     auto = raw.startswith("auto:")
     body = raw[len("auto:"):].strip() if auto else raw
     code = ""
@@ -1457,13 +1506,16 @@ def brain_availability_summary() -> dict[str, Any]:
         is_off = p.id in off
         if is_off:
             why = describe_disabled_reason(off.get(p.id, ""))
-            disabled.append({
+            entry = {
                 "id": p.id,
                 "tier": p.tier,
                 "summary": why["summary"],
                 "action": why["action"],
                 "auto": why["auto"],
-            })
+            }
+            if why.get("until"):
+                entry["until"] = why["until"]
+            disabled.append(entry)
         elif not p.is_healthy:
             cooling.append(p.id)
         else:

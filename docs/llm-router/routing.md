@@ -181,10 +181,12 @@ A request fails over like this:
 4. On **5xx/timeout**: count a breaker failure, move to the next provider,
    sleep the backoff interval (exponential, jittered, capped, and never longer
    than the remaining budget).
-5. On **401/403/402** (or a 4xx body that says the account is out of credit):
-   no retry against that provider, and the provider is switched off durably —
-   only a new key or more credit fixes it, so leaving it in rotation costs
-   latency on every later request and never succeeds.
+5. On **401/403**: no retry against that provider, and the provider is
+   switched off durably — only a new key fixes it. On **402** (or a 400/403/429
+   body naming credit, billing or payment, but not a quota window that resets):
+   the provider is quarantined for `PROVIDER_FUNDS_QUARANTINE_HOURS` (live
+   control, default 24 h), shown with its return time on the doctor and the
+   Providers screen, and re-tried when the window ends.
 6. On **413**: it depends on what the body says. When it names a per-minute
    budget — Groq answers "Request too large ... on tokens per minute (TPM):
    Limit 12000" — it is a rate limit wearing a payload status code, and it is

@@ -63,24 +63,66 @@ _RATE_WINDOW_HINTS = (
 )
 
 
+# Groq rejects a completion with HTTP 400 when the model emits a tool call on a
+# request that declared no tools ("Tool choice is none, but model called a tool").
+# gpt-oss does this on text-only prompts that describe tools in prose. It says
+# nothing about the provider or the model's health — the same model answers the
+# next request — so it must not count against either (production 2026-11-14).
+_STRAY_TOOL_CALL_HINTS = ("tool choice is none", "but model called a tool")
+
+
+def _funds_error(prefix: str, status: int | None, body: str) -> PermanentError:
+    """A refusal only a top-up fixes; tagged so the router quarantines the provider."""
+    error = PermanentError(f"{prefix}: needs credits or payment: {body[:200]}", status=status)
+    error.funds = True  # type: ignore[attr-defined]
+    return error
+
+
 def classify_error(
-    status: int | None, body: str, *, provider_id: str
+    status: int | None, body: str, *, provider_id: str, rate_limit_scope: str = "key"
 ) -> PermanentError | TransientError:
     """Turn an HTTP failure into a typed error with the narrowest blame scope.
 
     The scope matters more than the retry flag: marking a whole provider dead
     because one model was decommissioned is the exact failure mode that caused
     the NVIDIA 410 incident (CLAUDE.md §7).
+
+    ``rate_limit_scope="model"`` is for providers that meter each model
+    separately (NVIDIA NIM): a plain 429 then rests only that model, so the
+    provider's other models stay in the chain. A quota-exhausted 429 is still
+    key-scoped — a spent account quota covers every model.
     """
+    from packages.llm.quarantine import is_funds_refusal
+
     lowered = (body or "").lower()
     prefix = f"{provider_id} HTTP {status}" if status else provider_id
 
+    if is_funds_refusal(status, body or ""):
+        return _funds_error(prefix, status, body or "")
+    return (
+        _classify_rate_or_request(status, lowered, prefix, rate_limit_scope)
+        or _classify_by_status(status, body, prefix)
+    )
+
+
+def _classify_rate_or_request(
+    status: int | None, lowered: str, prefix: str, rate_limit_scope: str
+) -> TransientError | None:
+    """The 429, stray-tool-call, per-minute 413 and model-scoped branches, else None."""
     if status == 429:
         quota = any(hint in lowered for hint in _QUOTA_HINTS)
+        scope = "model_rate" if rate_limit_scope == "model" and not quota else "key"
         return TransientError(
             f"{prefix}: rate limited{' (quota exhausted)' if quota else ''}",
             status=status,
-            scope="key",
+            scope=scope,
+        )
+
+    if status == 400 and any(hint in lowered for hint in _STRAY_TOOL_CALL_HINTS):
+        return TransientError(
+            f"{prefix}: model called a tool on a request without tools",
+            status=status,
+            scope="request",
         )
 
     if status == 413 and any(hint in lowered for hint in _RATE_WINDOW_HINTS):
@@ -94,7 +136,13 @@ def classify_error(
         # A bad model name is permanent for this model but not for the
         # provider — the router retries the next model on the same provider.
         return TransientError(f"{prefix}: model unavailable", status=status, scope="model")
+    return None
 
+
+def _classify_by_status(
+    status: int | None, body: str, prefix: str
+) -> PermanentError | TransientError:
+    """The status-only fallbacks once no body-specific branch matched."""
     if status == 410:
         return TransientError(f"{prefix}: endpoint gone", status=status, scope="model")
 
@@ -308,7 +356,10 @@ class OpenAICompatible(LLMProvider):
         return self._parse(response.json(), model=model, latency_ms=latency_ms)
 
     def _error(self, response: httpx.Response) -> PermanentError | TransientError:
-        error = classify_error(response.status_code, response.text, provider_id=self.id)
+        error = classify_error(
+            response.status_code, response.text, provider_id=self.id,
+            rate_limit_scope=self.config.rate_limit_scope,
+        )
         if isinstance(error, TransientError):
             error.retry_after = retry_after_seconds(response.headers)
         return error
@@ -371,7 +422,10 @@ class OpenAICompatible(LLMProvider):
         ) as response:
             if response.status_code >= 400:
                 body = (await response.aread()).decode("utf-8", "replace")
-                error = classify_error(response.status_code, body, provider_id=self.id)
+                error = classify_error(
+                    response.status_code, body, provider_id=self.id,
+                    rate_limit_scope=self.config.rate_limit_scope,
+                )
                 if isinstance(error, TransientError):
                     error.retry_after = retry_after_seconds(response.headers)
                 raise error
