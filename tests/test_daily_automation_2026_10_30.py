@@ -406,12 +406,12 @@ class TestMercury3Yaml:
 # ---------------------------------------------------------------------------
 
 class TestCatalogueSize:
-    def test_catalogue_has_91_models(self, llm_models):
-        """models.yaml declares 91 model entries: the 89 counted on 2026-10-30 plus
-        gemini-omni-1.2-flash (#1939) and cohere/north-mini-code:free (2026-11-14)."""
+    def test_catalogue_has_93_models(self, llm_models):
+        """models.yaml declares 93 model entries: the 91 counted on 2026-11-14 plus
+        claude-fable-5-2 and claude-mythos-5-2 (added 2026-11-16)."""
         models = llm_models.get("models", {})
-        assert len(models) == 91, (
-            f"Expected 91 model IDs in models.yaml, got {len(models)}. "
+        assert len(models) == 93, (
+            f"Expected 93 model IDs in models.yaml, got {len(models)}. "
             "If you added or removed other models, update this count."
         )
 
