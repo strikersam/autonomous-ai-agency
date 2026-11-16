@@ -7,6 +7,7 @@ the last output/heartbeat, so this module does no file I/O and reads no environm
 
 from __future__ import annotations
 
+import math
 import os
 import time
 from dataclasses import dataclass
@@ -46,7 +47,7 @@ def check_liveness(
     if last_output_at is None:
         return Liveness(False, "signal 2 FAIL: no output recorded")
     age = now - last_output_at
-    if age != age or age < 0:  # NaN or a timestamp from the future: not trustworthy
+    if not math.isfinite(age) or age < 0:  # NaN, infinite or future timestamp: not trustworthy
         return Liveness(False, "signal 2 FAIL: output timestamp is invalid or in the future")
     if age > max_age_s:
         return Liveness(False, f"signal 2 FAIL: output is {int(age)}s old (max {int(max_age_s)}s)")

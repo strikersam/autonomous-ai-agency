@@ -40,3 +40,9 @@ def test_nan_or_future_timestamp_is_dead() -> None:
 
 def test_huge_pid_does_not_raise() -> None:
     assert not pid_alive(2**70)
+
+
+def test_infinite_timestamp_is_dead_without_raising() -> None:
+    for ts in (float("-inf"), float("inf")):
+        v = check_liveness(os.getpid(), ts, 30.0, now=1000.0)
+        assert not v.alive and v.reason.startswith("signal 2 FAIL")
