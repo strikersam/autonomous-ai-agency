@@ -445,6 +445,8 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         # Added 2026-09-29: Sonnet 5.5 (released 2026-09-29), same $2/$10 price as Sonnet 5.
         "claude-sonnet-5-5",
         "claude-sonnet-5",
+        # Added 2026-11-16: Fable 5.2 (released 2026-11-09) — $8/$40/MTok, ~20% cheaper than 5.1.
+        "claude-fable-5-2",
         "claude-fable-5",
         # Added 2026-09-14: Fable 5.1 (confirmed model id from system env).
         "claude-fable-5-1",
@@ -462,6 +464,8 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         "claude-opus-4-8",
         "claude-opus-4-7",
         "claude-opus-4-6",
+        # Added 2026-11-16: Fable 5.2 (released 2026-11-09) — $8/$40/MTok, preferred.
+        "claude-fable-5-2",
         "claude-fable-5",
         # Added 2026-09-14: Fable 5.1 as a failover on the Aerolink gateway.
         "claude-fable-5-1",
