@@ -3467,6 +3467,13 @@ async def count_tokens(request: Request, auth: AuthContext = Depends(verify_api_
 
 
 
+def _context_window_field(registry: dict, model_id: str) -> dict[str, int]:
+    """Additive ``context_window`` for a /v1/models entry; empty when the registry has no window."""
+    cap = registry.get(model_id)
+    window = getattr(cap, "context_window", None)
+    return {"context_window": window} if isinstance(window, int) and window > 0 else {}
+
+
 @app.get("/v1/models")
 
 async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
@@ -3509,7 +3516,7 @@ async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
 
     local_entries = [
 
-        {"id": name, "object": "model", "owned_by": "ollama"}
+        {"id": name, "object": "model", "owned_by": "ollama", **_context_window_field(registry, name)}
 
         for name in ollama_models
 
@@ -3519,7 +3526,7 @@ async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
 
     registry_only = [
 
-        {"id": name, "object": "model", "owned_by": "router-registry"}
+        {"id": name, "object": "model", "owned_by": "router-registry", **_context_window_field(registry, name)}
 
         for name in registry
 
@@ -3535,7 +3542,7 @@ async def list_models_openai(auth: AuthContext = Depends(verify_api_key)):
 
     alias_entries = [
 
-        {"id": alias, "object": "model", "owned_by": "autonomous-ai-agency-alias", "description": f"Alias → {_get_model_map().get(alias, alias)}"}
+        {"id": alias, "object": "model", "owned_by": "autonomous-ai-agency-alias", "description": f"Alias → {_get_model_map().get(alias, alias)}", **_context_window_field(registry, _get_model_map().get(alias, alias))}
 
         for alias in _get_model_map()
 

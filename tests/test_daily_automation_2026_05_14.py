@@ -356,3 +356,39 @@ class TestTokenBudgetHeaders:
         ids = {u.session_id for u in all_usages}
         assert "s1" in ids
         assert "s2" in ids
+
+
+class TestModelsEndpointContextWindow:
+    """/v1/models advertises context_window additively for registry-known models."""
+
+    async def _list(self, ollama_names):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from router.model_router import reset_router
+        reset_router()
+        fake_client = MagicMock()
+        fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+        fake_client.__aexit__ = AsyncMock(return_value=False)
+        fake_client.get = AsyncMock(
+            return_value=MagicMock(**{"json.return_value": {"models": [{"name": n} for n in ollama_names]}})
+        )
+        with patch("proxy.httpx.AsyncClient", return_value=fake_client):
+            from proxy import list_models_openai, AuthContext
+            auth = AuthContext(
+                key="ci-test-key", email="test@test.com",
+                department="eng", key_id=None, source="legacy",
+            )
+            return (await list_models_openai(auth))["data"]
+
+    async def test_registry_models_carry_context_window(self):
+        from router.registry import get_registry
+        registry = get_registry()
+        data = await self._list([])
+        entries = {e["id"]: e for e in data if e["owned_by"] == "router-registry"}
+        assert entries
+        for name, entry in entries.items():
+            assert entry["context_window"] == registry[name].context_window
+
+    async def test_unknown_model_has_no_context_window_and_legacy_keys_kept(self):
+        data = await self._list(["totally-unknown-model:1b"])
+        entry = next(e for e in data if e["id"] == "totally-unknown-model:1b")
+        assert entry == {"id": "totally-unknown-model:1b", "object": "model", "owned_by": "ollama"}
