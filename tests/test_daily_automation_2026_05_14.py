@@ -392,3 +392,17 @@ class TestModelsEndpointContextWindow:
         data = await self._list(["totally-unknown-model:1b"])
         entry = next(e for e in data if e["id"] == "totally-unknown-model:1b")
         assert entry == {"id": "totally-unknown-model:1b", "object": "model", "owned_by": "ollama"}
+
+    async def test_alias_reports_target_window_only_when_target_in_registry(self):
+        from router.model_router import _get_model_map
+        from router.registry import get_registry
+        registry, model_map = get_registry(), _get_model_map()
+        data = await self._list([])
+        aliases = [e for e in data if e["owned_by"] == "autonomous-ai-agency-alias"]
+        assert aliases
+        for entry in aliases:
+            target = model_map.get(entry["id"], entry["id"])
+            if target in registry:
+                assert entry["context_window"] == registry[target].context_window
+            else:
+                assert "context_window" not in entry
