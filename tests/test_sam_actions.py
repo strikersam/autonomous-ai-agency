@@ -106,3 +106,113 @@ def test_feed_failure_is_reported_not_raised(store, monkeypatch):
     reply = asyncio.run(SamAgent().process_command("fix the alerts"))
 
     assert "couldn't reach the alerts feed" in reply
+
+
+def test_capacity_alerts_are_not_turned_into_agent_tasks() -> None:
+    """A rate limit is not a defect an agent can fix; queueing one burns capacity."""
+    from agent.sam_actions import SamAlert
+
+    for title, message in [
+        ("Task blocked", "Brain capacity exhausted after 5 attempts: All brain providers exhausted"),
+        ("Task blocked", "No runtime available after 5 attempts: groq HTTP 429: rate limited (quota exhausted)"),
+        ("Provider error", "All 1 brain provider attempt(s) failed: nvidia: nvidia HTTP 429"),
+    ]:
+        alert = SamAlert(title=title, message=message, kind="error", severity="error")
+        assert alert.is_capacity and not alert.fixable, (title, message)
+
+
+def test_real_defect_alerts_stay_fixable() -> None:
+    from agent.sam_actions import SamAlert
+
+    alert = SamAlert(title="CI failed", message="tests/test_x.py::test_y AssertionError", kind="ci", severity="error")
+    assert not alert.is_capacity and alert.fixable
+
+
+def test_alerts_that_only_mention_rate_limiting_stay_fixable() -> None:
+    """A disabled rate limiter or a failing rate-limit test is a real defect."""
+    from agent.sam_actions import SamAlert
+
+    for kind, message in [
+        ("security", "RATE_LIMIT_RPM unset: rate limit disabled in production"),
+        ("ci", "test_proxy_rate limit middleware returns 500 on burst"),
+        ("ci", "test_rate_limited_requests_return_429: expected HTTP 429 got 200"),
+        ("error", "Proxy returns 429 Too Many Requests for every authenticated user (limiter bug)"),
+    ]:
+        alert = SamAlert(title="Alert", message=message, kind=kind, severity="error")
+        assert not alert.is_capacity and alert.fixable, message
+
+
+def test_marker_text_quoted_inside_a_defect_report_stays_fixable() -> None:
+    """A failing test's name or a limiter bug can contain the same words."""
+    from agent.sam_actions import SamAlert
+
+    for kind, message in [
+        ("ci", "test_rate_limit_exceeded: expected HTTP 429, got 200"),
+        ("security", "Unauthenticated requests succeed while rate limited"),
+        ("error", "Users report they are rate limited after one request (limiter key collision)"),
+        ("ci", 'expected "HTTP 429: rate limited", got HTTP 200'),
+        ("ci", 'assertion failed: "All brain providers exhausted" not in response.text'),
+        ("error", "Error code: 429 - {'error': 'rate_limit_exceeded'}"),
+    ]:
+        alert = SamAlert(title="Alert", message=message, kind=kind, severity="error")
+        assert not alert.is_capacity and alert.fixable, message
+
+
+def test_the_provider_form_is_capacity() -> None:
+    from agent.sam_actions import SamAlert
+
+    alert = SamAlert(title="x", message="groq HTTP 429: rate limited (quota exhausted)", kind="error", severity="error")
+    assert alert.is_capacity and not alert.fixable
+
+
+def test_the_coordinators_own_block_messages_are_not_fix_tasks() -> None:
+    """Exactly what tasks/service.py emits after it has retried five times."""
+    from agent.sam_actions import SamAlert
+
+    for message in [
+        "Task blocked \u2014 brain capacity exhausted after 5 retries",
+        "Task blocked \u2014 no runtime available after 5 retries",
+        "Task blocked \u2014 transient provider/sandbox error after 5 retries",
+    ]:
+        alert = SamAlert(title="Task blocked", message=message, kind="error", severity="error")
+        assert alert.is_capacity and not alert.fixable, message
+
+
+def test_there_is_one_marker_list() -> None:
+    """A second assignment once silently overrode the intended list."""
+    from pathlib import Path
+
+    import agent.sam_actions as module
+
+    assert Path(module.__file__).read_text(encoding="utf-8").count("_CAPACITY_ALERT_MARKERS = (") == 1
+
+
+async def test_fix_alerts_says_so_when_every_alert_is_capacity(monkeypatch) -> None:
+    import agent.sam_actions as actions
+
+    async def only_capacity(limit: int = 50):
+        return [actions.SamAlert(title="Task blocked", message="Task blocked \u2014 brain capacity exhausted after 5 retries",
+                                 kind="error", severity="error")]
+
+    monkeypatch.setattr(actions, "fetch_alerts", only_capacity)
+    spoken = await actions.fix_alerts("system:ceo")
+    assert "capacity" in spoken and "queued nothing" in spoken
+    assert "nothing broken" not in spoken
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        'Task failed: "All brain providers exhausted"',
+        '{"error": "All brain providers exhausted", "detail": "HTTP 429: rate limited"}',
+        'RuntimeError("All brain providers exhausted")',
+        'message="Brain capacity exhausted"',
+        'detail: "all configured LLM providers failed"',
+        '"HTTP 429: rate limited" from nvidia',
+    ],
+)
+def test_a_capacity_alert_that_quotes_the_provider_error_is_still_capacity(message: str) -> None:
+    from agent.sam_actions import SamAlert
+
+    alert = SamAlert(title="Task failed", message=message, kind="error", severity="error")
+    assert alert.is_capacity and not alert.fixable

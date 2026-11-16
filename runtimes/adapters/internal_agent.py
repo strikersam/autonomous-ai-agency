@@ -25,7 +25,7 @@ from agent.delegation import task_meta as delegation_task_meta
 from agent.loop import AgentRunner
 from packages.ai.router import ProviderConfig, _normalize_nvidia_base_url
 from runtimes.adapters.delivery import assess_delivery, clone_repo_workspace
-from runtimes.adapters.workspace_baseline import git_baseline
+from runtimes.adapters.workspace_baseline import copy_ignore, git_baseline
 from runtimes.adapters.harness_sync import persist_spec, seed_spec
 from runtimes.base import (
     IntegrationMode,
@@ -486,9 +486,10 @@ class InternalAgentAdapter(RuntimeAdapter):
                 try:
                     seeded = await _e2b_session.seed_from_worktree(worktree_path)
                     if not seeded:
-                        self._log.debug(
-                            "E2B seed_from_worktree returned False; agent will run "
-                            "against an empty sandbox (reads may fail)"
+                        self._log.warning(
+                            "Sandbox seed failed for task %s: the agent will see an "
+                            "empty workspace (list_files/search_code return nothing)",
+                            spec.task_id,
                         )
                 except Exception as exc:  # pragma: no cover - best-effort
                     self._log.debug("E2B seed failed (best-effort): %s", exc)
@@ -540,7 +541,7 @@ class InternalAgentAdapter(RuntimeAdapter):
             )
         except Exception as exc:
             if _sync_harness:
-                persist_spec(worktree_path, base_workspace, _harness_seeded)
+                await asyncio.to_thread(persist_spec, worktree_path, base_workspace, _harness_seeded)
             await asyncio.to_thread(self._remove_worktree, base_workspace, worktree_path, _worktree_tmp)
             # Close the E2B sandbox if it was opened (best-effort).
             if _e2b_session is not None:
@@ -620,7 +621,7 @@ class InternalAgentAdapter(RuntimeAdapter):
 
         # Clean up the isolated worktree once the agent is done.
         if _sync_harness:
-            persist_spec(worktree_path, base_workspace, _harness_seeded)
+            await asyncio.to_thread(persist_spec, worktree_path, base_workspace, _harness_seeded)
         await asyncio.to_thread(self._remove_worktree, base_workspace, worktree_path, _worktree_tmp)
 
         delivery = assess_delivery(
@@ -751,9 +752,7 @@ class InternalAgentAdapter(RuntimeAdapter):
                 # Keep links as links: a dangling one no longer fails the copy,
                 # and a link out of the workspace is not copied in as a file.
                 symlinks=True,
-                ignore=shutil.ignore_patterns(
-                    ".git", "__pycache__", "*.pyc", "node_modules"
-                ),
+                ignore=copy_ignore,
             )
         except Exception as exc:
             _log.warning(

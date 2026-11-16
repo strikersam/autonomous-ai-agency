@@ -46,8 +46,10 @@ def test_router_records_cost_from_the_shared_helper():
     from packages.ai.router import ProviderRouter
 
     src = inspect.getsource(ProviderRouter._try_one_provider)
-    assert "cached_prompt_tokens(_usage)" in src
+    assert "usage_counts(" in src
     assert '_usage.get("cache_read_input_tokens")' not in src
+    # No bare int() on a provider-supplied count may remain in the cost hook.
+    assert "int(_usage.get(" not in src
 
 
 def test_malformed_cache_counts_still_record_cost():
@@ -56,3 +58,46 @@ def test_malformed_cache_counts_still_record_cost():
     usage = {"prompt_tokens": 1_000_000, "prompt_tokens_details": {"cached_tokens": "junk"}}
     cost = cost_for_tokens("gemini-4-argon", 1_000_000, 0, cached_prompt_tokens(usage))
     assert cost == pytest.approx(cost_for_tokens("gemini-4-argon", 1_000_000, 0, 0))
+
+
+@pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan"), "many", [1], {"a": 1}, -5])
+def test_no_malformed_count_raises_or_goes_negative(bad):
+    """float("inf") raised OverflowError past the old (TypeError, ValueError) guard."""
+    from packages.ai.cost_tracker import _usage_int, anthropic_prompt_tokens, usage_counts
+
+    assert _usage_int(bad) == 0
+    for key in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"):
+        assert anthropic_prompt_tokens({"input_tokens": 10, key: bad}) >= 0
+    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+        counts = usage_counts({"prompt_tokens": 10, "completion_tokens": 5, key: bad})
+        assert all(isinstance(c, int) and c >= 0 for c in counts)
+
+
+def test_anthropic_prompt_total_survives_an_unreadable_cache_count():
+    """anthropic_prompt_tokens called int() directly on cache_read_input_tokens."""
+    from packages.ai.cost_tracker import anthropic_prompt_tokens
+
+    usage = {"input_tokens": 100, "cache_read_input_tokens": "many", "cache_creation_input_tokens": 7}
+    assert anthropic_prompt_tokens(usage) == 107
+
+
+def test_usage_counts_matches_the_old_hook_for_well_formed_usage():
+    from packages.ai.cost_tracker import usage_counts
+
+    openai = {
+        "prompt_tokens": 1000, "completion_tokens": 200, "total_tokens": 1200,
+        "prompt_tokens_details": {"cached_tokens": 600},
+    }
+    assert usage_counts(openai) == (1000, 200, 600, 1200)
+    assert usage_counts({"prompt_tokens": 30, "completion_tokens": 12}) == (30, 12, 0, 42)
+    anthropic = {
+        "prompt_tokens": 50, "completion_tokens": 20, "total_tokens": 70,
+        "cache_read_input_tokens": 400, "cache_creation_input_tokens": 10,
+    }
+    assert usage_counts(anthropic, anthropic=True) == (460, 20, 400, 70)
+
+
+def test_a_junk_total_still_charges_the_agent_for_prompt_plus_completion():
+    from packages.ai.cost_tracker import usage_counts
+
+    assert usage_counts({"prompt_tokens": 30, "completion_tokens": 12, "total_tokens": "?"})[3] == 42

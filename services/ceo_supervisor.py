@@ -137,6 +137,25 @@ class SweepReport:
         }
 
 
+
+def _load_open_goals() -> tuple[Any, list[Any]]:
+    """The shared ledger and its open goals. Blocking (MongoDB); call from a worker thread."""
+    from services.ceo_ledger import get_ceo_ledger
+
+    ledger = get_ceo_ledger()
+    return ledger, ledger.open_goals(limit=100)
+
+
+def _record_redrive_failure(goal_id: str, exc: BaseException) -> None:
+    """Note a failed re-drive on the goal. Blocking (MongoDB); call from a worker thread."""
+    from services.ceo_ledger import get_ceo_ledger
+
+    ledger = get_ceo_ledger()
+    current = ledger.get(goal_id)
+    if current is not None and not current.is_closed:
+        current.notes.append(f"Re-drive failed: {exc}")
+        ledger.upsert(current)
+
 class CEOSupervisor:
     """Sweeps the CEO ledger and drives open goals to closure."""
 
@@ -253,10 +272,9 @@ class CEOSupervisor:
             report.runtimes_woken = await self._wake_runtimes()
 
         try:
-            from services.ceo_ledger import get_ceo_ledger
-
-            ledger = get_ceo_ledger()
-            open_goals = ledger.open_goals(limit=100)
+            # The first call connects to MongoDB (connect, auth, ping, index check: 4.4 s on
+            # Render, held the event loop) and open_goals is a blocking find every sweep.
+            ledger, open_goals = await asyncio.to_thread(_load_open_goals)
         except Exception as exc:  # noqa: BLE001
             report.errors.append(f"ledger unavailable: {exc}")
             self._last_report = report
@@ -283,13 +301,13 @@ class CEOSupervisor:
                     report.paused += 1
                     continue
                 if action == "close":
-                    self._close(ledger, goal)
+                    await asyncio.to_thread(self._close, ledger, goal)
                     report.closed += 1
                 elif action == "abandon":
-                    self._abandon(ledger, goal, now=now)
+                    await asyncio.to_thread(self._abandon, ledger, goal, now=now)
                     report.abandoned += 1
                 elif action == "redrive":
-                    if self._spawn_redrive(ledger, goal):
+                    if await self._spawn_redrive_async(ledger, goal):
                         redrives += 1
                         report.redriven += 1
                     else:
@@ -356,6 +374,9 @@ class CEOSupervisor:
         the rest of the sweep. ``_driving`` is claimed synchronously, before the
         task starts, so a sweep that fires while the re-drive is still running
         skips the goal instead of starting a second one.
+
+        Synchronous: it is the public ``request_redrive`` path (the HTTP route). The sweep
+        uses :meth:`_spawn_redrive_async`, whose ledger calls run in a worker thread.
         """
         # Claim the goal in the *shared* ledger before doing anything. With two
         # sweeping processes (web + worker both run background services), the
@@ -367,12 +388,46 @@ class CEOSupervisor:
                 goal.goal_id,
             )
             return False
+        self._note_intervention(goal)
+        ledger.upsert(goal)
+        self._start_redrive(goal)
+        return True
+
+    async def _spawn_redrive_async(self, ledger: Any, goal: Any) -> bool:
+        """:meth:`_spawn_redrive` with its blocking ledger calls in a worker thread.
+
+        The in-process ``_driving`` claim is taken *before* the first await, so a sweep that
+        runs while the ledger calls are in flight still skips this goal.
+        """
+        self._driving.add(goal.goal_id)
+        try:
+            if not await asyncio.to_thread(
+                ledger.claim_intervention, goal.goal_id, expected=goal.interventions
+            ):
+                log.info(
+                    "CEO supervisor: goal %s claimed by another sweeper, skipping",
+                    goal.goal_id,
+                )
+                self._driving.discard(goal.goal_id)
+                return False
+            self._note_intervention(goal)
+            await asyncio.to_thread(ledger.upsert, goal)
+        except BaseException:
+            self._driving.discard(goal.goal_id)
+            raise
+        self._start_redrive(goal)
+        return True
+
+    @staticmethod
+    def _note_intervention(goal: Any) -> None:
         goal.interventions += 1
         goal.last_progress_at = time.time()
         goal.notes.append(
             f"Supervisor intervention #{goal.interventions}: re-driving stalled goal."
         )
-        ledger.upsert(goal)
+
+    def _start_redrive(self, goal: Any) -> None:
+        """Claim *goal* in-process and start its detached re-drive task (on the loop thread)."""
         self._driving.add(goal.goal_id)
         log.warning(
             "CEO supervisor re-driving stalled goal %s (intervention %d/%d): %s",
@@ -388,7 +443,6 @@ class CEOSupervisor:
             self._driving.discard(gid)
 
         task.add_done_callback(_done)
-        return True
 
     async def _redrive(self, goal: Any) -> None:
         """Re-delegate a stalled goal through the CEO, reusing its ledger entry.
@@ -425,13 +479,7 @@ class CEOSupervisor:
         except Exception as exc:  # noqa: BLE001
             log.warning("CEO supervisor re-drive of %s failed: %s", goal.goal_id, exc)
             try:
-                from services.ceo_ledger import get_ceo_ledger
-
-                ledger = get_ceo_ledger()
-                current = ledger.get(goal.goal_id)
-                if current is not None and not current.is_closed:
-                    current.notes.append(f"Re-drive failed: {exc}")
-                    ledger.upsert(current)
+                await asyncio.to_thread(_record_redrive_failure, goal.goal_id, exc)
             except Exception:  # noqa: BLE001 — diagnostics only
                 log.debug("CEO supervisor could not record re-drive failure")
 

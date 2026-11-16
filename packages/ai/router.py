@@ -445,19 +445,39 @@ def _ollama_reasoning_effort() -> str:
         return ""
 
 
-def with_ollama_reasoning_effort(payload: dict[str, Any], *, is_ollama: bool) -> dict[str, Any]:
+def _role_reasoning_effort(role: str | None) -> str:
+    """Per-role tier for *role*, or ``""`` when it has none / is unknowable."""
+    if not role:
+        return ""
+    try:
+        from packages.ai.brain_config import resolve_role_reasoning_effort
+
+        return resolve_role_reasoning_effort(role)
+    except Exception:  # noqa: BLE001 — effort tuning must never break a call
+        return ""
+
+
+def with_ollama_reasoning_effort(
+    payload: dict[str, Any], *, is_ollama: bool, role: str | None = None
+) -> dict[str, Any]:
     """Return *payload* with ``reasoning_effort`` added for Ollama thinking models.
 
     Ollama's OpenAI-compatible ``/v1/chat/completions`` maps ``reasoning_effort``
     → interleaved thinking for capable models (North Mini Code, deepseek-r1,
-    qwen3). This is a no-op — the SAME object is returned — when the request is
-    not for Ollama, when ``OLLAMA_REASONING_EFFORT`` is unset, or when the
-    caller already set the field. So the default (unset) config leaves every
-    request byte-for-byte unchanged and never touches non-Ollama providers.
+    qwen3).
+
+    With *role* (planner / executor / verifier / judge) the level comes from
+    ``resolve_role_reasoning_effort``: the BrainConfig per-role override, else
+    ``OLLAMA_REASONING_EFFORT``, else the built-in tier map. Without a role only
+    the global pin applies, which is exactly the pre-tier behaviour.
+
+    This is a no-op — the SAME object is returned — when the request is not for
+    Ollama, when no effort resolves, or when the caller already set the field. So
+    non-Ollama providers never receive it and an explicit caller value always wins.
     """
     if not is_ollama:
         return payload
-    effort = _ollama_reasoning_effort()
+    effort = _role_reasoning_effort(role) if role else _ollama_reasoning_effort()
     if not effort or "reasoning_effort" in payload:
         return payload
     return {**payload, "reasoning_effort": effort}
@@ -1101,9 +1121,14 @@ class ProviderRouter:
         # opted into paid brains (ALLOW_PAID_BRAIN), the same gate the agent loop
         # and model router already apply. Without it, AWS credentials in the
         # environment resurrected Bedrock on every boot even after it was removed.
-        from packages.ai.brain import allow_paid_brain
+        from packages.ai.brain import allow_paid_brain, bedrock_disabled
 
-        if aws_access_key and aws_secret_key and allow_paid_brain():
+        if (
+            aws_access_key
+            and aws_secret_key
+            and allow_paid_brain()
+            and not bedrock_disabled()
+        ):
             aws_region = (
                 os.environ.get("AWS_REGION")
                 or os.environ.get("AWS_DEFAULT_REGION")
@@ -1267,6 +1292,12 @@ class ProviderRouter:
         return cls(providers, keep_order=True)
 
     async def health_check(self, provider: ProviderConfig) -> bool:
+        from packages.ai.brain import bedrock_disabled, is_bedrock_endpoint
+
+        if bedrock_disabled() and is_bedrock_endpoint(
+            provider.provider_id, provider.base_url, provider.type
+        ):
+            return False  # no probe, and never reported healthy, while the switch is on
         try:
             if provider.type == "bedrock":
                 return bool(provider.api_key and provider.headers.get("X-Bedrock-Secret"))
@@ -1393,9 +1424,9 @@ class ProviderRouter:
                             _usage = _body.get("usage") or {}
                             # Feed the same usage figure to the traffic
                             # director so its TPM window reflects real tokens.
-                            _tokens_for_director = int(_usage.get("total_tokens") or 0) or (
-                                int(_usage.get("prompt_tokens") or 0)
-                                + int(_usage.get("completion_tokens") or 0)
+                            from packages.ai.cost_tracker import usage_counts
+                            _prompt, _completion, _cached, _tokens_for_director = usage_counts(
+                                _usage, anthropic=provider.type == "anthropic"
                             )
                             _tag = "untagged"
                             try:
@@ -1403,17 +1434,11 @@ class ProviderRouter:
                                 _tag = classify_task(messages=payload.get("messages") or [])
                             except Exception:
                                 pass
-                            from packages.ai.cost_tracker import cached_prompt_tokens
-                            _cached = cached_prompt_tokens(_usage)
-                            _prompt = int(_usage.get("prompt_tokens") or 0)
-                            if provider.type == "anthropic":
-                                from packages.ai.cost_tracker import anthropic_prompt_tokens
-                                _prompt = anthropic_prompt_tokens(_usage)
                             _record_cost(
                                 model,
                                 provider_id=provider.provider_id,
                                 prompt_tokens=_prompt,
-                                completion_tokens=int(_usage.get("completion_tokens") or 0),
+                                completion_tokens=_completion,
                                 cached_tokens=_cached,
                                 tag=_tag,
                             )
@@ -1424,7 +1449,7 @@ class ProviderRouter:
                                 _cost_for(
                                     model,
                                     _prompt,
-                                    int(_usage.get("completion_tokens") or 0),
+                                    _completion,
                                     _cached,
                                 ),
                             )
@@ -1822,6 +1847,14 @@ class ProviderRouter:
         timeout_sec: float = 300.0,
     ) -> httpx.Response:
         headers = provider.auth_headers()
+        from packages.ai.brain import bedrock_disabled, is_bedrock_endpoint
+
+        # Not only type == "bedrock": a record labelled openai-compatible that points at
+        # the Bedrock Mantle endpoint spends on the same AWS account.
+        if bedrock_disabled() and is_bedrock_endpoint(
+            provider.provider_id, provider.base_url, provider.type
+        ):
+            raise RuntimeError("Bedrock is disabled (BEDROCK_DISABLED)")
         if provider.type == "bedrock":
             return await self._post_bedrock_converse(provider, payload, timeout_sec)
         if provider.type.startswith("emergent-"):
@@ -2075,6 +2108,8 @@ class ProviderRouter:
     def _anthropic_to_openai_response(
         response: httpx.Response, model: str
     ) -> httpx.Response:
+        from packages.ai.cost_tracker import _usage_int
+
         data = response.json()
         content = "".join(
             block.get("text", "")
@@ -2095,16 +2130,19 @@ class ProviderRouter:
                 }
             ],
             "usage": {
-                "prompt_tokens": int(usage.get("input_tokens") or 0),
-                "completion_tokens": int(usage.get("output_tokens") or 0),
-                "total_tokens": int(usage.get("input_tokens") or 0)
-                + int(usage.get("output_tokens") or 0),
+                # Safe reads: a malformed provider count (a string, inf) used to raise here,
+                # which made a completed request look like a provider failure and dropped
+                # its cost, user-token and agent-spend recording.
+                "prompt_tokens": _usage_int(usage.get("input_tokens")),
+                "completion_tokens": _usage_int(usage.get("output_tokens")),
+                "total_tokens": _usage_int(usage.get("input_tokens"))
+                + _usage_int(usage.get("output_tokens")),
                 # Prompt-caching fields: always present so callers can read them safely
-                "cache_creation_input_tokens": int(
-                    usage.get("cache_creation_input_tokens") or 0
+                "cache_creation_input_tokens": _usage_int(
+                    usage.get("cache_creation_input_tokens")
                 ),
-                "cache_read_input_tokens": int(
-                    usage.get("cache_read_input_tokens") or 0
+                "cache_read_input_tokens": _usage_int(
+                    usage.get("cache_read_input_tokens")
                 ),
             },
         }
@@ -2160,6 +2198,12 @@ class ProviderRouter:
         payload: dict[str, Any],
         timeout_sec: float = 300.0,
     ) -> httpx.Response:
+        # Last line of defence: a router built with an explicit Bedrock provider
+        # (not via from_env) must still honour the kill switch.
+        from packages.ai.brain import bedrock_disabled
+
+        if bedrock_disabled():
+            raise RuntimeError("Bedrock is disabled (BEDROCK_DISABLED)")
         try:
             import boto3
         except ImportError as exc:

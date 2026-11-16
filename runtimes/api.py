@@ -295,6 +295,13 @@ async def run_task_on_runtime(
     if adapter is None:
         raise HTTPException(status_code=404, detail=f"Runtime '{runtime_id}' not found")
 
+    from packages.ai.brain import bedrock_disabled
+
+    # model_preference becomes `--model` for CLI runtimes (aider runs on litellm, where a
+    # bedrock/... name plus ambient AWS credentials bills the account).
+    if bedrock_disabled() and "bedrock" in (body.model_preference or "").lower():
+        raise HTTPException(status_code=400, detail="Bedrock models are disabled")
+
     spec = TaskSpec(
         task_id=f"direct-{secrets.token_hex(6)}",
         instruction=body.instruction,

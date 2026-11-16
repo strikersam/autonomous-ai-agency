@@ -63,6 +63,9 @@ class ProviderConfig:
     max_concurrency: int = 8            # bulkhead size
     requests_per_minute: int = 0        # 0 = unmetered
     tokens_per_minute: int = 0
+    # What a plain 429 rests: "key" (the account's key, every model) or "model"
+    # (only the model that was refused) for providers that meter per model.
+    rate_limit_scope: str = "key"
     timeout_sec: float = 120.0
     auth_style: str = "bearer"          # bearer | x-api-key | query | none
     auth_header: str = ""               # explicit override
@@ -233,6 +236,15 @@ class BudgetConfig:
     enforce: bool = False               # True = raise BudgetExceeded at 100%
 
 
+def bedrock_blocked(provider: Any) -> bool:
+    """True when ``provider`` is Bedrock-hosted and the kill switch is on."""
+    from packages.ai.brain import bedrock_disabled, is_bedrock_endpoint
+
+    return bedrock_disabled() and is_bedrock_endpoint(
+        getattr(provider, "id", ""), getattr(provider, "base_url", ""), getattr(provider, "kind", "")
+    )
+
+
 @dataclass
 class LLMConfig:
     """The fully-resolved routing configuration."""
@@ -246,7 +258,9 @@ class LLMConfig:
     source_dir: str = ""
 
     def enabled_providers(self) -> list[ProviderConfig]:
-        return [p for p in self.providers.values() if p.enabled]
+        return [
+            p for p in self.providers.values() if p.enabled and not bedrock_blocked(p)
+        ]
 
     def models_for(self, provider_id: str) -> list[ModelConfig]:
         # A model whose primary provider is `provider_id` is returned as-is; one
@@ -601,6 +615,8 @@ def _merge_env_defaults(
             models=[default_model] if default_model else [],
             tier=tier,
             priority=priority,
+            # NVIDIA meters per model, so a plain 429 rests only that model (matches providers.yaml).
+            rate_limit_scope="model" if pid == "nvidia" else "key",
             requires_key=requires_key,
             auth_style="x-api-key" if kind == "anthropic" else ("none" if not requires_key else "bearer"),
             api_version=os.environ.get("AZURE_OPENAI_API_VERSION", "") if pid == "azure" else "",

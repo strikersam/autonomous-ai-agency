@@ -518,7 +518,7 @@ class Agency:
                     instruction=(
                         f"Company: {company.name} (ID: {cid})\n"
                         f"Domain: {company.domain}\n"
-                        f"Repo: {company.repos[0].url if company.repos else 'N/A'}\n\n"
+                        f"Repo: {await _company_repo_url(store, company)}\n\n"
                         "Look at this company's connected repository. Identify the single\n"
                         "highest-value improvement: a bug fix, a test gap, a doc inconsistency,\n"
                         "or a code quality issue. Implement the fix and open a pull request.\n"
@@ -922,21 +922,55 @@ class Agency:
                 log.warning("Agency tick skipped — kill switch engaged")
                 time.sleep(self._tick)
                 continue
-            try:
-                if self._main_loop is not None:
-                    # Dispatch onto the FastAPI main loop so coroutines can
-                    # safely touch Motor/aiosqlite clients bound to it.
-                    future = asyncio.run_coroutine_threadsafe(
-                        self._run_cycle_as_ceo(), self._main_loop
-                    )
-                    future.result(timeout=300)  # 5-min cap per cycle
-                else:
-                    # Fallback: fresh loop (only used before attach_main_loop)
-                    asyncio.run(self._run_cycle_as_ceo())
-            except Exception as exc:
-                log.error("Agency tick error: %s", exc)
+            self._run_one_cycle()
             time.sleep(self._tick)
 
+    def _run_one_cycle(self) -> None:
+        """Run one CEO cycle with the per-cycle time cap. Never raises."""
+        future = None
+        try:
+            if self._main_loop is not None:
+                # Dispatch onto the FastAPI main loop so coroutines can
+                # safely touch Motor/aiosqlite clients bound to it.
+                future = asyncio.run_coroutine_threadsafe(
+                    self._run_cycle_as_ceo(), self._main_loop
+                )
+                future.result(timeout=_CYCLE_TIMEOUT_S)  # 5-min cap per cycle
+            else:
+                # Fallback: fresh loop (only used before attach_main_loop)
+                asyncio.run(self._run_cycle_as_ceo())
+        except TimeoutError:
+            # The timeout error has an empty message, and the cycle kept running on
+            # the main loop while the next tick started another (2026-11-15 13:16).
+            if future is not None:
+                future.cancel()
+            log.error("Agency tick error: cycle exceeded %ds and was cancelled", _CYCLE_TIMEOUT_S)
+        except Exception as exc:
+            log.error("Agency tick error: %s: %s", type(exc).__name__, exc)
+
+
+async def _company_repo_url(store: Any, company: Any) -> str:
+    """The company's primary repository URL, or ``'N/A'``. Never raises.
+
+    ``Company.repos`` holds repository *IDs* (strings), not ``Repo`` objects, so
+    the URL comes from the connected repo (``repo_connection``) or a store lookup
+    of the first ID. Reading ``.url`` off the ID aborted the whole CEO cycle.
+    """
+    try:
+        conn = getattr(company, "repo_connection", None)
+        if conn is not None:
+            return f"https://github.com/{conn.owner}/{conn.repo}"
+        for repo_id in list(getattr(company, "repos", None) or [])[:1]:
+            repo = await store.get_repo(str(repo_id))
+            url = getattr(repo, "url", None)
+            if url:
+                return str(url)
+    except Exception as exc:  # noqa: BLE001 - a missing repo line must not cost the cycle
+        log.debug("Agency: could not resolve repo URL for %s: %s", getattr(company, "id", "?"), exc)
+    return "N/A"
+
+
+_CYCLE_TIMEOUT_S = 300  # cap on one CEO cycle
 
 # ── CEO LLM prompt helpers ─────────────────────────────────────────────────────
 

@@ -298,6 +298,14 @@ async def _chat_with_openai_compat(
     timeout_sec: float = 60.0,
 ) -> tuple[str, str]:
     """Generic OpenAI-compatible /v1/chat/completions call."""
+    # This sidecar runs in its own process and does not import packages.ai.brain, so it
+    # reads the same switch directly: a Bedrock base URL must not be called while it is on.
+    from urllib.parse import urlsplit
+
+    if "bedrock" in (urlsplit(base_url).hostname or "").lower() and os.environ.get(
+        "BEDROCK_DISABLED", "true"
+    ).strip().lower() not in {"0", "false", "no", "off"}:
+        raise HTTPException(status_code=503, detail="Bedrock is disabled")
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {"model": model, "messages": messages, "temperature": temperature, "stream": False}
     async with httpx.AsyncClient(timeout=timeout_sec) as client:

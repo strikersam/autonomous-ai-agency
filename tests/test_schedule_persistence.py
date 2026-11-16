@@ -142,7 +142,12 @@ async def test_sync_rehydrate_on_running_loop_does_not_leak() -> None:
         warnings.simplefilter("always")
         n = s2.attach_persistence(store)  # called from this async test's loop
         assert n == 0  # cannot block on a running loop; hydration deferred
-        await asyncio.sleep(0)  # let the scheduled hydrate() task run
+        # The store read runs in a worker thread (it must not block the loop), so
+        # the scheduled hydrate() task needs more than one tick to finish.
+        for _ in range(200):
+            if s2.list():
+                break
+            await asyncio.sleep(0.01)
         gc.collect()
     leaked = [
         w for w in caught

@@ -1015,7 +1015,7 @@ class AgentRunner:
                 ]
                 for _ in range(3):
                     try:
-                        raw = await self._chat_json(judge_model, judge_messages)
+                        raw = await self._chat_json(judge_model, judge_messages, role="judge")
                         if "verdict" not in raw:
                             continue
                         judge = raw
@@ -1105,9 +1105,8 @@ class AgentRunner:
             # next run's planner sees it (agent/lessons.py). Retry without
             # this is not learning — the same mistake recurs forever.
             try:
-                from agent.lessons import record_run_success, record_step_failures
-                record_step_failures(plan.goal, step_results)
-                record_run_success(plan.goal, step_results)
+                from agent.lessons import record_run_outcome_async
+                await record_run_outcome_async(plan.goal, step_results)
             except Exception:
                 # The learning loop persists failure causes so the next run's
                 # planner avoids them — a broken lessons store means the same
@@ -1122,8 +1121,8 @@ class AgentRunner:
             # makes a repeated failure stick. No-op unless HARNESS_SPEC_AUTO_REFINE
             # is set, so prompts are unchanged for anyone who has not opted in.
             try:
-                from agent.harness_spec import refine
-                refine(self.tools.root)
+                from agent.harness_spec import refine_async
+                await refine_async(self.tools.root)
             except Exception as exc:
                 log.warning("harness spec refine skipped: %s", exc, exc_info=True)
 
@@ -1258,12 +1257,12 @@ class AgentRunner:
             procedural_memories=proc_memories or None,
         )
         # ── Harness enrichment: inject available tools + skills into planner ───
-        self._inject_enrichment(messages, str(self.tools.root))
+        await asyncio.to_thread(self._inject_enrichment, messages, str(self.tools.root))
         # ── Learning loop: surface lessons from recent failed runs so the
         # planner avoids known failure modes (agent/lessons.py).
         try:
-            from agent.lessons import recent_lessons_block
-            _lessons = recent_lessons_block(query=instruction)
+            from agent.lessons import recent_lessons_block_async
+            _lessons = await recent_lessons_block_async(query=instruction)
             if _lessons and messages and messages[0].get("role") == "system":
                 messages[0]["content"] = f"{messages[0]['content']}\n\n{_lessons}"
         except Exception as exc:
@@ -1299,7 +1298,7 @@ class AgentRunner:
         try:
             from agent.capacity_backoff import call_with_capacity_retry
             raw = await call_with_capacity_retry(
-                lambda: self._chat_json(planner_model, messages), what="planning",
+                lambda: self._chat_json(planner_model, messages, role="planner"), what="planning",
             )
             raw = self._normalize_plan_response(raw, instruction)
             plan = AgentPlan.model_validate(raw)
@@ -1431,7 +1430,7 @@ class AgentRunner:
                 base_tool_prompt = str(tool_messages[0].get("content", ""))
                 tool_messages[0]["content"] = _compact_if_enabled(base_tool_prompt)
                 # ── Harness enrichment: inject tool + skill catalog into tool prompt ───
-                self._inject_enrichment(tool_messages, str(self.tools.root))
+                await asyncio.to_thread(self._inject_enrichment, tool_messages, str(self.tools.root))
                 # Inject ReAct scratchpad trace into the system message so the
                 # model can see its own reasoning across tool calls (A2)
                 scratchpad_ctx = scratchpad.to_prompt_context()
@@ -1442,7 +1441,9 @@ class AgentRunner:
                 if cm_stats is not None:
                     cm_stats.record_selection(tool_messages)
                 async with _timed_phase("tool_selection", step_id=step.get("id"), remaining=remaining):
-                    tool_call = await self._chat_json(executor_model, tool_messages)
+                    tool_call = await self._chat_json(
+                        executor_model, tool_messages, role="executor"
+                    )
                 call = self._coerce_tool_call(tool_call)
             except Exception as exc:
                 tool_retry_count += 1
@@ -1723,6 +1724,7 @@ class AgentRunner:
                                     new_content=new_content,
                                     syntax_issues=syntax_issues,
                                 ),
+                                role="verifier",
                             )
                         verdict = VerificationResult.model_validate(verification)
                     except Exception as verif_exc:
@@ -2355,8 +2357,13 @@ class AgentRunner:
             log.warning("context compaction failed (continuing uncompacted): %s", exc)
             return history
 
-    async def _chat_text(self, model: str, messages: list[dict[str, str]]) -> str:
+    async def _chat_text(
+        self, model: str, messages: list[dict[str, str]], role: str | None = None
+    ) -> str:
         """Send chat messages and return the assistant's text output.
+
+        *role* (planner / executor / verifier / judge) selects that role's Ollama
+        ``reasoning_effort`` tier; ``None`` keeps the global pin only.
 
         If an Anthropic/Bedrock Opus model is configured and the request targets
         an Opus/Claude model, prefer calling Anthropic (Opus) directly. Fall
@@ -2589,7 +2596,15 @@ class AgentRunner:
                     log.warning("Anthropic Opus call failed — falling back to Ollama: %s", exc)
 
             # Bedrock fallback: used when only AWS credentials are set (no ANTHROPIC_API_KEY)
-            if _paid_allowed and (not explicit_provider_configured) and (not anthropic_key) and target_is_opus:
+            from packages.ai.brain import bedrock_disabled as _bedrock_disabled
+
+            if (
+                _paid_allowed
+                and not _bedrock_disabled()
+                and (not explicit_provider_configured)
+                and (not anthropic_key)
+                and target_is_opus
+            ):
                 aws_access = os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("BEDROCK_ACCESS_KEY")
                 aws_secret = os.environ.get("AWS_SECRET_ACCESS_KEY") or os.environ.get("BEDROCK_SECRET_KEY")
                 aws_region = (
@@ -2750,7 +2765,9 @@ class AgentRunner:
         )
 
         try:
-            fo = await failover_chat_completion(payload, timeout_sec=float(_agent_timeout_sec))
+            fo = await failover_chat_completion(
+                payload, timeout_sec=float(_agent_timeout_sec), role=role
+            )
         except BrainFailoverExhausted as exc:
             raise RuntimeError(str(exc)) from exc
 
@@ -2780,8 +2797,10 @@ class AgentRunner:
         require_complete(getattr(fo, "finish_reason", None))
         return fo.text
 
-    async def _chat_json(self, model: str, messages: list[dict[str, str]]) -> dict[str, Any]:
-        raw = await self._chat_text(model, messages)
+    async def _chat_json(
+        self, model: str, messages: list[dict[str, str]], role: str | None = None
+    ) -> dict[str, Any]:
+        raw = await self._chat_text(model, messages, role=role)
         attempts = 1
         for _ in range(3):
             try:
@@ -2793,7 +2812,7 @@ class AgentRunner:
                 if "{" not in self._REASONING_RE.sub("", raw or ""):
                     # Only reasoning, no answer: there is nothing to reformat, and
                     # asking for "a JSON object" from it made the model invent one.
-                    raw = await self._chat_text(model, messages)
+                    raw = await self._chat_text(model, messages, role=role)
                 else:
                     raw = await self._chat_text(
                         model,
@@ -2801,6 +2820,7 @@ class AgentRunner:
                             {"role": "system", "content": "Return only a valid JSON object. No prose. No code fences."},
                             {"role": "user", "content": raw},
                         ],
+                        role=role,
                     )
                 attempts += 1
         try:
@@ -3609,9 +3629,12 @@ class AgentRunner:
             # Never push directly to a protected branch OR to the PR base branch —
             # opening a PR with head == base is rejected by GitHub. Isolate the agent's
             # changes on a fresh feature branch in those cases.
+            from packages.runs import side_effects as _fx
+
             if current_branch == base_branch or current_branch in ("main", "master"):
-                push_branch = f"agent/task-{uuid.uuid4().hex[:8]}"
-                await ws.create_branch(push_branch, current_branch)
+                # Stable per task (agent/task-<task_id>), so a retried run reuses its branch.
+                push_branch = _fx.task_branch_name()
+                await _fx.checkout_branch(ws, push_branch, current_branch)
                 self._log_event(session_id, "step_start", {"description": f"Created branch {push_branch}"})
             else:
                 push_branch = current_branch
@@ -3619,8 +3642,16 @@ class AgentRunner:
             if plan is not None:
                 commits = commits + await self._commit_plan_artifact(plan)
 
-            # Push with token-scrubbing (LocalWorkspace.push handles try/finally).
-            await ws.push(branch=push_branch, agent_initiated=True)
+            # Push with token-scrubbing (LocalWorkspace.push handles try/finally),
+            # recorded in the run's ledger so a retried run does not push twice.
+            _, head_sha, _ = await ws._run("git", "rev-parse", "HEAD")
+            push_args = {"branch": push_branch, "sha": head_sha.strip()}
+            async with _fx.recorded_effect("git_push", push_args,
+                                           {**push_args, "cwd": str(ws.path)}, 110) as fx:
+                if not fx.skipped:
+                    push_branch = fx.result_ref = await _fx.push_branch(ws, push_branch)
+                elif fx.result_ref:  # replayed: reuse the branch the earlier attempt pushed
+                    push_branch = fx.result_ref
             self._log_event(session_id, "step_start", {"description": f"Pushed branch {push_branch}"})
 
             # Derive a meaningful PR title from the task goal or first commit.
@@ -3635,16 +3666,20 @@ class AgentRunner:
 
             pr_body = render_pr_body(goal, plan, self._gate_report, judge, commits)
 
-            pr_result = await self.github.open_pull_request(
-                owner=owner,
-                repo=repo,
-                title=pr_title,
-                head=push_branch,
-                base=base_branch,
-                body=pr_body,
-                agent_initiated=True,
-            )
-            pr_url = pr_result.get("html_url") or ""
+            pr_args = {"owner": owner, "repo": repo, "head": push_branch, "base": base_branch}
+            async with _fx.recorded_effect("open_pull_request", pr_args, pr_args, 30) as fx:
+                if not fx.skipped:  # replayed: the PR opened by an earlier attempt is reused
+                    pr_result = await self.github.open_pull_request(
+                        owner=owner,
+                        repo=repo,
+                        title=pr_title,
+                        head=push_branch,
+                        base=base_branch,
+                        body=pr_body,
+                        agent_initiated=True,
+                    )
+                    fx.result_ref = pr_result.get("html_url") or ""
+            pr_url = fx.result_ref or ""
             self._log_event(session_id, "assistant_message", {
                 "summary": f"Opened PR: {pr_url}",
                 "pr_url": pr_url,

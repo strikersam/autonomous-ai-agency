@@ -39,6 +39,7 @@ from packages.llm.config import (
     LLMConfig,
     ModelConfig,
     ProviderConfig,
+    bedrock_blocked,
     get_config,
 )
 from packages.llm.context import ContextManager, build_summariser
@@ -53,6 +54,7 @@ from packages.llm.health import BreakerState, get_tracker
 from packages.llm.keys import get_ring, resolve_keys
 from packages.llm.metrics import get_metrics
 from packages.llm.providers import LLMProvider, build_provider
+from packages.llm.quarantine import quarantine_provider
 from packages.llm.queue import Bulkhead, Deduplicator, RequestQueue, request_fingerprint
 from packages.llm.registry import get_registry
 from packages.llm.retry import RetryBudget, compute_delay, is_retryable
@@ -213,7 +215,6 @@ class LLMRouter:
             if api_key is None:
                 continue
 
-            budget.charge()
             attempt = Attempt(
                 provider=candidate.provider.id, model=candidate.model.id, key_index=key_index
             )
@@ -223,6 +224,12 @@ class LLMRouter:
                 async with self._bulkhead.slot(candidate.provider.id, timeout=15.0) as got_slot:
                     if not got_slot:
                         continue
+                    if bedrock_blocked(candidate.provider):  # the switch may have flipped while waiting
+                        continue
+                    # Charged only once the candidate will really be called, as in _dispatch: a
+                    # candidate skipped above must not use up the attempt budget, or with a
+                    # one-attempt budget it would stop the fallback provider from being tried.
+                    budget.charge()
                     async for chunk in provider.stream(
                         request, model=candidate.model.id, api_key=api_key, client=client
                     ):
@@ -286,7 +293,11 @@ class LLMRouter:
 
         for spec in candidates:
             provider = self._providers.get(spec.provider)
-            if provider is None or not self._health.is_available(spec.provider):
+            if (
+                provider is None
+                or bedrock_blocked(provider.config)
+                or not self._health.is_available(spec.provider)
+            ):
                 continue
             keys = resolve_keys(provider.config.key_env)
             api_key, _index = self._keys.acquire(
@@ -392,6 +403,8 @@ class LLMRouter:
         for provider_id, provider in self._providers.items():
             config = provider.config
             if provider_id in switched_off:
+                continue
+            if bedrock_blocked(config):  # live kill switch, checked per request
                 continue
             if provider_id in request.exclude_providers:
                 continue
@@ -522,14 +535,17 @@ class LLMRouter:
         last_error: BaseException | None = None
         client = await self._http()
         started = time.monotonic()
+        skipped: dict[str, str] = {}
+        funds_out: set[str] = set()     # providers that refused for funds this dispatch
 
         for index, candidate in enumerate(candidates):
             if budget.exhausted():
                 break
             provider = self._providers.get(candidate.provider.id)
-            if provider is None:
+            if provider is None or candidate.provider.id in funds_out:
                 continue
             if not self._health.is_available(candidate.provider.id):
+                skipped.setdefault(candidate.provider.id, "breaker open")
                 continue
             probing = self._health.get(candidate.provider.id).state is BreakerState.HALF_OPEN
             if not self._health.acquire_probe(candidate.provider.id):
@@ -575,6 +591,7 @@ class LLMRouter:
                 # permit and can never be probed again.
                 if probing:
                     self._health.release_probe(provider_id)
+                skipped.setdefault(provider_id, "keys cooling or provider saturated")
                 continue                               # candidate skipped, not failed
 
             if response is not None:
@@ -583,6 +600,13 @@ class LLMRouter:
                 return response
 
             last_error = error
+            is_funds = bool(getattr(error, "funds", False))
+            if is_funds:
+                funds_out.add(provider_id)     # its other models would refuse identically
+            if probing and (is_funds or getattr(error, "scope", None) in _NEXT_CANDIDATE_SCOPES):
+                # These record no breaker outcome, so hand the half-open probe
+                # permit back or the provider can never be probed again.
+                self._health.release_probe(provider_id)
             if _is_timeout(error):
                 # A hung provider rarely answers its next model inside what is
                 # left of the budget: production spent 60s on one NVIDIA model,
@@ -597,6 +621,8 @@ class LLMRouter:
                 # A permanent error on one candidate (bad model name, unsupported
                 # parameter) is not permanent for the next — keep going.
                 continue
+            if getattr(error, "scope", None) in _NEXT_CANDIDATE_SCOPES:
+                continue                               # no backoff: another model may answer now
 
             # Back off only before retrying the *same* provider. A Retry-After
             # describes the provider that sent it; sleeping on Groq's 30s window
@@ -619,6 +645,7 @@ class LLMRouter:
             provider=attempts[-1].provider if attempts else "", agent=request.agent or ""
         )
         reason = budget.reason() if budget.exhausted() else str(last_error or "all candidates failed")
+        _log_skipped(attempts, skipped)
         raise RouterExhausted(attempts, reason)
 
     async def _attempt(
@@ -656,6 +683,8 @@ class LLMRouter:
                     # Skipped, not attempted. Charging here would let a
                     # saturated provider burn the retry budget of a request
                     # that never reached any provider at all.
+                    return None, None, None
+                if bedrock_blocked(config):  # the switch may have flipped while waiting
                     return None, None, None
                 budget.charge()
                 started = time.monotonic()
@@ -775,6 +804,8 @@ class LLMRouter:
         self._metrics.record_failure(
             provider=provider_id, status=str(status or "error"), scope=scope
         )
+        if self._penalise_special(candidate, error, api_key, latency_ms=latency_ms):
+            return
 
         # Keyed on the scope, not on the status code. A per-minute budget is a
         # key-scoped rate limit whichever number the provider dresses it in —
@@ -832,6 +863,45 @@ class LLMRouter:
             auto_disable(provider_id, describe(status, str(error)[:120]))
         if self._health.get(provider_id).state.value == "open":
             self._metrics.record_breaker_trip(provider=provider_id)
+
+    def _penalise_special(
+        self, candidate: Candidate, error: BaseException, api_key: str, *, latency_ms: int
+    ) -> bool:
+        """Handle the failures that blame neither the key nor the provider's health.
+
+        Returns True when *error* was one of them and ``_penalise`` must stop.
+
+        * funds — a refusal only a top-up fixes: quarantine the provider for the
+          live ``PROVIDER_FUNDS_QUARANTINE_HOURS`` window instead of retrying it
+          every request or switching it off for good;
+        * ``request`` — the model emitted a tool call on a request without tools
+          (Groq 400): nothing to penalise, the next candidate is tried;
+        * ``model_rate`` — a per-model 429 (NVIDIA NIM): rest that model only,
+          so the provider's other models stay in the chain.
+        """
+        provider_id = candidate.provider.id
+        status = getattr(error, "status", None)
+        scope = getattr(error, "scope", "")
+        if getattr(error, "funds", False):
+            self._health.record_failure(
+                provider_id, status=status, latency_ms=latency_ms,
+                error=str(error)[:200], counts_against_breaker=False,
+            )
+            quarantine_provider(provider_id, describe(status, str(error)[:120]))
+            return True
+        if scope == "request":
+            return True
+        if scope == "model_rate":
+            rest = getattr(error, "retry_after", None) or _MODEL_RATE_COOLDOWN_SEC
+            self._dead_models[(provider_id, candidate.model.id)] = time.monotonic() + rest
+            self._health.record_failure(
+                provider_id, status=status, latency_ms=latency_ms,
+                error=str(error)[:200], counts_against_breaker=False,
+            )
+            log.info("llm.router: resting %s/%s for %.0fs (per-model 429)",
+                     provider_id, candidate.model.id, rest)
+            return True
+        return False
 
     def _model_is_dead(self, provider_id: str, model_id: str) -> bool:
         """Whether ``model_id`` on ``provider_id`` is inside its dead-model cooldown."""
@@ -1011,6 +1081,8 @@ class LLMRouter:
         )
         results: list[dict[str, Any]] = []
         for provider in targets:
+            if bedrock_blocked(provider.config):  # no probe either while the switch is on
+                continue
             keys = resolve_keys(provider.config.key_env)
             api_key = keys[0] if keys else ""
             probe = await provider.health(api_key=api_key, client=client)
@@ -1033,6 +1105,8 @@ class LLMRouter:
         client = await self._http()
         discovered: dict[str, list[str]] = {}
         for provider in self._providers.values():
+            if bedrock_blocked(provider.config):
+                continue
             keys = resolve_keys(provider.config.key_env)
             api_key = keys[0] if keys else ""
             try:
@@ -1113,6 +1187,27 @@ def _log_attempt(attempt: Attempt, started: float, outcome: str) -> None:
 # PROVIDER_DEAD_MODEL_COOLDOWN_SECONDS default.
 _DEAD_MODEL_STATUSES = frozenset({404, 410})
 _DEAD_MODEL_COOLDOWN_SEC = 3600.0
+# How long a model refused with a per-model 429 rests when the provider sent no
+# Retry-After. Matches the key cooldown a key-scoped 429 gets (packages/llm/keys.py).
+_MODEL_RATE_COOLDOWN_SEC = 30.0
+# Failures after which the next candidate is tried at once, without the backoff
+# that only makes sense before retrying the same provider/model.
+_NEXT_CANDIDATE_SCOPES = frozenset({"request", "model_rate"})
+
+
+def _log_skipped(attempts: list[Attempt], skipped: dict[str, str]) -> None:
+    """Say which providers were in the chain but never called, and why.
+
+    "All 1 brain provider attempt(s) failed" counts attempts only, so a chain
+    whose other providers were all cooling read as a one-provider chain.
+    """
+    tried = {attempt.provider for attempt in attempts}
+    untried = {pid: why for pid, why in skipped.items() if pid not in tried}
+    if untried:
+        log.info(
+            "llm.router: exhausted after %d attempt(s); skipped without a call: %s",
+            len(attempts), "; ".join(f"{pid} ({why})" for pid, why in untried.items()),
+        )
 
 
 def _is_timeout(error: BaseException | None) -> bool:

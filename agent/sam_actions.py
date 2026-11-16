@@ -34,7 +34,25 @@ _READ_TERMS = (
 )
 _FIXABLE_KINDS = {"error", "ci", "security", "infra"}
 _MAX_FIX_TASKS = 5
+# Alerts that say a model provider had no capacity. No code change fixes a rate
+# limit or a spent quota, so queueing an agent task for one only spends more of
+# the capacity that ran out (production cycled "Investigate the root cause of
+# 'Brain capacity exhausted'" tasks that could never succeed).
+# Only phrases that carry their own context: the failover's and the task
+# coordinator's exact messages, and the provider form "HTTP 429: rate limited".
+# Bare words such as "rate limited" or "rate_limit_exceeded" also appear inside
+# real defect reports (a failing test's name, a limiter bug), and those must
+# stay fixable. A raw provider error that reaches the feed unwrapped is
+# therefore still queued; the failover normally wraps it.
+_CAPACITY_ALERT_MARKERS = (
+    "all brain providers exhausted", "brain provider attempt(s) failed",
+    "all configured llm providers failed", "http 429: rate limited",
+    "brain capacity exhausted", "no runtime available after",
+    "transient provider/sandbox error after",
+)
 _FEED_LIMIT = 50
+_DEFECT_WORDING = re.compile(r"\b(expected|assert\w*|should|got)\b", re.IGNORECASE)
+_QUOTED = re.compile(r'"[^"\n]*"')
 
 
 @dataclass(frozen=True)
@@ -47,8 +65,24 @@ class SamAlert:
     severity: str
 
     @property
+    def is_capacity(self) -> bool:
+        """True when the alert reports provider capacity, not a defect an agent can fix.
+
+        A defect report quotes what it expected (``expected "HTTP 429: rate
+        limited", got HTTP 200``); that is not a capacity failure. Quoted text is
+        ignored only when the alert uses such defect wording, because a real
+        capacity alert often quotes the provider error (``Task failed: "All
+        brain providers exhausted"``) and must still match.
+        """
+        text = f"{self.title} {self.message}"
+        if _DEFECT_WORDING.search(text):
+            text = _QUOTED.sub(" ", text)
+        text = text.lower()
+        return any(marker in text for marker in _CAPACITY_ALERT_MARKERS)
+
+    @property
     def fixable(self) -> bool:
-        return self.kind != "approval" and (
+        return self.kind != "approval" and not self.is_capacity and (
             self.kind in _FIXABLE_KINDS or self.severity == "error"
         )
 
@@ -146,8 +180,15 @@ async def fix_alerts(owner_id: str) -> str:
     alerts = await fetch_alerts()
     fixable = [a for a in alerts if a.fixable]
     approvals = sum(1 for a in alerts if a.kind == "approval")
+    capacity = sum(1 for a in alerts if a.is_capacity)
     if not fixable:
         tail = f" {_plural(approvals, 'run')} are waiting on your approval." if approvals else ""
+        if capacity:
+            return (
+                f"I checked the alerts, Commander. {_plural(capacity, 'alert')} report a model provider "
+                f"out of capacity or rate limited. That needs more provider capacity, not a code fix, "
+                f"so I queued nothing.{tail} Standing by."
+            )
         return f"I checked the alerts, Commander. There's nothing broken for me to fix.{tail} Standing by."
     created, already = 0, 0
     for alert in fixable[:_MAX_FIX_TASKS]:

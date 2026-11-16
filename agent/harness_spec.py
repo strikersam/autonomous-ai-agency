@@ -425,3 +425,10 @@ def build_block(workspace_root: str | Path | None = None, *, max_chars: int | No
         lines.append(line)
         used += len(line) + 1
     return "\n".join(lines) if len(lines) > 1 else ""
+
+
+async def refine_async(workspace_root: str | Path) -> list[SpecEntry]:
+    """``refine`` without blocking the event loop (it reads the lessons store)."""
+    import asyncio
+
+    return await asyncio.to_thread(refine, workspace_root)

@@ -53,6 +53,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import asyncio
 import threading
 import time
 from dataclasses import dataclass, field
@@ -245,19 +246,88 @@ def disabled_providers(force: bool = False) -> dict[str, str]:
     attempt, and never raises — a storage problem must not take the brain
     offline, so the last known set is returned instead.
     """
-    global _DISABLED_CACHE
     cached, at = _DISABLED_CACHE
     if not force and (time.time() - at) < _DISABLED_CACHE_TTL:
-        return cached
+        return _without_expired(cached)
+    if not force and _on_event_loop():
+        # 2026-11-15: a stale read reopened a Mongo connection on the loop (6.6 s
+        # stall). Serve the last set and refresh in a thread; the cost is one
+        # attempt at a just-disabled provider, not a frozen server.
+        _refresh_disabled_in_background()
+        return _without_expired(cached)
+    return _refresh_disabled_cache()
+
+
+def _refresh_disabled_cache() -> dict[str, str]:
+    """Read the kill-switch set (blocking) and update the cache; never raises."""
+    global _DISABLED_CACHE
+    cached = _DISABLED_CACHE[0]
     out = _disabled_from_mongo()
     if out is None:
         try:
             out = _disabled_from_sqlite()
         except Exception as exc:  # noqa: BLE001
             log.debug("brain_failover: disabled-provider read failed: %s", exc)
-            return cached
+            return _without_expired(cached)
     _DISABLED_CACHE = (out, time.time())
-    return out
+    return _without_expired(out)
+
+
+# A timed switch-off (packages/llm/quarantine.py) carries its expiry inside the
+# stored reason, so both stores, the Providers screen and the doctor keep working
+# on the same single string, and an expired quarantine needs no sweeper: it simply
+# stops being reported as disabled and the next call re-probes the provider.
+_QUARANTINE_RE = re.compile(r"\[quarantine-until=(\d+)\]")
+
+
+def quarantine_until(reason: str) -> float | None:
+    """The epoch second a quarantine *reason* ends, or None for a permanent one."""
+    match = _QUARANTINE_RE.search(reason or "")
+    return float(match.group(1)) if match else None
+
+
+def _without_expired(out: dict[str, str]) -> dict[str, str]:
+    now = time.time()
+    return {
+        pid: why for pid, why in out.items()
+        if (until := quarantine_until(why)) is None or until > now
+    }
+
+
+def quarantine_provider(provider_id: str, reason: str, ttl_sec: float) -> None:
+    """Switch *provider_id* off for *ttl_sec*, then let it back into the chain.
+
+    For refusals that waiting cannot fix but a top-up can (no credit, no paid
+    plan): unlike ``auto_disable_provider`` it returns on its own, so a provider
+    whose credit is restored is not lost until someone notices. Idempotent like
+    ``auto_disable_provider`` — an active switch-off keeps its first reason.
+    """
+    if provider_id in disabled_providers():
+        return
+    until = int(time.time() + max(ttl_sec, 1.0))
+    set_provider_enabled(
+        provider_id, False, f"auto: {reason} [quarantine-until={until}]"
+    )
+
+
+_disabled_refresh_running = threading.Event()
+
+
+def _refresh_disabled_in_background() -> None:
+    """Single-flight refresh of the disabled-provider cache off the event loop."""
+    if _disabled_refresh_running.is_set():
+        return
+    _disabled_refresh_running.set()
+
+    def _run() -> None:
+        try:
+            _refresh_disabled_cache()
+        except Exception:  # noqa: BLE001 - keep the last known set
+            log.exception("brain_failover: disabled-provider refresh failed")
+        finally:
+            _disabled_refresh_running.clear()
+
+    threading.Thread(target=_run, name="disabled-providers-refresh", daemon=True).start()
 
 
 def _write_disabled_sqlite(provider_id: str, enabled: bool, reason: str) -> None:
@@ -331,7 +401,15 @@ def set_provider_enabled(provider_id: str, enabled: bool, reason: str = "") -> s
         log.error("brain_failover: %s enabled=%s was not persisted anywhere",
                   provider_id, enabled)
         return "none"
-    _DISABLED_CACHE = ({}, 0.0)  # force re-read
+    # Apply the change to the last known set and mark it stale. Resetting to {} would
+    # make a read on the event loop, which serves the cached set while it refreshes,
+    # briefly see every disabled provider as enabled.
+    current = dict(_DISABLED_CACHE[0])
+    if enabled:
+        current.pop(provider_id, None)
+    else:
+        current[provider_id] = reason
+    _DISABLED_CACHE = (current, 0.0)  # stale: the next read re-reads storage
     log.info("brain_failover: provider %s %s%s", provider_id,
              "ENABLED" if enabled else "DISABLED",
              "" if enabled else f" ({reason})")
@@ -382,6 +460,18 @@ def describe_disabled_reason(reason: str) -> dict[str, str]:
     raw = (reason or "").strip()
     if not raw:
         return {"code": "", "summary": "", "action": "", "auto": False, "reason": ""}
+    until = quarantine_until(raw)
+    if until is not None:
+        out = describe_disabled_reason(_QUARANTINE_RE.sub("", raw).strip())
+        when = time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime(until))
+        out.update(
+            summary=f"{out['summary'] or 'Needs credits'} — out of the loop until {when}",
+            action="Top up the account or remove the key; it is re-tried "
+                   "automatically when the quarantine ends.",
+            until=when,
+            reason=raw,
+        )
+        return out
     auto = raw.startswith("auto:")
     body = raw[len("auto:"):].strip() if auto else raw
     code = ""
@@ -454,20 +544,62 @@ def _is_paid_allowed_db() -> bool:
     survives a redeploy; the SQLite mirror serves dev/CI and Mongo outages.
     Cached for 10s so the hot path (every LLM call) doesn't hit the DB.
     """
-    global _PAID_CACHE
     now = time.time()
     cached_val, cached_at = _PAID_CACHE
     if now - cached_at < _PAID_CACHE_TTL:
         return cached_val
+    if _on_event_loop():
+        # The first read opens a Mongo connection (SCRAM handshake, ~2s): never
+        # on the loop. Serve the last value (False until the first read lands,
+        # so paid spend is never enabled by accident) and refresh in a thread.
+        _refresh_paid_in_background()
+        return cached_val
+    return _refresh_paid_cache()
 
+
+def _on_event_loop() -> bool:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    return True
+
+
+def _refresh_paid_cache() -> bool:
+    """Read the policy (blocking) and update the cache."""
+    global _PAID_CACHE
+    previous = _PAID_CACHE[0]
     val = _paid_allowed_mongo()
     if val is None:
         try:
             val = _paid_allowed_sqlite()
         except Exception:  # noqa: BLE001 — a kv problem must not enable paid spend
             val = None
-    _PAID_CACHE = (bool(val), now)
+    _PAID_CACHE = (bool(val), time.time())
+    if bool(val) != previous:
+        # Rebuild the provider registry now rather than at its next 60s tick.
+        get_failover_manager()._last_registry_build = 0.0
     return bool(val)
+
+
+_paid_refresh_running = threading.Event()
+
+
+def _refresh_paid_in_background() -> None:
+    """Single-flight refresh of the paid-policy cache off the event loop."""
+    if _paid_refresh_running.is_set():
+        return
+    _paid_refresh_running.set()
+
+    def _run() -> None:
+        try:
+            _refresh_paid_cache()
+        except Exception:  # noqa: BLE001 — a refresh failure keeps the old value
+            log.exception("brain_failover: paid-policy refresh failed")
+        finally:
+            _paid_refresh_running.clear()
+
+    threading.Thread(target=_run, name="paid-policy-refresh", daemon=True).start()
 
 
 # ── Provider definitions ─────────────────────────────────────────────────
@@ -1374,13 +1506,16 @@ def brain_availability_summary() -> dict[str, Any]:
         is_off = p.id in off
         if is_off:
             why = describe_disabled_reason(off.get(p.id, ""))
-            disabled.append({
+            entry = {
                 "id": p.id,
                 "tier": p.tier,
                 "summary": why["summary"],
                 "action": why["action"],
                 "auto": why["auto"],
-            })
+            }
+            if why.get("until"):
+                entry["until"] = why["until"]
+            disabled.append(entry)
         elif not p.is_healthy:
             cooling.append(p.id)
         else:

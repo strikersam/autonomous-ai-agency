@@ -300,7 +300,7 @@ def _runner(tmp_path):
 def _stub_failover(monkeypatch, calls: list[int], prompt: int = 30, completion: int = 20):
     from packages.ai import failover_client
 
-    async def fake(payload, timeout_sec=0.0):
+    async def fake(payload, timeout_sec=0.0, role=None):
         calls.append(1)
         return failover_client.FailoverResult(
             text="ok", model="m", provider_id="p",

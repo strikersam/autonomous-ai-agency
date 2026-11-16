@@ -372,3 +372,34 @@ def recent_lessons_block(limit: int = 5, *, query: str = "") -> str:
         hits = f" (seen {entry['hits']}x)" if entry.get("hits", 1) > 1 else ""
         lines.append(f"- [{entry['phase']}] {entry['lesson']}{hits}")
     return "\n".join(lines)
+
+
+# ── Off-loop wrappers ─────────────────────────────────────────────────────────
+# The stores above are synchronous (sqlite, pymongo). Called from a coroutine
+# they block the event loop for the whole round trip; production logged an 8.7s
+# stall inside ``recent()``. Coroutines must use these instead.
+
+
+async def record_run_outcome_async(goal: str, step_results: list[dict[str, Any]]) -> None:
+    """Record a run's failures and successes without blocking the event loop."""
+    import asyncio
+
+    def _both() -> None:
+        record_step_failures(goal, step_results)
+        record_run_success(goal, step_results)
+
+    await asyncio.to_thread(_both)
+
+
+async def recent_lessons_block_async(limit: int = 5, *, query: str = "") -> str:
+    """``recent_lessons_block`` without blocking the event loop."""
+    import asyncio
+
+    return await asyncio.to_thread(lambda: recent_lessons_block(limit, query=query))
+
+
+async def record_task_timeout_async(title: str, goal: str, message: str) -> None:
+    """``record_task_timeout`` without blocking the event loop."""
+    import asyncio
+
+    await asyncio.to_thread(record_task_timeout, title, goal, message)

@@ -1,6 +1,14 @@
 # NEXT_ACTION — updated 2026-11-14 (daily routine)
 
 Backlog W46 items 2 and 3 were already on master (#1955, #1959); item 1 (per-role effort) is still open and is the next candidate. Shipped today: docs fix so `AGENT_PLANNER/EXECUTOR/VERIFIER_MODEL` defaults in `docs/configuration-reference.md` match `agent/loop.py` (the retired nemotron-3-super is no longer named as the default). Item 3 of the 2026-11-12 open list above is closed by this.
+# NEXT_ACTION — updated 2026-11-14 (enterprise reliability plan, branch `claude/enterprise-reliability-plan`)
+
+**What shipped so far:** the plan, as draft PR #1965: `docs/plans/2026-11-14-enterprise-reliability-durable-execution-plan.md`. No code.
+
+## Open items
+
+1. Decisions D1 to D5 are made (plan section 4); implementation proceeds in the phases of plan section 2.2 on this branch.
+2. Not run yet: frontend checks, anything against live Render. Rows marked "not verified" in the gap matrix are settled during phase 2.
 
 ---
 # NEXT_ACTION — updated 2026-11-12 (retired-model auto-replacement, same branch)

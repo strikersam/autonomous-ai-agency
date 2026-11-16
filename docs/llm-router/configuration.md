@@ -106,6 +106,20 @@ groq:
 Raise it (or set `0`) after upgrading the tier. Leaving it unset means
 "unmetered" — the router will size against the context window alone.
 
+### Per-model rate limits
+
+`rate_limit_scope` (provider, default `key`) decides what a plain 429 rests.
+`key` cools the key, which takes every model on that provider out until the
+cooldown ends. `model` rests only the refused model, so the provider's other
+models stay in the chain — right for NVIDIA NIM, where production on 2026-11-14
+saw `nemotron-3-ultra-550b-a55b` 429 between successful `openai/gpt-oss-20b`
+calls on the same key. A 429 whose body says the quota is spent stays key-scoped.
+
+```yaml
+nvidia:
+  rate_limit_scope: model
+```
+
 ## models.yaml
 
 ```yaml

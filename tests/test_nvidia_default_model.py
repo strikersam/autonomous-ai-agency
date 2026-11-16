@@ -47,6 +47,8 @@ RETIRED = [
     "qwen/qwen2.5-coder-32b-instruct",
     # nvidia/nemotron-3-super-120b-a12b retired 2026-10-30 (HTTP 404, issue #1813).
     "nvidia/nemotron-3-super-120b-a12b",
+    # deepseek-ai/deepseek-v4-pro: HTTP 410 on probe run 43619238209 (2026-11-14).
+    "deepseek-ai/deepseek-v4-pro",
 ]
 
 # The NVIDIA id confirmed to answer live completions AND tool_calls (probe run

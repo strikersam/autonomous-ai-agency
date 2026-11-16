@@ -98,6 +98,7 @@ See [docs/claude-code-setup.md](claude-code-setup.md) for full Claude Code setup
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `ROLE_REASONING_EFFORT_ENABLED` | `true` | Per-role `reasoning_effort` for Ollama thinking models: planner and judge `high`, executor and verifier `medium`. A per-role value saved on the Brain card (`reasoning_effort_by_role`) beats `OLLAMA_REASONING_EFFORT`, which beats the built-in map; a caller that already set the field is never overwritten. Off restores the single-pin behaviour. Limitation: the opt-in `LLM_ROUTER_ENABLED` path applies only the global pin — role tags travel through the default failover path. Live control: Settings → Platform controls → Brain routing. |
 | `AGENT_PLANNER_MODEL` | `NVIDIA_DEFAULT_MODEL`, else `nvidia/nemotron-3-ultra-550b-a55b` | Model used for task planning (breaks task into ≤5 steps, returns JSON). **On a memory-constrained free tier a heavy *reasoning* planner is the cause of the `planning: TimeoutError` failure loop** — it spends its whole token budget on thinking tokens and blows the failover deadline. Prefer a model that is cheap per call here (e.g. `qwen-3-coder-480b` on Cerebras; `nvidia/nemotron-3-super-120b-a12b` was the cheap NVIDIA choice but was retired 2026-10-30, issue #1813). Also settable from the Brain card without a redeploy. |
 | `AGENT_EXECUTOR_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b` | Model used for code writing and file manipulation. Coding-specialist models recommended; a fast dense model avoids the same reasoning-token latency as the planner. Also settable from the Brain card. |
 | `AGENT_VERIFIER_MODEL` | `NVIDIA_DEFAULT_MODEL`, else `nvidia/nemotron-3-ultra-550b-a55b` | Model used to validate each code change (returns pass/fail JSON). |
@@ -123,6 +124,7 @@ See [docs/claude-code-setup.md](claude-code-setup.md) for full Claude Code setup
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `BEDROCK_DISABLED` | `true` | Kill switch for Amazon Bedrock. While it is on, no path registers, selects or calls a Bedrock provider: the provider router (`AWS_ACCESS_KEY_ID` + `ALLOW_PAID_BRAIN`), the agent loop's Bedrock fallback, and the gateway's `bedrock` provider (`BEDROCK_BRAIN_ENABLED`) are all blocked, whatever those settings say. Set it to `false` only to use Bedrock on purpose. Also in Settings → Platform controls. Turning it **on** blocks every path immediately; turning it **off** takes effect for the provider router and the agent loop at once, but the LLM gateway only builds its Bedrock provider at start-up (or on `POST /config/reload`), so a gateway that started while the switch was on needs one of those before it can use Bedrock. |
 | `BEDROCK_BRAIN_ENABLED` | `false` | Adds Amazon Bedrock (`qwen.qwen3-coder-next` on the OpenAI-compatible Mantle endpoint) to the agent brain's provider pool. Its models are billed to the AWS account but marked `paid_opt_in`, so they serve while `ALLOW_PAID_BRAIN` stays off and the Anthropic API stays closed. Also in Settings → Platform controls; takes effect on restart. |
 | `AWS_BEARER_TOKEN_BEDROCK` | _(unset)_ | Bedrock API key (bearer). Secret: Render env only. Without it the provider is skipped. |
 | `AWS_REGION` | `us-east-1` | Region in the Bedrock endpoint URL. |
@@ -363,6 +365,7 @@ local headless Chromium, which does.
 | `PLAYWRIGHT_MCP_URL` | (empty) | Optional external Playwright MCP server (`npx @playwright/mcp --port <n>`). Set this instead of Browserbase to route browser tools through an MCP server. |
 | `WEB_REACH_ALLOWED_DOMAINS` | (empty) | Comma-separated list of domains (and their subdomains) that agents may fetch via the `fetch_url`, `search_web`, and `fetch_rss` tools. **Default empty = all public hosts allowed** (existing behaviour). When set, any URL whose host is not in this list is refused before the network request is made. Example: `example.com,github.com`. |
 | `MODEL_AUTO_HEAL_ENABLED` | `true` | Replaces retired models automatically, for every provider. A model counts as retired when it answers 404/410 on 2 real calls and the provider's own `/models` listing no longer includes it, or after 3 such failures in 6 hours while still listed. A replacement is never taken from `DENIED_MODEL_IDS`. The saved brain config and provider default models then move to the first live model in that provider's catalogue list, else a chat model the key serves. Nothing changes when the provider's listing cannot be read. `false` leaves a retired model configured until changed by hand. Live control: Settings → Platform controls → Brain & Model Routing. |
+| `PROVIDER_FUNDS_QUARANTINE_HOURS` | `24` | How long a brain provider that answers "needs credits / payment" stays out of the failover chain. Applies to HTTP 402, and to 400/403/429 refusals whose body names credit, billing or payment (OpenAI `insufficient_quota`, Anthropic "credit balance is too low"). Daily free quotas that reset (Gemini "exceeded your current quota", Groq tokens-per-day) and rate limits are not affected. The provider shows on the doctor and Providers screen with its return time and is re-tried automatically when the window ends. Also how long Browserbase is skipped (the local browser serves) after its 402 "browser minutes limit reached". `0` restores the old behaviour: switched off until re-enabled by hand. Range 0-720. Live control: Settings → Platform controls → Brain & Model Routing. |
 | `WEB_REACH_EGRESS_IDENTITY_GUARD` | `false` | Refuses any agent web request whose URL, search query or body contains an address listed in `OPERATOR_EMAILS`, before the request leaves the process and before any DNS lookup (the hostname is one of the places an address can be smuggled out). The refusal is generic and emits a `safety_event` with no address, host or query in it. Inert while `OPERATOR_EMAILS` is empty. Live control: Settings → Platform controls → Governance & Safety. |
 | `OPERATOR_EMAILS` | (empty) | Comma-separated operator addresses that must never leave the process on an agent's outbound request. Read only when `WEB_REACH_EGRESS_IDENTITY_GUARD` is on. Example: `me@example.com`. |
 | `WEB_REACH_ENABLED` | `true` | Master switch for agent web access. When `false`, `fetch_url`, `youtube_transcript`, `web_search`, `fetch_rss` and `browse_page` refuse every call before any network request and are left out of the agent's tool prompt. Live control: Settings → Platform controls → Governance & Safety. |
@@ -530,6 +533,28 @@ trend watcher, the self-heal sweeper) are neither capped nor stopped mid-call.
 The work they create still goes through the gated dispatcher and scheduler.
 Counts are in-memory, per process and reset on restart, the same scope as
 `packages/llm/budget.py`. Streaming responses and cache hits are not counted.
+
+### Durable runs (`packages/runs/`)
+
+Phase 1 of the durable execution plan (`docs/plans/2026-11-14-enterprise-reliability-durable-execution-plan.md`).
+Read at call time by `packages/config/runs_settings.py`; all eight are live controls under
+Settings → Platform controls → Platform Operations.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `RUNS_LEDGER_ENABLED` | `true` | Record runs, their event timeline and each side effecting operation (`runs`, `run_events`, `run_operations`). Recording only: it changes no scheduling or execution decision. |
+| `RUNS_RECOVERY_ENABLED` | `false` | Let a worker take over a run whose lease expired, reconcile its operations and resume it; an operation with an unknown outcome parks the run in `waiting_for_approval` (and its task at the execution approval gate). The recovery tick (`packages/runs/recovery.py`) runs in the dispatcher poll loop; off keeps today's behaviour. |
+| `RUNS_LEASE_TTL_SEC` | `600` | Lifetime of a run lease without renewal (10 to 3600). The task claim on a durable lease (Mongo, SQLite) uses it, renewed by `LeaseHeartbeat` while the task runs; memory mode keeps the one hour claim. |
+| `RUNS_LEASE_RENEW_SEC` | `30` | Lease renewal interval (1 to 1200), capped at a third of `RUNS_LEASE_TTL_SEC`. |
+| `RUNS_OP_SKEW_SEC` | `30` | Clock skew margin (0 to 600) added to each operation deadline, so recovery never reconciles an operation another worker may still be performing. |
+| `RUNS_MAX_ATTEMPTS` | `3` | Attempts a crashed run gets in total (1 to 20); the recovery that would exceed it dead letters the run and marks its task failed. |
+| `RUNS_RETRY_BACKOFF_BASE_SEC` | `10` | Backoff base (0 to 3600) before a recovered run's task is queued again: `base * 2^(attempt-2)` plus up to 25% jitter, stored as the run's `not_before`. |
+| `RUNS_RECOVERY_TICK_SEC` | `30` | How often (5 to 3600) the dispatcher runs the recovery tick. The same poll loop also reloads Platform control overrides from the database at most every 15 s, so the worker sees dashboard changes. |
+
+The run lease (`task_run_leases`) is now shared across processes on both backends: on
+Mongo through the raw Motor collection, on SQLite through single statement helpers in
+`packages/storage/sqlite_atomic.py` (safe across processes sharing the database file).
+Each successful acquire increments a fencing `token`.
 
 ### Sandbox isolation in production
 

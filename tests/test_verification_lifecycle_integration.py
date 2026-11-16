@@ -106,7 +106,7 @@ def specs(monkeypatch) -> FakeSpecs:
 def _scripted_runner(root: Path, body: str, path: str, store: Any = None) -> AgentRunner:
     runner = AgentRunner(ollama_base="http://localhost:11434", workspace_root=root, session_store=store)
 
-    async def chat(model: str, messages: list[dict[str, str]]) -> str:
+    async def chat(model: str, messages: list[dict[str, str]], role=None) -> str:
         system = messages[0]["content"] if messages else ""
         if "Planner agent" in system:
             return PLAN.replace("calc.py", path)

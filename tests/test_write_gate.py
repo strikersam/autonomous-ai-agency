@@ -34,7 +34,7 @@ def _drive(runner: AgentRunner, tool: str, args: dict[str, Any], verdicts: list[
     verifier = iter(verdicts)
     roles: list[str] = []
 
-    async def fake_chat_json(self_arg: object, model: str, messages: list) -> dict[str, Any]:
+    async def fake_chat_json(self_arg: object, model: str, messages: list, role=None) -> dict[str, Any]:
         is_verify = str(messages[0].get("content", "")).startswith("Check syntax and logic")
         roles.append("verify" if is_verify else "select")
         return next(verifier) if is_verify else next(selections)
@@ -169,7 +169,7 @@ class _SandboxRunner:
     def _local_safety_check(self, path, content):
         return []
 
-    async def _chat_json(self, model, messages):
+    async def _chat_json(self, model, messages, role=None):
         return PASS
 
     async def _run_tool(self, tool, args, **kwargs):

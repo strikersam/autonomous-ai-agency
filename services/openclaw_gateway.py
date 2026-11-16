@@ -156,6 +156,11 @@ async def _cmd_chat(msg: dict[str, Any]) -> dict[str, Any]:
             break
 
         tried.add(provider.id)
+        from packages.llm.config import bedrock_blocked
+
+        if bedrock_blocked(provider):  # base URLs come from env vars and can point anywhere
+            last_error = f"{provider.id} blocked (BEDROCK_DISABLED)"
+            continue
         # No model named here: each provider serves its own configured default,
         # which comes from the catalogue. Naming one meant every call asked for
         # the same id on every provider — and when that id was retired, this

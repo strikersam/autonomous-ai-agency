@@ -20,6 +20,14 @@ log = logging.getLogger("qwen-proxy")
 
 DEFAULT_CHECKPOINT_DIR = ".data/checkpoints"
 
+# Version of the checkpoint document. A file without it predates versioning and
+# reads as 1; a newer version than this code knows is skipped like a corrupt file.
+SCHEMA_VERSION = 1
+
+
+class UnsupportedCheckpoint(ValueError):
+    """A checkpoint written by a newer schema than this code understands."""
+
 # Session IDs must be alphanumeric with hyphens/underscores only —
 # prevents path-traversal via "../" or other directory escape sequences.
 _SESSION_ID_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_\-]*$")
@@ -38,6 +46,7 @@ class Checkpoint:
     scratchpad_raw: str = ""
     error_info: str | None = None
     created_at: str = ""
+    schema_version: int = SCHEMA_VERSION
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -50,10 +59,14 @@ class Checkpoint:
             "scratchpad_raw": self.scratchpad_raw[:8000],
             "error_info": self.error_info,
             "created_at": self.created_at,
+            "schema_version": self.schema_version,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Checkpoint:
+        version = int(data.get("schema_version", 1))
+        if version > SCHEMA_VERSION:
+            raise UnsupportedCheckpoint(f"checkpoint schema_version {version} > {SCHEMA_VERSION}")
         return cls(
             session_id=data["session_id"],
             step_index=data.get("step_index", 0),
@@ -64,6 +77,7 @@ class Checkpoint:
             scratchpad_raw=data.get("scratchpad_raw", ""),
             error_info=data.get("error_info"),
             created_at=data.get("created_at", ""),
+            schema_version=version,
         )
 
 
@@ -116,21 +130,24 @@ class CheckpointStore:
         return path
 
     def load_latest(self, session_id: str) -> Checkpoint | None:
-        """Return the latest checkpoint for a session, or None."""
+        """Return the latest readable checkpoint for a session, or None.
+
+        A corrupt or unsupported latest file is skipped (with a warning) in
+        favour of the previous good one, so one torn write does not lose the
+        whole session.
+        """
         sd = self._session_dir(session_id)
-        files = sorted(sd.glob("checkpoint_*.json"))
-        if not files:
-            return None
-        latest = files[-1]
-        try:
-            with open(latest) as f:
-                data = json.load(f)
-            return Checkpoint.from_dict(data)
-        except (json.JSONDecodeError, KeyError) as exc:
-            log.warning(
-                "CheckpointStore: corrupt checkpoint %s — %s", latest, exc
-            )
-            return None
+        for path in reversed(sorted(sd.glob("checkpoint_*.json"))):
+            try:
+                with open(path) as f:
+                    data = json.load(f)
+                return Checkpoint.from_dict(data)
+            except (json.JSONDecodeError, KeyError, TypeError, ValueError, OSError) as exc:
+                log.warning(
+                    "CheckpointStore: unreadable checkpoint %s — %s; trying the previous one",
+                    path, exc,
+                )
+        return None
 
     def list_checkpoints(self, session_id: str) -> list[Path]:
         """Return all checkpoint files for a session, sorted by step index."""
@@ -203,7 +220,41 @@ def checkpoint_agent_state(
         error_info=error_info,
     )
     store.save(cp)
+    _mirror(cp)
     return cp
+
+
+_mirror_tasks: set[Any] = set()
+
+
+def _mirror(cp: Checkpoint) -> None:
+    """Mirror *cp* into the durable store in the background (needs a running loop)."""
+    import asyncio
+
+    from packages.config import runs_settings
+
+    if not runs_settings.runs_ledger_enabled():
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return  # called outside an event loop: the file is the only copy
+    from packages.runs import checkpoints
+
+    task = loop.create_task(checkpoints.save(cp.to_dict()))
+    _mirror_tasks.add(task)
+    task.add_done_callback(_mirror_tasks.discard)
+
+
+async def _load_mirrored(session_id: str) -> Checkpoint | None:
+    from packages.runs import checkpoints
+
+    for data in await checkpoints.load_latest(session_id):
+        try:
+            return Checkpoint.from_dict(data)
+        except (KeyError, TypeError, ValueError) as exc:
+            log.warning("Mirrored checkpoint for %s unreadable — %s", session_id, exc)
+    return None
 
 
 # Observations the tool loop appends for its own bookkeeping, not tool executions.
@@ -254,6 +305,8 @@ async def restore_agent_state(session_id: str) -> dict[str, Any] | None:
     store = _get_checkpoint_store()
     cp = await asyncio.to_thread(store.load_latest, session_id)
     if cp is None:
+        cp = await _load_mirrored(session_id)
+    if cp is None:
         return None
     return {
         "session_id": cp.session_id,
@@ -280,3 +333,6 @@ async def cleanup_checkpoints(session_id: str) -> None:
     import asyncio
     store = _get_checkpoint_store()
     await asyncio.to_thread(store.delete_session, session_id)
+    from packages.runs import checkpoints
+
+    await checkpoints.clear(session_id)

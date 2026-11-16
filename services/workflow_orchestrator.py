@@ -50,6 +50,8 @@ from typing import Any, Callable
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from packages.runs.orchestrator_binding import mirror_run
+
 log = logging.getLogger("agency.orchestrator")
 
 # ── Timeouts & Retries (#522) ─────────────────────────────────────────────────
@@ -718,11 +720,12 @@ class WorkflowOrchestrator:
         return self._checkpoint_store
 
     async def _checkpoint(self, run: WorkflowRun) -> None:
-        """Persist run state for crash recovery."""
+        """Persist run state for crash recovery, and mirror it into the run ledger."""
         try:
             await self._get_checkpoint_store().save(run)
         except Exception as exc:
             log.debug("Checkpoint save failed for run %s (non-fatal): %s", run.run_id, exc)
+        await mirror_run(run)
 
     # ── Public API ────────────────────────────────────────────────────────────
 
@@ -867,6 +870,7 @@ class WorkflowOrchestrator:
             run.company_id = req.company_id
         run.status = "running"
         self._runs[run.run_id] = run
+        await mirror_run(run)
 
         log.info("WorkflowOrchestrator: run=%s request=%.100s", run.run_id, req.request)
 
@@ -953,10 +957,12 @@ class WorkflowOrchestrator:
             log.info(
                 "WorkflowOrchestrator: run=%s FAILED — verification did not pass", run.run_id
             )
+            await mirror_run(run)
             return run
 
         run.status = "done"
         log.info("WorkflowOrchestrator: run=%s DONE", run.run_id)
+        await mirror_run(run)
         return run
 
     async def approve_and_resume(
