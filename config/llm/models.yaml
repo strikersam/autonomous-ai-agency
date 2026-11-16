@@ -1291,6 +1291,32 @@ models:
     speed_tier: slow
     aliases: [fable5.1]
 
+  # Fable 5.2: revised Fable 5 release (2026-11-09). Same adaptive-thinking constraints
+  # as Fable 5 / 5.1 (no temperature, no legacy extended-thinking budget). ~20 % cheaper
+  # than Fable 5.1. Cache reads cost 0.025x base ($0.20/MTok on the $8/MTok input rate).
+  # 1M context, 128K output. Pricing $8/$40 per MTok.
+  # API model ID confirmed as claude-fable-5-2.
+  # OpenRouter ID: anthropic/claude-fable-5-2.
+  # Sources: openrouter.ai/anthropic/claude-fable-5.2,
+  #          models.litellm.ai/models/claude-fable-5-2,
+  #          founderz.com/blog/claude-fable-5-2/, 2026-11-16.
+  claude-fable-5-2:
+    provider: anthropic
+    display_name: Claude Fable 5.2
+    context_window: 1048576
+    max_output_tokens: 131072
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 8.0
+    output_cost_per_1m: 40.0
+    priority: 62
+    speed_tier: slow
+    aliases: [fable5.2]
+
   # Mythos 5: same underlying model as Fable 5 with fewer dual-use safeguards.
   # Restricted to Anthropic-approved organisations; requires ROUTER_ALLOW_MYTHOS=1.
   # Adaptive thinking (no temperature, no extended thinking budget).
@@ -1332,6 +1358,29 @@ models:
     priority: 59
     speed_tier: slow
     aliases: [mythos5.1]
+
+  # Mythos 5.2: same underlying model as Fable 5.2 with fewer safeguards.
+  # Released 2026-11-09. Restricted to vetted orgs (Anthropic Cyber / Life Sciences
+  # verification programs); requires ROUTER_ALLOW_MYTHOS=1. Cache reads 0.025x base.
+  # 1M context, 128K output. Pricing $8/$40 per MTok.
+  # Sources: platform.claude.com/docs/en/models/mythos-5-2/overview.md,
+  #          braindetox.kr/en/posts/claude_fable_mythos_52_release.html, 2026-11-16.
+  claude-mythos-5-2:
+    provider: anthropic
+    display_name: Claude Mythos 5.2
+    context_window: 1048576
+    max_output_tokens: 131072
+    supports_tools: true
+    supports_function_calling: true
+    supports_json: true
+    supports_images: true
+    supports_streaming: true
+    supports_reasoning: true
+    input_cost_per_1m: 8.0
+    output_cost_per_1m: 40.0
+    priority: 61
+    speed_tier: slow
+    aliases: [mythos5.2]
 
   # ── DeepSeek API (deepseek.com) ─────────────────────────────────────────
   #

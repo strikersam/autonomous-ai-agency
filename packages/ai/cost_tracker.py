@@ -150,8 +150,10 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     "claude-sonnet-5-5-20260929": (2.0, 10.0),  # Sonnet 5.5 versioned ID
     "claude-fable-5": (10.0, 50.0),        # Fable 5 — $10/$50 per MTok (gated flagship)
     "claude-fable-5-1": (10.0, 50.0),      # Fable 5.1 — $10/$50; cache reads 2.5 % (see _CACHE_READ_FRACTIONS)
+    "claude-fable-5-2": (8.0, 40.0),       # Fable 5.2 — $8/$40; ~20 % cheaper than 5.1; cache reads 2.5 % (added 2026-11-16)
     "claude-mythos-5": (10.0, 50.0),       # Mythos 5 — same as Fable 5 (restricted)
     "claude-mythos-5-1": (10.0, 50.0),     # Mythos 5.1 — $10/$50; cache reads 2.5 % (see _CACHE_READ_FRACTIONS)
+    "claude-mythos-5-2": (8.0, 40.0),      # Mythos 5.2 — $8/$40; same as Fable 5.2 (restricted; added 2026-11-16)
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-sonnet-4-5": (3.0, 15.0),        # Sonnet 4.5 — $3/$15 per MTok (same tier as 4.6)
     "claude-opus-4-8": (5.0, 25.0),        # Opus 4.8 — $5/$25 per MTok (same tier as Opus 5)
@@ -440,7 +442,9 @@ _COST_TABLE: dict[str, tuple[float, float]] = _build_cost_table()
 _CACHE_READ_FRACTIONS: tuple[tuple[str, float], ...] = (
     # Per-model Anthropic overrides (more-specific prefixes before "claude-").
     ("claude-fable-5-1", 0.025),   # Fable 5.1 — 2.5 % of input rate
+    ("claude-fable-5-2", 0.025),   # Fable 5.2 — 2.5 % of input rate ($0.20/MTok on $8/MTok base)
     ("claude-mythos-5-1", 0.025),  # Mythos 5.1 — same gated tier as Fable 5.1
+    ("claude-mythos-5-2", 0.025),  # Mythos 5.2 — same gated tier as Fable 5.2
     ("claude-opus-5-5", 0.05),     # Opus 5.5  — 5 % of input rate
     ("claude-sonnet-5-5", 0.05),   # Sonnet 5.5 — 5 % of input rate
     # Gemini 4 Argon: cache reads at $0.10/MTok = 5 % of $2.00/MTok input rate.
