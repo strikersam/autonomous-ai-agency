@@ -207,6 +207,16 @@ class RunStore:
             existing = await self.create(run)
         return existing or run, False
 
+    async def release_key(self, company_id: str, key: str, run_id: str) -> bool:
+        """Expire *key* now, but only while it is still bound to *run_id*.
+
+        Used when the run a key created could not start, so a later request with the
+        same key gets a fresh run instead of the dead one until the TTL runs out.
+        """
+        await self._ready()
+        return await self.idempotency.compare_and_set(
+            f"{company_id}:{key}", {"run_id": run_id}, {EXPIRES_TS: 0.0})
+
     @staticmethod
     def _key_doc(company_id: str, key: str, run_id: str, now: float, ttl_s: float) -> dict[str, Any]:
         # expires_at is a datetime for the Mongo TTL index; the numeric twin is what
