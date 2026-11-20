@@ -202,6 +202,15 @@ _DEFAULT_COST_TABLE: dict[str, tuple[float, float]] = {
     #          requesty.ai/models/openai/gpt-6.1-terra, 2026-10-30.
     "gpt-6.1-terra": (1.0, 5.0),          # direct OpenAI API id
     "openai/gpt-6.1-terra": (1.0, 5.0),  # OpenRouter router id
+    # --- OpenAI (paid) — GPT-6 Cyber (added 2026-11-20) ---
+    # Released 2026-11-05. Restricted access (Daybreak Red organisations only;
+    # requires a second model-specific approval). Priced at 2× GPT-6 Astra.
+    # Context: 1,100,000 tokens. Max output: 128K tokens.
+    # Pricing: $20.00/$100.00 per MTok input/output.
+    # Sources: developers.openai.com/api/docs/models/gpt-6-cyber,
+    #          tokencost.app/models/gpt-6-cyber, 2026-11-20.
+    "gpt-6-cyber": (20.0, 100.0),         # direct OpenAI API id
+    "openai/gpt-6-cyber": (20.0, 100.0), # OpenRouter router id
     # --- Moonshot AI / Kimi K3.1 Pro (added 2026-10-30) ---
     # Released 2026-10-23. Successor to Kimi K3 with a larger parameter count
     # and improved coding, reasoning, and long-context retrieval.
@@ -504,6 +513,15 @@ _LONG_CONTEXT_TIERS: dict[str, tuple[int, float, float]] = {
     # GPT-6.1 Terra: $2.00/$7.50 per MTok above 272K input tokens (see table).
     "gpt-6.1-terra": (272_000, 2.0, 7.5),
     "openai/gpt-6.1-terra": (272_000, 2.0, 7.5),
+}
+
+# Maximum context window (in tokens) for models where this is relevant to cost
+# checks or routing decisions. Source columns match _DEFAULT_COST_TABLE comments.
+_MODEL_CONTEXT_LIMITS: dict[str, int] = {
+    "gpt-6-cyber": 1_100_000,
+    "openai/gpt-6-cyber": 1_100_000,
+    "gpt-6.1-terra": 1_050_000,
+    "openai/gpt-6.1-terra": 1_050_000,
 }
 
 

@@ -395,6 +395,10 @@ providers:
       # with full capability flags. Placed after claude-fable-5 as a fallback.
       - claude-fable-5-1
       - claude-opus-4-8
+      # Added 2026-11-20: Haiku 5.5 (released 2026-10-07) — $0.10/$0.50 per MTok,
+      # 1M context, 128K output. Cheaper and faster than Haiku 4.5.
+      - claude-haiku-5-5
+      - claude-haiku-5-5-20261007
       - claude-haiku-4-5-20251001
       - claude-sonnet-4-6
 
@@ -426,6 +430,10 @@ providers:
       # Added 2026-09-14: Fable 5.1 (claude-fable-5-1) as a failover.
       - claude-fable-5-1
       - claude-sonnet-4-6
+      # Added 2026-11-20: Haiku 5.5 (released 2026-10-07) — $0.10/$0.50 per MTok,
+      # 1M context, 128K output. Cheaper and faster than Haiku 4.5.
+      - claude-haiku-5-5
+      - claude-haiku-5-5-20261007
       - claude-haiku-4-5-20251001
 
   google:

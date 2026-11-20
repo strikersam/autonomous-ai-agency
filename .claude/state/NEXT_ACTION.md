@@ -1,3 +1,15 @@
+# NEXT_ACTION — updated 2026-11-20 (daily automation: Haiku 5.5 candidates, GPT-6 Cyber cost, docs fix)
+
+**What shipped today:** `claude-haiku-5-5` added to anthropic+aerolink provider candidates; `gpt-6-cyber` cost table entry; `docs/configuration-reference.md` corrected (retired `nvidia/nemotron-3-super-120b-a12b` → current `nvidia/nemotron-3-ultra-550b-a55b`). 22 tests, all green. PR on `claude/intelligent-gates-nmojj1`.
+
+## Open items
+
+1. Task 50 (P1 catalogue unification) — still pending; `aerolink` Claude gateway + gpt-oss groq/nvidia divergence warnings unresolved.
+2. Task 53 (Code Mode) — phase 6 on `claude/agent-safety-fixes`; A/B verdict from Render needed.
+3. Task 54 (enterprise reliability) — plan in `docs/plans/2026-11-14-enterprise-reliability-durable-execution-plan.md`; phases 1-2 merged; phases 3+ pending.
+4. `NEXT_ACTION.md` items below (from previous sessions) — carry forward.
+
+---
 # NEXT_ACTION — updated 2026-11-14 (enterprise reliability plan, branch `claude/enterprise-reliability-plan`)
 
 **What shipped so far:** the plan, as draft PR #1965: `docs/plans/2026-11-14-enterprise-reliability-durable-execution-plan.md`. No code.
