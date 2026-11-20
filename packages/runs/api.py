@@ -249,7 +249,10 @@ async def create_run(
             await _start_task(store, task, run, caller)
         except Exception:
             if idempotency_key:  # free the key so a later request can start a fresh run
-                await store.release_key(f"owner:{caller.user_id}", idempotency_key, run.run_id)
+                try:
+                    await store.release_key(f"owner:{caller.user_id}", idempotency_key, run.run_id)
+                except Exception:  # keep the original error as the response
+                    log.warning("runs api: could not free key for run %s", run.run_id, exc_info=True)
             raise
     response.status_code = 201 if created else 200
     return _created(run, created)

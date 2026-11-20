@@ -353,3 +353,15 @@ def test_a_failed_task_update_on_retry_leaves_no_linked_orphan(env, monkeypatch)
     assert kids == []
     monkeypatch.setattr(env.tasks, "update", real)
     assert env.post(f"/api/runs/{j['run_id']}/retry").status_code == 201
+
+
+def test_a_failing_key_release_keeps_the_generic_error(env, monkeypatch):
+    from tasks.service import TaskWorkflowService
+
+    async def down(*a, **kw):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(TaskWorkflowService, "create_task", down)
+    monkeypatch.setattr(env.runs, "release_key", down)
+    r = env.post("/api/runs", json={"title": "t"}, headers={"Idempotency-Key": "k5"})
+    assert r.status_code == 500 and r.json() == {"detail": "Could not create the run"}
