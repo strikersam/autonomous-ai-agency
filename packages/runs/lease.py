@@ -132,6 +132,7 @@ class LeaseHeartbeat:
         self.lost = asyncio.Event()
         # Optional cheap check run after every successful renewal (cancel polling).
         self.on_tick: Callable[[], Awaitable[None]] | None = None
+        self._tick_task: asyncio.Task[None] | None = None
 
     def start(self) -> None:
         """Begin renewing on the running loop (idempotent)."""
@@ -140,6 +141,9 @@ class LeaseHeartbeat:
 
     async def stop(self) -> None:
         """Stop renewing. Does not release the lease."""
+        tick, self._tick_task = self._tick_task, None
+        if tick is not None and not tick.done():
+            tick.cancel()  # not awaited: a tick that ignores cancellation must not block stop
         task, self._task = self._task, None
         if task is None:
             return
@@ -171,12 +175,23 @@ class LeaseHeartbeat:
     async def _tick(self) -> None:
         if self.on_tick is None:
             return
-        # Bounded so a stalled read can never delay the next renewal or the lost check.
+        if self._tick_task is not None and not self._tick_task.done():
+            return  # the previous tick is still stuck; never stack another one
+        # A separate task, waited on with a bound: even a tick that ignores cancellation
+        # cannot delay the next renewal or the lost check.
+        self._tick_task = asyncio.ensure_future(self._run_tick())
         bound = min(5.0, self._renew_s / 2)
+        done, _ = await asyncio.wait({self._tick_task}, timeout=bound)
+        if not done:
+            self._tick_task.cancel()  # not awaited; a tick that ignores this is skipped next time
+            log.warning("lease heartbeat tick for %s timed out after %.1fs; renewing anyway",
+                        self._key, bound)
+
+    async def _run_tick(self) -> None:
         try:
-            await asyncio.wait_for(self.on_tick(), timeout=bound)
-        except asyncio.TimeoutError:
-            log.warning("lease heartbeat tick for %s timed out after %.1fs; ignored", self._key, bound)
+            await self.on_tick()  # type: ignore[misc]
+        except asyncio.CancelledError:
+            raise
         except Exception:
             log.warning("lease heartbeat tick for %s failed", self._key, exc_info=True)
 
