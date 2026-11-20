@@ -114,3 +114,27 @@ def test_path_to_follows_the_run_lifecycle():
 
 async def _raise(exc: BaseException):
     raise exc
+
+
+@pytest.mark.anyio
+async def test_an_api_cancel_is_observed_with_the_ledger_off(tmp_path, monkeypatch):
+    from packages.runs.models import RunRecord
+
+    monkeypatch.setenv("RUNS_LEDGER_ENABLED", "false")
+    monkeypatch.setenv("RUNS_LEASE_TTL_SEC", "10")
+    monkeypatch.setenv("RUNS_LEASE_RENEW_SEC", "1")
+    async with sqlite_pair(tmp_path) as (store, _):
+        task = await queued_task(store)
+        runs = task_binding.run_store_for(store)
+        run = await runs.create(RunRecord(task_id=task.task_id, state=RunState.QUEUED,
+                                          cancel_requested=True))
+        task.current_run_id = run.run_id
+        await store.update(task)
+
+        async def long_work(spec):
+            await asyncio.sleep(30)
+
+        started = time.monotonic()
+        updated = await coordinator(store, FakeRuntime(long_work)).execute(task.task_id)
+        assert time.monotonic() - started < 10
+        assert updated.status is TaskStatus.WONT_DO

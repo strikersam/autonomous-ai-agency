@@ -157,3 +157,22 @@ async def test_memory_task_store_keeps_the_process_lock():
     await claims.release_task_run(store, "t-mem")
     assert await claims.claim_task_run(store, "t-mem") is True
     await claims.release_task_run(store, "t-mem")
+
+
+async def test_a_hanging_tick_cannot_stall_renewal():
+    lease = RunLease()
+    token = await lease.acquire("t9", "web", 0.6)
+    beat = LeaseHeartbeat(lease, "t9", "web", token, ttl_s=0.6, renew_s=0.05)
+    ticks = 0
+
+    async def hang() -> None:
+        nonlocal ticks
+        ticks += 1
+        await asyncio.sleep(3600)
+
+    beat.on_tick = hang
+    beat.start()
+    await asyncio.sleep(0.8)  # several ticks, each cut off at renew/2
+    assert ticks >= 3 and not beat.lost.is_set()
+    assert await lease.acquire("t9", "other", 0.6) is None
+    await beat.stop()
