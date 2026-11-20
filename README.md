@@ -28,6 +28,18 @@ _▶ **[Watch the full 64 s feature tour](https://autonomous-ai-agency-tour.onre
 
 ---
 
+## What's New
+
+| Date | Change |
+|------|--------|
+| 2026-11-16 | **Claude Fable 5.2 & Mythos 5.2** — both models added to the routing catalogue. Fable 5.2 is now the preferred Fable variant at $8/$40/MTok (~20 % cheaper than Fable 5.1). Request as `claude-fable-5-2` via any provider that holds an Anthropic key. |
+| 2026-11-15 | **Durable runs** — task executions survive process restarts; a recovered run will not repeat a git push or PR creation. |
+| 2026-11-15 | **Brain failover now stays deep** — a 429 on one NVIDIA model no longer cools the whole NVIDIA key. Providers that need funds are quarantined for 24 h and retry automatically. |
+| 2026-11-12 | **Per-role reasoning effort** — planner and judge get more thinking time; executor and verifier run at medium effort. |
+| 2026-11-12 | **Bedrock kill switch** (default on) — prevents unplanned AWS spend. |
+
+---
+
 ## In 30 seconds
 
 | | |
