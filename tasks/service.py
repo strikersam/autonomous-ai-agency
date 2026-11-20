@@ -1154,6 +1154,11 @@ class TaskExecutionCoordinator:
                 )
             except Exception:
                 pass
+        except _runs.RunCancelled:
+            self.workflow.transition(
+                task, TaskStatus.WONT_DO, actor="system:run-cancel",
+                message="Run cancelled by request",
+            )
         except RuntimeUnavailableError as exc:
             # No healthy runtime was available at dispatch time.  Re-queue the
             # task instead of failing it so the next dispatcher cycle retries.
