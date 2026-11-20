@@ -235,7 +235,7 @@ A run is the durable record of one unit of work; creating one queues a task and 
 ```bash
 curl -X POST "$BASE/api/runs" -H "Authorization: Bearer $TOKEN" \
   -H "Idempotency-Key: nightly-report-2026-11-15" -H "Content-Type: application/json" \
-  -d '{"title": "Nightly report", "description": "Summarise yesterday's failures"}'
+  -d '{"title": "Nightly report", "description": "Summarise yesterday\u0027s failures"}'
 curl "$BASE/api/runs/$RUN_ID/events?after_seq=0&limit=50" -H "Authorization: Bearer $TOKEN"
 curl -X POST "$BASE/api/runs/$RUN_ID/cancel" -H "Authorization: Bearer $TOKEN"
 ```

@@ -173,7 +173,7 @@ def _new_task(body: RunCreateRequest, caller: Caller) -> Task:
 def _run_for(task: Task, body: RunCreateRequest, caller: Caller, extra: dict[str, Any]) -> RunRecord:
     deadline = time.time() + body.deadline_seconds if body.deadline_seconds else None
     return RunRecord(
-        task_id=task.task_id, owner_id=caller.user_id, initiated_by=caller.actor,
+        owner_id=caller.user_id, initiated_by=caller.actor,
         agent_id=body.agent_id, runtime_id=body.runtime_id, requested_model=body.model,
         workflow_id=body.workflow_id, budget=dict(body.budget or {}), deadline_at=deadline,
         state=RunState.QUEUED, **extra,
@@ -181,7 +181,11 @@ def _run_for(task: Task, body: RunCreateRequest, caller: Caller, extra: dict[str
 
 
 async def _start_task(store: RunStore, task: Task, run: RunRecord, caller: Caller) -> None:
-    """Create the task the run points at; the run fails if the task cannot exist."""
+    """Create the task for a run this request created, then link it (only if unset).
+
+    The run is stored without a ``task_id``; only the request that won the run creates
+    a task, so a run never points at a task that does not exist.
+    """
     task.current_run_id = run.run_id
     try:
         await TaskWorkflowService(store=get_task_store()).create_task(task, actor=caller.actor)
@@ -192,6 +196,11 @@ async def _start_task(store: RunStore, task: Task, run: RunRecord, caller: Calle
         log.exception("runs api: task creation failed for run %s", run.run_id)
         await _fail_run(store, run.run_id, "task creation failed")
         raise HTTPException(status_code=500, detail="Could not create the run") from exc
+    if await store.update(run.run_id, {"task_id": task.task_id}, expect={"task_id": None}):
+        run.task_id = task.task_id
+    else:
+        log.warning("runs api: run %s already linked to a task; task %s left unlinked",
+                    run.run_id, task.task_id)
     _invalidate_task_caches(user_id=caller.user_id)
     await store.append_event(run.run_id, "api_created", {
         "title": body_preview(task.title), "request": body_preview(task.description),
@@ -323,12 +332,16 @@ async def retry_run(run_id: str, caller: Caller = Depends(_caller)) -> RunCreate
     store = get_run_store()
     run = await _owned_run(store, run_id, caller)
     task = await _retry_target(store, run)
-    new_run = await store.create(_retry_run(run))
+    new_run = _retry_run(run)
+    if not await store.update(run_id, {"retried_by": new_run.run_id}, expect={"retried_by": None}):
+        raise HTTPException(status_code=409, detail="Run already retried")
+    new_run = await store.create(new_run)
     task.current_run_id = new_run.run_id
     try:
         TaskWorkflowService(store=get_task_store()).retry(task, actor=caller.actor)
     except (TaskRuleError, ValueError) as exc:
         await _fail_run(store, new_run.run_id, "task could not be re-queued")
+        await store.update(run_id, {"retried_by": None}, expect={"retried_by": new_run.run_id})
         raise HTTPException(status_code=409, detail="Run cannot be retried") from exc
     await get_task_store().update(task)
     _invalidate_task_caches(user_id=task.owner_id)

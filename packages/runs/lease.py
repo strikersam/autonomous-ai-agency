@@ -171,8 +171,12 @@ class LeaseHeartbeat:
     async def _tick(self) -> None:
         if self.on_tick is None:
             return
+        # Bounded so a stalled read can never delay the next renewal or the lost check.
+        bound = min(5.0, self._renew_s / 2)
         try:
-            await self.on_tick()
+            await asyncio.wait_for(self.on_tick(), timeout=bound)
+        except asyncio.TimeoutError:
+            log.warning("lease heartbeat tick for %s timed out after %.1fs; ignored", self._key, bound)
         except Exception:
             log.warning("lease heartbeat tick for %s failed", self._key, exc_info=True)
 

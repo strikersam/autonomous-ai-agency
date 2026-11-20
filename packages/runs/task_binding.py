@@ -57,6 +57,9 @@ class TaskRunBinding:
     heartbeat: LeaseHeartbeat
     store: RunStore | None = None
     run_id: str | None = None
+    # Read only handle on the task's current run, so a cancel is seen with the ledger off.
+    watch_store: RunStore | None = None
+    watch_run_id: str | None = None
     fenced: bool = False
     occurrences: dict[str, int] = field(default_factory=dict)
     cancel: asyncio.Event = field(default_factory=asyncio.Event)
@@ -155,6 +158,8 @@ async def bind(task_store: Any, task: Any, *, actor: str = "system:dispatcher") 
     binding = TaskRunBinding(task_id=task.task_id, holder=holder, token=token, lease=lease,
                              heartbeat=LeaseHeartbeat(lease, task.task_id, holder, token))
     claims.pin_local_claim(task.task_id)
+    if getattr(task, "current_run_id", None):
+        binding.watch_store, binding.watch_run_id = run_store_for(task_store), task.current_run_id
     binding.heartbeat.start()
     if runs_settings.runs_ledger_enabled():
         try:
@@ -196,9 +201,13 @@ async def _open_run(binding: TaskRunBinding, store: RunStore, task: Any, actor: 
 
 async def _poll_cancel(binding: TaskRunBinding) -> None:
     """One cheap read per heartbeat: set ``binding.cancel`` once cancellation is requested."""
-    if not binding.recording or binding.cancel.is_set():
+    if binding.cancel.is_set():
         return
-    run = await binding.store.get(binding.run_id)  # type: ignore[union-attr,arg-type]
+    store, run_id = ((binding.store, binding.run_id) if binding.recording
+                     else (binding.watch_store, binding.watch_run_id))
+    if store is None or run_id is None:
+        return
+    run = await store.get(run_id)
     if run is not None and run.cancel_requested:
         binding.cancel.set()
 

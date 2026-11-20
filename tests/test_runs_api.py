@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 
 import pytest
 from fastapi import HTTPException
@@ -206,3 +207,64 @@ async def test_guard_raises_run_cancelled():
     _B.cancel.set()
     with pytest.raises(task_binding.RunCancelled):
         await task_binding.guard(_B, asyncio.sleep(30))  # type: ignore[arg-type]
+
+
+def _gather_posts(env, n, path_fn, **kw):
+    """Fire *n* concurrent requests at the app on one event loop (stores yield mid write)."""
+    import httpx
+
+    from backend.server import app
+
+    real_create = env.runs.create
+
+    calls = []
+
+    async def slow_create(run):
+        calls.append(run.run_id)
+        # A yield point, as a networked store has; the first writer stalls longest so a
+        # second request finds the key bound but the run missing and stores its own.
+        await asyncio.sleep(0.2 if len(calls) == 1 else 0.01)
+        return await real_create(run)
+
+    env.runs.create = slow_create
+
+    async def _go():
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://t") as c:
+            return await asyncio.gather(*(c.post(path_fn(i), **kw) for i in range(n)))
+
+    return asyncio.run(_go())
+
+
+def test_concurrent_idempotent_creates_make_exactly_one_task(env):
+    rs = _gather_posts(env, 6, lambda i: "/api/runs", json={"title": "t"},
+                       headers={"Idempotency-Key": "race-1"})
+    assert {r.status_code for r in rs} <= {200, 201}
+    assert sum(r.status_code == 201 for r in rs) == 1
+    assert len({r.json()["run_id"] for r in rs}) == 1
+    run = asyncio.run(env.runs.get(rs[0].json()["run_id"]))
+    assert run.task_id and asyncio.run(env.tasks.get(run.task_id)) is not None
+    assert len(asyncio.run(env.tasks.list_all())) == 1
+
+
+def test_a_run_won_by_another_request_never_gets_a_second_task(env):
+    """A creator that stalled after binding the key: the recreated run is the winner's."""
+    ghost = asyncio.run(env.runs.create(RunRecord(owner_id="alice", state=RunState.QUEUED)))
+    asyncio.run(env.runs.idempotency.insert_if_absent(
+        "owner:alice:k", env.runs._key_doc("owner:alice", "k", ghost.run_id, time.time(), 3600.0)))
+    r = env.post("/api/runs", json={"title": "t"}, headers={"Idempotency-Key": "k"})
+    assert r.status_code == 200 and r.json()["run_id"] == ghost.run_id
+    assert asyncio.run(env.runs.get(ghost.run_id)).task_id is None
+    assert asyncio.run(env.tasks.list_all()) == []
+
+
+def test_concurrent_retries_create_exactly_one_new_run(env):
+    j = _create(env).json()
+    asyncio.run(env.runs.transition(j["run_id"], RunState.FAILED, reason="boom"))
+    rs = _gather_posts(env, 5, lambda i: f"/api/runs/{j['run_id']}/retry")
+    assert sorted(r.status_code for r in rs) == [201, 409, 409, 409, 409]
+    new = [r.json()["run_id"] for r in rs if r.status_code == 201][0]
+    task = asyncio.run(env.tasks.get(j["task_id"]))
+    assert task.current_run_id == new
+    kids = [r for r in asyncio.run(env.runs.list(task_id=j["task_id"])) if r.retry_of == j["run_id"]]
+    assert [k.run_id for k in kids] == [new]
