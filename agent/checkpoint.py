@@ -294,9 +294,11 @@ def side_effecting_calls(
 def executed_action_hashes(tool_call_history: list[dict[str, Any]]) -> list[str]:
     """Hashes of the side-effecting calls already in ``tool_call_history``.
 
-    A resumed session compares ``action_hash(tool, args)`` against this list to skip an
-    identical call it already made. An entry whose args cannot be hashed (not JSON) is
-    left out, so a bad entry never blocks a restore.
+    A resumed session compares ``action_hash(tool, args)`` against this list to spot an
+    identical call it already recorded. A match means the call was recorded, not that it
+    completed: rejected writes are included, so reconcile as ``side_effecting_calls()``
+    describes before skipping. An entry whose args cannot be hashed (not JSON) is left
+    out, so a bad entry never blocks a restore.
     """
     from agent.action_hash import action_hash
 
