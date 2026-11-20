@@ -196,15 +196,33 @@ async def _start_task(store: RunStore, task: Task, run: RunRecord, caller: Calle
         log.exception("runs api: task creation failed for run %s", run.run_id)
         await _fail_run(store, run.run_id, "task creation failed")
         raise HTTPException(status_code=500, detail="Could not create the run") from exc
-    if await store.update(run.run_id, {"task_id": task.task_id}, expect={"task_id": None}):
+    await _link_task(store, task, run)
+    _invalidate_task_caches(user_id=caller.user_id)
+    try:
+        await store.append_event(run.run_id, "api_created", {
+            "title": body_preview(task.title), "request": body_preview(task.description),
+        }, actor=caller.actor)
+    except Exception:  # the timeline entry is informational; the run already stands
+        log.warning("runs api: could not record creation of run %s", run.run_id, exc_info=True)
+
+
+async def _link_task(store: RunStore, task: Task, run: RunRecord) -> None:
+    """Point the run at its task; on failure undo the task so nothing is left half made."""
+    try:
+        linked = await store.update(run.run_id, {"task_id": task.task_id}, expect={"task_id": None})
+    except Exception as exc:
+        log.exception("runs api: could not link run %s to task %s", run.run_id, task.task_id)
+        try:
+            await get_task_store().delete(task.task_id)
+        except Exception:
+            log.warning("runs api: could not remove unlinked task %s", task.task_id, exc_info=True)
+        await _fail_run(store, run.run_id, "task could not be linked")
+        raise HTTPException(status_code=500, detail="Could not create the run") from exc
+    if linked:
         run.task_id = task.task_id
     else:
         log.warning("runs api: run %s already linked to a task; task %s left unlinked",
                     run.run_id, task.task_id)
-    _invalidate_task_caches(user_id=caller.user_id)
-    await store.append_event(run.run_id, "api_created", {
-        "title": body_preview(task.title), "request": body_preview(task.description),
-    }, actor=caller.actor)
 
 
 def body_preview(text: str, limit: int = 120) -> str:
@@ -227,7 +245,15 @@ async def create_run(
     else:
         run = await store.create(run)
     if created:
-        await _start_task(store, task, run, caller)
+        try:
+            await _start_task(store, task, run, caller)
+        except Exception:
+            if idempotency_key:  # free the key so a later request can start a fresh run
+                try:
+                    await store.release_key(f"owner:{caller.user_id}", idempotency_key, run.run_id)
+                except Exception:  # keep the original error as the response
+                    log.warning("runs api: could not free key for run %s", run.run_id, exc_info=True)
+            raise
     response.status_code = 201 if created else 200
     return _created(run, created)
 
@@ -335,18 +361,39 @@ async def retry_run(run_id: str, caller: Caller = Depends(_caller)) -> RunCreate
     new_run = _retry_run(run)
     if not await store.update(run_id, {"retried_by": new_run.run_id}, expect={"retried_by": None}):
         raise HTTPException(status_code=409, detail="Run already retried")
-    new_run = await store.create(new_run)
+    try:
+        await _requeue(store, task, new_run, caller)
+    except BaseException:
+        # Release the claim on every failure, or the run could never be retried again.
+        await store.update(run_id, {"retried_by": None}, expect={"retried_by": new_run.run_id})
+        raise
+    _invalidate_task_caches(user_id=task.owner_id)
+    await store.append_event(run_id, "retried", {"new_run_id": new_run.run_id}, actor=caller.actor)
+    return _created(new_run, True)
+
+
+async def _requeue(store: RunStore, task: Task, new_run: RunRecord, caller: Caller) -> None:
+    """Validate the re-queue first, so a rejected retry never leaves a run behind."""
     task.current_run_id = new_run.run_id
     try:
         TaskWorkflowService(store=get_task_store()).retry(task, actor=caller.actor)
     except (TaskRuleError, ValueError) as exc:
-        await _fail_run(store, new_run.run_id, "task could not be re-queued")
-        await store.update(run_id, {"retried_by": None}, expect={"retried_by": new_run.run_id})
         raise HTTPException(status_code=409, detail="Run cannot be retried") from exc
-    await get_task_store().update(task)
-    _invalidate_task_caches(user_id=task.owner_id)
-    await store.append_event(run_id, "retried", {"new_run_id": new_run.run_id}, actor=caller.actor)
-    return _created(new_run, True)
+    try:
+        await store.create(new_run)
+    except Exception as exc:
+        log.exception("runs api: could not store retry run for %s", new_run.retry_of)
+        raise HTTPException(status_code=500, detail="Could not retry the run") from exc
+    try:
+        await get_task_store().update(task)
+    except Exception as exc:
+        log.exception("runs api: could not re-queue the task for run %s", new_run.retry_of)
+        await _fail_run(store, new_run.run_id, "task could not be re-queued")
+        try:  # detach it, so the task's run list never shows a run that never ran
+            await store.update(new_run.run_id, {"task_id": None})
+        except Exception:
+            log.warning("runs api: could not detach run %s", new_run.run_id, exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not retry the run") from exc
 
 
 async def _checkpoint_durable() -> bool:
