@@ -217,6 +217,29 @@ This backend is typically used with:
 
 ---
 
+### Durable runs (`/api/runs/*`, `packages/runs/api.py`, authenticated)
+
+A run is the durable record of one unit of work; creating one queues a task and returns at once (the dispatcher executes it). Every route needs the normal bearer token; a run of another owner is a `404`, never a `403` (admins see all). Responses never contain the lease token. Event data is redacted when it is written.
+
+| Method and path | Purpose |
+|---|---|
+| `POST /api/runs` | Create. Body `{title, description?, agent_id?, runtime_id?, model?, workflow_id?, parent_run_id?, budget?, deadline_seconds?}`; optional header `Idempotency-Key`. Returns `{run_id, task_id, state: "queued", created}`: `201`, or `200` with the same run when the key was already used. |
+| `GET /api/runs?state=&task_id=&parent_run_id=&limit=` | The caller's runs, newest first. |
+| `GET /api/runs/capabilities` | `{backend, durable_lease, recovery: "cross_host"\|"same_host"\|"none", recovery_enabled, ledger_enabled, checkpoint_durable}`. |
+| `GET /api/runs/{run_id}` | The run record. |
+| `GET /api/runs/{run_id}/events?after_seq=&limit=` | Persisted events ordered by `seq`; `next_after_seq` is the cursor. |
+| `GET /api/runs/{run_id}/artifacts` | The run's `artifact_refs`. |
+| `POST /api/runs/{run_id}/cancel` | Sets `cancel_requested`. A queued or waiting run is cancelled at once (and its task set to `wont_do`); a running run stops at the worker's next heartbeat (up to `RUNS_LEASE_RENEW_SEC`). A finished run returns `409`. |
+| `POST /api/runs/{run_id}/retry` | Finished runs only (`failed`, `timed_out`, `dead_letter`, `cancelled`): a NEW run with `retry_of` set, task re-queued. Otherwise `409`. |
+
+```bash
+curl -X POST "$BASE/api/runs" -H "Authorization: Bearer $TOKEN" \
+  -H "Idempotency-Key: nightly-report-2026-11-15" -H "Content-Type: application/json" \
+  -d '{"title": "Nightly report", "description": "Summarise yesterday\u0027s failures"}'
+curl "$BASE/api/runs/$RUN_ID/events?after_seq=0&limit=50" -H "Authorization: Bearer $TOKEN"
+curl -X POST "$BASE/api/runs/$RUN_ID/cancel" -H "Authorization: Bearer $TOKEN"
+```
+
 ## Observability request headers
 
 Optional, case-insensitive headers read on the chat-completion entry points

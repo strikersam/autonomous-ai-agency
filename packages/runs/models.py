@@ -67,6 +67,8 @@ class RunRecord(BaseModel):
     parent_run_id: str | None = None
     root_run_id: str | None = None
     retry_of: str | None = None
+    # Set once, atomically, by the retry that claimed this run (a second retry gets 409).
+    retried_by: str | None = None
     task_id: str | None = None
     company_id: str | None = None
     agent_id: str | None = None

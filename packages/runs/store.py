@@ -96,11 +96,11 @@ class RunStore:
 
     async def list(self, *, company_id: str | None = None, state: RunState | str | None = None,
                    parent_run_id: str | None = None, task_id: str | None = None,
-                   limit: int = 50) -> list[RunRecord]:
+                   owner_id: str | None = None, limit: int = 50) -> list[RunRecord]:
         """Runs matching every given filter, newest first."""
         query = {k: _plain(v) for k, v in {
             "company_id": company_id, "state": state, "parent_run_id": parent_run_id,
-            "task_id": task_id,
+            "task_id": task_id, "owner_id": owner_id,
         }.items() if v is not None}
         docs = await self.runs.find(query, sort="created_at", descending=True,
                                     limit=max(1, min(int(limit), 500)))
@@ -206,6 +206,16 @@ class RunStore:
             run.run_id = old
             existing = await self.create(run)
         return existing or run, False
+
+    async def release_key(self, company_id: str, key: str, run_id: str) -> bool:
+        """Expire *key* now, but only while it is still bound to *run_id*.
+
+        Used when the run a key created could not start, so a later request with the
+        same key gets a fresh run instead of the dead one until the TTL runs out.
+        """
+        await self._ready()
+        return await self.idempotency.compare_and_set(
+            f"{company_id}:{key}", {"run_id": run_id}, {EXPIRES_TS: 0.0})
 
     @staticmethod
     def _key_doc(company_id: str, key: str, run_id: str, now: float, ttl_s: float) -> dict[str, Any]:

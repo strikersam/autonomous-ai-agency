@@ -157,3 +157,55 @@ async def test_memory_task_store_keeps_the_process_lock():
     await claims.release_task_run(store, "t-mem")
     assert await claims.claim_task_run(store, "t-mem") is True
     await claims.release_task_run(store, "t-mem")
+
+
+async def test_a_hanging_tick_cannot_stall_renewal():
+    lease = RunLease()
+    token = await lease.acquire("t9", "web", 0.6)
+    beat = LeaseHeartbeat(lease, "t9", "web", token, ttl_s=0.6, renew_s=0.05)
+    ticks = 0
+
+    async def hang() -> None:
+        nonlocal ticks
+        ticks += 1
+        await asyncio.sleep(3600)
+
+    beat.on_tick = hang
+    beat.start()
+    await asyncio.sleep(0.8)  # several ticks, each cut off at renew/2
+    assert ticks >= 3 and not beat.lost.is_set()
+    assert await lease.acquire("t9", "other", 0.6) is None
+    await beat.stop()
+
+
+async def test_a_tick_that_ignores_cancellation_cannot_stall_renewal():
+    lease = RunLease()
+    token = await lease.acquire("t10", "web", 0.6)
+    beat = LeaseHeartbeat(lease, "t10", "web", token, ttl_s=0.6, renew_s=0.05)
+    renewals = 0
+    real_renew = lease.renew
+
+    async def counting(*a, **kw):
+        nonlocal renewals
+        renewals += 1
+        return await real_renew(*a, **kw)
+
+    lease.renew = counting  # type: ignore[method-assign]
+
+    done = False
+
+    async def stubborn() -> None:
+        while True:
+            try:
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                if done:
+                    return
+                continue  # deliberately ignores cancellation while the run is live
+
+    beat.on_tick = stubborn
+    beat.start()
+    await asyncio.sleep(0.5)
+    assert renewals >= 5 and not beat.lost.is_set()
+    done = True
+    await asyncio.wait_for(beat.stop(), timeout=1.0)

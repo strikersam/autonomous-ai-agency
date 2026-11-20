@@ -18,8 +18,10 @@ Configuration:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import threading
 import time
 
 import httpx
@@ -33,6 +35,12 @@ _cache_ts: float = 0.0
 _cache_models: set[str] = set()
 _SENTINEL = object()  # marks "never fetched" vs "fetched empty"
 _ever_fetched: bool = False
+# A failed probe is remembered briefly. Without it every routing call re-probed an
+# unreachable Ollama (Render has none) with a blocking request on the event loop:
+# the most frequent stall in production on 2026-11-15/16.
+_fail_ts: float | None = None
+_FAIL_TTL = 30.0
+_refresh_running = threading.Event()
 
 
 def _ttl() -> float:
@@ -60,15 +68,57 @@ def get_available_models() -> set[str]:
     An empty return value means "no availability filtering" — the router
     treats all registered models as candidates.
     """
-    global _cache_ts, _cache_models, _ever_fetched
-
     if not _enabled():
         return set()
 
     now = time.monotonic()
     if _ever_fetched and (now - _cache_ts) < _ttl():
         return _cache_models
+    if _fail_ts is not None and (now - _fail_ts) < min(_ttl(), _FAIL_TTL):
+        # A recent probe failed: keep the last good set (or none) rather than retry now.
+        return _cache_models if _ever_fetched else set()
+    if _on_event_loop():
+        # Never block the loop on a network probe: serve the last known set and
+        # refresh in a thread. Empty means "no availability filtering", the
+        # documented degrade, so the first call after boot just routes unfiltered.
+        _refresh_in_background()
+        return _cache_models if _ever_fetched else set()
+    return _probe()
 
+
+def _on_event_loop() -> bool:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    return True
+
+
+def _refresh_in_background() -> None:
+    """Single-flight probe of Ollama off the event loop."""
+    if _refresh_running.is_set():
+        return
+    _refresh_running.set()
+
+    def _run() -> None:
+        try:
+            _probe()
+        except Exception:  # noqa: BLE001 - a failed refresh keeps the last known set
+            log.debug("Ollama health refresh failed", exc_info=True)
+        finally:
+            _refresh_running.clear()
+
+    try:
+        threading.Thread(target=_run, name="ollama-health-refresh", daemon=True).start()
+    except Exception:  # noqa: BLE001 - e.g. thread exhaustion; route() must never raise
+        _refresh_running.clear()
+        log.debug("Ollama health refresh could not start a thread", exc_info=True)
+
+
+def _probe() -> set[str]:
+    """Ask Ollama which models it has (blocking). Updates the cache; never raises."""
+    global _cache_ts, _cache_models, _ever_fetched, _fail_ts
+    now = time.monotonic()
     base = (
         os.environ.get("OLLAMA_BASE")
         or os.environ.get("OLLAMA_BASE_URL")
@@ -119,6 +169,7 @@ def get_available_models() -> set[str]:
         _cache_models = names
         _cache_ts = now
         _ever_fetched = True
+        _fail_ts = None
         log.debug("Health check: %d models available in Ollama", len(names))
         return names
 
@@ -126,6 +177,7 @@ def get_available_models() -> set[str]:
         log.debug(
             "Ollama health check skipped (%s) — availability filtering disabled", exc
         )
+        _fail_ts = time.monotonic()  # after the attempt, so a slow failure still gets its full window
         # Don't overwrite a good cached value with a failure
         if _ever_fetched:
             return _cache_models
@@ -134,8 +186,9 @@ def get_available_models() -> set[str]:
 
 def invalidate_cache() -> None:
     """Force the next call to re-probe Ollama (useful in tests)."""
-    global _ever_fetched
+    global _ever_fetched, _fail_ts
     _ever_fetched = False
+    _fail_ts = None
 
 
 def is_model_available(model: str) -> bool:
