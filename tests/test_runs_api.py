@@ -365,3 +365,23 @@ def test_a_failing_key_release_keeps_the_generic_error(env, monkeypatch):
     monkeypatch.setattr(env.runs, "release_key", down)
     r = env.post("/api/runs", json={"title": "t"}, headers={"Idempotency-Key": "k5"})
     assert r.status_code == 500 and r.json() == {"detail": "Could not create the run"}
+
+
+def test_a_cancel_before_the_task_exists_still_stops_it(env, monkeypatch):
+    """A duplicate request cancels the run while the winner is still creating the task."""
+    from tasks.service import TaskWorkflowService
+
+    real = TaskWorkflowService.create_task
+
+    async def slow(self, task, actor):
+        rid = task.current_run_id
+        holder = env.holder["user"]
+        r = env.post(f"/api/runs/{rid}/cancel")  # same owner, run not linked yet
+        env.holder["user"] = holder
+        assert r.status_code == 200
+        return await real(self, task, actor=actor)
+
+    monkeypatch.setattr(TaskWorkflowService, "create_task", slow)
+    j = env.post("/api/runs", json={"title": "t"}, headers={"Idempotency-Key": "k9"}).json()
+    task = asyncio.run(env.tasks.get(j["task_id"]))
+    assert task.status == TaskStatus.WONT_DO
