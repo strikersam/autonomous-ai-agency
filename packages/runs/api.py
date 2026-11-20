@@ -227,7 +227,12 @@ async def create_run(
     else:
         run = await store.create(run)
     if created:
-        await _start_task(store, task, run, caller)
+        try:
+            await _start_task(store, task, run, caller)
+        except HTTPException:
+            if idempotency_key:  # free the key so a later request can start a fresh run
+                await store.release_key(f"owner:{caller.user_id}", idempotency_key, run.run_id)
+            raise
     response.status_code = 201 if created else 200
     return _created(run, created)
 
@@ -335,18 +340,35 @@ async def retry_run(run_id: str, caller: Caller = Depends(_caller)) -> RunCreate
     new_run = _retry_run(run)
     if not await store.update(run_id, {"retried_by": new_run.run_id}, expect={"retried_by": None}):
         raise HTTPException(status_code=409, detail="Run already retried")
-    new_run = await store.create(new_run)
+    try:
+        await _requeue(store, task, new_run, caller)
+    except BaseException:
+        # Release the claim on every failure, or the run could never be retried again.
+        await store.update(run_id, {"retried_by": None}, expect={"retried_by": new_run.run_id})
+        raise
+    _invalidate_task_caches(user_id=task.owner_id)
+    await store.append_event(run_id, "retried", {"new_run_id": new_run.run_id}, actor=caller.actor)
+    return _created(new_run, True)
+
+
+async def _requeue(store: RunStore, task: Task, new_run: RunRecord, caller: Caller) -> None:
+    """Validate the re-queue first, so a rejected retry never leaves a run behind."""
     task.current_run_id = new_run.run_id
     try:
         TaskWorkflowService(store=get_task_store()).retry(task, actor=caller.actor)
     except (TaskRuleError, ValueError) as exc:
-        await _fail_run(store, new_run.run_id, "task could not be re-queued")
-        await store.update(run_id, {"retried_by": None}, expect={"retried_by": new_run.run_id})
         raise HTTPException(status_code=409, detail="Run cannot be retried") from exc
-    await get_task_store().update(task)
-    _invalidate_task_caches(user_id=task.owner_id)
-    await store.append_event(run_id, "retried", {"new_run_id": new_run.run_id}, actor=caller.actor)
-    return _created(new_run, True)
+    try:
+        await store.create(new_run)
+    except Exception as exc:
+        log.exception("runs api: could not store retry run for %s", new_run.retry_of)
+        raise HTTPException(status_code=500, detail="Could not retry the run") from exc
+    try:
+        await get_task_store().update(task)
+    except Exception as exc:
+        log.exception("runs api: could not re-queue the task for run %s", new_run.retry_of)
+        await _fail_run(store, new_run.run_id, "task could not be re-queued")
+        raise HTTPException(status_code=500, detail="Could not retry the run") from exc
 
 
 async def _checkpoint_durable() -> bool:

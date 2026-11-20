@@ -268,3 +268,55 @@ def test_concurrent_retries_create_exactly_one_new_run(env):
     assert task.current_run_id == new
     kids = [r for r in asyncio.run(env.runs.list(task_id=j["task_id"])) if r.retry_of == j["run_id"]]
     assert [k.run_id for k in kids] == [new]
+
+
+def test_a_failed_start_frees_the_idempotency_key(env, monkeypatch):
+    """Task creation fails once: the same key must later start a fresh, working run."""
+    from tasks.service import TaskWorkflowService
+
+    real, calls = TaskWorkflowService.create_task, {"n": 0}
+
+    async def flaky(self, task, actor):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("db down")
+        return await real(self, task, actor=actor)
+
+    monkeypatch.setattr(TaskWorkflowService, "create_task", flaky)
+    first = env.post("/api/runs", json={"title": "t"}, headers={"Idempotency-Key": "k1"})
+    assert first.status_code == 500
+    again = env.post("/api/runs", json={"title": "t"}, headers={"Idempotency-Key": "k1"})
+    assert again.status_code == 201
+    assert again.json()["run_id"] != first.json().get("run_id")
+    assert again.json()["task_id"]
+
+
+def test_a_failed_retry_store_write_releases_the_claim(env, monkeypatch):
+    j = _create(env).json()
+    asyncio.run(env.runs.transition(j["run_id"], RunState.FAILED, reason="boom"))
+    real = env.runs.create
+
+    async def down(run):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(env.runs, "create", down)
+    assert env.post(f"/api/runs/{j['run_id']}/retry").status_code == 500
+    assert asyncio.run(env.runs.get(j["run_id"])).retried_by is None
+    monkeypatch.setattr(env.runs, "create", real)
+    assert env.post(f"/api/runs/{j['run_id']}/retry").status_code == 201
+
+
+def test_a_rejected_requeue_leaves_no_orphan_run(env, monkeypatch):
+    from tasks.service import TaskRuleError, TaskWorkflowService
+
+    j = _create(env).json()
+    asyncio.run(env.runs.transition(j["run_id"], RunState.FAILED, reason="boom"))
+
+    def reject(self, task, actor):
+        raise TaskRuleError("no")
+
+    monkeypatch.setattr(TaskWorkflowService, "retry", reject)
+    assert env.post(f"/api/runs/{j['run_id']}/retry").status_code == 409
+    kids = [r for r in asyncio.run(env.runs.list(task_id=j["task_id"])) if r.retry_of == j["run_id"]]
+    assert kids == []
+    assert asyncio.run(env.runs.get(j["run_id"])).retried_by is None
