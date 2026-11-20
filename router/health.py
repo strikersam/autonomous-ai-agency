@@ -108,7 +108,11 @@ def _refresh_in_background() -> None:
         finally:
             _refresh_running.clear()
 
-    threading.Thread(target=_run, name="ollama-health-refresh", daemon=True).start()
+    try:
+        threading.Thread(target=_run, name="ollama-health-refresh", daemon=True).start()
+    except Exception:  # noqa: BLE001 - e.g. thread exhaustion; route() must never raise
+        _refresh_running.clear()
+        log.debug("Ollama health refresh could not start a thread", exc_info=True)
 
 
 def _probe() -> set[str]:

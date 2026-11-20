@@ -122,3 +122,23 @@ def test_disabled_health_checks_still_mean_available(monkeypatch) -> None:
     monkeypatch.setenv("ROUTER_HEALTH_CHECK_ENABLED", "false")
     assert health.get_available_models() == set()
     assert health.is_model_available("whatever") is True
+
+
+def test_a_thread_that_cannot_start_does_not_raise_into_routing(monkeypatch) -> None:
+    """Verifier note: Thread.start() failing (thread exhaustion) raised out of
+    get_available_models into route() and left the single-flight flag stuck."""
+    class _Boom:
+        def __init__(self, *a, **k):
+            pass
+
+        def start(self):
+            raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(health.threading, "Thread", _Boom)
+
+    async def go():
+        return health.get_available_models(), health.is_model_available("x")
+
+    available, ok = asyncio.run(go())
+    assert available == set() and ok is True
+    assert not health._refresh_running.is_set(), "the single-flight flag must not stay stuck"
