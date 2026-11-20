@@ -10,6 +10,7 @@ from agent.checkpoint import (
     CheckpointStore,
     cleanup_checkpoints,
     checkpoint_agent_state,
+    executed_action_hashes,
     restore_agent_state,
     side_effecting_calls,
 )
@@ -248,3 +249,36 @@ class TestSideEffectingCalls:
         restored = await restore_agent_state("se_sess")
         assert restored is not None
         assert restored["executed_side_effects"] == [write]
+
+
+class TestExecutedActionHashes:
+    def test_hashes_only_side_effecting_calls(self) -> None:
+        from agent.action_hash import action_hash
+
+        write = {"tool": "edit_file", "args": {"path": "a.py"}}
+        history = [{"tool": "read_file", "args": {"path": "a.py"}}, write]
+        assert executed_action_hashes(history) == [action_hash("edit_file", {"path": "a.py"})]
+
+    def test_unhashable_args_are_skipped(self) -> None:
+        from pathlib import Path as P
+
+        history = [{"tool": "edit_file", "args": {"path": P("a.py")}}]
+        assert executed_action_hashes(history) == []
+
+    @pytest.mark.asyncio
+    async def test_restore_exposes_action_hashes(self, tmp_path: Path) -> None:
+        import agent.checkpoint as ckpt
+        from agent.action_hash import action_hash
+
+        ckpt._store = CheckpointStore(base_dir=tmp_path)
+        checkpoint_agent_state(
+            session_id="ah_sess",
+            step_index=1,
+            goal="g",
+            plan_steps=[],
+            completed_steps=[],
+            tool_call_history=[{"tool": "edit_file", "args": {"path": "a.py"}}],
+        )
+        restored = await restore_agent_state("ah_sess")
+        assert restored is not None
+        assert restored["executed_action_hashes"] == [action_hash("edit_file", {"path": "a.py"})]

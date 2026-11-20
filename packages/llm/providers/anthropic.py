@@ -61,8 +61,10 @@ ADAPTIVE_THINKING_MODELS: frozenset[str] = frozenset({
     "claude-sonnet-5",
     "claude-fable-5",
     "claude-fable-5-1",
+    "claude-fable-5-2",
     "claude-mythos-5",
     "claude-mythos-5-1",
+    "claude-mythos-5-2",
     "claude-mythos-preview",
 })
 

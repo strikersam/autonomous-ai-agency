@@ -291,6 +291,26 @@ def side_effecting_calls(
     ]
 
 
+def executed_action_hashes(tool_call_history: list[dict[str, Any]]) -> list[str]:
+    """Hashes of the side-effecting calls already in ``tool_call_history``.
+
+    A resumed session compares ``action_hash(tool, args)`` against this list to spot an
+    identical call it already recorded. A match means the call was recorded, not that it
+    completed: rejected writes are included, so reconcile as ``side_effecting_calls()``
+    describes before skipping. An entry whose args cannot be hashed (not JSON) is left
+    out, so a bad entry never blocks a restore.
+    """
+    from agent.action_hash import action_hash
+
+    hashes: list[str] = []
+    for entry in side_effecting_calls(tool_call_history):
+        try:
+            hashes.append(action_hash(entry["tool"], entry.get("args")))
+        except (TypeError, ValueError):
+            log.warning("Unhashable args for %s in checkpoint history", entry["tool"])
+    return hashes
+
+
 async def restore_agent_state(session_id: str) -> dict[str, Any] | None:
     """Restore the latest checkpoint for a session.
 
@@ -316,6 +336,7 @@ async def restore_agent_state(session_id: str) -> dict[str, Any] | None:
         "completed_steps": cp.completed_steps,
         "tool_call_history": cp.tool_call_history,
         "executed_side_effects": side_effecting_calls(cp.tool_call_history),
+        "executed_action_hashes": executed_action_hashes(cp.tool_call_history),
         "scratchpad_raw": cp.scratchpad_raw,
         "had_error": cp.error_info is not None,
         "error_info": cp.error_info,
