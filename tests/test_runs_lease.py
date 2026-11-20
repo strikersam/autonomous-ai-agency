@@ -176,3 +176,36 @@ async def test_a_hanging_tick_cannot_stall_renewal():
     assert ticks >= 3 and not beat.lost.is_set()
     assert await lease.acquire("t9", "other", 0.6) is None
     await beat.stop()
+
+
+async def test_a_tick_that_ignores_cancellation_cannot_stall_renewal():
+    lease = RunLease()
+    token = await lease.acquire("t10", "web", 0.6)
+    beat = LeaseHeartbeat(lease, "t10", "web", token, ttl_s=0.6, renew_s=0.05)
+    renewals = 0
+    real_renew = lease.renew
+
+    async def counting(*a, **kw):
+        nonlocal renewals
+        renewals += 1
+        return await real_renew(*a, **kw)
+
+    lease.renew = counting  # type: ignore[method-assign]
+
+    done = False
+
+    async def stubborn() -> None:
+        while True:
+            try:
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                if done:
+                    return
+                continue  # deliberately ignores cancellation while the run is live
+
+    beat.on_tick = stubborn
+    beat.start()
+    await asyncio.sleep(0.5)
+    assert renewals >= 5 and not beat.lost.is_set()
+    done = True
+    await asyncio.wait_for(beat.stop(), timeout=1.0)
