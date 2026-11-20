@@ -320,3 +320,36 @@ def test_a_rejected_requeue_leaves_no_orphan_run(env, monkeypatch):
     kids = [r for r in asyncio.run(env.runs.list(task_id=j["task_id"])) if r.retry_of == j["run_id"]]
     assert kids == []
     assert asyncio.run(env.runs.get(j["run_id"])).retried_by is None
+
+
+def test_a_failed_link_frees_the_key_and_leaves_no_task(env, monkeypatch):
+    real = env.runs.update
+    calls = {"n": 0}
+
+    async def flaky(run_id, fields, **kw):
+        if "task_id" in fields and calls["n"] == 0:
+            calls["n"] += 1
+            raise RuntimeError("db down")
+        return await real(run_id, fields, **kw)
+
+    monkeypatch.setattr(env.runs, "update", flaky)
+    assert env.post("/api/runs", json={"title": "t"}, headers={"Idempotency-Key": "k4"}).status_code == 500
+    assert asyncio.run(env.tasks.list_all()) == []
+    again = env.post("/api/runs", json={"title": "t"}, headers={"Idempotency-Key": "k4"})
+    assert again.status_code == 201 and again.json()["task_id"]
+
+
+def test_a_failed_task_update_on_retry_leaves_no_linked_orphan(env, monkeypatch):
+    j = _create(env).json()
+    asyncio.run(env.runs.transition(j["run_id"], RunState.FAILED, reason="boom"))
+    real = env.tasks.update
+
+    async def down(task):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(env.tasks, "update", down)
+    assert env.post(f"/api/runs/{j['run_id']}/retry").status_code == 500
+    kids = [r for r in asyncio.run(env.runs.list(task_id=j["task_id"])) if r.retry_of == j["run_id"]]
+    assert kids == []
+    monkeypatch.setattr(env.tasks, "update", real)
+    assert env.post(f"/api/runs/{j['run_id']}/retry").status_code == 201
