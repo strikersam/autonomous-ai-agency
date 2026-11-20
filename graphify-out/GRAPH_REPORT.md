@@ -1,7 +1,7 @@
-# Graph Report - autonomous-ai-agency  (2026-11-16)
+# Graph Report - autonomous-ai-agency  (2026-11-20)
 
 ## Corpus Check
-- 1269 files · ~1,427,307 words
+- 1269 files · ~1,427,331 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 57 file(s) not represented in the graph (top: (none) 19, .css 5, .bat 5)
 
@@ -11,7 +11,7 @@
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `d8d2c817`
+- Built from commit: `3eba01f3`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -2196,7 +2196,7 @@ Nodes (36): 1. Executive summary, 2. Architecture review, 3. Risk assessment, 4.
 
 ### Community 260 - "frontend/package.json"
 Cohesion: 0.10
-Nodes (28): dependencies, axios@^1.21.0, fast-uri@^4.2.3, livekit-client@^2.23.0, lucide-react@^1.70.0, react@^19.3.1, react-dom@^19.3.1, react-markdown@^10.1.0 (+20 more)
+Nodes (28): dependencies, axios@^1.21.1, fast-uri@^4.2.3, livekit-client@^2.24.0, lucide-react@^1.72.0, react@^19.3.1, react-dom@^19.3.1, react-markdown@^10.1.0 (+20 more)
 
 ### Community 261 - "steps"
 Cohesion: 0.07
@@ -2672,7 +2672,7 @@ Nodes (10): AgentEvent, AgentRunRequest, AgentSessionCreateRequest, AgentSession
 
 ### Community 383 - "devDependencies"
 Cohesion: 0.10
-Nodes (21): devDependencies, autoprefixer@^10.6.2, jsdom@^31.0.0, postcss@^8.5.32, tailwindcss@^4.3.3, @tailwindcss/postcss@^4.3.4, @testing-library/dom@^10.4.2, @testing-library/user-event@^14.6.8 (+13 more)
+Nodes (21): devDependencies, autoprefixer@^10.6.2, jsdom@^31.0.0, postcss@^8.5.32, tailwindcss@^4.3.3, @tailwindcss/postcss@^4.3.5, @testing-library/dom@^10.4.2, @testing-library/user-event@^14.6.10 (+13 more)
 
 ### Community 384 - "._comprehend"
 Cohesion: 0.13
