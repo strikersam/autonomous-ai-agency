@@ -199,9 +199,13 @@ async def _start_task(store: RunStore, task: Task, run: RunRecord, caller: Calle
     await _link_task(store, task, run)
     # A duplicate request may have cancelled the run before the task existed; that cancel
     # found no task to stop, so honour it here. A later cancel sees the link and stops it.
-    now = await store.get(run.run_id)
-    if now is not None and (now.cancel_requested or now.is_terminal):
-        await _cancel_task(task.task_id, caller)
+    try:
+        now = await store.get(run.run_id)
+        if now is not None and (now.cancel_requested or now.is_terminal):
+            await _cancel_task(task.task_id, caller)
+    except Exception:  # the run is created; the worker's cancel poll is the backstop
+        log.warning("runs api: could not apply an early cancel to task %s", task.task_id,
+                    exc_info=True)
     _invalidate_task_caches(user_id=caller.user_id)
     try:
         await store.append_event(run.run_id, "api_created", {
