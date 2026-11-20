@@ -96,11 +96,11 @@ class RunStore:
 
     async def list(self, *, company_id: str | None = None, state: RunState | str | None = None,
                    parent_run_id: str | None = None, task_id: str | None = None,
-                   limit: int = 50) -> list[RunRecord]:
+                   owner_id: str | None = None, limit: int = 50) -> list[RunRecord]:
         """Runs matching every given filter, newest first."""
         query = {k: _plain(v) for k, v in {
             "company_id": company_id, "state": state, "parent_run_id": parent_run_id,
-            "task_id": task_id,
+            "task_id": task_id, "owner_id": owner_id,
         }.items() if v is not None}
         docs = await self.runs.find(query, sort="created_at", descending=True,
                                     limit=max(1, min(int(limit), 500)))
