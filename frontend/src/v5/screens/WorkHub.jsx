@@ -8,10 +8,12 @@ const TaskBoardScreen = React.lazy(() => import('./TaskBoardScreen'));
 const SchedulesScreen = React.lazy(() => import('./SchedulesScreen'));
 const PortfolioScreen = React.lazy(() => import('./PortfolioScreen'));
 const WorkflowScreen = React.lazy(() => import('./WorkflowScreen'));
+const RunsScreen = React.lazy(() => import('./RunsScreen'));
 
 const TABS = [
   { id: 'now', label: 'Happening now' },
   { id: 'autopilot', label: 'On autopilot' },
+  { id: 'runs', label: 'Runs' },
   { id: 'roadmap', label: 'Planned' },
   { id: 'workflows', label: 'Workflows', adminOnly: true },
 ];
@@ -32,6 +34,7 @@ export default function WorkHub({ initialTab, isAdmin }) {
       <React.Suspense fallback={<Spinner center />}>
         {tab === 'now' && <TaskBoardScreen />}
         {tab === 'autopilot' && <SchedulesScreen />}
+        {tab === 'runs' && <RunsScreen />}
         {tab === 'roadmap' && <PortfolioScreen />}
         {tab === 'workflows' && <WorkflowScreen />}
       </React.Suspense>
