@@ -228,7 +228,8 @@ A run is the durable record of one unit of work; creating one queues a task and 
 | `GET /api/runs/capabilities` | `{backend, durable_lease, recovery: "cross_host"\|"same_host"\|"none", recovery_enabled, ledger_enabled, checkpoint_durable}`. |
 | `GET /api/runs/{run_id}` | The run record. |
 | `GET /api/runs/{run_id}/events?after_seq=&limit=` | Persisted events ordered by `seq`; `next_after_seq` is the cursor. |
-| `GET /api/runs/{run_id}/artifacts` | The run's `artifact_refs`. |
+| `GET /api/runs/{run_id}/artifacts` | `{run_id, artifacts: [artifact_id], items: [metadata]}`: the run's stored artifacts (id, name, mime type, producing agent, size, sha256, owner, company, retention, `redacted`). |
+| `GET /api/runs/{run_id}/artifacts/{artifact_id}` | `{ref, content, integrity_ok}`. Text is returned redacted; binary as base64 (`ref.encoding`). Owner scoped (another owner gets `404`); `409` when the stored content fails its sha256. |
 | `POST /api/runs/{run_id}/cancel` | Sets `cancel_requested`. A queued or waiting run is cancelled at once (and its task set to `wont_do`); a running run stops at the worker's next heartbeat (up to `RUNS_LEASE_RENEW_SEC`). A finished run returns `409`. |
 | `POST /api/runs/{run_id}/retry` | Finished runs only (`failed`, `timed_out`, `dead_letter`, `cancelled`): a NEW run with `retry_of` set, task re-queued. Otherwise `409`. |
 
