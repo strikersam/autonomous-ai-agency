@@ -16,6 +16,9 @@ malformed value and clamps numbers to the bounds declared in the catalogue.
 * ``RUNS_RETRY_BACKOFF_BASE_SEC`` (10): base of the exponential backoff (with
   jitter) before a recovered run is queued again.
 * ``RUNS_RECOVERY_TICK_SEC`` (30): how often the dispatcher runs the recovery tick.
+* ``RUNS_MAX_CHILDREN`` (16): child runs one parent may spawn (composer).
+* ``RUNS_MAX_DEPTH`` (4): deepest child run level below a root run (composer).
+* ``RUNS_MAX_PARALLEL`` (4): children of one fan out that execute at the same time.
 """
 from __future__ import annotations
 
@@ -86,6 +89,21 @@ def retry_backoff_base_s() -> int:
 def recovery_tick_s() -> int:
     """``RUNS_RECOVERY_TICK_SEC``: recovery tick cadence in the dispatcher, 5 to 3600 s."""
     return _seconds("RUNS_RECOVERY_TICK_SEC", 30, 5, 3600)
+
+
+def max_children() -> int:
+    """``RUNS_MAX_CHILDREN``: child runs one parent may spawn, 1 to 500."""
+    return _seconds("RUNS_MAX_CHILDREN", 16, 1, 500)
+
+
+def max_depth() -> int:
+    """``RUNS_MAX_DEPTH``: deepest child run level below a root run, 1 to 10."""
+    return _seconds("RUNS_MAX_DEPTH", 4, 1, 10)
+
+
+def max_parallel() -> int:
+    """``RUNS_MAX_PARALLEL``: children of one fan out running at once, 1 to 64."""
+    return _seconds("RUNS_MAX_PARALLEL", 4, 1, 64)
 
 
 def task_auto_retry_cap() -> int:

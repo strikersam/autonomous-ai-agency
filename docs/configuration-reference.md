@@ -550,6 +550,9 @@ Settings → Platform controls → Platform Operations.
 | `RUNS_MAX_ATTEMPTS` | `3` | Attempts a crashed run gets in total (1 to 20); the recovery that would exceed it dead letters the run and marks its task failed. |
 | `RUNS_RETRY_BACKOFF_BASE_SEC` | `10` | Backoff base (0 to 3600) before a recovered run's task is queued again: `base * 2^(attempt-2)` plus up to 25% jitter, stored as the run's `not_before`. |
 | `RUNS_RECOVERY_TICK_SEC` | `30` | How often (5 to 3600) the dispatcher runs the recovery tick. The same poll loop also reloads Platform control overrides from the database at most every 15 s, so the worker sees dashboard changes. |
+| `RUNS_MAX_CHILDREN` | `16` | Child runs one parent run may spawn through the composer (1 to 500). A spawn past the cap is refused with an error and a `spawn_refused` run event. |
+| `RUNS_MAX_DEPTH` | `4` | Levels of child runs below a root run (1 to 10). A deeper spawn is refused with an error and a `spawn_refused` run event. |
+| `RUNS_MAX_PARALLEL` | `4` | Children of one parallel fan out that run at the same time (1 to 64); the rest wait for a free slot. |
 
 The run lease (`task_run_leases`) is now shared across processes on both backends: on
 Mongo through the raw Motor collection, on SQLite through single statement helpers in
