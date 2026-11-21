@@ -205,3 +205,28 @@ def test_a_dash_or_underscore_prefixed_jwt_is_redacted():
     jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefSIGNATURE123"
     for text in (f"agent-{jwt}", f"x_{jwt}", f"plain {jwt}", f"abc{jwt}", f"1{jwt}"):
         assert jwt not in redact_text(text)
+
+
+def test_a_decision_that_crosses_the_expiry_is_not_approved(monkeypatch):
+    """The request expires between the read and the write of the decision."""
+    async def go():
+        import packages.runs.approvals as mod
+
+        runs = RunStore()
+        rid = await _run(runs)
+        ap = RunApprovals(runs)
+        aid = await ap.request(rid, HASH, TARGET, "r", ttl_s=60)
+        real_get, base = ap.get, mod.time.time()
+
+        async def get_then_expire(approval_id):
+            rec = await real_get(approval_id)
+            monkeypatch.setattr(mod.time, "time", lambda: base + 120)  # expires now
+            return rec
+
+        monkeypatch.setattr(ap, "get", get_then_expire)
+        with pytest.raises(ApprovalError):
+            await ap.decide(aid, True, "priya")
+        monkeypatch.setattr(ap, "get", real_get)
+        assert (await ap.get(aid)).state is not ApprovalState.APPROVED
+        assert await ap.check(rid, HASH, TARGET) is False
+    asyncio.run(go())

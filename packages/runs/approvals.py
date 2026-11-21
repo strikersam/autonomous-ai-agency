@@ -128,12 +128,18 @@ class RunApprovals:
             raise ApprovalError(f"approval is already {current.state.value}")
         state = ApprovalState.APPROVED if approve else ApprovalState.DENIED
         now = time.time()
+        if now >= current.expires_at:
+            raise ApprovalError("approval has expired")
         applied = await self._table.compare_and_set(
             approval_id, {"state": "pending"},
             {"state": state.value, "resolver": redact_text(resolver)[:200], "resolved_at": now,
              "note": redact_text(note)[:1000] if note else None})
         if not applied:
             raise ApprovalError("approval is no longer pending")
+        if time.time() >= current.expires_at:  # expired while the decision was written
+            await self._table.compare_and_set(
+                approval_id, {"state": state.value, "resolved_at": now}, {"state": "expired"})
+            raise ApprovalError("approval has expired")
         await self._runs.append_event(current.run_id, "approval_decided", {
             "approval_id": approval_id, "state": state.value}, actor=redact_text(resolver))
         decided = await self.get(approval_id)
