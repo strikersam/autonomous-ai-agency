@@ -634,3 +634,13 @@ export const getRenderOpsStatus = ()  => API.get('/api/render/ops/status');
 // Read-only: reports what Render thinks is wrong right now without filing
 // issues. The background loop's tick() is what files.
 export const runRenderOpsScan   = ()  => API.get('/api/render/ops/scan');
+
+// ── Durable runs (/api/runs) ─────────────────────────────────────────────────
+export const listRuns            = (params = {})  => API.get('/api/runs', { params });
+export const getRun              = (runId)        => API.get(`/api/runs/${encodeURIComponent(runId)}`);
+export const getRunEvents        = (runId, params = {}) =>
+  API.get(`/api/runs/${encodeURIComponent(runId)}/events`, { params });
+export const getRunArtifacts     = (runId)        => API.get(`/api/runs/${encodeURIComponent(runId)}/artifacts`);
+export const getRunCapabilities  = ()             => API.get('/api/runs/capabilities');
+export const cancelRun           = (runId)        => API.post(`/api/runs/${encodeURIComponent(runId)}/cancel`);
+export const retryRun            = (runId)        => API.post(`/api/runs/${encodeURIComponent(runId)}/retry`);

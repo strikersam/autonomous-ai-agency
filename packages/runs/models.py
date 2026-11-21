@@ -107,6 +107,8 @@ class RunRecord(BaseModel):
     # Earliest time a recovered run may be queued again (backoff); cleared once requeued.
     not_before: float | None = None
     cancel_requested: bool = False
+    # Skill name -> version resolved when the run opened; kept across resumes.
+    skill_versions: dict[str, str] = Field(default_factory=dict)
     schema_version: int = SCHEMA_VERSION
 
     @field_validator("created_at", "updated_at", mode="before")
