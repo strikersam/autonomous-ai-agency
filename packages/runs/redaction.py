@@ -69,6 +69,8 @@ def _secret_shaped(value: Any) -> bool:
 
 def _redact_key(key: Any) -> Any:
     """A dict key can carry a secret too; ordinary keys come back unchanged."""
+    if isinstance(key, (bytes, bytearray)):
+        key = bytes(key).decode("utf-8", errors="replace")
     return redact_text(key) if isinstance(key, str) else key
 
 

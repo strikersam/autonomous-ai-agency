@@ -230,3 +230,41 @@ def test_a_decision_that_crosses_the_expiry_is_not_approved(monkeypatch):
         assert (await ap.get(aid)).state is not ApprovalState.APPROVED
         assert await ap.check(rid, HASH, TARGET) is False
     asyncio.run(go())
+
+
+def test_an_approval_written_after_its_expiry_is_reported_expired():
+    """A crash between the approve write and the expire write in decide leaves this record."""
+    async def go():
+        runs = RunStore()
+        rid = await _run(runs)
+        ap = RunApprovals(runs)
+        aid = await ap.request(rid, HASH, TARGET, "r", ttl_s=60)
+        rec = await ap.get(aid)
+        await runs.table("run_approvals").compare_and_set(
+            aid, {"state": "pending"},
+            {"state": "approved", "resolver": "priya", "resolved_at": rec.expires_at + 1})
+        assert (await ap.get(aid)).state is ApprovalState.EXPIRED
+    asyncio.run(go())
+
+
+def test_check_reads_the_clock_after_the_lookup(monkeypatch):
+    async def go():
+        import packages.runs.approvals as mod
+
+        runs = RunStore()
+        rid = await _run(runs)
+        ap = RunApprovals(runs)
+        aid = await ap.request(rid, HASH, TARGET, "r", ttl_s=60)
+        await ap.decide(aid, True, "priya")
+        base, table = mod.time.time(), runs.table("run_approvals")
+        real_find = table.find
+
+        async def slow_find(*a, **k):
+            docs = await real_find(*a, **k)
+            monkeypatch.setattr(mod.time, "time", lambda: base + 120)  # expired during the query
+            return docs
+
+        monkeypatch.setattr(table, "find", slow_find)
+        monkeypatch.setattr(ap, "_table", table)
+        assert await ap.check(rid, HASH, TARGET) is False
+    asyncio.run(go())
