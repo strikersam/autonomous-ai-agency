@@ -191,3 +191,10 @@ def test_a_value_under_a_sensitive_bytes_key_is_replaced():
 
     assert redact_value({b"api_key": "hunter2value"}) == redact_value({"api_key": "hunter2value"})
     assert "hunter2value" not in repr(redact_value({b"api_key": "hunter2value"}))
+
+
+def test_keys_that_normalise_to_the_same_text_are_all_kept():
+    from packages.runs.redaction import redact_value
+
+    out = redact_value({"label": "first", b"label": "second"})
+    assert sorted(out.values()) == ["first", "second"] and "label" in out
