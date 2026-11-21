@@ -9,7 +9,7 @@ If you want the human-friendly product story, start with [../README.md](../READM
 
 ### OpenAI-compatible
 - `POST /v1/chat/completions`
-- `GET /v1/models`
+- `GET /v1/models` (entries carry an additive `context_window` when the router registry knows the model)
 - `POST /v1/messages` (Anthropic-compatible messages)
 - passthrough support for additional `/v1/*` routes
 
