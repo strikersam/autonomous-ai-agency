@@ -14,6 +14,12 @@ durable run (``task_binding.current_run``) and ``RUNS_LEDGER_ENABLED`` is on:
    cancellation leaves it ``executing`` for the recovery tick to reconcile.
 
 Without a bound run, or with the ledger disabled, it is a plain pass through.
+
+``require_release_approval`` is the gate a release, deploy or merge must pass:
+it refuses unless a durable approval (``packages/runs/approvals.py``) exists for
+the same run, action hash and target. ``RenderMCPClient.trigger_deploy`` calls it
+through ``gate_release_if_bound`` inside a durable run; agents never merge PRs
+(``agent/autonomy_gate.py``). Any new release path must call it before the effect.
 """
 from __future__ import annotations
 
@@ -28,10 +34,44 @@ from typing import Any, AsyncIterator
 from agent.action_hash import action_hash
 from packages.config import runs_settings
 from packages.runs.models import OperationState
+from packages.runs.approvals import RunApprovals
 from packages.runs.operations import OperationLedger
-from packages.runs.store import FencedOut
+from packages.runs.store import FencedOut, RunStore, get_run_store
 
 log = logging.getLogger("qwen-proxy")
+
+
+class ReleaseNotApproved(PermissionError):
+    """A release, deploy or merge was attempted without a matching durable approval."""
+
+
+async def require_release_approval(run_id: str, tool: str, args: Any, target: dict[str, Any],
+                                   *, store: RunStore | None = None) -> str:
+    """Return the action hash when this exact action is approved for the run, else raise.
+
+    The hash covers *tool* and *args*; *target* is matched too, so an approval for
+    one environment or branch never opens another. Raises ``ReleaseNotApproved``.
+    """
+    digest = action_hash(tool, args)
+    approvals = RunApprovals(store or get_run_store())
+    if not await approvals.check(run_id, digest, dict(target)):
+        log.warning("run %s: %s blocked, no durable approval for this action", run_id, tool)
+        raise ReleaseNotApproved(f"{tool} needs an approval for this exact action and target")
+    return digest
+
+
+async def gate_release_if_bound(tool: str, args: Any, target: dict[str, Any]) -> None:
+    """Inside a durable run, require an approval for this exact release; outside, no-op.
+
+    Existing gates (``RENDER_MCP_ALLOW_WRITES``, the agent merge ban) still apply;
+    this adds the per run, per action approval the reliability plan requires.
+    """
+    from packages.runs.task_binding import current_run
+
+    binding = current_run.get()
+    run_id = (binding.run_id or binding.watch_run_id) if binding is not None else None
+    if run_id:
+        await require_release_approval(run_id, tool, args, target)
 
 
 @dataclass

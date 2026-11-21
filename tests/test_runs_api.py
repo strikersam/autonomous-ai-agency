@@ -121,7 +121,7 @@ def test_list_filters_and_artifacts(env):
     assert [r["run_id"] for r in env.get("/api/runs?state=queued").json()["runs"]] == [rid]
     assert env.get("/api/runs?state=failed").json()["runs"] == []
     assert env.get("/api/runs?state=bogus").status_code == 422
-    assert env.get(f"/api/runs/{rid}/artifacts").json() == {"run_id": rid, "artifacts": []}
+    assert env.get(f"/api/runs/{rid}/artifacts").json() == {"run_id": rid, "artifacts": [], "items": []}
 
 
 def test_cancel_queued_then_409(env):

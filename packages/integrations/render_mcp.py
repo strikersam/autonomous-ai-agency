@@ -366,7 +366,15 @@ class RenderMCPClient:
         return deploys[0] if deploys else None
 
     async def trigger_deploy(self, service_id: str, clear_cache: bool = False) -> Any:
-        """Trigger a deploy. Blocked unless ``RENDER_MCP_ALLOW_WRITES`` is on."""
+        """Trigger a deploy. Blocked unless ``RENDER_MCP_ALLOW_WRITES`` is on.
+
+        Inside a durable run it also needs a durable approval for this service.
+        """
+        from packages.runs.side_effects import gate_release_if_bound
+
+        await gate_release_if_bound(
+            "render.trigger_deploy", {"serviceId": service_id, "clearCache": clear_cache},
+            {"service_id": service_id})
         return await self.call(
             "trigger_deploy", {"serviceId": service_id, "clearCache": clear_cache}
         )
