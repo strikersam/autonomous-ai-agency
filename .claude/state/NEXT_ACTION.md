@@ -8,6 +8,9 @@
 2. Task 53 (Code Mode) — phase 6 on `claude/agent-safety-fixes`; A/B verdict from Render needed.
 3. Task 54 (enterprise reliability) — plan in `docs/plans/2026-11-14-enterprise-reliability-durable-execution-plan.md`; phases 1-2 merged; phases 3+ pending.
 4. `NEXT_ACTION.md` items below (from previous sessions) — carry forward.
+# NEXT_ACTION — updated 2026-11-14 (daily routine)
+
+Backlog W46 items 2 and 3 were already on master (#1955, #1959); item 1 (per-role effort) is still open and is the next candidate. Shipped today: docs fix so `AGENT_PLANNER/EXECUTOR/VERIFIER_MODEL` defaults in `docs/configuration-reference.md` match `agent/loop.py` (the retired nemotron-3-super is no longer named as the default). Item 3 of the 2026-11-12 open list above is closed by this.
 # NEXT_ACTION — updated 2026-11-16 (daily routine, branch `routine/daily-2026-11-16`)
 
 **What shipped:** backlog #1980 item 1: `/v1/models` on the main proxy advertises an additive `context_window` for registry-known models (`proxy.py`, `_context_window_field`).
