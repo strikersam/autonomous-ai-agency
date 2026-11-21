@@ -1687,6 +1687,27 @@ _PLATFORM_OPS: tuple[ControlSpec, ...] = (
         maximum=64,
     ),
     _toggle(
+        "RUNS_DURABLE_APPROVALS",
+        "Durable run approvals",
+        "platform_ops",
+        "true",
+        "Store approvals for run actions in the database, bound to the exact action "
+        "and target, with a wall clock expiry that denies. A restart keeps them. "
+        "Off: no run action counts as approved, so releases and deploys stay blocked.",
+        live=True,
+    ),
+    _number(
+        "RUNS_ARTIFACT_MAX_BYTES",
+        "Largest run artifact (bytes)",
+        "platform_ops",
+        "1048576",
+        "Largest artifact a run may store. Larger content is refused, not truncated. "
+        "Secrets are redacted from text and a binary artifact holding one is refused.",
+        live=True,
+        minimum=1024,
+        maximum=8388608,
+    ),
+    _toggle(
         "RENDER_OPS_ENABLED",
         "Render ops loop",
         "platform_ops",

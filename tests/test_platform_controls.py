@@ -727,3 +727,19 @@ def test_provider_funds_quarantine_override_takes_effect(clean_overrides, monkey
 
     control_overrides.apply_overrides({})
     assert quarantine.quarantine_seconds() == 12 * 3600.0
+
+
+def test_phase5_run_controls_are_live_and_overrides_take_effect(clean_overrides):
+    from packages.config import runs_settings
+
+    for key in ("RUNS_DURABLE_APPROVALS", "RUNS_ARTIFACT_MAX_BYTES"):
+        assert get_control(key).live is True
+        os.environ.pop(key, None)
+    assert runs_settings.durable_approvals_enabled() is True
+    assert runs_settings.artifact_max_bytes() == 1_048_576
+    control_overrides.apply_overrides({
+        "RUNS_DURABLE_APPROVALS": "false", "RUNS_ARTIFACT_MAX_BYTES": "2048"})
+    assert runs_settings.durable_approvals_enabled() is False
+    assert runs_settings.artifact_max_bytes() == 2048
+    with pytest.raises(ValueError):
+        coerce("RUNS_ARTIFACT_MAX_BYTES", "10")
