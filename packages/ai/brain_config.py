@@ -451,6 +451,8 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         # Added 2026-09-14: Fable 5.1 (confirmed model id from system env).
         "claude-fable-5-1",
         "claude-opus-4-8",
+        # Added 2026-11-20: Haiku 5.5 (released 2026-10-07) — $0.10/$0.50/MTok.
+        "claude-haiku-5-5",
         "claude-haiku-4-5-20251001",
         "claude-sonnet-4-6",
     ],
@@ -470,6 +472,9 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         # Added 2026-09-14: Fable 5.1 as a failover on the Aerolink gateway.
         "claude-fable-5-1",
         "claude-sonnet-4-6",
+        # Added 2026-11-20: Haiku 5.5 (released 2026-10-07) — $0.10/$0.50/MTok.
+        "claude-haiku-5-5",
+        "claude-haiku-5-5-20261007",
         "claude-haiku-4-5-20251001",
     ],
     "ollama": ["north-mini-code-1.0", "deepseek-r1:32b", "qwen3-coder:30b", "qwen3-coder:7b", "llama3.3:70b"],
