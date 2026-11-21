@@ -92,3 +92,25 @@ async def test_the_binding_opens_and_closes_the_span(tmp_path, monkeypatch, trac
         assert span.attrs["run.id"] == done.current_run_id and span.attrs["task.id"] == task.task_id
         assert span.ended
         assert task_binding.active_bindings() == []
+
+
+def test_a_span_whose_attributes_fail_is_ended_not_leaked(monkeypatch):
+    from types import SimpleNamespace
+
+    from packages.runs import tracing
+    from packages.runs.models import RunRecord
+
+    ended = []
+
+    class _Span:
+        def set_attribute(self, *_):
+            raise RuntimeError("exporter broke")
+
+        def end(self):
+            ended.append(True)
+
+    import services.otel_tracing as otel
+    monkeypatch.setattr(otel, "get_tracer",
+                        lambda *_: SimpleNamespace(start_span=lambda *_a, **_k: _Span()))
+    assert tracing.open_run_span(RunRecord(owner_id="a")) is None
+    assert ended == [True]

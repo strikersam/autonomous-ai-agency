@@ -40,10 +40,18 @@ def open_run_span(run: RunRecord) -> Any:
         from services.otel_tracing import get_tracer
 
         span = get_tracer(TRACER_NAME).start_span("run.attempt")
+    except Exception:
+        log.debug("run tracing: could not open the span of run %s", run.run_id, exc_info=True)
+        return None
+    try:
         for key, value in run_attributes(run).items():
             span.set_attribute(key, value)
         return span
     except Exception:
+        try:  # never leave a started span open
+            span.end()
+        except Exception:
+            log.debug("run tracing: could not end the span of run %s", run.run_id)
         log.debug("run tracing: could not open the span of run %s", run.run_id, exc_info=True)
         return None
 
