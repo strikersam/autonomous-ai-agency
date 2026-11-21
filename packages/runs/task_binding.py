@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from typing import Any, Awaitable, TypeVar
 
 from packages.config import runs_settings
+from packages.config.autonomy_limits import kill_switch_engaged
 from packages.lifecycle.registry import get_machine
 from packages.runs.lease import LeaseHeartbeat, RunLease
 from packages.runs.models import RunRecord, RunState
@@ -200,8 +201,14 @@ async def _open_run(binding: TaskRunBinding, store: RunStore, task: Any, actor: 
 
 
 async def _poll_cancel(binding: TaskRunBinding) -> None:
-    """One cheap read per heartbeat: set ``binding.cancel`` once cancellation is requested."""
+    """One cheap check per heartbeat: set ``binding.cancel`` on a kill switch or a cancel request."""
     if binding.cancel.is_set():
+        return
+    if kill_switch_engaged():
+        # The operator's hard stop: guarded work ends within one heartbeat.
+        log.warning("kill switch engaged; stopping task %s", binding.task_id)
+        await _event(binding, "kill_switch", {"task_id": binding.task_id})
+        binding.cancel.set()
         return
     store, run_id = ((binding.store, binding.run_id) if binding.recording
                      else (binding.watch_store, binding.watch_run_id))
