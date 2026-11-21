@@ -57,6 +57,10 @@ class RunStore:
         self.idempotency = table_for(db, RUN_IDEMPOTENCY, self._memory)
         self._indexed = False
 
+    def table(self, name: str) -> Any:
+        """Another collection of the same backend (artifacts and approvals use this)."""
+        return table_for(self._db, name, self._memory)
+
     @property
     def backend(self) -> str:
         """``mongo``, ``sqlite`` or ``memory``."""
@@ -70,6 +74,8 @@ class RunStore:
         await ensure_index(db, RUNS, [("parent_run_id", 1)])
         await ensure_index(db, RUN_EVENTS, [("run_id", 1), ("seq", 1)], unique=True)
         await ensure_index(db, RUN_OPERATIONS, [("run_id", 1), ("seq", 1)], unique=True)
+        await ensure_index(db, "run_artifacts", [("run_id", 1)])
+        await ensure_index(db, "run_approvals", [("run_id", 1), ("state", 1)])
         await ensure_index(db, RUN_IDEMPOTENCY, [("company_id", 1), ("key", 1)], unique=True)
         await ensure_index(db, RUN_IDEMPOTENCY, [("expires_at", 1)], expireAfterSeconds=0)
         self._indexed = True
@@ -206,6 +212,16 @@ class RunStore:
             run.run_id = old
             existing = await self.create(run)
         return existing or run, False
+
+    async def release_key(self, company_id: str, key: str, run_id: str) -> bool:
+        """Expire *key* now, but only while it is still bound to *run_id*.
+
+        Used when the run a key created could not start, so a later request with the
+        same key gets a fresh run instead of the dead one until the TTL runs out.
+        """
+        await self._ready()
+        return await self.idempotency.compare_and_set(
+            f"{company_id}:{key}", {"run_id": run_id}, {EXPIRES_TS: 0.0})
 
     @staticmethod
     def _key_doc(company_id: str, key: str, run_id: str, now: float, ttl_s: float) -> dict[str, Any]:

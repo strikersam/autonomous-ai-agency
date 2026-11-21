@@ -18,6 +18,12 @@ malformed value and clamps numbers to the bounds declared in the catalogue.
 * ``RUNS_RETRY_BACKOFF_BASE_SEC`` (10): base of the exponential backoff (with
   jitter) before a recovered run is queued again.
 * ``RUNS_RECOVERY_TICK_SEC`` (30): how often the dispatcher runs the recovery tick.
+* ``RUNS_DURABLE_APPROVALS`` (on): run approvals are stored in ``run_approvals``
+  and bound to an action hash; off, the release gate and ``check`` refuse everything.
+* ``RUNS_ARTIFACT_MAX_BYTES`` (1048576): largest artifact a run may store.
+* ``RUNS_MAX_CHILDREN`` (16): child runs one parent may spawn (composer).
+* ``RUNS_MAX_DEPTH`` (4): deepest child run level below a root run (composer).
+* ``RUNS_MAX_PARALLEL`` (4): children of one fan out that execute at the same time.
 """
 from __future__ import annotations
 
@@ -95,6 +101,31 @@ def recovery_tick_s() -> int:
     return _seconds("RUNS_RECOVERY_TICK_SEC", 30, 5, 3600)
 
 
+def max_children() -> int:
+    """``RUNS_MAX_CHILDREN``: child runs one parent may spawn, 1 to 500."""
+    return _seconds("RUNS_MAX_CHILDREN", 16, 1, 500)
+
+
+def max_depth() -> int:
+    """``RUNS_MAX_DEPTH``: deepest child run level below a root run, 1 to 10."""
+    return _seconds("RUNS_MAX_DEPTH", 4, 1, 10)
+
+
+def max_parallel() -> int:
+    """``RUNS_MAX_PARALLEL``: children of one fan out running at once, 1 to 64."""
+    return _seconds("RUNS_MAX_PARALLEL", 4, 1, 64)
+
+
 def task_auto_retry_cap() -> int:
     """``TASK_AUTO_RETRY_MAX`` (read by the task reconciler too): auto retries per task."""
     return _seconds("TASK_AUTO_RETRY_MAX", 5, 0, 1000)
+
+
+def durable_approvals_enabled() -> bool:
+    """``RUNS_DURABLE_APPROVALS``: durable, action bound run approvals (default on)."""
+    return _flag("RUNS_DURABLE_APPROVALS", True)
+
+
+def artifact_max_bytes() -> int:
+    """``RUNS_ARTIFACT_MAX_BYTES``: largest stored artifact, 1 KiB to 8 MiB."""
+    return _seconds("RUNS_ARTIFACT_MAX_BYTES", 1_048_576, 1024, 8 * 1024 * 1024)

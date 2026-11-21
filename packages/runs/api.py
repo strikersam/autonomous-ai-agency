@@ -23,8 +23,10 @@ from pydantic import BaseModel, Field
 
 from packages.config import runs_settings
 from packages.lifecycle.machine import IllegalTransition
+from packages.runs.artifacts import ArtifactContent, ArtifactIntegrityError, ArtifactRef, ArtifactStore
 from packages.runs.models import RunEvent, RunRecord, RunState
 from packages.runs.store import FencedOut, RunStore, get_run_store
+from packages.runs.tree import cancel_tree
 from tasks.api import _invalidate_task_caches, _is_admin, _user_id
 from tasks.models import Task, TaskStatus
 from tasks.service import TaskRuleError, TaskWorkflowService
@@ -88,6 +90,7 @@ class RunArtifacts(BaseModel):
 
     run_id: str
     artifacts: list[str]
+    items: list[ArtifactRef] = Field(default_factory=list)
 
 
 class CancelResult(BaseModel):
@@ -196,15 +199,42 @@ async def _start_task(store: RunStore, task: Task, run: RunRecord, caller: Calle
         log.exception("runs api: task creation failed for run %s", run.run_id)
         await _fail_run(store, run.run_id, "task creation failed")
         raise HTTPException(status_code=500, detail="Could not create the run") from exc
-    if await store.update(run.run_id, {"task_id": task.task_id}, expect={"task_id": None}):
+    await _link_task(store, task, run)
+    # A duplicate request may have cancelled the run before the task existed; that cancel
+    # found no task to stop, so honour it here. A later cancel sees the link and stops it.
+    try:
+        now = await store.get(run.run_id)
+        if now is not None and (now.cancel_requested or now.is_terminal):
+            await _cancel_task(task.task_id, caller)
+    except Exception:  # the run is created; the worker's cancel poll is the backstop
+        log.warning("runs api: could not apply an early cancel to task %s", task.task_id,
+                    exc_info=True)
+    _invalidate_task_caches(user_id=caller.user_id)
+    try:
+        await store.append_event(run.run_id, "api_created", {
+            "title": body_preview(task.title), "request": body_preview(task.description),
+        }, actor=caller.actor)
+    except Exception:  # the timeline entry is informational; the run already stands
+        log.warning("runs api: could not record creation of run %s", run.run_id, exc_info=True)
+
+
+async def _link_task(store: RunStore, task: Task, run: RunRecord) -> None:
+    """Point the run at its task; on failure undo the task so nothing is left half made."""
+    try:
+        linked = await store.update(run.run_id, {"task_id": task.task_id}, expect={"task_id": None})
+    except Exception as exc:
+        log.exception("runs api: could not link run %s to task %s", run.run_id, task.task_id)
+        try:
+            await get_task_store().delete(task.task_id)
+        except Exception:
+            log.warning("runs api: could not remove unlinked task %s", task.task_id, exc_info=True)
+        await _fail_run(store, run.run_id, "task could not be linked")
+        raise HTTPException(status_code=500, detail="Could not create the run") from exc
+    if linked:
         run.task_id = task.task_id
     else:
         log.warning("runs api: run %s already linked to a task; task %s left unlinked",
                     run.run_id, task.task_id)
-    _invalidate_task_caches(user_id=caller.user_id)
-    await store.append_event(run.run_id, "api_created", {
-        "title": body_preview(task.title), "request": body_preview(task.description),
-    }, actor=caller.actor)
 
 
 def body_preview(text: str, limit: int = 120) -> str:
@@ -227,7 +257,15 @@ async def create_run(
     else:
         run = await store.create(run)
     if created:
-        await _start_task(store, task, run, caller)
+        try:
+            await _start_task(store, task, run, caller)
+        except Exception:
+            if idempotency_key:  # free the key so a later request can start a fresh run
+                try:
+                    await store.release_key(f"owner:{caller.user_id}", idempotency_key, run.run_id)
+                except Exception:  # keep the original error as the response
+                    log.warning("runs api: could not free key for run %s", run.run_id, exc_info=True)
+            raise
     response.status_code = 201 if created else 200
     return _created(run, created)
 
@@ -262,9 +300,27 @@ async def run_events(
 
 
 async def run_artifacts(run_id: str, caller: Caller = Depends(_caller)) -> RunArtifacts:
-    """The run's ``artifact_refs`` as stored."""
-    run = await _owned_run(get_run_store(), run_id, caller)
-    return RunArtifacts(run_id=run_id, artifacts=list(run.artifact_refs))
+    """The run's artifacts: ids (``artifacts``, as before) and their metadata (``items``)."""
+    store = get_run_store()
+    run = await _owned_run(store, run_id, caller)
+    items = await ArtifactStore(store).list(run_id)
+    ids = list(run.artifact_refs)
+    ids += [i.artifact_id for i in items if i.artifact_id not in ids]
+    return RunArtifacts(run_id=run_id, artifacts=ids, items=items)
+
+
+async def run_artifact(run_id: str, artifact_id: str,
+                       caller: Caller = Depends(_caller)) -> ArtifactContent:
+    """One artifact with its (redacted) content; 409 when its stored content fails its hash."""
+    store = get_run_store()
+    await _owned_run(store, run_id, caller)
+    try:
+        found = await ArtifactStore(store).get(run_id, artifact_id)
+    except ArtifactIntegrityError as exc:
+        raise HTTPException(status_code=409, detail="Artifact failed its integrity check") from exc
+    if found is None:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return found
 
 
 async def _cancel_task(task_id: str | None, caller: Caller) -> None:
@@ -284,6 +340,16 @@ async def _cancel_task(task_id: str | None, caller: Caller) -> None:
     _invalidate_task_caches()
 
 
+async def _cancel_descendants(store: RunStore, run_id: str, caller: Caller) -> None:
+    """A cancelled parent cancels every non terminal child run and its task."""
+    try:
+        await cancel_tree(store, run_id, reason="parent cancelled", actor=caller.actor,
+                          task_store=get_task_store(), include_self=False)
+        _invalidate_task_caches()
+    except Exception:  # the parent is flagged; each child's own poll is the backstop
+        log.warning("runs api: could not cancel the children of run %s", run_id, exc_info=True)
+
+
 async def cancel_run(run_id: str, caller: Caller = Depends(_caller)) -> CancelResult:
     """Request cancellation; a run with no worker is cancelled at once."""
     store = get_run_store()
@@ -299,6 +365,7 @@ async def cancel_run(run_id: str, caller: Caller = Depends(_caller)) -> CancelRe
             await _cancel_task(run.task_id, caller)
         except (FencedOut, IllegalTransition):
             pass  # a worker or another caller moved the run first; report what it is now
+    await _cancel_descendants(store, run_id, caller)
     now = await store.get(run_id) or run
     return CancelResult(run_id=run_id, state=now.state, cancel_requested=True,
                         settled=now.is_terminal)
@@ -335,18 +402,39 @@ async def retry_run(run_id: str, caller: Caller = Depends(_caller)) -> RunCreate
     new_run = _retry_run(run)
     if not await store.update(run_id, {"retried_by": new_run.run_id}, expect={"retried_by": None}):
         raise HTTPException(status_code=409, detail="Run already retried")
-    new_run = await store.create(new_run)
+    try:
+        await _requeue(store, task, new_run, caller)
+    except BaseException:
+        # Release the claim on every failure, or the run could never be retried again.
+        await store.update(run_id, {"retried_by": None}, expect={"retried_by": new_run.run_id})
+        raise
+    _invalidate_task_caches(user_id=task.owner_id)
+    await store.append_event(run_id, "retried", {"new_run_id": new_run.run_id}, actor=caller.actor)
+    return _created(new_run, True)
+
+
+async def _requeue(store: RunStore, task: Task, new_run: RunRecord, caller: Caller) -> None:
+    """Validate the re-queue first, so a rejected retry never leaves a run behind."""
     task.current_run_id = new_run.run_id
     try:
         TaskWorkflowService(store=get_task_store()).retry(task, actor=caller.actor)
     except (TaskRuleError, ValueError) as exc:
-        await _fail_run(store, new_run.run_id, "task could not be re-queued")
-        await store.update(run_id, {"retried_by": None}, expect={"retried_by": new_run.run_id})
         raise HTTPException(status_code=409, detail="Run cannot be retried") from exc
-    await get_task_store().update(task)
-    _invalidate_task_caches(user_id=task.owner_id)
-    await store.append_event(run_id, "retried", {"new_run_id": new_run.run_id}, actor=caller.actor)
-    return _created(new_run, True)
+    try:
+        await store.create(new_run)
+    except Exception as exc:
+        log.exception("runs api: could not store retry run for %s", new_run.retry_of)
+        raise HTTPException(status_code=500, detail="Could not retry the run") from exc
+    try:
+        await get_task_store().update(task)
+    except Exception as exc:
+        log.exception("runs api: could not re-queue the task for run %s", new_run.retry_of)
+        await _fail_run(store, new_run.run_id, "task could not be re-queued")
+        try:  # detach it, so the task's run list never shows a run that never ran
+            await store.update(new_run.run_id, {"task_id": None})
+        except Exception:
+            log.warning("runs api: could not detach run %s", new_run.run_id, exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not retry the run") from exc
 
 
 async def _checkpoint_durable() -> bool:
@@ -387,6 +475,8 @@ def build_runs_router(get_current_user: Callable[..., Any]) -> APIRouter:
     router.add_api_route("/{run_id}/events", run_events, methods=["GET"], response_model=RunEventList)
     router.add_api_route("/{run_id}/artifacts", run_artifacts, methods=["GET"],
                          response_model=RunArtifacts)
+    router.add_api_route("/{run_id}/artifacts/{artifact_id}", run_artifact, methods=["GET"],
+                         response_model=ArtifactContent)
     router.add_api_route("/{run_id}/cancel", cancel_run, methods=["POST"], response_model=CancelResult)
     router.add_api_route("/{run_id}/retry", retry_run, methods=["POST"], response_model=RunCreated,
                          status_code=201)

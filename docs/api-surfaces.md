@@ -9,7 +9,7 @@ If you want the human-friendly product story, start with [../README.md](../READM
 
 ### OpenAI-compatible
 - `POST /v1/chat/completions`
-- `GET /v1/models`
+- `GET /v1/models` (entries carry an additive `context_window` when the router registry knows the model)
 - `POST /v1/messages` (Anthropic-compatible messages)
 - passthrough support for additional `/v1/*` routes
 
@@ -228,7 +228,8 @@ A run is the durable record of one unit of work; creating one queues a task and 
 | `GET /api/runs/capabilities` | `{backend, durable_lease, recovery: "cross_host"\|"same_host"\|"none", recovery_enabled, ledger_enabled, checkpoint_durable}`. |
 | `GET /api/runs/{run_id}` | The run record. |
 | `GET /api/runs/{run_id}/events?after_seq=&limit=` | Persisted events ordered by `seq`; `next_after_seq` is the cursor. |
-| `GET /api/runs/{run_id}/artifacts` | The run's `artifact_refs`. |
+| `GET /api/runs/{run_id}/artifacts` | `{run_id, artifacts: [artifact_id], items: [metadata]}`: the run's stored artifacts (id, name, mime type, producing agent, size, sha256, owner, company, retention, `redacted`). |
+| `GET /api/runs/{run_id}/artifacts/{artifact_id}` | `{ref, content, integrity_ok}`. Text is returned redacted; binary as base64 (`ref.encoding`). Owner scoped (another owner gets `404`); `409` when the stored content fails its sha256. |
 | `POST /api/runs/{run_id}/cancel` | Sets `cancel_requested`. A queued or waiting run is cancelled at once (and its task set to `wont_do`); a running run stops at the worker's next heartbeat (up to `RUNS_LEASE_RENEW_SEC`). A finished run returns `409`. |
 | `POST /api/runs/{run_id}/retry` | Finished runs only (`failed`, `timed_out`, `dead_letter`, `cancelled`): a NEW run with `retry_of` set, task re-queued. Otherwise `409`. |
 
@@ -239,6 +240,10 @@ curl -X POST "$BASE/api/runs" -H "Authorization: Bearer $TOKEN" \
 curl "$BASE/api/runs/$RUN_ID/events?after_seq=0&limit=50" -H "Authorization: Bearer $TOKEN"
 curl -X POST "$BASE/api/runs/$RUN_ID/cancel" -H "Authorization: Bearer $TOKEN"
 ```
+
+Example responses (captured from the test client, memory backend): the first `POST` returns `201 {"run_id": "run_e86a...", "task_id": "task_521e...", "state": "queued", "created": true}`; repeating it with the same `Idempotency-Key` returns `200` with the same ids and `"created": false`; `POST /api/runs/{run_id}/cancel` on a queued run returns `{"run_id": "...", "state": "cancelled", "cancel_requested": true, "settled": true}`; another owner's run id returns `404`.
+
+Not exposed over HTTP yet: starting a composition (`packages/runs/composer.py`) and deciding an approval (`packages/runs/approvals.py`) are Python level. Operating guide: `docs/runbooks/durable-runs.md`.
 
 ## Observability request headers
 

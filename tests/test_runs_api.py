@@ -121,7 +121,7 @@ def test_list_filters_and_artifacts(env):
     assert [r["run_id"] for r in env.get("/api/runs?state=queued").json()["runs"]] == [rid]
     assert env.get("/api/runs?state=failed").json()["runs"] == []
     assert env.get("/api/runs?state=bogus").status_code == 422
-    assert env.get(f"/api/runs/{rid}/artifacts").json() == {"run_id": rid, "artifacts": []}
+    assert env.get(f"/api/runs/{rid}/artifacts").json() == {"run_id": rid, "artifacts": [], "items": []}
 
 
 def test_cancel_queued_then_409(env):
@@ -268,3 +268,120 @@ def test_concurrent_retries_create_exactly_one_new_run(env):
     assert task.current_run_id == new
     kids = [r for r in asyncio.run(env.runs.list(task_id=j["task_id"])) if r.retry_of == j["run_id"]]
     assert [k.run_id for k in kids] == [new]
+
+
+def test_a_failed_start_frees_the_idempotency_key(env, monkeypatch):
+    """Task creation fails once: the same key must later start a fresh, working run."""
+    from tasks.service import TaskWorkflowService
+
+    real, calls = TaskWorkflowService.create_task, {"n": 0}
+
+    async def flaky(self, task, actor):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("db down")
+        return await real(self, task, actor=actor)
+
+    monkeypatch.setattr(TaskWorkflowService, "create_task", flaky)
+    first = env.post("/api/runs", json={"title": "t"}, headers={"Idempotency-Key": "k1"})
+    assert first.status_code == 500
+    again = env.post("/api/runs", json={"title": "t"}, headers={"Idempotency-Key": "k1"})
+    assert again.status_code == 201
+    assert again.json()["run_id"] != first.json().get("run_id")
+    assert again.json()["task_id"]
+
+
+def test_a_failed_retry_store_write_releases_the_claim(env, monkeypatch):
+    j = _create(env).json()
+    asyncio.run(env.runs.transition(j["run_id"], RunState.FAILED, reason="boom"))
+    real = env.runs.create
+
+    async def down(run):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(env.runs, "create", down)
+    assert env.post(f"/api/runs/{j['run_id']}/retry").status_code == 500
+    assert asyncio.run(env.runs.get(j["run_id"])).retried_by is None
+    monkeypatch.setattr(env.runs, "create", real)
+    assert env.post(f"/api/runs/{j['run_id']}/retry").status_code == 201
+
+
+def test_a_rejected_requeue_leaves_no_orphan_run(env, monkeypatch):
+    from tasks.service import TaskRuleError, TaskWorkflowService
+
+    j = _create(env).json()
+    asyncio.run(env.runs.transition(j["run_id"], RunState.FAILED, reason="boom"))
+
+    def reject(self, task, actor):
+        raise TaskRuleError("no")
+
+    monkeypatch.setattr(TaskWorkflowService, "retry", reject)
+    assert env.post(f"/api/runs/{j['run_id']}/retry").status_code == 409
+    kids = [r for r in asyncio.run(env.runs.list(task_id=j["task_id"])) if r.retry_of == j["run_id"]]
+    assert kids == []
+    assert asyncio.run(env.runs.get(j["run_id"])).retried_by is None
+
+
+def test_a_failed_link_frees_the_key_and_leaves_no_task(env, monkeypatch):
+    real = env.runs.update
+    calls = {"n": 0}
+
+    async def flaky(run_id, fields, **kw):
+        if "task_id" in fields and calls["n"] == 0:
+            calls["n"] += 1
+            raise RuntimeError("db down")
+        return await real(run_id, fields, **kw)
+
+    monkeypatch.setattr(env.runs, "update", flaky)
+    assert env.post("/api/runs", json={"title": "t"}, headers={"Idempotency-Key": "k4"}).status_code == 500
+    assert asyncio.run(env.tasks.list_all()) == []
+    again = env.post("/api/runs", json={"title": "t"}, headers={"Idempotency-Key": "k4"})
+    assert again.status_code == 201 and again.json()["task_id"]
+
+
+def test_a_failed_task_update_on_retry_leaves_no_linked_orphan(env, monkeypatch):
+    j = _create(env).json()
+    asyncio.run(env.runs.transition(j["run_id"], RunState.FAILED, reason="boom"))
+    real = env.tasks.update
+
+    async def down(task):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(env.tasks, "update", down)
+    assert env.post(f"/api/runs/{j['run_id']}/retry").status_code == 500
+    kids = [r for r in asyncio.run(env.runs.list(task_id=j["task_id"])) if r.retry_of == j["run_id"]]
+    assert kids == []
+    monkeypatch.setattr(env.tasks, "update", real)
+    assert env.post(f"/api/runs/{j['run_id']}/retry").status_code == 201
+
+
+def test_a_failing_key_release_keeps_the_generic_error(env, monkeypatch):
+    from tasks.service import TaskWorkflowService
+
+    async def down(*a, **kw):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(TaskWorkflowService, "create_task", down)
+    monkeypatch.setattr(env.runs, "release_key", down)
+    r = env.post("/api/runs", json={"title": "t"}, headers={"Idempotency-Key": "k5"})
+    assert r.status_code == 500 and r.json() == {"detail": "Could not create the run"}
+
+
+def test_a_cancel_before_the_task_exists_still_stops_it(env, monkeypatch):
+    """A duplicate request cancels the run while the winner is still creating the task."""
+    from tasks.service import TaskWorkflowService
+
+    real = TaskWorkflowService.create_task
+
+    async def slow(self, task, actor):
+        rid = task.current_run_id
+        holder = env.holder["user"]
+        r = env.post(f"/api/runs/{rid}/cancel")  # same owner, run not linked yet
+        env.holder["user"] = holder
+        assert r.status_code == 200
+        return await real(self, task, actor=actor)
+
+    monkeypatch.setattr(TaskWorkflowService, "create_task", slow)
+    j = env.post("/api/runs", json={"title": "t"}, headers={"Idempotency-Key": "k9"}).json()
+    task = asyncio.run(env.tasks.get(j["task_id"]))
+    assert task.status == TaskStatus.WONT_DO
