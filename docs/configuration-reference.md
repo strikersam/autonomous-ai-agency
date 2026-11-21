@@ -552,6 +552,9 @@ Settings → Platform controls → Platform Operations.
 | `RUNS_RECOVERY_TICK_SEC` | `30` | How often (5 to 3600) the dispatcher runs the recovery tick. The same poll loop also reloads Platform control overrides from the database at most every 15 s, so the worker sees dashboard changes. |
 | `RUNS_DURABLE_APPROVALS` | `true` | Store run approvals in `run_approvals`, bound to the action hash and target, with a wall clock expiry that denies (`packages/runs/approvals.py`). Survives a restart. Off: nothing counts as approved, so `require_release_approval` blocks every release or deploy. |
 | `RUNS_ARTIFACT_MAX_BYTES` | `1048576` | Largest run artifact in bytes (1024 to 8388608); larger content is refused. Text is redacted before it is hashed and stored; a binary artifact containing a secret pattern is refused. |
+| `RUNS_MAX_CHILDREN` | `16` | Child runs one parent run may spawn through the composer (1 to 500). A spawn past the cap is refused with an error and a `spawn_refused` run event. |
+| `RUNS_MAX_DEPTH` | `4` | Levels of child runs below a root run (1 to 10). A deeper spawn is refused with an error and a `spawn_refused` run event. |
+| `RUNS_MAX_PARALLEL` | `4` | Children of one parallel fan out that run at the same time (1 to 64); the rest wait for a free slot. |
 
 The run lease (`task_run_leases`) is now shared across processes on both backends: on
 Mongo through the raw Motor collection, on SQLite through single statement helpers in

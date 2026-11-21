@@ -1654,6 +1654,38 @@ _PLATFORM_OPS: tuple[ControlSpec, ...] = (
         minimum=5,
         maximum=3600,
     ),
+    _number(
+        "RUNS_MAX_CHILDREN",
+        "Child runs per parent run",
+        "platform_ops",
+        "16",
+        "The most child runs one parent run may spawn when a composition fans out. "
+        "A spawn past the cap is refused with an error and a run event.",
+        live=True,
+        minimum=1,
+        maximum=500,
+    ),
+    _number(
+        "RUNS_MAX_DEPTH",
+        "Composition depth limit",
+        "platform_ops",
+        "4",
+        "How many levels of child runs a root run may have. A spawn that would go "
+        "deeper is refused with an error and a run event.",
+        live=True,
+        minimum=1,
+        maximum=10,
+    ),
+    _number(
+        "RUNS_MAX_PARALLEL",
+        "Parallel child runs",
+        "platform_ops",
+        "4",
+        "How many children of one fan out run at the same time; the rest wait for a slot.",
+        live=True,
+        minimum=1,
+        maximum=64,
+    ),
     _toggle(
         "RUNS_DURABLE_APPROVALS",
         "Durable run approvals",
