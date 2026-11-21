@@ -101,3 +101,27 @@ async def cancel_tree(store: RunStore, run_id: str, *, reason: str, actor: str,
         if await cancel_run(store, run, reason=reason, actor=actor, task_store=task_store):
             flagged.append(run.run_id)
     return flagged
+
+
+async def settle_descendants(store: RunStore, run_id: str, *, reason: str, actor: str,
+                             task_store: Any = None) -> int:
+    """Cancel and settle every non terminal descendant of *run_id*, running ones included.
+
+    For the composer, after it cancelled in-process work that owned these runs: no worker is
+    left to observe ``cancel_requested``, so they are set to ``cancelled`` and their tasks to
+    ``wont_do`` here. Returns how many runs were settled.
+    """
+    settled = 0
+    for run in await descendants(store, run_id):
+        current = await store.get(run.run_id)
+        if current is None or current.is_terminal:
+            continue
+        if not current.cancel_requested:
+            await store.update(run.run_id, {"cancel_requested": True})
+        try:
+            await store.transition(run.run_id, RunState.CANCELLED, reason=reason, actor=actor)
+        except (FencedOut, IllegalTransition, KeyError):
+            continue
+        await cancel_task(task_store, current.task_id, actor, reason)
+        settled += 1
+    return settled

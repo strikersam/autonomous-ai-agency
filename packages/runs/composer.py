@@ -16,6 +16,12 @@ decides order, concurrency and failure handling; the work itself runs through a
 * Restart safe: a child's run id derives from ``(parent, step key)``, so running the
   composition again finds the finished children and reuses their recorded results.
 * Every spawn and settle writes a run event; every child charges the root budget.
+* A composition of the root run reserves each child's estimated cost on the root cap before
+  the child starts (``budget.try_reserve``; estimate rule in ``budget.py``). A child that does
+  not fit waits for in flight children to release; with none in flight it is cancelled with a
+  ``budget_exhausted`` event and the composition ends failed, budget exhausted.
+* When the composer cancels a child's in-process work it also settles that child's
+  non terminal descendants (cancelled, tasks ``wont_do``).
 """
 from __future__ import annotations
 
@@ -35,7 +41,7 @@ from packages.runs.composition import (ChildExecutor, ChildJob, ChildOutcome, Co
 from packages.runs.models import RunRecord, RunState
 from packages.runs.store import FencedOut, RunStore
 from packages.runs.task_binding import walk
-from packages.runs.tree import cancel_run, cancel_task, cancel_tree
+from packages.runs.tree import cancel_run, cancel_task, cancel_tree, settle_descendants
 
 log = logging.getLogger("qwen-proxy")
 
@@ -74,6 +80,12 @@ class _Ctx:
     results: dict[str, StepResult] = field(default_factory=dict)
     spawn_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     stop: str | None = None
+    # Budget reservation (root compositions with a cost cap only).
+    reserving: bool = False
+    cond: asyncio.Condition = field(default_factory=asyncio.Condition)
+    inflight: int = 0
+    cost_seen: int = 0
+    starved: str | None = None
 
 
 class Composer:
@@ -110,6 +122,7 @@ class Composer:
         await walk(self._store, parent_run_id, RunState.RUNNING, token=None, actor=ACTOR)
         parent = await self._store.get(parent_run_id) or parent
         ctx = _Ctx(parent=parent, sem=asyncio.Semaphore(runs_settings.max_parallel()))
+        await self._init_reservation(ctx)
         guardian = asyncio.create_task(self._guard(ctx))
         try:
             outcome, results = await self._exec_group(
@@ -239,7 +252,58 @@ class Composer:
         async with ctx.sem:
             if ctx.stop or grp.is_stopped():
                 return await self._cancel_unstarted(child, step.key)
-            return await self._run_child(ctx, step, child)
+            reserved = await self._reserve(ctx, step, grp)
+            if reserved is None:
+                return await self._refuse_start(ctx, child, step.key)
+            try:
+                return await self._run_child(ctx, step, child)
+            finally:
+                await self._release(ctx, reserved)
+
+    async def _init_reservation(self, ctx: _Ctx) -> None:
+        """A root composition with a cost cap reserves; a crashed pass's reservations are dropped."""
+        parent = ctx.parent
+        if (parent.root_run_id or parent.run_id) != parent.run_id:
+            return  # nested: the root composer's estimate already covers this subtree
+        ctx.reserving = run_budget.cost_cap_micro(parent) is not None
+        if ctx.reserving:
+            await self._store.update(parent.run_id, {"reserved_micro_usd": 0})
+
+    async def _reserve(self, ctx: _Ctx, step: Step, grp: _Group) -> int | None:
+        """Reserve the step's estimated cost; ``None`` means do not start the child."""
+        if not ctx.reserving:
+            return 0
+        async with ctx.cond:
+            while not (ctx.stop or grp.is_stopped()):
+                est = (round(step.estimated_cost * 1_000_000) if step.estimated_cost is not None
+                       else ctx.cost_seen or None)
+                got = await run_budget.try_reserve(self._store, ctx.parent.run_id, est)
+                if got is not None:
+                    ctx.inflight += 1
+                    return got
+                if ctx.inflight == 0:
+                    ctx.starved = "budget_exhausted:max_cost_usd"
+                    return None
+                await ctx.cond.wait()
+        return None
+
+    async def _release(self, ctx: _Ctx, reserved: int) -> None:
+        if not ctx.reserving:
+            return
+        async with ctx.cond:
+            ctx.inflight -= 1
+            await run_budget.release_reservation(self._store, ctx.parent.run_id, reserved)
+            ctx.cond.notify_all()
+
+    async def _refuse_start(self, ctx: _Ctx, child: RunRecord, key: str) -> StepResult:
+        if not ctx.starved:
+            return await self._cancel_unstarted(child, key)
+        await self._store.append_event(ctx.parent.run_id, "budget_exhausted", {
+            "limit": "max_cost_usd", "step": key, "reason": "reservation does not fit",
+            "child_run_id": child.run_id}, actor=ACTOR)
+        await self._to_state(child.run_id, RunState.CANCELLED, "budget_exhausted")
+        await cancel_task(self._task_store, child.task_id, ACTOR, "Run cancelled: budget exhausted")
+        return StepResult(key=key, state="cancelled", error="budget_exhausted", run_id=child.run_id)
 
     async def _spawn(self, ctx: _Ctx, step: Step) -> tuple[RunRecord, bool]:
         parent = ctx.parent
@@ -274,6 +338,8 @@ class Composer:
                        prior={k: r.output for k, r in ctx.results.items() if r.state == "succeeded"})
         outcome = await self._execute(job)
         result = await self._settle_child(child, step.key, outcome)
+        if outcome is not None:
+            ctx.cost_seen = max(ctx.cost_seen, round(outcome.cost_usd * 1_000_000))
         if outcome is not None and (outcome.cost_usd or outcome.tokens or outcome.steps):
             await self._charge(ctx, child.run_id, outcome)
         return result
@@ -322,6 +388,9 @@ class Composer:
         store = self._store
         if outcome is None:
             await store.append_event(child.run_id, "step_result", {"key": key, "state": "cancelled"})
+            # the child's in-process work is gone, so nothing else will settle what it spawned
+            await settle_descendants(store, child.run_id, reason="parent cancelled", actor=ACTOR,
+                                     task_store=self._task_store)
             await self._to_state(child.run_id, RunState.CANCELLED, "cancelled")
             await cancel_task(self._task_store, child.task_id, ACTOR, "Run cancelled")
             return StepResult(key=key, state="cancelled", error="cancelled", run_id=child.run_id)
@@ -415,6 +484,8 @@ class Composer:
             return RunState.FAILED, stop.replace(":", " (") + ")"
         if stop:
             return RunState.CANCELLED, stop
+        if ctx.starved:
+            return RunState.FAILED, "budget_exhausted (max_cost_usd)"
         if outcome == "waiting":
             return RunState.WAITING_FOR_APPROVAL, None
         if outcome == "succeeded":

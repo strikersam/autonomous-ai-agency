@@ -103,7 +103,7 @@ async def test_budget_exhaustion_across_delegated_children_cancels_the_compositi
         os.environ.pop("RUNS_MAX_PARALLEL", None)
     assert res.state == "failed" and "budget_exhausted" in (res.error or "")
     got = await store.get(root.run_id)
-    assert got.state is RunState.FAILED and got.spent_micro_usd >= 1_200_000
+    assert got.state is RunState.FAILED and got.spent_micro_usd <= 1_400_000  # cap + one child (reserved before start)
     kids = {r.phase: r.state for r in await descendants(store, root.run_id)}
     assert kids["step:slow1"] is RunState.CANCELLED and kids["step:slow2"] is RunState.CANCELLED
     assert [e for e in await store.list_events(root.run_id) if e.kind == "budget_exhausted"]

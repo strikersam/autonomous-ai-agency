@@ -8,6 +8,16 @@ can never lose an update. A charge that takes the root past a limit raises
 ``BudgetExhausted`` and cancels the whole tree. The charge that crosses the
 line is kept (a call already paid for is recorded); every later charge raises
 again, so no work continues once a limit is hit.
+
+Cost reservation (``try_reserve`` / ``release_reservation``): a charge arrives after the
+work ran, so parallel children could each pass the cap check and overspend together. Before
+a child starts, the composer reserves its estimated cost on the root's ``reserved_micro_usd``
+counter (atomic increment, rolled back when ``spent + reserved`` would pass the cap) and
+refuses to start the child otherwise. The estimate is the step's ``estimated_cost``, else the
+largest child cost observed so far, else (nothing known yet) the whole remaining cap, so the
+first unknown child runs alone and later ones reserve its observed cost. Only
+``max_cost_usd`` is reserved; tokens and steps are still enforced by ``charge``. The
+reservation is released when the child settles, as its actual cost is charged.
 """
 from __future__ import annotations
 
@@ -118,3 +128,38 @@ async def charge(store: RunStore, run_id: str, *, cost_usd: float = 0.0, tokens:
 async def remaining(store: RunStore, run_id: str) -> Remaining:
     """What is left of the tree's budget, without charging."""
     return _remaining(await root_of(store, run_id))
+
+
+def cost_cap_micro(root: RunRecord) -> int | None:
+    """The root's ``max_cost_usd`` in micro dollars, or ``None`` when it sets no cost cap."""
+    cap = _limit(root.budget, "max_cost_usd")
+    return None if cap is None else round(cap * _MICRO)
+
+
+async def try_reserve(store: RunStore, root_id: str, estimate_micro: int | None) -> int | None:
+    """Reserve *estimate_micro* (``None``: the whole remaining cap) on the root's cost cap.
+
+    Returns the micro dollars reserved (0 when the root has no cost cap), or ``None`` when
+    ``spent + reserved + estimate`` would pass the cap. The increment is atomic; a refusal
+    rolls it back, so concurrent callers never hold more than the cap between them.
+    """
+    root = await store.get(root_id)
+    cap = cost_cap_micro(root) if root is not None else None
+    if root is None or cap is None:
+        return 0
+    if root.spent_micro_usd >= cap:
+        return None
+    est = max(cap - root.spent_micro_usd, 0) if estimate_micro is None else max(estimate_micro, 0)
+    reserved = await store.runs.increment(root_id, "reserved_micro_usd", est) if est else None
+    fresh = await store.get(root_id)
+    held = int(reserved if reserved is not None else (fresh.reserved_micro_usd if fresh else 0))
+    if fresh is not None and fresh.spent_micro_usd + held > cap:
+        await release_reservation(store, root_id, est)
+        return None
+    return est
+
+
+async def release_reservation(store: RunStore, root_id: str, micro: int) -> None:
+    """Give back a reservation taken by ``try_reserve``."""
+    if micro > 0:
+        await store.runs.increment(root_id, "reserved_micro_usd", -micro)

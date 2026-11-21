@@ -56,6 +56,8 @@ class Step(BaseModel):
     title: str = Field(default="", max_length=512)
     prompt: str = Field(default="", max_length=32_000)
     agent_id: str | None = None
+    # Expected cost (USD) of this step, used to reserve root budget before it starts.
+    estimated_cost: float | None = Field(default=None, ge=0)
     mode: Literal["sequence", "parallel"] = "sequence"
     policy: FailurePolicy = FailurePolicy.FAIL_FAST
     quorum: int | None = Field(default=None, ge=1)

@@ -96,6 +96,8 @@ class RunRecord(BaseModel):
     spent_micro_usd: int = 0
     spent_tokens: int = 0
     spent_steps: int = 0
+    # Cost reserved by children in flight (packages/runs/budget.py ``try_reserve``).
+    reserved_micro_usd: int = 0
     checkpoint_ref: str | None = None
     artifact_refs: list[str] = Field(default_factory=list)
     trace_id: str | None = None
