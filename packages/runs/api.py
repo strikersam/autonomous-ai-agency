@@ -25,6 +25,7 @@ from packages.config import runs_settings
 from packages.lifecycle.machine import IllegalTransition
 from packages.runs.models import RunEvent, RunRecord, RunState
 from packages.runs.store import FencedOut, RunStore, get_run_store
+from packages.runs.tree import cancel_tree
 from tasks.api import _invalidate_task_caches, _is_admin, _user_id
 from tasks.models import Task, TaskStatus
 from tasks.service import TaskRuleError, TaskWorkflowService
@@ -319,6 +320,16 @@ async def _cancel_task(task_id: str | None, caller: Caller) -> None:
     _invalidate_task_caches()
 
 
+async def _cancel_descendants(store: RunStore, run_id: str, caller: Caller) -> None:
+    """A cancelled parent cancels every non terminal child run and its task."""
+    try:
+        await cancel_tree(store, run_id, reason="parent cancelled", actor=caller.actor,
+                          task_store=get_task_store(), include_self=False)
+        _invalidate_task_caches()
+    except Exception:  # the parent is flagged; each child's own poll is the backstop
+        log.warning("runs api: could not cancel the children of run %s", run_id, exc_info=True)
+
+
 async def cancel_run(run_id: str, caller: Caller = Depends(_caller)) -> CancelResult:
     """Request cancellation; a run with no worker is cancelled at once."""
     store = get_run_store()
@@ -334,6 +345,7 @@ async def cancel_run(run_id: str, caller: Caller = Depends(_caller)) -> CancelRe
             await _cancel_task(run.task_id, caller)
         except (FencedOut, IllegalTransition):
             pass  # a worker or another caller moved the run first; report what it is now
+    await _cancel_descendants(store, run_id, caller)
     now = await store.get(run_id) or run
     return CancelResult(run_id=run_id, state=now.state, cancel_requested=True,
                         settled=now.is_terminal)
