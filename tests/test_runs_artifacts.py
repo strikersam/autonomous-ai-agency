@@ -158,3 +158,18 @@ def test_a_secret_in_a_run_event_never_reaches_the_stored_event_or_api(env):
     stored = repr(env.runs.table("run_events").docs)
     served = env.get(f"/api/runs/{rid}/events").text
     assert SECRET not in stored and SECRET not in served
+
+
+def test_secrets_in_metadata_keys_and_bytes_values_are_redacted():
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefSIGNATURE123"
+
+    async def go():
+        runs, arts, rid = await _setup(None)
+        extra = {jwt: "v", "nested": {f"k-{SECRET}": 1, "debug": jwt.encode(), "ok": "plain"}}
+        ref = await arts.put(rid, "a.txt", "hello", extra=extra)
+        stored = repr(await runs.table("run_artifacts").get(ref.artifact_id))
+        got = await arts.get(rid, ref.artifact_id)
+        for leaked in (jwt, SECRET):
+            assert leaked not in stored and leaked not in repr(got)
+        assert "plain" in stored  # ordinary values and keys survive
+    asyncio.run(go())
