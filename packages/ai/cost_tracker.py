@@ -513,16 +513,13 @@ _LONG_CONTEXT_TIERS: dict[str, tuple[int, float, float]] = {
     # GPT-6.1 Terra: $2.00/$7.50 per MTok above 272K input tokens (see table).
     "gpt-6.1-terra": (272_000, 2.0, 7.5),
     "openai/gpt-6.1-terra": (272_000, 2.0, 7.5),
+    # GPT-6 Cyber: $40/$150 per MTok above 272K input tokens (OpenAI pricing page).
+    "gpt-6-cyber": (272_000, 40.0, 150.0),
+    "openai/gpt-6-cyber": (272_000, 40.0, 150.0),
 }
 
 # Maximum context window (in tokens) for models where this is relevant to cost
 # checks or routing decisions. Source columns match _DEFAULT_COST_TABLE comments.
-_MODEL_CONTEXT_LIMITS: dict[str, int] = {
-    "gpt-6-cyber": 1_100_000,
-    "openai/gpt-6-cyber": 1_100_000,
-    "gpt-6.1-terra": 1_050_000,
-    "openai/gpt-6.1-terra": 1_050_000,
-}
 
 
 def _usage_int(value) -> int:

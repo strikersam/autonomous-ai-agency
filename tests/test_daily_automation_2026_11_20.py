@@ -49,7 +49,7 @@ GPT6_CYBER_ID = "gpt-6-cyber"
 GPT6_CYBER_OPENROUTER_ID = "openai/gpt-6-cyber"
 GPT6_CYBER_INPUT_COST = 20.0
 GPT6_CYBER_OUTPUT_COST = 100.0
-GPT6_CYBER_CONTEXT = 1_100_000
+GPT6_CYBER_CONTEXT = 1_050_000
 
 RETIRED_DEFAULT = "nvidia/nemotron-3-super-120b-a12b"
 CURRENT_DEFAULT = "nvidia/nemotron-3-ultra-550b-a55b"
@@ -102,10 +102,11 @@ class TestHaiku55ProviderCandidates:
             f"{HAIKU55_ID} must appear in config/models.yaml anthropic candidates"
         )
 
-    def test_dated_in_anthropic_candidates_yaml(self, models_yaml):
+    def test_dated_not_in_anthropic_candidates_yaml(self, models_yaml):
+        # Anthropic documents claude-haiku-5-5 as the only ID; a dated alias fails with a 400.
         candidates = models_yaml["providers"]["anthropic"]["candidates"]
-        assert HAIKU55_DATED_ID in candidates, (
-            f"{HAIKU55_DATED_ID} must appear in config/models.yaml anthropic candidates"
+        assert HAIKU55_DATED_ID not in candidates, (
+            f"{HAIKU55_DATED_ID} must not be an Anthropic candidate (no dated variant documented)"
         )
 
     def test_in_aerolink_candidates_yaml(self, models_yaml):
@@ -173,7 +174,8 @@ class TestHaiku55CostTracker:
 
 class TestGpt6CyberCostTracker:
     def test_direct_input_cost(self, ct):
-        cost = ct.cost_for_tokens(GPT6_CYBER_ID, 1_000_000, 0)
+        # 200K input tokens stays under the 272K long-context threshold.
+        cost = ct.cost_for_tokens(GPT6_CYBER_ID, 200_000, 0) / 0.2
         assert abs(cost - GPT6_CYBER_INPUT_COST) < 0.01, (
             f"gpt-6-cyber input cost must be ${GPT6_CYBER_INPUT_COST}/MTok"
         )
@@ -185,8 +187,17 @@ class TestGpt6CyberCostTracker:
         )
 
     def test_openrouter_input_cost(self, ct):
-        cost = ct.cost_for_tokens(GPT6_CYBER_OPENROUTER_ID, 1_000_000, 0)
+        cost = ct.cost_for_tokens(GPT6_CYBER_OPENROUTER_ID, 200_000, 0) / 0.2
         assert abs(cost - GPT6_CYBER_INPUT_COST) < 0.01
+
+    def test_long_context_tier_above_272k(self, ct):
+        # Above 272K input tokens OpenAI bills $40/MTok input (not $20).
+        cost = ct.cost_for_tokens(GPT6_CYBER_ID, 300_000, 0)
+        assert abs(cost - 300_000 * 40.0 / 1_000_000) < 0.01
+
+    def test_long_context_tier_openrouter_id(self, ct):
+        cost = ct.cost_for_tokens(GPT6_CYBER_OPENROUTER_ID, 300_000, 0)
+        assert abs(cost - 300_000 * 40.0 / 1_000_000) < 0.01
 
     def test_openrouter_output_cost(self, ct):
         cost = ct.cost_for_tokens(GPT6_CYBER_OPENROUTER_ID, 0, 1_000_000)
@@ -198,8 +209,9 @@ class TestGpt6CyberCostTracker:
         assert cyber_cost > astra_cost, "GPT-6 Cyber must cost more than GPT-6 Astra"
 
     def test_cyber_exactly_twice_astra(self, ct):
-        cyber_cost = ct.cost_for_tokens(GPT6_CYBER_ID, 1_000_000, 0)
-        astra_cost = ct.cost_for_tokens("gpt-6-astra", 1_000_000, 0)
+        # Compared at 200K input tokens, below the long-context threshold for both.
+        cyber_cost = ct.cost_for_tokens(GPT6_CYBER_ID, 200_000, 0)
+        astra_cost = ct.cost_for_tokens("gpt-6-astra", 200_000, 0)
         assert abs(cyber_cost / astra_cost - 2.0) < 0.001, (
             "GPT-6 Cyber is priced at exactly 2× GPT-6 Astra ($20 vs $10/MTok)"
         )

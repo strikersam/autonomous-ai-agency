@@ -453,7 +453,6 @@ PROVIDER_CANDIDATES: dict[str, list[str]] = {
         "claude-opus-4-8",
         # Added 2026-11-20: Haiku 5.5 (released 2026-10-07) — $0.10/$0.50/MTok.
         "claude-haiku-5-5",
-        "claude-haiku-5-5-20261007",
         "claude-haiku-4-5-20251001",
         "claude-sonnet-4-6",
     ],

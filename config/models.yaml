@@ -398,7 +398,6 @@ providers:
       # Added 2026-11-20: Haiku 5.5 (released 2026-10-07) — $0.10/$0.50 per MTok,
       # 1M context, 128K output. Cheaper and faster than Haiku 4.5.
       - claude-haiku-5-5
-      - claude-haiku-5-5-20261007
       - claude-haiku-4-5-20251001
       - claude-sonnet-4-6
 
