@@ -1,3 +1,13 @@
+# NEXT_ACTION — updated 2026-11-16 (daily routine, branch `routine/daily-2026-11-16`)
+
+**What shipped:** backlog #1980 item 1: `/v1/models` on the main proxy advertises an additive `context_window` for registry-known models (`proxy.py`, `_context_window_field`).
+
+## Open items
+
+1. Backlog items 2 (pre-dispatch window guard, rule 40 flag in `router/`) and 3 (JSON log mode) not started; item 2's "does the router already guard?" is still unverified.
+2. Baseline: `tests/test_auth_me_regression.py` errors on clean master in this container (no MongoDB); CI is the gate.
+
+---
 # NEXT_ACTION — updated 2026-11-14 (enterprise reliability plan, branch `claude/enterprise-reliability-plan`)
 
 **What shipped so far:** the plan, as draft PR #1965: `docs/plans/2026-11-14-enterprise-reliability-durable-execution-plan.md`. No code.
