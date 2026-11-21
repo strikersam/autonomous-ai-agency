@@ -173,3 +173,28 @@ def test_secrets_in_metadata_keys_and_bytes_values_are_redacted():
             assert leaked not in stored and leaked not in repr(got)
         assert "plain" in stored  # ordinary values and keys survive
     asyncio.run(go())
+
+
+def test_a_secret_in_a_bytes_metadata_key_is_redacted():
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefSIGNATURE123"
+
+    async def go():
+        runs, arts, rid = await _setup(None)
+        ref = await arts.put(rid, "a.txt", "hello", extra={"nested": {jwt.encode(): "value"}})
+        stored = repr(await runs.table("run_artifacts").get(ref.artifact_id))
+        assert jwt not in stored and jwt.encode().decode() not in stored
+    asyncio.run(go())
+
+
+def test_a_value_under_a_sensitive_bytes_key_is_replaced():
+    from packages.runs.redaction import redact_value
+
+    assert redact_value({b"api_key": "hunter2value"}) == redact_value({"api_key": "hunter2value"})
+    assert "hunter2value" not in repr(redact_value({b"api_key": "hunter2value"}))
+
+
+def test_keys_that_normalise_to_the_same_text_are_all_kept():
+    from packages.runs.redaction import redact_value
+
+    out = redact_value({"label": "first", b"label": "second"})
+    assert sorted(out.values()) == ["first", "second"] and "label" in out
