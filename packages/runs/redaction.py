@@ -38,7 +38,7 @@ _RUN_PATTERNS: tuple[re.Pattern[str], ...] = (
         r"|authorization|credential|cookie)[\w. -]*\"\s*:\s*\"((?:[^\"\\]|\\.)+)\""
     ),
     # JSON Web Tokens: three base64url segments, the first two starting with eyJ.
-    re.compile(r"(?<![A-Za-z0-9])eyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]+"),
+    re.compile(r"eyJ[A-Za-z0-9_-]{5,}\.eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]+"),
     # Slack bot, app, user and refresh tokens.
     re.compile(r"(?<![A-Za-z0-9])xox[abeprs]-[A-Za-z0-9-]{10,}"),
 )

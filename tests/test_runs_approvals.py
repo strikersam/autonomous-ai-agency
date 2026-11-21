@@ -203,5 +203,5 @@ def test_a_dash_or_underscore_prefixed_jwt_is_redacted():
     from packages.runs.redaction import redact_text
 
     jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefSIGNATURE123"
-    for text in (f"agent-{jwt}", f"x_{jwt}", f"plain {jwt}"):
+    for text in (f"agent-{jwt}", f"x_{jwt}", f"plain {jwt}", f"abc{jwt}", f"1{jwt}"):
         assert jwt not in redact_text(text)
