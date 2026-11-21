@@ -692,6 +692,16 @@ def test_phase2_run_recovery_controls_are_live_and_overrides_take_effect(clean_o
             runs_settings.recovery_tick_s()) == (5, 0, 60)
     with pytest.raises(ValueError):
         coerce("RUNS_MAX_ATTEMPTS", "0")
+def test_agent_replay_guard_control_is_live_and_override_takes_effect(clean_overrides):
+    from packages.config import runs_settings
+
+    assert get_control("AGENT_REPLAY_GUARD_ENABLED").live is True
+    os.environ.pop("AGENT_REPLAY_GUARD_ENABLED", None)
+    assert runs_settings.replay_guard_enabled() is False  # default keeps today's behaviour
+    control_overrides.apply_overrides({"AGENT_REPLAY_GUARD_ENABLED": "true"})
+    assert runs_settings.replay_guard_enabled() is True
+
+
 
 
 def test_phase4_composer_controls_are_live_and_overrides_take_effect(clean_overrides):

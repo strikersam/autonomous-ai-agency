@@ -9,6 +9,8 @@ malformed value and clamps numbers to the bounds declared in the catalogue.
   Recording only; it changes no scheduling or execution decision.
 * ``RUNS_RECOVERY_ENABLED`` (off): let a worker take over and resume a run whose
   lease expired. Consumed from phase 2; off keeps today's behaviour.
+* ``AGENT_REPLAY_GUARD_ENABLED`` (off): record the agent loop's non-read-only tool
+  calls in the run's ledger so a resumed run does not repeat one that committed.
 * ``RUNS_LEASE_TTL_SEC`` (600): how long a run lease lives without a renewal.
 * ``RUNS_LEASE_RENEW_SEC`` (60): how often a live run renews its lease.
 * ``RUNS_OP_SKEW_SEC`` (30): clock skew margin added to every operation deadline.
@@ -61,6 +63,11 @@ def runs_ledger_enabled() -> bool:
 def runs_recovery_enabled() -> bool:
     """``RUNS_RECOVERY_ENABLED``: resume runs whose lease expired (default off)."""
     return _flag("RUNS_RECOVERY_ENABLED", False)
+
+
+def replay_guard_enabled() -> bool:
+    """``AGENT_REPLAY_GUARD_ENABLED``: skip a tool call a resumed run already committed (default off)."""
+    return _flag("AGENT_REPLAY_GUARD_ENABLED", False)
 
 
 def lease_ttl_s() -> int:

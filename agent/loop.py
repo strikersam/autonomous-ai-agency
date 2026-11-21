@@ -23,6 +23,7 @@ from agent import code_mode_metrics as _cm_metrics
 from agent.context_manager import ContextManager
 from agent.context_pruner import ContextPruner
 from agent.models import AgentPlan, ToolCall, VerificationResult
+from agent.replay_guard import run_recorded
 from agent.write_gate import (
     PROPOSAL_TOOLS,
     WRITE_TOOLS,
@@ -1554,7 +1555,8 @@ class AgentRunner:
             scratchpad.record_action(call.tool, call.args)
             self._log_event(session_id, "tool_call", {"tool": call.tool, "args": call.args})
             async with _timed_phase("tool_dispatch", step_id=step.get("id"), tool=call.tool):
-                result = await self._run_tool(call.tool, call.args, user_id=user_id, memory_store=memory_store)
+                result = await run_recorded(
+                    self._run_tool, call.tool, call.args, user_id=user_id, memory_store=memory_store)
             scratchpad.record_observation(result)
             self._log_event(session_id, "tool_result", {"tool": call.tool, "result": str(result)[:500]})
             observations.append({"tool": call.tool, "args": call.args, "result": result})

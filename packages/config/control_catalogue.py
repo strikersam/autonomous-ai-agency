@@ -1588,6 +1588,19 @@ _PLATFORM_OPS: tuple[ControlSpec, ...] = (
         live=True,
         risk=RISK_HIGH,
     ),
+    _toggle(
+        "AGENT_REPLAY_GUARD_ENABLED",
+        "Do not repeat tool calls after a resume",
+        "platform_ops",
+        "false",
+        "Record the agent's tool calls that change something (not reads) in the run "
+        "ledger. When a crashed run is resumed, a call that already committed with "
+        "the same arguments is skipped instead of repeated. A call that failed or "
+        "was rejected is never skipped. Needs the run ledger; off keeps today's "
+        "behaviour.",
+        live=True,
+        risk=RISK_MEDIUM,
+    ),
     _number(
         "RUNS_LEASE_TTL_SEC",
         "Run lease lifetime (seconds)",
