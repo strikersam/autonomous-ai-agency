@@ -60,6 +60,20 @@ async def require_release_approval(run_id: str, tool: str, args: Any, target: di
     return digest
 
 
+async def gate_release_if_bound(tool: str, args: Any, target: dict[str, Any]) -> None:
+    """Inside a durable run, require an approval for this exact release; outside, no-op.
+
+    Existing gates (``RENDER_MCP_ALLOW_WRITES``, the agent merge ban) still apply first;
+    this adds the per run, per action approval the reliability plan requires.
+    """
+    from packages.runs.task_binding import current_run
+
+    binding = current_run.get()
+    run_id = (binding.run_id or binding.watch_run_id) if binding is not None else None
+    if run_id:
+        await require_release_approval(run_id, tool, args, target)
+
+
 @dataclass
 class Effect:
     """Handle the body of ``recorded_effect`` uses: skip flag in, result reference out."""

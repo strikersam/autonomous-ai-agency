@@ -164,3 +164,44 @@ def test_the_off_switch_blocks_every_release():
         control_overrides.apply_overrides({"RUNS_DURABLE_APPROVALS": "false"})
         assert await ap.check(rid, HASH, TARGET) is False
     asyncio.run(go())
+
+
+def test_a_deploy_inside_a_run_needs_a_durable_approval():
+    """Scenario 24 on a real release path: Render trigger_deploy inside a bound run."""
+    from types import SimpleNamespace
+
+    from packages.runs.store import set_run_store
+    from packages.runs.task_binding import current_run
+    from tests.test_render_mcp import _client
+
+    async def go():
+        runs = RunStore()
+        set_run_store(runs)
+        rid = await _run(runs)
+        client, inner = _client({"ok": True}, allow_writes=True)
+        token = current_run.set(SimpleNamespace(run_id=rid, watch_run_id=None))
+        try:
+            with pytest.raises(ReleaseNotApproved):
+                await client.trigger_deploy("srv-1")
+            assert inner.calls == []
+            args = {"serviceId": "srv-1", "clearCache": False}
+            ap = RunApprovals(runs)
+            aid = await ap.request(rid, action_hash("render.trigger_deploy", args),
+                                   {"service_id": "srv-1"}, "ship")
+            await ap.decide(aid, True, "priya")
+            await client.trigger_deploy("srv-1")
+            assert inner.calls[0][0] == "trigger_deploy"
+            with pytest.raises(ReleaseNotApproved):  # another service is not covered
+                await client.trigger_deploy("srv-2")
+        finally:
+            current_run.reset(token)
+            set_run_store(None)
+    asyncio.run(go())
+
+
+def test_a_dash_or_underscore_prefixed_jwt_is_redacted():
+    from packages.runs.redaction import redact_text
+
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.abcdefSIGNATURE123"
+    for text in (f"agent-{jwt}", f"x_{jwt}", f"plain {jwt}"):
+        assert jwt not in redact_text(text)
