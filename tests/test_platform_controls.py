@@ -692,6 +692,27 @@ def test_phase2_run_recovery_controls_are_live_and_overrides_take_effect(clean_o
             runs_settings.recovery_tick_s()) == (5, 0, 60)
     with pytest.raises(ValueError):
         coerce("RUNS_MAX_ATTEMPTS", "0")
+
+
+def test_phase4_composer_controls_are_live_and_overrides_take_effect(clean_overrides):
+    from packages.config import runs_settings
+
+    keys = ("RUNS_MAX_CHILDREN", "RUNS_MAX_DEPTH", "RUNS_MAX_PARALLEL")
+    for key in keys:
+        assert get_control(key).live is True
+        os.environ.pop(key, None)
+    assert (runs_settings.max_children(), runs_settings.max_depth(),
+            runs_settings.max_parallel()) == (16, 4, 4)
+    control_overrides.apply_overrides({
+        "RUNS_MAX_CHILDREN": "3", "RUNS_MAX_DEPTH": "2", "RUNS_MAX_PARALLEL": "8",
+    })
+    assert (runs_settings.max_children(), runs_settings.max_depth(),
+            runs_settings.max_parallel()) == (3, 2, 8)
+    for key in keys:
+        with pytest.raises(ValueError):
+            coerce(key, "0")
+
+
 def test_provider_funds_quarantine_override_takes_effect(clean_overrides, monkeypatch):
     """PROVIDER_FUNDS_QUARANTINE_HOURS is read at call time, so an override lands live."""
     from packages.llm import quarantine
@@ -706,3 +727,19 @@ def test_provider_funds_quarantine_override_takes_effect(clean_overrides, monkey
 
     control_overrides.apply_overrides({})
     assert quarantine.quarantine_seconds() == 12 * 3600.0
+
+
+def test_phase5_run_controls_are_live_and_overrides_take_effect(clean_overrides):
+    from packages.config import runs_settings
+
+    for key in ("RUNS_DURABLE_APPROVALS", "RUNS_ARTIFACT_MAX_BYTES"):
+        assert get_control(key).live is True
+        os.environ.pop(key, None)
+    assert runs_settings.durable_approvals_enabled() is True
+    assert runs_settings.artifact_max_bytes() == 1_048_576
+    control_overrides.apply_overrides({
+        "RUNS_DURABLE_APPROVALS": "false", "RUNS_ARTIFACT_MAX_BYTES": "2048"})
+    assert runs_settings.durable_approvals_enabled() is False
+    assert runs_settings.artifact_max_bytes() == 2048
+    with pytest.raises(ValueError):
+        coerce("RUNS_ARTIFACT_MAX_BYTES", "10")

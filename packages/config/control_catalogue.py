@@ -1654,6 +1654,59 @@ _PLATFORM_OPS: tuple[ControlSpec, ...] = (
         minimum=5,
         maximum=3600,
     ),
+    _number(
+        "RUNS_MAX_CHILDREN",
+        "Child runs per parent run",
+        "platform_ops",
+        "16",
+        "The most child runs one parent run may spawn when a composition fans out. "
+        "A spawn past the cap is refused with an error and a run event.",
+        live=True,
+        minimum=1,
+        maximum=500,
+    ),
+    _number(
+        "RUNS_MAX_DEPTH",
+        "Composition depth limit",
+        "platform_ops",
+        "4",
+        "How many levels of child runs a root run may have. A spawn that would go "
+        "deeper is refused with an error and a run event.",
+        live=True,
+        minimum=1,
+        maximum=10,
+    ),
+    _number(
+        "RUNS_MAX_PARALLEL",
+        "Parallel child runs",
+        "platform_ops",
+        "4",
+        "How many children of one fan out run at the same time; the rest wait for a slot.",
+        live=True,
+        minimum=1,
+        maximum=64,
+    ),
+    _toggle(
+        "RUNS_DURABLE_APPROVALS",
+        "Durable run approvals",
+        "platform_ops",
+        "true",
+        "Store approvals for run actions in the database, bound to the exact action "
+        "and target, with a wall clock expiry that denies. A restart keeps them. "
+        "Off: no run action counts as approved, so releases and deploys stay blocked.",
+        live=True,
+    ),
+    _number(
+        "RUNS_ARTIFACT_MAX_BYTES",
+        "Largest run artifact (bytes)",
+        "platform_ops",
+        "1048576",
+        "Largest artifact a run may store. Larger content is refused, not truncated. "
+        "Secrets are redacted from text and a binary artifact holding one is refused.",
+        live=True,
+        minimum=1024,
+        maximum=8388608,
+    ),
     _toggle(
         "RENDER_OPS_ENABLED",
         "Render ops loop",
