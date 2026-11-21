@@ -544,6 +544,7 @@ Settings → Platform controls → Platform Operations.
 |----------|---------|---------|
 | `RUNS_LEDGER_ENABLED` | `true` | Record runs, their event timeline and each side effecting operation (`runs`, `run_events`, `run_operations`). Recording only: it changes no scheduling or execution decision. |
 | `RUNS_RECOVERY_ENABLED` | `false` | Let a worker take over a run whose lease expired, reconcile its operations and resume it; an operation with an unknown outcome parks the run in `waiting_for_approval` (and its task at the execution approval gate). The recovery tick (`packages/runs/recovery.py`) runs in the dispatcher poll loop; off keeps today's behaviour. |
+| `AGENT_REPLAY_GUARD_ENABLED` | `false` | Record the agent loop's non-read-only tool calls as run-ledger operations (`agent/replay_guard.py`). A resumed run skips a call that already committed with the same arguments; a failed or rejected call is never skipped. Needs `RUNS_LEDGER_ENABLED` and a task-bound run; off keeps today's behaviour. |
 | `RUNS_LEASE_TTL_SEC` | `600` | Lifetime of a run lease without renewal (10 to 3600). The task claim on a durable lease (Mongo, SQLite) uses it, renewed by `LeaseHeartbeat` while the task runs; memory mode keeps the one hour claim. |
 | `RUNS_LEASE_RENEW_SEC` | `30` | Lease renewal interval (1 to 1200), capped at a third of `RUNS_LEASE_TTL_SEC`. |
 | `RUNS_OP_SKEW_SEC` | `30` | Clock skew margin (0 to 600) added to each operation deadline, so recovery never reconciles an operation another worker may still be performing. |
