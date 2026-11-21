@@ -91,6 +91,13 @@ class RunRecord(BaseModel):
     retry_history: list[dict[str, Any]] = Field(default_factory=list)
     budget: dict[str, Any] = Field(default_factory=dict)
     usage: dict[str, Any] = Field(default_factory=dict)
+    # Atomic spend counters on a root run (packages/runs/budget.py): every descendant
+    # charges the root. Integers so an increment is one atomic statement on every backend.
+    spent_micro_usd: int = 0
+    spent_tokens: int = 0
+    spent_steps: int = 0
+    # Cost reserved by children in flight (packages/runs/budget.py ``try_reserve``).
+    reserved_micro_usd: int = 0
     checkpoint_ref: str | None = None
     artifact_refs: list[str] = Field(default_factory=list)
     trace_id: str | None = None
@@ -107,6 +114,8 @@ class RunRecord(BaseModel):
     # Earliest time a recovered run may be queued again (backoff); cleared once requeued.
     not_before: float | None = None
     cancel_requested: bool = False
+    # Skill name -> version resolved when the run opened; kept across resumes.
+    skill_versions: dict[str, str] = Field(default_factory=dict)
     schema_version: int = SCHEMA_VERSION
 
     @field_validator("created_at", "updated_at", mode="before")

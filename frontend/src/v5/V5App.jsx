@@ -34,6 +34,7 @@ const ALIASES = {
   dashboard: { screen: 'home' },
   tasks: { screen: 'work', sub: 'now' },
   schedules: { screen: 'work', sub: 'autopilot' },
+  runs: { screen: 'work', sub: 'runs' },
   portfolio: { screen: 'work', sub: 'roadmap' },
   agents: { screen: 'company', sub: 'team' },
   knowledge: { screen: 'company', sub: 'knowledge' },

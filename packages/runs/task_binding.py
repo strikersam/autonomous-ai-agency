@@ -32,7 +32,9 @@ from dataclasses import dataclass, field
 from typing import Any, Awaitable, TypeVar
 
 from packages.config import runs_settings
+from packages.config.autonomy_limits import kill_switch_engaged
 from packages.lifecycle.registry import get_machine
+from packages.runs import skill_versions, tracing
 from packages.runs.lease import LeaseHeartbeat, RunLease
 from packages.runs.models import RunRecord, RunState
 from packages.runs.store import FencedOut, RunStore
@@ -64,6 +66,7 @@ class TaskRunBinding:
     occurrences: dict[str, int] = field(default_factory=dict)
     cancel: asyncio.Event = field(default_factory=asyncio.Event)
     ctx_token: Token[Any] | None = None
+    span: Any = None
 
     @property
     def lease_key(self) -> str:
@@ -185,11 +188,15 @@ async def _open_run(binding: TaskRunBinding, store: RunStore, task: Any, actor: 
     if run is None:
         raise KeyError(binding.run_id)
     fields: dict[str, Any] = {"lease_token": binding.token}
+    # Pin once: a resumed run keeps the skill versions it started with.
+    resolved = await skill_versions.resolve_skill_versions_async()
+    fields["skill_versions"] = skill_versions.pin(run.skill_versions, resolved)
     # A run the recovery tick queued already counted this attempt.
     if resumed and run.state is not RunState.QUEUED:
         fields["attempt"] = run.attempt + 1
     await store.update(run.run_id, fields)
     binding.store, binding.run_id = store, run.run_id
+    binding.span = tracing.open_run_span(run)
     await walk(store, run.run_id, RunState.STARTING, token=binding.token, actor=actor)
     current = await store.get(run.run_id)
     await store.append_event(run.run_id, "attempt_started", {
@@ -200,8 +207,14 @@ async def _open_run(binding: TaskRunBinding, store: RunStore, task: Any, actor: 
 
 
 async def _poll_cancel(binding: TaskRunBinding) -> None:
-    """One cheap read per heartbeat: set ``binding.cancel`` once cancellation is requested."""
+    """One cheap check per heartbeat: set ``binding.cancel`` on a kill switch or a cancel request."""
     if binding.cancel.is_set():
+        return
+    if kill_switch_engaged():
+        # The operator's hard stop: guarded work ends within one heartbeat.
+        log.warning("kill switch engaged; stopping task %s", binding.task_id)
+        await _event(binding, "kill_switch", {"task_id": binding.task_id})
+        binding.cancel.set()
         return
     store, run_id = ((binding.store, binding.run_id) if binding.recording
                      else (binding.watch_store, binding.watch_run_id))
@@ -305,9 +318,10 @@ async def unbind(binding: TaskRunBinding | None, task: Any) -> None:
     _ACTIVE.pop(binding.task_id, None)
     _reset_context(binding)
     await binding.heartbeat.stop()
+    state, reason = final_state(task)
+    tracing.close_run_span(binding.span, state.value if state is not None else None)
     if binding.fenced:
         return
-    state, reason = final_state(task)
     if state is not None:
         await mark(binding, state, reason)
 
