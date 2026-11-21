@@ -107,8 +107,14 @@ class RunApprovals:
         doc = await self._table.get(approval_id)
         if doc is None:
             return None
-        if doc["state"] == ApprovalState.PENDING.value and time.time() >= float(doc["expires_at"]):
+        expires = float(doc["expires_at"])
+        if doc["state"] == ApprovalState.PENDING.value and time.time() >= expires:
             await self._table.compare_and_set(approval_id, {"state": "pending"}, {"state": "expired"})
+            doc["state"] = ApprovalState.EXPIRED.value
+        elif (doc["state"] == ApprovalState.APPROVED.value
+              and float(doc.get("resolved_at") or 0) >= expires):
+            # Written as approved only after it had expired (a crash between the two
+            # writes in ``decide``): it was never a valid approval, so report it expired.
             doc["state"] = ApprovalState.EXPIRED.value
         return _record(doc)
 
@@ -151,7 +157,10 @@ class RunApprovals:
         """True only for an unexpired approved record of this run, action hash AND target."""
         if not runs_settings.durable_approvals_enabled():
             return False
-        digest, now = target_digest(target), time.time()
+        digest = target_digest(target)
         docs = await self._table.find({"run_id": run_id, "state": ApprovalState.APPROVED.value})
+        now = time.time()  # read after the lookup, so an approval expiring meanwhile is refused
         return any(d.get("action_hash") == action_hash and d.get("target_digest") == digest
-                   and now < float(d.get("expires_at") or 0) for d in docs)
+                   and now < float(d.get("expires_at") or 0)
+                   and float(d.get("resolved_at") or 0) < float(d.get("expires_at") or 0)
+                   for d in docs)
