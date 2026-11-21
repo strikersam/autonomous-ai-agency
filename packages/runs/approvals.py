@@ -161,4 +161,6 @@ class RunApprovals:
         docs = await self._table.find({"run_id": run_id, "state": ApprovalState.APPROVED.value})
         now = time.time()  # read after the lookup, so an approval expiring meanwhile is refused
         return any(d.get("action_hash") == action_hash and d.get("target_digest") == digest
-                   and now < float(d.get("expires_at") or 0) for d in docs)
+                   and now < float(d.get("expires_at") or 0)
+                   and float(d.get("resolved_at") or 0) < float(d.get("expires_at") or 0)
+                   for d in docs)

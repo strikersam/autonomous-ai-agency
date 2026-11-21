@@ -268,3 +268,17 @@ def test_check_reads_the_clock_after_the_lookup(monkeypatch):
         monkeypatch.setattr(ap, "_table", table)
         assert await ap.check(rid, HASH, TARGET) is False
     asyncio.run(go())
+
+
+def test_check_never_authorises_an_approval_written_after_its_expiry():
+    async def go():
+        runs = RunStore()
+        rid = await _run(runs)
+        ap = RunApprovals(runs)
+        aid = await ap.request(rid, HASH, TARGET, "r", ttl_s=60)
+        rec = await ap.get(aid)
+        await runs.table("run_approvals").compare_and_set(
+            aid, {"state": "pending"},
+            {"state": "approved", "resolver": "priya", "resolved_at": rec.expires_at + 1})
+        assert await ap.check(rid, HASH, TARGET) is False  # the clock is still before expiry
+    asyncio.run(go())

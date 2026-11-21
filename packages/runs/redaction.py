@@ -67,10 +67,14 @@ def _secret_shaped(value: Any) -> bool:
     return value not in (None, "") and not isinstance(value, (bool, int, float))
 
 
+def _key_text(key: Any) -> Any:
+    """A bytes key as text, so it is judged and redacted like a string key."""
+    return key.decode("utf-8", errors="replace") if isinstance(key, bytes) else key
+
+
 def _redact_key(key: Any) -> Any:
     """A dict key can carry a secret too; ordinary keys come back unchanged."""
-    if isinstance(key, (bytes, bytearray)):
-        key = bytes(key).decode("utf-8", errors="replace")
+    key = _key_text(key)
     return redact_text(key) if isinstance(key, str) else key
 
 
@@ -91,7 +95,7 @@ def redact_value(value: Any, _depth: int = 0) -> Any:
     if isinstance(value, (bytes, bytearray)):  # stored as text, so it is redacted too
         return redact_text(bytes(value).decode("utf-8", errors="replace"))
     if isinstance(value, dict):
-        return {_redact_key(k): (_REDACTED if is_sensitive_key(k) and _secret_shaped(v)
+        return {_redact_key(k): (_REDACTED if is_sensitive_key(_key_text(k)) and _secret_shaped(v)
                                  else redact_value(v, _depth + 1)) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
         return [redact_value(v, _depth + 1) for v in value]
