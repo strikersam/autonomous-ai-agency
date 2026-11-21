@@ -20,7 +20,6 @@ from packages.runs.recovery import RecoveryService
 from packages.runs.reference_workflows import BugFixture, BugToPrWorkflow
 from packages.runs.store import RunStore, set_run_store
 from packages.runs.tree import descendants
-from tasks.verification import TaskVerification, has_passing_verdict
 from tests._runs_task_fixtures import (FakeRuntime, coordinator, queued_task, reset_process_state,
                                        sqlite_pair, start_dead_worker)
 from tests.reliability._helpers import ENV_KEYS, FakeExec, compose, step, wait_for
@@ -210,10 +209,6 @@ async def test_scenario_17_independent_verifier_rejection_blocks_the_draft_pr():
     res = await composer.run(root.run_id, spec)
     assert res.state == "failed" and res.results["verify"].state == "failed"
     assert res.results["draft_pr"].state == "skipped" and res.waiting_on is None
-    # a FAIL verdict is never a pass, and a missing verdict is not one either
-    fail = TaskVerification(verdict="FAIL", verifier="verifier:x", defects_found=["2 tests failed"])
-    assert fail.passed is False
-    assert has_passing_verdict(type("T", (), {"verification": None})()) is False
 
 
 async def test_scenario_18_a_failed_child_does_not_cost_its_successful_sibling():

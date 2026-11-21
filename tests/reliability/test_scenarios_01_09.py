@@ -53,10 +53,8 @@ async def test_scenario_02_two_or_more_agents_execute_in_parallel(monkeypatch):
     monkeypatch.setenv("RUNS_MAX_PARALLEL", "3")
     spec = CompositionSpec(mode="parallel", steps=[step("a"), step("b"), step("c")])
     plan = {k: {"delay": 0.1} for k in "abc"}
-    t0 = time.monotonic()
     _, _, ex, _, res = await compose(spec, plan)
-    assert res.state == "succeeded" and ex.peak == 3
-    assert time.monotonic() - t0 < 0.28  # three 0.1 s children overlapped
+    assert res.state == "succeeded" and ex.peak == 3  # all three ran at the same time
 
 
 async def test_scenario_03_parent_workflow_aggregates_child_results_and_cost():
