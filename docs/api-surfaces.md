@@ -241,6 +241,10 @@ curl "$BASE/api/runs/$RUN_ID/events?after_seq=0&limit=50" -H "Authorization: Bea
 curl -X POST "$BASE/api/runs/$RUN_ID/cancel" -H "Authorization: Bearer $TOKEN"
 ```
 
+Example responses (captured from the test client, memory backend): the first `POST` returns `201 {"run_id": "run_e86a...", "task_id": "task_521e...", "state": "queued", "created": true}`; repeating it with the same `Idempotency-Key` returns `200` with the same ids and `"created": false`; `POST /api/runs/{run_id}/cancel` on a queued run returns `{"run_id": "...", "state": "cancelled", "cancel_requested": true, "settled": true}`; another owner's run id returns `404`.
+
+Not exposed over HTTP yet: starting a composition (`packages/runs/composer.py`) and deciding an approval (`packages/runs/approvals.py`) are Python level. Operating guide: `docs/runbooks/durable-runs.md`.
+
 ## Observability request headers
 
 Optional, case-insensitive headers read on the chat-completion entry points
