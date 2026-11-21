@@ -550,6 +550,8 @@ Settings → Platform controls → Platform Operations.
 | `RUNS_MAX_ATTEMPTS` | `3` | Attempts a crashed run gets in total (1 to 20); the recovery that would exceed it dead letters the run and marks its task failed. |
 | `RUNS_RETRY_BACKOFF_BASE_SEC` | `10` | Backoff base (0 to 3600) before a recovered run's task is queued again: `base * 2^(attempt-2)` plus up to 25% jitter, stored as the run's `not_before`. |
 | `RUNS_RECOVERY_TICK_SEC` | `30` | How often (5 to 3600) the dispatcher runs the recovery tick. The same poll loop also reloads Platform control overrides from the database at most every 15 s, so the worker sees dashboard changes. |
+| `RUNS_DURABLE_APPROVALS` | `true` | Store run approvals in `run_approvals`, bound to the action hash and target, with a wall clock expiry that denies (`packages/runs/approvals.py`). Survives a restart. Off: nothing counts as approved, so `require_release_approval` blocks every release or deploy. |
+| `RUNS_ARTIFACT_MAX_BYTES` | `1048576` | Largest run artifact in bytes (1024 to 8388608); larger content is refused. Text is redacted before it is hashed and stored; a binary artifact containing a secret pattern is refused. |
 
 The run lease (`task_run_leases`) is now shared across processes on both backends: on
 Mongo through the raw Motor collection, on SQLite through single statement helpers in

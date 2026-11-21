@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 
 from packages.config import runs_settings
 from packages.lifecycle.machine import IllegalTransition
+from packages.runs.artifacts import ArtifactContent, ArtifactIntegrityError, ArtifactRef, ArtifactStore
 from packages.runs.models import RunEvent, RunRecord, RunState
 from packages.runs.store import FencedOut, RunStore, get_run_store
 from tasks.api import _invalidate_task_caches, _is_admin, _user_id
@@ -88,6 +89,7 @@ class RunArtifacts(BaseModel):
 
     run_id: str
     artifacts: list[str]
+    items: list[ArtifactRef] = Field(default_factory=list)
 
 
 class CancelResult(BaseModel):
@@ -297,9 +299,27 @@ async def run_events(
 
 
 async def run_artifacts(run_id: str, caller: Caller = Depends(_caller)) -> RunArtifacts:
-    """The run's ``artifact_refs`` as stored."""
-    run = await _owned_run(get_run_store(), run_id, caller)
-    return RunArtifacts(run_id=run_id, artifacts=list(run.artifact_refs))
+    """The run's artifacts: ids (``artifacts``, as before) and their metadata (``items``)."""
+    store = get_run_store()
+    run = await _owned_run(store, run_id, caller)
+    items = await ArtifactStore(store).list(run_id)
+    ids = list(run.artifact_refs)
+    ids += [i.artifact_id for i in items if i.artifact_id not in ids]
+    return RunArtifacts(run_id=run_id, artifacts=ids, items=items)
+
+
+async def run_artifact(run_id: str, artifact_id: str,
+                       caller: Caller = Depends(_caller)) -> ArtifactContent:
+    """One artifact with its (redacted) content; 409 when its stored content fails its hash."""
+    store = get_run_store()
+    await _owned_run(store, run_id, caller)
+    try:
+        found = await ArtifactStore(store).get(run_id, artifact_id)
+    except ArtifactIntegrityError as exc:
+        raise HTTPException(status_code=409, detail="Artifact failed its integrity check") from exc
+    if found is None:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return found
 
 
 async def _cancel_task(task_id: str | None, caller: Caller) -> None:
@@ -443,6 +463,8 @@ def build_runs_router(get_current_user: Callable[..., Any]) -> APIRouter:
     router.add_api_route("/{run_id}/events", run_events, methods=["GET"], response_model=RunEventList)
     router.add_api_route("/{run_id}/artifacts", run_artifacts, methods=["GET"],
                          response_model=RunArtifacts)
+    router.add_api_route("/{run_id}/artifacts/{artifact_id}", run_artifact, methods=["GET"],
+                         response_model=ArtifactContent)
     router.add_api_route("/{run_id}/cancel", cancel_run, methods=["POST"], response_model=CancelResult)
     router.add_api_route("/{run_id}/retry", retry_run, methods=["POST"], response_model=RunCreated,
                          status_code=201)

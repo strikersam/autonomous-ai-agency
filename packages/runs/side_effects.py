@@ -14,6 +14,12 @@ durable run (``task_binding.current_run``) and ``RUNS_LEDGER_ENABLED`` is on:
    cancellation leaves it ``executing`` for the recovery tick to reconcile.
 
 Without a bound run, or with the ledger disabled, it is a plain pass through.
+
+``require_release_approval`` is the gate a release, deploy or merge must pass:
+it refuses unless a durable approval (``packages/runs/approvals.py``) exists for
+the same run, action hash and target. Nothing in ``agent/`` or ``tasks/`` releases
+today (``agent/autonomy_gate.py`` forbids agent merges), so no call site is wired;
+the first one that does must call it before the side effect.
 """
 from __future__ import annotations
 
@@ -28,10 +34,30 @@ from typing import Any, AsyncIterator
 from agent.action_hash import action_hash
 from packages.config import runs_settings
 from packages.runs.models import OperationState
+from packages.runs.approvals import RunApprovals
 from packages.runs.operations import OperationLedger
-from packages.runs.store import FencedOut
+from packages.runs.store import FencedOut, RunStore, get_run_store
 
 log = logging.getLogger("qwen-proxy")
+
+
+class ReleaseNotApproved(PermissionError):
+    """A release, deploy or merge was attempted without a matching durable approval."""
+
+
+async def require_release_approval(run_id: str, tool: str, args: Any, target: dict[str, Any],
+                                   *, store: RunStore | None = None) -> str:
+    """Return the action hash when this exact action is approved for the run, else raise.
+
+    The hash covers *tool* and *args*; *target* is matched too, so an approval for
+    one environment or branch never opens another. Raises ``ReleaseNotApproved``.
+    """
+    digest = action_hash(tool, args)
+    approvals = RunApprovals(store or get_run_store())
+    if not await approvals.check(run_id, digest, dict(target)):
+        log.warning("run %s: %s blocked, no durable approval for this action", run_id, tool)
+        raise ReleaseNotApproved(f"{tool} needs an approval for this exact action and target")
+    return digest
 
 
 @dataclass

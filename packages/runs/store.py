@@ -57,6 +57,10 @@ class RunStore:
         self.idempotency = table_for(db, RUN_IDEMPOTENCY, self._memory)
         self._indexed = False
 
+    def table(self, name: str) -> Any:
+        """Another collection of the same backend (artifacts and approvals use this)."""
+        return table_for(self._db, name, self._memory)
+
     @property
     def backend(self) -> str:
         """``mongo``, ``sqlite`` or ``memory``."""
@@ -70,6 +74,8 @@ class RunStore:
         await ensure_index(db, RUNS, [("parent_run_id", 1)])
         await ensure_index(db, RUN_EVENTS, [("run_id", 1), ("seq", 1)], unique=True)
         await ensure_index(db, RUN_OPERATIONS, [("run_id", 1), ("seq", 1)], unique=True)
+        await ensure_index(db, "run_artifacts", [("run_id", 1)])
+        await ensure_index(db, "run_approvals", [("run_id", 1), ("state", 1)])
         await ensure_index(db, RUN_IDEMPOTENCY, [("company_id", 1), ("key", 1)], unique=True)
         await ensure_index(db, RUN_IDEMPOTENCY, [("expires_at", 1)], expireAfterSeconds=0)
         self._indexed = True
