@@ -1,11 +1,12 @@
-# NEXT_ACTION — updated 2026-11-16 (daily routine, branch `routine/daily-2026-11-16`)
+# NEXT_ACTION — updated 2026-11-21 (daily automation, branch `claude/intelligent-gates-gnra4c`)
 
-**What shipped:** backlog #1980 item 1: `/v1/models` on the main proxy advertises an additive `context_window` for registry-known models (`proxy.py`, `_context_window_field`).
+**What shipped:** docs fix — `AGENT_PLANNER/EXECUTOR/VERIFIER_MODEL` and `NVIDIA_DEFAULT_MODEL` defaults updated from retired `nvidia/nemotron-3-super-120b-a12b` to `nvidia/nemotron-3-ultra-550b-a55b` in `docs/configuration-reference.md` and `docs/reference/repo-reference.md`. Open item from NEXT_ACTION 2026-11-12.
 
 ## Open items
 
 1. Backlog items 2 (pre-dispatch window guard, rule 40 flag in `router/`) and 3 (JSON log mode) not started; item 2's "does the router already guard?" is still unverified.
 2. Baseline: `tests/test_auth_me_regression.py` errors on clean master in this container (no MongoDB); CI is the gate.
+3. `gpt-oss-20b` repeated-prompt investigation (needs live probe; `reasoning_effort: low` and `response_format: json_object` are the candidates — from NEXT_ACTION 2026-11-12).
 
 ---
 # NEXT_ACTION — updated 2026-11-14 (enterprise reliability plan, branch `claude/enterprise-reliability-plan`)

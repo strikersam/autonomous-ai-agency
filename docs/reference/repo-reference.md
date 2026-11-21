@@ -53,7 +53,7 @@ the Render service name still carry that name.
 
 | Provider | Env var | Purpose |
 |----------|---------|---------|
-| NVIDIA NIM | `NVIDIA_API_KEY` | Free LLM (`nvidia/nemotron-3-super-120b-a12b`) |
+| NVIDIA NIM | `NVIDIA_API_KEY` | Free LLM (`nvidia/nemotron-3-ultra-550b-a55b`) |
 | Cerebras | `CEREBRAS_API_KEY` | Fast LLM (`gpt-oss-120b`, paid tier — see CHANGELOG 2026-08-29) |
 | Groq | `GROQ_API_KEY` | Free fast LLM (`openai/gpt-oss-120b`, `openai/gpt-oss-20b`, `qwen/qwen3.8-27b` — `deepseek-r1-70b` deprecated self-serve Aug 2026) |
 | Anthropic | `ANTHROPIC_API_KEY` | Paid LLM (Claude) |
@@ -146,8 +146,8 @@ change behaviour most:
 | `CORS_ORIGINS` | `*` | **Never `*` in production** (rule 41) |
 | `RATE_LIMIT_RPM` | `60` | Per-key request limit |
 | `AGENT_WORKSPACE_ROOT` | `.` | Agent filesystem sandbox root |
-| `NVIDIA_DEFAULT_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | Free NVIDIA NIM model |
-| `AGENT_{PLANNER,EXECUTOR,VERIFIER,JUDGE}_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | Per-role LLMs (judge falls back to the verifier's model) |
+| `NVIDIA_DEFAULT_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b` | Free NVIDIA NIM model |
+| `AGENT_{PLANNER,EXECUTOR,VERIFIER,JUDGE}_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b` | Per-role LLMs (judge falls back to the verifier's model) |
 | `BRAIN_WATCHDOG_MAX_FAILURES` | `3` | Failover threshold |
 | `ACTIVATION_REQUIRED` | `true` | `false` for self-hosted |
 | `RUN_HERMES_IN_PROCESS` | `true` | Hermes on port 8100 |
